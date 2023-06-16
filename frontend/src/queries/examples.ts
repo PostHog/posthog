@@ -6,7 +6,6 @@ import {
     EventsQuery,
     FunnelsQuery,
     HogQLQuery,
-    LegacyQuery,
     LifecycleQuery,
     Node,
     NodeKind,
@@ -22,7 +21,6 @@ import {
 import {
     ChartDisplayType,
     FilterLogicalOperator,
-    InsightType,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
@@ -113,17 +111,6 @@ const PersonsTableFull: DataTableNode = {
     full: true,
     columns: defaultDataTableColumns(NodeKind.PersonsNode),
     source: Persons,
-}
-
-const LegacyTrendsQuery: LegacyQuery = {
-    kind: NodeKind.LegacyQuery,
-    filters: {
-        insight: InsightType.TRENDS,
-        date_from: '-7d',
-        events: [{ id: '$pageview', math: 'avg_count_per_actor', name: '$pageview', type: 'events', order: 0 }],
-        display: ChartDisplayType.ActionsLineGraph,
-        interval: 'day',
-    },
 }
 
 const properties: PropertyGroupFilter = {
@@ -363,7 +350,6 @@ export const queryExamples: Record<string, Node> = {
     Persons,
     PersonsTable,
     PersonsTableFull,
-    LegacyTrendsQuery,
     InsightTrendsQuery,
     InsightFunnelsQuery,
     InsightRetentionQuery,

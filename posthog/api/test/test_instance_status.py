@@ -102,7 +102,7 @@ class TestInstanceStatus(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.get("/api/instance_status/navigation").json()
 
         self.assertEqual(

@@ -101,7 +101,7 @@ describe('EventPipelineRunner', () => {
             { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-        jest.mocked(createEventStep).mockResolvedValue(null)
+        jest.mocked(createEventStep).mockResolvedValue([null, Promise.resolve()])
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
@@ -120,7 +120,8 @@ describe('EventPipelineRunner', () => {
         })
 
         it('emits metrics for every step', async () => {
-            await runner.runEventPipeline(pipelineEvent)
+            const result = await runner.runEventPipeline(pipelineEvent)
+            expect(result.error).toBeUndefined()
 
             expect(hub.statsd.timing).toHaveBeenCalledTimes(5)
             expect(hub.statsd.increment).toHaveBeenCalledTimes(8)

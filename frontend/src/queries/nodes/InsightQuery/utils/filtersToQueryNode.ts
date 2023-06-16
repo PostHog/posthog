@@ -179,6 +179,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             formula: filters.formula,
             shown_as: filters.shown_as,
             display: filters.display,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 
@@ -255,6 +256,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             stickiness_days: filters.stickiness_days,
             shown_as: filters.shown_as,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 
@@ -263,6 +265,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.lifecycleFilter = objectCleanWithEmpty({
             shown_as: filters.shown_as,
             toggledLifecycles: filters.toggledLifecycles,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 

@@ -1,5 +1,4 @@
 # Web app specific settings/middleware/apps setup
-# :NOTE: posthog-cloud modifies some of these values
 import os
 from datetime import timedelta
 from typing import List
@@ -26,6 +25,10 @@ DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, typ
 DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
 DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
 
+# Decide billing analytics
+
+DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
+DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
 # Application definition
 
@@ -88,7 +91,9 @@ MIDDLEWARE = [
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
     "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
+
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
@@ -209,7 +214,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/(?!early_access_features).*$"
+CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
 CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
 
 REST_FRAMEWORK = {

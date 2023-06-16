@@ -85,6 +85,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         GET_EARLIEST_TIMESTAMP_SQL,
         {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
         query_type="get_earliest_timestamp",
+        team_id=team_id,
     )
     if len(results) > 0:
         return results[0][0]

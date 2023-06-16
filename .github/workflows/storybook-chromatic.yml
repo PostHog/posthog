@@ -7,11 +7,6 @@ on:
             - '.storybook/**'
             - 'package.json'
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Allow UI snapshot updates to finish, so that we don't need to wait for Storybook to build all over again
-    cancel-in-progress: false
-
 jobs:
     storybook-chromatic:
         name: Publish to Chromatic
@@ -49,14 +44,14 @@ jobs:
 
     visual-regression:
         name: Visual regression tests
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         container:
-            image: mcr.microsoft.com/playwright:v1.29.2-focal
+            image: mcr.microsoft.com/playwright:v1.29.2
         strategy:
             fail-fast: false
             matrix:
-                browser: ['chromium', 'webkit', 'firefox']
+                browser: ['chromium', 'webkit']
                 shard: [1, 2]
         env:
             SHARD_COUNT: '2'
@@ -96,6 +91,12 @@ jobs:
             firefox-2-total: ${{ steps.diff.outputs.firefox-2-total }}
             firefox-2-commitHash: ${{ steps.commit-hash.outputs.firefox-2-commitHash }}
         steps:
+            # If this run wasn't initiated by the bot (meaning: snapshot update), cancel previous runs
+            - uses: n1hility/cancel-previous-runs@v3
+              if: github.actor != 'posthog-bot'
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
             - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
@@ -191,7 +192,7 @@ jobs:
 
     visual-regression-summary:
         name: Summarize visual regression tests
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: visual-regression
         if: always() # Run even if visual-regression fails for one (or more) of the browsers
@@ -202,7 +203,7 @@ jobs:
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   script: |
-                      const BROWSERS = ['chromium', 'webkit', 'firefox']
+                      const BROWSERS = ['chromium', 'webkit']
 
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }

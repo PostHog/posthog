@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from './retentionLogic'
 import { retentionLineGraphLogic } from './retentionLineGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 
@@ -16,8 +15,9 @@ interface RetentionLineGraphProps {
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(retentionLogic(insightProps))
-    const { trendSeries, incompletenessOffsetFromEnd } = useValues(retentionLineGraphLogic(insightProps))
+    const { trendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
+        retentionLineGraphLogic(insightProps)
+    )
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     if (trendSeries.length === 0) {
@@ -33,7 +33,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
-            labelGroupType={filters.aggregation_group_type_index ?? 'people'}
+            labelGroupType={aggregationGroupTypeIndex}
             filters={{ aggregation_axis_format: 'percentage' }}
             tooltip={{
                 rowCutoff: 11, // 11 time units is hardcoded into retention insights

@@ -1,4 +1,5 @@
 import os
+import json
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -140,6 +141,11 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+try:
+    CLICKHOUSE_PER_TEAM_SETTINGS = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_SETTINGS = {}
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -148,6 +154,9 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
+READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
+READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
+
 # Kafka configs
 
 _parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
@@ -155,6 +164,12 @@ _parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host i
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
 KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
+
+SESSION_RECORDING_KAFKA_URL = os.getenv("SESSION_RECORDING_KAFKA_URL", "")
+SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(SESSION_RECORDING_KAFKA_URL)
+
+# can set ('gzip', 'snappy', 'lz4', None)
+SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
 
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
 # Kafka Topics. See
@@ -167,7 +182,14 @@ KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHO
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
+SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES = get_from_env(
+    "SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES", None, type_cast=int, optional=True
+)
+
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
+SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL = os.getenv(
+    "SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL", KAFKA_SECURITY_PROTOCOL
+)
 KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)

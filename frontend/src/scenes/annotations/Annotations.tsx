@@ -6,7 +6,7 @@ import {
     ANNOTATION_DAYJS_FORMAT,
 } from './annotationModalLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnnotationScope, InsightShortId, AnnotationType } from '~/types'
+import { AnnotationScope, InsightShortId, AnnotationType, ProductKey } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -21,6 +21,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -30,7 +31,15 @@ export const scene: SceneExport = {
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext, timezone } = useValues(annotationModalLogic)
+    const {
+        annotations,
+        annotationsLoading,
+        next,
+        loadingNext,
+        timezone,
+        shouldShowEmptyState,
+        shouldShowProductIntroduction,
+    } = useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
         useActions(annotationModalLogic)
 
@@ -145,32 +154,49 @@ export function Annotations(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTable
-                data-attr="annotations-table"
-                rowKey="id"
-                dataSource={annotations}
-                columns={columns}
-                defaultSorting={{
-                    columnKey: 'date_marker',
-                    order: -1,
-                }}
-                noSortingCancellation
-                loading={annotationsLoading}
-                emptyState="No annotations yet"
-            />
-            {next && (
-                <div className="flex justify-center mt-6">
-                    <LemonButton
-                        type="primary"
-                        loading={loadingNext}
-                        onClick={(): void => {
-                            loadAnnotationsNext()
-                        }}
-                    >
-                        Load more annotations
-                    </LemonButton>
-                </div>
-            )}
+            <div data-attr={'annotations-content'}>
+                {(shouldShowEmptyState || shouldShowProductIntroduction) && (
+                    <ProductIntroduction
+                        productName="Annotations"
+                        productKey={ProductKey.ANNOTATIONS}
+                        thingName="annotation"
+                        description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                        docsURL="https://posthog.com/docs/data/annotations"
+                        action={() => openModalToCreateAnnotation()}
+                        isEmpty={annotations.length === 0}
+                    />
+                )}
+                {!shouldShowEmptyState && (
+                    <>
+                        <LemonTable
+                            data-attr="annotations-table"
+                            rowKey="id"
+                            dataSource={annotations}
+                            columns={columns}
+                            defaultSorting={{
+                                columnKey: 'date_marker',
+                                order: -1,
+                            }}
+                            noSortingCancellation
+                            loading={annotationsLoading}
+                            emptyState="No annotations yet"
+                        />
+                        {next && (
+                            <div className="flex justify-center mt-6">
+                                <LemonButton
+                                    type="primary"
+                                    loading={loadingNext}
+                                    onClick={(): void => {
+                                        loadAnnotationsNext()
+                                    }}
+                                >
+                                    Load more annotations
+                                </LemonButton>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
             <AnnotationModal />
         </>
     )

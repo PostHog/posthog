@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
@@ -16,7 +16,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-const HEIGHT = 'calc(100vh - 10rem)'
+const HEIGHT = 'calc(100vh - 20rem)'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState(props, 'filters')

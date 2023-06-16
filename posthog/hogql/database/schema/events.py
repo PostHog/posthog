@@ -11,6 +11,7 @@ from posthog.hogql.database.models import (
     FieldTraverser,
 )
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, join_with_person_distinct_ids_table
+from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, join_with_person_overrides_table
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -18,10 +19,10 @@ class EventsPersonSubTable(VirtualTable):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
     properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "events"
 
 
@@ -40,10 +41,10 @@ class EventsGroupSubTable(VirtualTable):
     def avoid_asterisk_fields(self):
         return []
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "events"
 
 
@@ -64,6 +65,14 @@ class EventsTable(Table):
         join_function=join_with_person_distinct_ids_table,
     )
 
+    # Lazy table to fetch the overridden person_id
+    override: LazyJoin = LazyJoin(
+        from_field="person_id",
+        join_table=PersonOverridesTable(),
+        join_function=join_with_person_overrides_table,
+    )
+    override_person_id: BaseModel = FieldTraverser(chain=["override", "override_person_id"])
+
     # Person and group fields on the event itself. Should not be used directly.
     poe: EventsPersonSubTable = EventsPersonSubTable()
     goe_0: EventsGroupSubTable = EventsGroupSubTable(group_index=0)
@@ -76,8 +85,8 @@ class EventsTable(Table):
     person: BaseModel = FieldTraverser(chain=["pdi", "person"])
     person_id: BaseModel = FieldTraverser(chain=["pdi", "person_id"])
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "events"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "events"

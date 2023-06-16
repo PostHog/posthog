@@ -15,7 +15,7 @@ def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] =
 
 @dataclasses.dataclass
 class JoinToAdd:
-    fields_accessed: Dict[str, ast.Expr]
+    fields_accessed: Dict[str, List[str]]
     lazy_join: LazyJoin
     from_table: str
     to_table: str
@@ -23,7 +23,7 @@ class JoinToAdd:
 
 @dataclasses.dataclass
 class TableToAdd:
-    fields_accessed: Dict[str, ast.Expr]
+    fields_accessed: Dict[str, List[str]]
     lazy_table: LazyTable
 
 
@@ -37,7 +37,7 @@ class LazyTableResolver(TraversingVisitor):
         if isinstance(type, ast.TableType):
             return select.get_alias_for_table_type(type)
         elif isinstance(type, ast.LazyTableType):
-            return type.table.hogql_table()
+            return type.table.to_printed_hogql()
         elif isinstance(type, ast.TableAliasType):
             return type.alias
         elif isinstance(type, ast.SelectQueryAliasType):
@@ -47,7 +47,7 @@ class LazyTableResolver(TraversingVisitor):
         elif isinstance(type, ast.VirtualTableType):
             return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
         else:
-            raise HogQLException("Should not be reachable")
+            raise HogQLException(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -97,6 +97,23 @@ class LazyTableResolver(TraversingVisitor):
         ]
         sorted_properties: List[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
 
+        # Look for tables without requested fields to support cases like `select count() from table`
+        join = node.select_from
+        while join:
+            if isinstance(join.table.type, ast.LazyTableType):
+                fields = []
+                for field_or_property in field_collector:
+                    if isinstance(field_or_property, ast.FieldType):
+                        if field_or_property.table_type == join.table.type:
+                            fields.append(field_or_property)
+                    elif isinstance(field_or_property, ast.PropertyType):
+                        if field_or_property.field_type.table_type == join.table.type:
+                            fields.append(field_or_property)
+                if len(fields) == 0:
+                    table_name = join.alias or self._get_long_table_name(select_type, join.table.type)
+                    tables_to_add[table_name] = TableToAdd(fields_accessed={}, lazy_table=join.table.type.table)
+            join = join.next_join
+
         for field_or_property in sorted_properties:
             if isinstance(field_or_property, ast.FieldType):
                 property = None
@@ -105,7 +122,7 @@ class LazyTableResolver(TraversingVisitor):
                 property = field_or_property
                 field = property.field_type
             else:
-                raise Exception("Should not be reachable")
+                raise HogQLException("Should not be reachable")
             table_type = field.table_type
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
@@ -138,9 +155,9 @@ class LazyTableResolver(TraversingVisitor):
                         if property is not None:
                             chain.extend(property.chain)
                             property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
-                            new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                            new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_join.fields_accessed[field.name] = ast.Field(chain=chain)
+                            new_join.fields_accessed[field.name] = chain
                 elif isinstance(table_type, ast.LazyTableType):
                     table_name = self._get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
@@ -155,17 +172,17 @@ class LazyTableResolver(TraversingVisitor):
                         if property is not None:
                             chain.extend(property.chain)
                             property.joined_subquery_field_name = f"{field.name}___{'___'.join(property.chain)}"
-                            new_table.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                            new_table.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_table.fields_accessed[field.name] = ast.Field(chain=chain)
+                            new_table.fields_accessed[field.name] = chain
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
         for new_join in joins_to_add.values():
             if new_join.from_table in joins_to_add:
-                joins_to_add[new_join.from_table].fields_accessed[new_join.lazy_join.from_field] = ast.Field(
-                    chain=[new_join.lazy_join.from_field]
-                )
+                joins_to_add[new_join.from_table].fields_accessed[new_join.lazy_join.from_field] = [
+                    new_join.lazy_join.from_field
+                ]
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
@@ -220,7 +237,7 @@ class LazyTableResolver(TraversingVisitor):
             elif isinstance(field_or_property, ast.PropertyType):
                 table_type = field_or_property.field_type.table_type
             else:
-                raise Exception("Should not be reachable")
+                raise HogQLException("Should not be reachable")
 
             table_name = self._get_long_table_name(select_type, table_type)
             table_type = select_type.tables[table_name]

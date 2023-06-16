@@ -27,6 +27,7 @@ from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -97,6 +98,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
+            "has_seen_product_intro_for",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -341,6 +343,8 @@ def redirect_to_site(request):
     if not app_url:
         return HttpResponse(status=404)
 
+    if not team or not hostname_in_allowed_url_list(team.app_urls, urllib.parse.urlparse(app_url).hostname):
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
     params = {

@@ -3,7 +3,6 @@ import { DataNode, HogQLQueryResponse, PersonsNode } from './schema'
 import {
     isInsightQueryNode,
     isEventsQuery,
-    isLegacyQuery,
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
@@ -60,12 +59,6 @@ export function queryExportContext<N extends DataNode = DataNode>(
             filters: queryNodeToFilter(query),
             currentTeamId: getCurrentTeamId(),
             refresh,
-        })
-    } else if (isLegacyQuery(query)) {
-        return legacyInsightQueryExportContext({
-            filters: query.filters,
-            currentTeamId: getCurrentTeamId(),
-            methodOptions,
         })
     } else if (isTimeToSeeDataSessionsQuery(query)) {
         return {
@@ -134,13 +127,6 @@ export async function query<N extends DataNode = DataNode>(
                 currentTeamId: getCurrentTeamId(),
                 methodOptions,
                 refresh,
-            })
-            response = await resp.json()
-        } else if (isLegacyQuery(queryNode)) {
-            const [resp] = await legacyInsightQuery({
-                filters: queryNode.filters,
-                currentTeamId: getCurrentTeamId(),
-                methodOptions,
             })
             response = await resp.json()
         } else if (isTimeToSeeDataQuery(queryNode)) {

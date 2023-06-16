@@ -4,10 +4,12 @@ from posthog.models.utils import UUIDModel, sane_repr
 
 class EarlyAccessFeature(UUIDModel):
     class Stage(models.TextChoices):
+        DRAFT = "draft", "draft"
         CONCEPT = "concept", "concept"
         ALPHA = "alpha", "alpha"
         BETA = "beta", "beta"
         GENERAL_AVAILABILITY = "general-availability", "general availability"
+        ARCHIVED = "archived", "archived"
 
     team: models.ForeignKey = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, related_name="features", related_query_name="feature"
@@ -30,18 +32,3 @@ class EarlyAccessFeature(UUIDModel):
         return self.name
 
     __repr__ = sane_repr("id", "name", "team_id", "stage")
-
-    def promote(self) -> None:
-        self.feature_flag.filters = {
-            **self.feature_flag.filters,
-            "super_groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100,
-                }
-            ],
-        }
-        self.feature_flag.save()
-
-        self.stage = "general-availability"
-        self.save()

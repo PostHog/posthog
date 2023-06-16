@@ -79,6 +79,8 @@ def sync_execute(
     flush=True,
     *,
     workload: Workload = Workload.DEFAULT,
+    team_id: Optional[int] = None,
+    readonly=False,
 ):
     if TEST and flush:
         try:
@@ -88,7 +90,7 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
-    with get_pool(workload).get_client() as client:
+    with get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
@@ -129,12 +131,13 @@ def query_with_columns(
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
     workload: Workload = Workload.DEFAULT,
+    team_id: Optional[int] = None,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
-    metrics, types = sync_execute(query, args, with_column_types=True, workload=workload)
+    metrics, types = sync_execute(query, args, with_column_types=True, workload=workload, team_id=team_id)
     type_names = [key for key, _type in types]
 
     rows = []

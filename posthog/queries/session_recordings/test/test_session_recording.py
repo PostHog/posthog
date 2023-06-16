@@ -1,4 +1,3 @@
-import math
 import random
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -15,11 +14,9 @@ from posthog.models.session_recording.metadata import SessionRecordingEvent
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording_events import RecordingMetadata, SessionRecordingEvents
 from posthog.session_recordings.session_recording_helpers import (
-    ACTIVITY_THRESHOLD_SECONDS,
     DecompressedRecordingData,
-    RecordingSegment,
 )
-from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
+from posthog.session_recordings.test.test_factory import create_snapshots, create_snapshot
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -127,9 +124,9 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             chunked_session_id = "7"
             snapshots_per_chunk = 2
-            chunk_limit = 20
+            limit = 20
             for _ in range(30):
-                create_chunked_snapshots(
+                create_snapshots(
                     snapshot_count=snapshots_per_chunk,
                     distinct_id="user",
                     session_id=chunked_session_id,
@@ -140,18 +137,18 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             filter = create_recording_filter(chunked_session_id)
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
-            ).get_snapshots(chunk_limit, filter.offset)
-            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
+            ).get_snapshots(limit, filter.offset)
+            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), limit * snapshots_per_chunk)
             self.assertTrue(recording["has_next"])
 
     def test_get_chunked_snapshots_with_specific_limit_and_offset(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             chunked_session_id = "7"
-            chunk_limit = 10
-            chunk_offset = 5
+            limit = 10
+            offset = 5
             snapshots_per_chunk = 2
             for index in range(16):
-                create_chunked_snapshots(
+                create_snapshots(
                     snapshot_count=snapshots_per_chunk,
                     distinct_id="user",
                     session_id=chunked_session_id,
@@ -159,19 +156,19 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id,
                 )
 
-            filter = create_recording_filter(chunked_session_id, chunk_limit, chunk_offset)
+            filter = create_recording_filter(chunked_session_id, limit, offset)
             recording: DecompressedRecordingData = SessionRecordingEvents(
                 team=self.team, session_recording_id=chunked_session_id
-            ).get_snapshots(chunk_limit, filter.offset)
+            ).get_snapshots(limit, filter.offset)
 
-            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), chunk_limit * snapshots_per_chunk)
+            self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), limit * snapshots_per_chunk)
             self.assertEqual(recording["snapshot_data_by_window_id"][""][0]["timestamp"], 1_600_000_300_000)
             self.assertTrue(recording["has_next"])
 
     def test_get_metadata(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             timestamp = now()
-            create_chunked_snapshots(
+            create_snapshots(
                 team_id=self.team.id,
                 snapshot_count=1,
                 distinct_id="u",
@@ -179,193 +176,40 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 timestamp=timestamp,
                 window_id="1",
             )
-            timestamp += relativedelta(seconds=1)
-            create_chunked_snapshots(
+            create_snapshots(
                 team_id=self.team.id,
                 snapshot_count=1,
                 distinct_id="u",
                 session_id="1",
-                timestamp=timestamp,
+                timestamp=timestamp + relativedelta(seconds=3),
                 window_id="1",
                 has_full_snapshot=False,
                 source=3,
-            )  # active
-            timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="1",
-                has_full_snapshot=False,
-                source=3,
-            )  # active
-            timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="1",
             )
-            timestamp += relativedelta(seconds=1)
-            create_chunked_snapshots(
+            create_snapshots(
                 team_id=self.team.id,
                 snapshot_count=1,
                 distinct_id="u",
                 session_id="1",
-                timestamp=timestamp,
+                timestamp=timestamp + relativedelta(seconds=1),
                 window_id="1",
                 has_full_snapshot=False,
                 source=3,
-            )  # active
-            timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="1",
-            )
-            timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2)) - relativedelta(seconds=4)
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="1",
-                has_full_snapshot=False,
-                source=3,
-            )  # active
-
-            timestamp = now()
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="2",
-                has_full_snapshot=False,
-                source=3,
-            )  # active
-            timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="2",
-                has_full_snapshot=False,
-                source=3,
-            )  # active
-            timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="2",
-                has_full_snapshot=False,
-                source=3,
-            )  # active
-            timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="2",
-                has_full_snapshot=False,
-                source=3,
-            )  # active
-            timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
-            create_chunked_snapshots(
-                team_id=self.team.id,
-                snapshot_count=1,
-                distinct_id="u",
-                session_id="1",
-                timestamp=timestamp,
-                window_id="2",
             )
 
             recording = SessionRecordingEvents(team=self.team, session_recording_id="1").get_metadata()
 
-            millisecond = relativedelta(microseconds=1000)
-
-            expectation = RecordingMetadata(
-                distinct_id="u",
-                duration=40,
-                click_count=0,
-                keypress_count=0,
-                urls=[],
-                start_time=now(),
-                end_time=now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
-                segments=[
-                    RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
-                    RecordingSegment(
-                        is_active=False,
-                        window_id="2",
-                        start_time=now() + millisecond,
-                        end_time=now() + relativedelta(seconds=1) - millisecond,
-                    ),
-                    RecordingSegment(
-                        is_active=True,
-                        window_id="1",
-                        start_time=now() + relativedelta(seconds=1),
-                        end_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS),
-                    ),
-                    RecordingSegment(
-                        is_active=False,
-                        window_id="1",
-                        start_time=now() + relativedelta(seconds=1 + ACTIVITY_THRESHOLD_SECONDS) + millisecond,
-                        end_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS) - millisecond,
-                    ),
-                    RecordingSegment(
-                        is_active=True,
-                        window_id="2",
-                        start_time=now() + relativedelta(seconds=2 * ACTIVITY_THRESHOLD_SECONDS),
-                        end_time=now() + relativedelta(seconds=math.floor(3.5 * ACTIVITY_THRESHOLD_SECONDS)),
-                    ),
-                    RecordingSegment(
-                        is_active=True,
-                        window_id="1",
-                        start_time=now() + relativedelta(seconds=(3 * ACTIVITY_THRESHOLD_SECONDS) + 2),
-                        end_time=now() + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2),
-                    ),
-                    RecordingSegment(
-                        is_active=False,
-                        window_id="2",
-                        start_time=now() + relativedelta(seconds=(4 * ACTIVITY_THRESHOLD_SECONDS) - 2) + millisecond,
-                        end_time=now() + relativedelta(seconds=4 * ACTIVITY_THRESHOLD_SECONDS),
-                    ),
-                ],
-                start_and_end_times_by_window_id={
-                    "1": {
-                        "window_id": "1",
-                        "is_active": False,
-                        "start_time": now(),
-                        "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4 - 2),
-                    },
-                    "2": {
-                        "window_id": "2",
-                        "is_active": False,
-                        "start_time": now(),
-                        "end_time": now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
-                    },
-                },
-            )
-
             self.assertEqual(
                 recording,
-                expectation,
+                RecordingMetadata(
+                    distinct_id="u",
+                    duration=3,
+                    click_count=0,
+                    keypress_count=0,
+                    urls=[],
+                    start_time=now(),
+                    end_time=now() + relativedelta(seconds=3),
+                ),
             )
 
     def test_get_metadata_for_non_existant_session_id(self):
@@ -407,7 +251,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
             recording = SessionRecordingEvents(team=self.team, session_recording_id="1").get_metadata()
             assert recording is not None
-            assert recording["segments"][0]["start_time"] != now()
+            assert recording["start_time"] != now()
 
     def test_get_snapshots_with_date_filter(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -480,22 +324,6 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                 duration=13599,
                 start_time=start_time,
                 end_time=end_time,
-                segments=[
-                    {
-                        "start_time": start_time,
-                        "end_time": end_time,
-                        "window_id": "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
-                        "is_active": True,
-                    }
-                ],
-                start_and_end_times_by_window_id={
-                    "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760": {
-                        "window_id": "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
-                        "start_time": start_time,
-                        "end_time": end_time,
-                        "is_active": False,
-                    }
-                },
                 distinct_id="123456789123456789",
                 urls=[],
             )

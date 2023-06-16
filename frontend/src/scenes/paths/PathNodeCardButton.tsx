@@ -40,8 +40,8 @@ export function PathNodeCardButton({
     const viewFunnel = (): void => {
         viewPathToFunnel(node)
     }
-    const copyName = (): void => {
-        copyToClipboard(pageUrl(node))
+    const copyName = async (): Promise<void> => {
+        await copyToClipboard(pageUrl(node))
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 

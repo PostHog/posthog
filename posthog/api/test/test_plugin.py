@@ -41,7 +41,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     def setUpTestData(cls):
         super().setUpTestData()
 
-        # We make sure the org has permissions for these tests, particularly for tests on posthog-cloud
+        # We make sure the org has permissions for these tests
         cls.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
         cls.organization.save()
 
