@@ -338,8 +338,6 @@ class CompareOperationOp(str, Enum):
     NotIn = "not in"
     Regex = "=~"
     NotRegex = "!~"
-    InCohort = "in cohort"
-    NotInCohort = "not in cohort"
 
 
 class CompareOperation(Expr):

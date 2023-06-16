@@ -40,7 +40,7 @@ limitClause: LIMIT limitExpr ((WITH TIES) | BY columnExprList)?;
 settingsClause: SETTINGS settingExprList;
 
 joinExpr
-    : joinExpr (GLOBAL | LOCAL)? joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
+    : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
@@ -53,7 +53,7 @@ joinOp
     | ((ALL | ANY)? FULL OUTER? | FULL OUTER? (ALL | ANY)?)                         # JoinOpFull
     ;
 joinOpCross
-    : (GLOBAL|LOCAL)? CROSS JOIN
+    : CROSS JOIN
     | COMMA
     ;
 joinConstraintClause
@@ -133,7 +133,7 @@ columnExpr
                  | operator=GE                                                                     // greaterOrEquals
                  | operator=LT                                                                     // less
                  | operator=GT                                                                     // greater
-                 | operator=GLOBAL? NOT? IN COHORT?                                                // in, notIn, globalIn, globalNotIn
+                 | operator=NOT? IN COHORT?                                                        // in, notIn; cohort()
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull

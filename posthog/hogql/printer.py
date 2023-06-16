@@ -13,7 +13,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
     ADD_TIMEZONE_TO_FUNCTIONS,
-    CHART_FUNCTIONS,
+    HOGQL_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable
@@ -27,7 +27,6 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.cohorts import resolve_cohort_subqueries
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
@@ -66,10 +65,9 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
 
     context.database = context.database or create_hogql_database(context.team_id)
-    node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
+    node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
-        node = resolve_cohort_subqueries(node, context)
         resolve_lazy_tables(node, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
@@ -381,14 +379,6 @@ class _Printer(Visitor):
             return f"match({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotRegex:
             return f"not(match({left}, {right}))"
-        elif node.op == ast.CompareOperationOp.InCohort:
-            if self.dialect == "clickhouse":
-                raise HogQLException("InCohort is not supported in ClickHouse")
-            return f"{left} IN COHORT {right}"
-        elif node.op == ast.CompareOperationOp.NotInCohort:
-            if self.dialect == "clickhouse":
-                raise HogQLException("NotInCohort is not supported in ClickHouse")
-            return f"{left} NOT IN COHORT {right}"
         else:
             raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 
@@ -509,15 +499,8 @@ class _Printer(Visitor):
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif node.name in CHART_FUNCTIONS:
-            if len(node.args) != 1:
-                raise HogQLException(
-                    f"Chart function '{node.name}' expects exactly one argument. Passed {len(node.args)}"
-                )
-            sparkline = f"tuple('__hogql_chart_type', 'sparkline', 'results', {self.visit(node.args[0])})"
-            if isinstance(self.stack[-1], ast.Alias):
-                return sparkline
-            return f"{sparkline} AS sparkline"
+        elif node.name in HOGQL_FUNCTIONS:
+            raise HogQLException(f"Unexpected unresolved HOGQL_FUNCTION '{node.name}(...)'")
         else:
             all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)

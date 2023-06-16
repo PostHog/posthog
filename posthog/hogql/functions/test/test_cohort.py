@@ -1,6 +1,7 @@
 from django.test import override_settings
 
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Cohort
@@ -12,7 +13,7 @@ elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"
 not_call = lambda x: ast.Call(name="not", args=[x])
 
 
-class TestCohorts(BaseTest):
+class TestCohort(BaseTest):
     def _create_random_events(self) -> str:
         random_uuid = str(UUIDT())
         _create_person(
@@ -42,7 +43,7 @@ class TestCohorts(BaseTest):
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events WHERE and(person_id IN COHORT {cohort.pk}, equals(event, '{random_uuid}')) LIMIT 100",
+            f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
         )
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
@@ -63,5 +64,35 @@ class TestCohorts(BaseTest):
         )
         self.assertEqual(
             response.hogql,
-            f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} LIMIT 100",
+            f"SELECT event FROM events WHERE in(person_id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, {cohort.pk}))) LIMIT 100",
         )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_in_cohort_strings(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="my cohort",
+            is_static=True,
+        )
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT 'my cohort'",
+            self.team,
+        )
+        self.assertEqual(
+            response.clickhouse,
+            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
+        )
+        self.assertEqual(
+            response.hogql,
+            f"SELECT event FROM events WHERE in(person_id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, {cohort.pk}))) LIMIT 100",
+        )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_in_cohort_error(self):
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(f"SELECT event FROM events WHERE person_id IN COHORT true", self.team)
+        self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
+
+        with self.assertRaises(HogQLException) as e:
+            execute_hogql_query(f"SELECT event FROM events WHERE person_id IN COHORT 'blabla'", self.team)
+        self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")

@@ -4,9 +4,11 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.database.database import Database
+from posthog.hogql.constants import HOGQL_FUNCTIONS
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
-from posthog.hogql.errors import ResolverException
+from posthog.hogql.errors import ResolverException, HogQLException
+from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
@@ -41,18 +43,21 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types(node: ast.Expr, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None) -> ast.Expr:
-    return Resolver(scopes=scopes, database=database).visit(node)
+def resolve_types(
+    node: ast.Expr, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None
+) -> ast.Expr:
+    return Resolver(scopes=scopes, context=context).visit(node)
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
-    def __init__(self, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
-        self.database = database
+        self.context = context
+        self.database = context.database
         self.cte_counter = 0
 
     def visit(self, node: ast.Expr) -> ast.Expr:
@@ -270,6 +275,28 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        if node.name in HOGQL_FUNCTIONS:
+            arg_count = HOGQL_FUNCTIONS[node.name]
+            if len(node.args) != arg_count:
+                raise HogQLException(
+                    f"Chart function '{node.name}' expects exactly {arg_count} argument{'s' if arg_count != 1 else ''}. Passed {len(node.args)}"
+                )
+
+            if node.name == "sparkline":
+                return self.visit(
+                    ast.Tuple(
+                        exprs=[
+                            ast.Constant(value="__hogql_chart_type"),
+                            ast.Constant(value="sparkline"),
+                            ast.Constant(value="results"),
+                            node.args[0],
+                        ]
+                    )
+                )
+
+            elif node.name == "cohort":
+                return self.visit(cohort(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []

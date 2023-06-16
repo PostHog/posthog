@@ -26,10 +26,11 @@ class TestResolver(BaseTest):
 
     def setUp(self):
         self.database = create_hogql_database(self.team.pk)
+        self.context = HogQLContext(database=self.database, team_id=self.team.pk)
 
     def test_resolve_events_table(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        expr = resolve_types(expr, self.database)
+        expr = resolve_types(expr, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         event_field_type = ast.FieldType(name="event", table_type=events_table_type)
@@ -66,16 +67,16 @@ class TestResolver(BaseTest):
 
     def test_will_not_run_twice(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        expr = resolve_types(expr, self.database)
+        expr = resolve_types(expr, self.context)
         with self.assertRaises(ResolverException) as context:
-            expr = resolve_types(expr, self.database)
+            expr = resolve_types(expr, self.context)
         self.assertEqual(
             str(context.exception), "Type already resolved for SelectQuery (SelectQueryType). Can't run again."
         )
 
     def test_resolve_events_table_alias(self):
         expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(alias="e", table_type=events_table_type)
@@ -114,7 +115,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_events_table_column_alias(self):
         expr = self._select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(alias="e", table_type=events_table_type)
@@ -171,7 +172,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         inner_events_table_type = ast.TableType(table=self.database.events)
         inner_event_field_type = ast.FieldAliasType(
             alias="b", type=ast.FieldType(name="event", table_type=inner_events_table_type)
@@ -253,7 +254,7 @@ class TestResolver(BaseTest):
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
         with self.assertRaises(ResolverException) as e:
-            expr = resolve_types(expr, database=self.database)
+            expr = resolve_types(expr, self.context)
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
     def test_resolve_constant_type(self):
@@ -269,7 +270,7 @@ class TestResolver(BaseTest):
                     "tuple": ast.Constant(value=(1, 2, 3)),
                 },
             )
-            expr = resolve_types(expr, database=self.database)
+            expr = resolve_types(expr, self.context)
             expected = ast.SelectQuery(
                 select=[
                     ast.Constant(value=1, type=ast.IntegerType()),
@@ -293,7 +294,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_boolean_operation_types(self):
         expr = self._select("SELECT 1 and 1, 1 or 1, not true")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         expected = ast.SelectQuery(
             select=[
                 ast.And(
@@ -329,12 +330,12 @@ class TestResolver(BaseTest):
         ]
         for query in queries:
             with self.assertRaises(ResolverException) as e:
-                resolve_types(self._select(query), self.database)
+                resolve_types(self._select(query), self.context)
             self.assertIn("Unable to resolve field:", str(e.exception))
 
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         pdi_table_type = ast.TableType(table=self.database.person_distinct_ids)
         expected = ast.SelectQuery(
             select=[
@@ -383,7 +384,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_table(self):
         expr = self._select("select event, pdi.person_id from events")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
@@ -430,7 +431,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_table_aliased(self):
         expr = self._select("select event, e.pdi.person_id from events e")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         expected = ast.SelectQuery(
@@ -479,7 +480,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_person_table(self):
         expr = self._select("select event, pdi.person.id from events")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
@@ -532,7 +533,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_events_pdi_person_table_aliased(self):
         expr = self._select("select event, e.pdi.person.id from events e")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         expected = ast.SelectQuery(
@@ -587,7 +588,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_virtual_events_poe(self):
         expr = self._select("select event, poe.id from events")
-        expr = resolve_types(expr, database=self.database)
+        expr = resolve_types(expr, self.context)
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
@@ -632,7 +633,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_union_all(self):
         node = self._select("select event, timestamp from events union all select event, timestamp from events")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
@@ -652,7 +653,7 @@ class TestResolver(BaseTest):
 
     def test_call_type(self):
         node = self._select("select max(timestamp) from events")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
         expected = [
             ast.Call(
                 name="max",
@@ -734,7 +735,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from events")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
@@ -756,7 +757,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_table_alias(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from events e")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
@@ -786,7 +787,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_subquery(self):
         node = self._select("select * from (select 1 as a, 2 as b)")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
         select_subquery_type = ast.SelectQueryType(
             aliases={
                 "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
@@ -809,7 +810,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_subquery_alias(self):
         node = self._select("select x.* from (select 1 as a, 2 as b) x")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
         select_subquery_type = ast.SelectQueryAliasType(
             alias="x",
             select_query_type=ast.SelectQueryType(
@@ -837,7 +838,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_from_subquery_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events)")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         inner_select_type = ast.SelectQueryType(
@@ -874,7 +875,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_multiple_table_error(self):
         node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
         with self.assertRaises(ResolverException) as e:
-            resolve_types(node, self.database)
+            resolve_types(node, self.context)
         self.assertEqual(
             str(e.exception), "Cannot use '*' without table name when there are multiple tables in the query"
         )
@@ -883,7 +884,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_select_union(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events union all select * from events)")
-        node = resolve_types(node, self.database)
+        node = resolve_types(node, self.context)
 
         events_table_type = ast.TableType(table=self.database.events)
         inner_select_type = ast.SelectUnionQueryType(
@@ -925,7 +926,7 @@ class TestResolver(BaseTest):
     def test_lambda_parent_scope(self):
         # does not raise
         node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) from events")
-        node = cast(ast.SelectQuery, resolve_types(node, self.database))
+        node = cast(ast.SelectQuery, resolve_types(node, self.context))
 
         # found a type
         lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
