@@ -134,6 +134,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             },
             {
                 "session_id": session_id_one,
@@ -148,6 +151,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             },
         ]
 
@@ -320,6 +326,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time + relativedelta(seconds=20),
                 "end_time": self.base_time + relativedelta(seconds=2000),
                 "first_url": None,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             }
         ]
 
@@ -343,6 +352,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "start_time": self.base_time,
                 "end_time": self.base_time + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             },
         ]
 
@@ -908,6 +920,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
                 "team_id": self.team.id,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "console_error_count": 0,
             }
         ]
 
@@ -1552,3 +1567,219 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         assert session_recordings == []
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_with_console_logs(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+        without_logs_session_id = f"no-logs-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_log_count=4,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=without_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["log"]},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted(
+            [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (with_logs_session_id, 4),
+        ]
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["warn"]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        assert session_recordings == []
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_with_console_warns(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+        without_logs_session_id = f"no-logs-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_warn_count=4,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=without_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["warn"]},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted(
+            [(sr["session_id"], sr["console_warn_count"]) for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (with_logs_session_id, 4),
+        ]
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["log"]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        assert session_recordings == []
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_with_console_errors(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+        without_logs_session_id = f"no-logs-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_error_count=4,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=without_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["error"]},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted(
+            [(sr["session_id"], sr["console_error_count"]) for sr in session_recordings],
+            key=lambda x: x[0],
+        ) == [
+            (with_logs_session_id, 4),
+        ]
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["log"]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        assert session_recordings == []
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    def test_filter_for_recordings_with_mixed_console_counts(self):
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+        with_warns_session_id = f"with-warns-session-{str(uuid4())}"
+        with_errors_session_id = f"with-errors-session-{str(uuid4())}"
+        with_two_session_id = f"with-two-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_log_count=4,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_warns_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_warn_count=4,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_errors_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_error_count=4,
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_two_session_id,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+            console_error_count=4,
+            console_log_count=3,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["warn", "error"]},
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_errors_session_id,
+                with_two_session_id,
+                with_warns_session_id,
+            ]
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"console_logs": ["log"]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        assert sorted([sr["session_id"] for sr in session_recordings]) == sorted(
+            [
+                with_two_session_id,
+                with_logs_session_id,
+            ]
+        )

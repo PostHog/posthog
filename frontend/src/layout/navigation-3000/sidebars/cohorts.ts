@@ -2,7 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { ExtendedListItem } from '../types'
+import { ExtendedListItem, SidebarCategory } from '../types'
 import type { cohortsSidebarLogicType } from './cohortsType'
 import Fuse from 'fuse.js'
 import { CohortType } from '~/types'
@@ -12,6 +12,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { pluralize } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { api } from '@posthog/apps-common'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<CohortType>([], {
     keys: [{ name: 'name', weight: 2 }],
@@ -20,11 +21,6 @@ const fuse = new Fuse<CohortType>([], {
     includeMatches: true,
 })
 
-export interface SearchMatch {
-    indices: readonly [number, number][]
-    key: string
-}
-
 export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'cohortsSidebarLogic']),
     connect({
@@ -32,49 +28,54 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
         actions: [cohortsModel, ['deleteCohort']],
     }),
     selectors(({ actions }) => ({
-        isLoading: [(s) => [s.cohortsLoading], (cohortsLoading) => cohortsLoading],
         contents: [
-            (s) => [s.relevantCohorts],
-            (relevantCohorts) =>
-                relevantCohorts.map(
-                    ([cohort, matches]) =>
-                        ({
-                            key: cohort.id,
-                            name: cohort.name,
-                            url: urls.cohort(cohort.id),
-                            summary: pluralize(cohort.count ?? 0, 'person', 'persons'),
-                            extraContextTop: dayjs(cohort.created_at),
-                            extraContextBottom: `by ${cohort.created_by?.first_name || 'unknown'}`,
-                            searchMatch: matches
-                                ? {
-                                      matchingFields: matches.map((match) => match.key),
-                                      nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                                  }
-                                : null,
-                            menuItems: (initiateRename) => [
-                                {
-                                    items: [
-                                        {
-                                            onClick: initiateRename,
-                                            label: 'Rename',
-                                            keyboardShortcut: ['enter'],
-                                        },
-                                        {
-                                            onClick: () => {
-                                                actions.deleteCohort(cohort)
+            (s) => [s.relevantCohorts, s.cohortsLoading],
+            (relevantCohorts, cohortsLoading) => [
+                {
+                    key: 'cohorts',
+                    title: 'Cohorts',
+                    items: relevantCohorts.map(
+                        ([cohort, matches]) =>
+                            ({
+                                key: cohort.id,
+                                name: cohort.name,
+                                url: urls.cohort(cohort.id),
+                                summary: pluralize(cohort.count ?? 0, 'person', 'persons'),
+                                extraContextTop: dayjs(cohort.created_at),
+                                extraContextBottom: `by ${cohort.created_by?.first_name || 'unknown'}`,
+                                searchMatch: matches
+                                    ? {
+                                          matchingFields: matches.map((match) => match.key),
+                                          nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                      }
+                                    : null,
+                                menuItems: (initiateRename) => [
+                                    {
+                                        items: [
+                                            {
+                                                onClick: initiateRename,
+                                                label: 'Rename',
+                                                keyboardShortcut: ['enter'],
                                             },
-                                            status: 'danger',
-                                            label: 'Delete cohort',
-                                        },
-                                    ],
+                                            {
+                                                onClick: () => {
+                                                    actions.deleteCohort(cohort)
+                                                },
+                                                status: 'danger',
+                                                label: 'Delete cohort',
+                                            },
+                                        ],
+                                    },
+                                ],
+                                onRename: async (newName) => {
+                                    await api.cohorts.update(cohort.id, { name: newName })
+                                    cohortsModel.actions.updateCohort({ ...cohort, name: newName })
                                 },
-                            ],
-                            onRename: async (newName) => {
-                                await api.cohorts.update(cohort.id, { name: newName })
-                                cohortsModel.actions.updateCohort({ ...cohort, name: newName })
-                            },
-                        } as ExtendedListItem)
-                ),
+                            } as ExtendedListItem)
+                    ),
+                    loading: cohortsLoading,
+                } as SidebarCategory,
+            ],
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
@@ -84,9 +85,9 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
         ],
         relevantCohorts: [
             (s) => [s.cohorts, navigation3000Logic.selectors.searchTerm],
-            (cohorts, searchTerm): [CohortType, SearchMatch[] | null][] => {
+            (cohorts, searchTerm): [CohortType, FuseSearchMatch[] | null][] => {
                 if (searchTerm) {
-                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as SearchMatch[]])
+                    return fuse.search(searchTerm).map((result) => [result.item, result.matches as FuseSearchMatch[]])
                 }
                 return cohorts.map((cohort) => [cohort, null])
             },

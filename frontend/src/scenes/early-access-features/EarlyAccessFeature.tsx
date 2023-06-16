@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Field, PureField } from 'lib/forms/Field'
@@ -7,7 +7,6 @@ import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Form } from 'kea-forms'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, PropertyFilterType, PropertyOperator } from '~/types'
 import { urls } from 'scenes/urls'
-import { PersonsScene } from 'scenes/persons/Persons'
 import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -19,6 +18,9 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
+import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PersonsSearch } from 'scenes/persons/PersonsSearch'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const scene: SceneExport = {
@@ -32,7 +34,7 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, releaseBeta, deleteEarlyAccessFeature } =
+    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
@@ -95,14 +97,39 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 >
                                     Delete
                                 </LemonButton>
-
+                                {earlyAccessFeature.stage == EarlyAccessFeatureStage.Beta && (
+                                    <LemonButton
+                                        data-attr="archive-feature"
+                                        type="secondary"
+                                        onClick={() => updateStage(EarlyAccessFeatureStage.Archived)}
+                                    >
+                                        Archive
+                                    </LemonButton>
+                                )}
+                                {earlyAccessFeature.stage == EarlyAccessFeatureStage.Archived && (
+                                    <LemonButton
+                                        data-attr="reactive-feature"
+                                        type="secondary"
+                                        onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
+                                    >
+                                        Reactivate Beta
+                                    </LemonButton>
+                                )}
+                                {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
+                                    <LemonButton
+                                        onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
+                                        tooltip={'Make beta feature available'}
+                                        type="primary"
+                                    >
+                                        Release Beta
+                                    </LemonButton>
+                                )}
+                                <LemonDivider vertical />
                                 {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
                                     <LemonButton
                                         type="secondary"
                                         htmlType="submit"
-                                        onClick={() => {
-                                            editFeature(true)
-                                        }}
+                                        onClick={() => editFeature(true)}
                                         loading={false}
                                     >
                                         Edit
@@ -167,33 +194,22 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     {isEditingFeature || isNewEarlyAccessFeature ? (
                         <></>
                     ) : (
-                        <div className="mb-2 flex flex-row justify-between">
+                        <div>
+                            <b>Stage</b>
                             <div>
-                                <b>Stage</b>
-                                <div>
-                                    <LemonTag
-                                        type={
-                                            earlyAccessFeature.stage === 'beta'
-                                                ? 'warning'
-                                                : earlyAccessFeature.stage === 'general-availability'
-                                                ? 'success'
-                                                : 'default'
-                                        }
-                                        className="mt-2 uppercase"
-                                    >
-                                        {earlyAccessFeature.stage}
-                                    </LemonTag>
-                                </div>
-                            </div>
-                            {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
-                                <LemonButton
-                                    onClick={() => releaseBeta()}
-                                    tooltip={'Make beta feature available'}
-                                    type="secondary"
+                                <LemonTag
+                                    type={
+                                        earlyAccessFeature.stage === 'beta'
+                                            ? 'warning'
+                                            : earlyAccessFeature.stage === 'general-availability'
+                                            ? 'success'
+                                            : 'default'
+                                    }
+                                    className="mt-2 uppercase"
                                 >
-                                    Release Beta
-                                </LemonButton>
-                            )}
+                                    {earlyAccessFeature.stage}
+                                </LemonTag>
+                            </div>
                         </div>
                     )}
                     {isEditingFeature || isNewEarlyAccessFeature ? (
@@ -303,37 +319,57 @@ function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
         ],
     }
     const logic = personsLogic(personsLogicProps)
-    const { persons } = useValues(logic)
+    const { persons, personsLoading, listFilters } = useValues(logic)
+    const { loadPersons, setListFilters } = useActions(logic)
     const { featureFlag } = useValues(featureFlagLogic({ id: earlyAccessFeature.feature_flag.id || 'link' }))
 
     return (
         <BindLogic logic={personsLogic} props={personsLogicProps}>
             <h3 className="text-xl font-semibold">Opted-In Users</h3>
-            <PersonsScene
-                showSearch={persons.results.length > 0}
-                showFilters={persons.results.length > 0}
-                extraSceneActions={
-                    persons.results.length > 0
-                        ? [
-                              <LemonButton
-                                  key="help-button"
-                                  onClick={toggleImplementOptInInstructionsModal}
-                                  sideIcon={<IconHelpOutline />}
-                              >
-                                  Implement public opt-in
-                              </LemonButton>,
-                          ]
-                        : []
-                }
-                compact={true}
-                showExportAction={false}
-                emptyState={
-                    <div>
-                        No manual opt-ins. Manually opted-in people will appear here once beta is available. Start by{' '}
-                        <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
+
+            <div className="space-y-2">
+                {
+                    <div className="flex-col">
+                        <PersonsSearch />
                     </div>
                 }
-            />
+                <div className="flex flex-row justify-between">
+                    <PropertyFilters
+                        pageKey="persons-list-page"
+                        propertyFilters={listFilters.properties}
+                        onChange={(properties) => {
+                            setListFilters({ properties })
+                            loadPersons()
+                        }}
+                        endpoint="person"
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        showConditionBadge
+                    />
+                    <LemonButton
+                        key="help-button"
+                        onClick={toggleImplementOptInInstructionsModal}
+                        sideIcon={<IconHelpOutline />}
+                    >
+                        Implement public opt-in
+                    </LemonButton>
+                </div>
+                <PersonsTable
+                    people={persons.results}
+                    loading={personsLoading}
+                    hasPrevious={!!persons.previous}
+                    hasNext={!!persons.next}
+                    loadPrevious={() => loadPersons(persons.previous)}
+                    loadNext={() => loadPersons(persons.next)}
+                    compact={true}
+                    extraColumns={[]}
+                    emptyState={
+                        <div>
+                            No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
+                            <a onClick={toggleImplementOptInInstructionsModal}>implementing public opt-in</a>
+                        </div>
+                    }
+                />
+            </div>
             <InstructionsModal
                 featureFlag={featureFlag}
                 visible={implementOptInInstructionsModal}

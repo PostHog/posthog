@@ -11,12 +11,18 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
+from posthog import redis
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import get_all_feature_flags, get_feature_flags_for_team_in_cache
+from posthog.models.feature_flag import (
+    get_all_feature_flags,
+    get_feature_flags_for_team_in_cache,
+    FeatureFlagDashboards,
+)
+from posthog.models.dashboard import Dashboard
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -41,6 +47,11 @@ class TestFeatureFlag(APIBaseTest):
 
     def setUp(self):
         cache.clear()
+
+        # delete all keys in redis
+        r = redis.get_client()
+        for key in r.scan_iter("*"):
+            r.delete(key)
         return super().setUp()
 
     @classmethod
@@ -927,7 +938,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -938,7 +949,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -949,7 +960,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -960,7 +971,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1463,6 +1474,64 @@ class TestFeatureFlag(APIBaseTest):
             },
             sorted_flags[1],
         )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_local_evaluation_billing_analytics(self):
+        FeatureFlag.objects.all().delete()
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+        # and inactive flag
+        FeatureFlag.objects.create(
+            name="Inactive feature",
+            key="inactive-flag",
+            team=self.team,
+            active=False,
+            rollout_percentage=100,
+            filters={"properties": []},
+            created_by=self.user,
+        )
+
+        client = redis.get_client()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+        # `local_evaluation` is called by logged out clients!
+
+        with freeze_time("2022-05-07 12:23:07"):
+            # missing API key
+            response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+            response = self.client.get(f"/api/feature_flag/local_evaluation")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {})
+
+            response = self.client.get(
+                f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {b"165192618": b"1"})
+
+            for _ in range(5):
+                response = self.client.get(
+                    f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+                    HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{self.team.pk}"), {b"165192618": b"6"})
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_evaluation_reasons(self, mock_capture):
@@ -2083,6 +2152,35 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(res.json()["results"][0]["can_edit"], True)
         self.assertEqual(res.json()["results"][1]["can_edit"], True)
 
+    def test_get_flags_dont_return_survey_targeting_flags(self):
+        survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks power users survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What would you want to improve from notebooks?"}],
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+        assert FeatureFlag.objects.filter(id=survey.json()["targeting_flag"]["id"]).exists()
+
+        flags_list = self.client.get(f"/api/projects/@current/feature_flags")
+        response = flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
+
     def test_flag_is_cached_on_create_and_update(self):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()
@@ -2609,6 +2707,61 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
             response_json,
         )
+
+    def test_feature_flag_dashboard(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        FeatureFlagDashboards.objects.create(feature_flag=another_feature_flag, dashboard_id=dashboard.pk)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+    def test_feature_flag_dashboard_patch(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+
+    def test_feature_flag_dashboard_already_exists(self):
+        another_feature_flag = FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="some feature", key="some-feature", created_by=self.user
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/" + str(another_feature_flag.pk),
+            {"analytics_dashboards": [dashboard.pk]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+
+        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
 
 
 class QueryTimeoutWrapper:

@@ -178,7 +178,7 @@ export function LemonMenuSectionList({
                                 itemsRef={itemsRef}
                                 itemIndexOffset={rollingItemIndex}
                             />
-                            {section.footer ? <ul>{section.footer}</ul> : null}
+                            {section.footer ? <div>{section.footer}</div> : null}
                         </section>
                         {i < sections.length - 1 ? (
                             <LemonDivider className={buttonSize === 'small' ? 'my-1' : 'my-2'} />

@@ -1,6 +1,11 @@
+import dataclasses
+
+import temporalio.converter
 from asgiref.sync import async_to_sync
 from django.conf import settings
 from temporalio.client import Client, TLSConfig
+
+from posthog.temporal.codec import EncryptionCodec
 
 
 async def connect(host, port, namespace, server_root_ca_cert=None, client_cert=None, client_key=None):
@@ -15,6 +20,9 @@ async def connect(host, port, namespace, server_root_ca_cert=None, client_cert=N
         f"{host}:{port}",
         namespace=namespace,
         tls=tls,
+        data_converter=dataclasses.replace(
+            temporalio.converter.default(), payload_codec=EncryptionCodec(settings=settings)
+        ),
     )
     return client
 

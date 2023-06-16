@@ -89,6 +89,18 @@ export type AvailableProductFeature = {
     unit?: string | null
 }
 
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
+    SURVEYS = 'surveys',
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -153,6 +165,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
@@ -308,6 +321,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    autocapture_exceptions_opt_in: boolean
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -329,6 +343,7 @@ export interface TeamType extends TeamBasicType {
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
+    extra_settings?: Record<string, string | number | boolean | undefined>
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -611,14 +626,6 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
-export interface SessionRecordingMeta {
-    pinnedCount: number
-    segments: RecordingSegment[]
-    recordingDurationMs: number
-    startTimestamp: Dayjs
-    endTimestamp: Dayjs
-}
-
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
@@ -681,6 +688,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
 
 export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
 
+export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -690,6 +698,7 @@ export interface RecordingFilters {
     offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
+    console_logs?: FilterableLogLevel[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -748,6 +757,7 @@ export interface PersonListParams {
     search?: string
     cohort?: number
     distinct_id?: string
+    include_total?: boolean // PostHog 3000-only
 }
 
 export interface MatchedRecordingEvent {
@@ -965,13 +975,8 @@ export interface SessionRecordingType {
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
-    /** Where this recording information was loaded from (S3 or Clickhouse) */
-    storage?: string
-
-    // These values are only present when loaded as a full recording
-    segments?: SessionRecordingSegmentType[]
-    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+    /** Where this recording information was loaded from  */
+    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1287,6 +1292,12 @@ export interface DashboardBasicType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateListParams {
+    scope?: DashboardTemplateScope
+}
+
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
 export interface DashboardType extends DashboardBasicType {
     tiles: DashboardTile[]
     filters: Record<string, any>
@@ -1303,7 +1314,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
-    scope?: 'team' | 'global'
+    scope?: DashboardTemplateScope
 }
 
 export interface MonacoMarker {
@@ -1995,7 +2006,8 @@ export interface Survey {
     type: SurveyType
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
-    conditions: { url: string; selector: string } | null
+    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
     created_at: string
@@ -2086,6 +2098,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2106,6 +2119,7 @@ export enum EarlyAccessFeatureStage {
     Alpha = 'alpha',
     Beta = 'beta',
     GeneralAvailability = 'general-availability',
+    Archived = 'archived',
 }
 
 export interface EarlyAccessFeatureType {
@@ -2292,6 +2306,9 @@ export interface PropertyDefinition {
     last_seen_at?: string // TODO: Implement
     example?: string
     is_action?: boolean
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 export enum PropertyDefinitionState {

@@ -3,6 +3,9 @@ from asgiref.sync import sync_to_async
 from uuid import UUID
 
 from dataclasses import dataclass, asdict
+
+from rest_framework.exceptions import ValidationError
+
 from posthog import settings
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.temporal.client import sync_connect
@@ -17,11 +20,6 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-
-
-class S3BatchExportWorkflow:
-    def run(self, inputs):
-        raise NotImplementedError
 
 
 @dataclass
@@ -47,16 +45,30 @@ class S3BatchExportInputs:
     batch_window_size: int
     team_id: int
     batch_export_id: str
-    table_name: str = "events"
-    file_format: str = "CSVWithNames"
-    partition_key: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     data_interval_end: str | None = None
 
 
+@dataclass
+class SnowflakeBatchExportInputs:
+    """Inputs for Snowflake export workflow."""
+
+    batch_export_id: str
+    team_id: int
+    user: str
+    password: str
+    account: str
+    database: str
+    warehouse: str
+    schema: str
+    table_name: str = "events"
+    data_interval_end: str | None = None
+
+
 DESTINATION_WORKFLOWS = {
     "S3": ("s3-export", S3BatchExportInputs),
+    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
 }
 
 
@@ -126,6 +138,9 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
         end_at: Up to when to backfill. If this is not defined, then we will backfill up to this
             BatchExportSchedule's created_at.
     """
+    if start_at is None or end_at is None:
+        raise ValidationError("start_at and end_at must be defined for backfilling")
+
     batch_export = BatchExport.objects.get(id=batch_export_id)
     backfill_run = BatchExportRun.objects.create(
         batch_export=batch_export,

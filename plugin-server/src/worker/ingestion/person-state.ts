@@ -1,5 +1,4 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
@@ -10,8 +9,9 @@ import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, NoRowsUpdatedError, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
 
@@ -87,91 +87,56 @@ export class PersonState {
 
     async update(): Promise<Person> {
         const person: Person | undefined = await this.handleIdentifyOrAlias() // TODO: make it also return a boolean for if we can exit early here
-        return await this.updateProperties(person)
-    }
-
-    async updateProperties(person?: Person): Promise<Person> {
-        if (!person) {
-            let personCreated: boolean
-            ;[person, personCreated] = await this.createOrGetPerson()
-            if (personCreated) {
-                // In this case we already set all the properties during creation so we can exit
-                return person
+        if (person) {
+            // try to shortcut if we have the person from identify or alias
+            try {
+                return await this.updatePersonProperties(person)
+            } catch (error) {
+                // shortcut didn't work, swallow the error and try normal retry loop below
+                status.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
         }
-        // At this point this.person is guaranteed to be defined
-        if (
-            this.eventProperties['$set'] ||
-            this.eventProperties['$set_once'] ||
-            this.eventProperties['$unset'] ||
-            this.updateIsIdentified
-        ) {
-            person = await this.updatePersonProperties(person)
+        return await this.handleUpdate()
+    }
+
+    async handleUpdate(): Promise<Person> {
+        // There are various reasons why update can fail:
+        // - anothe thread created the person during a race
+        // - the person might have been merged between start of processing and now
+        // we simply and stupidly start from scratch
+        return await promiseRetry(() => this.updateProperties(), 'update_person')
+    }
+
+    async updateProperties(): Promise<Person> {
+        const [person, propertiesHandled] = await this.createOrGetPerson()
+        if (propertiesHandled) {
+            return person
         }
-        return person
+        return await this.updatePersonProperties(person)
     }
 
     private async createOrGetPerson(): Promise<[Person, boolean]> {
-        // returns: Person, if person was created
-        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
-        if (isNewPerson) {
-            const properties = this.eventProperties['$set'] || {}
-            const propertiesOnce = this.eventProperties['$set_once'] || {}
-            // Catch race condition where in between getting and creating, another request already created this user
-            try {
-                const person = await this.createPerson(
-                    this.timestamp,
-                    properties || {},
-                    propertiesOnce || {},
-                    this.teamId,
-                    null,
-                    // :NOTE: This should never be set in this branch, but adding this for logical consistency
-                    this.updateIsIdentified,
-                    this.newUuid,
-                    this.event.uuid,
-                    [this.distinctId]
-                )
-                return [person, true]
-            } catch (error) {
-                status.error('🚨', 'create_person_failed', { error, teamId: this.teamId, distinctId: this.distinctId })
-                if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
-                    Sentry.captureException(error, {
-                        tags: { team_id: this.teamId },
-                        extra: {
-                            teamId: this.teamId,
-                            distinctId: this.distinctId,
-                            timestamp: this.timestamp,
-                            personUuid: this.newUuid,
-                        },
-                    })
-                }
-            }
+        // returns: person, properties were already handled or not
+        let person = await this.db.fetchPerson(this.teamId, this.distinctId)
+        if (person) {
+            return [person, false]
         }
 
-        return [await this.getPersonOrError(), false]
-    }
-
-    private async getPersonOrError(): Promise<Person> {
-        const person = await this.db.fetchPerson(this.teamId, this.distinctId)
-        if (!person) {
-            // There are three options for how we got here:
-            // - person creation is ongoing (but we're currently not parallel processing ingestion for the same ID)
-            // - person creation failed (rare)
-            // - person was deleted (rare)
-            // TODO: retries for creation and/or fetching
-            const error = Error('Race condition: Person has been deleted or creation failed')
-            status.error('🚨', 'get_person_failed', { error, teamId: this.teamId, distinctId: this.distinctId })
-            Sentry.captureException(error, {
-                extra: {
-                    teamId: this.teamId,
-                    distinctId: this.distinctId,
-                    timestamp: this.timestamp,
-                    personUuid: this.newUuid,
-                },
-            })
-            throw error
-        }
-        return person
+        const properties = this.eventProperties['$set'] || {}
+        const propertiesOnce = this.eventProperties['$set_once'] || {}
+        person = await this.createPerson(
+            this.timestamp,
+            properties || {},
+            propertiesOnce || {},
+            this.teamId,
+            null,
+            // :NOTE: This should never be set in this branch, but adding this for logical consistency
+            this.updateIsIdentified,
+            this.newUuid,
+            this.event.uuid,
+            [this.distinctId]
+        )
+        return [person, true]
     }
 
     private async createPerson(
@@ -211,21 +176,6 @@ export class PersonState {
     }
 
     private async updatePersonProperties(person: Person): Promise<Person> {
-        try {
-            return await this.tryUpdatePerson(person)
-        } catch (error) {
-            // The person might have been merged between start of processing and now
-            // Retry with the person fetched from the DB
-            // TODO: multiple retries like merges, we might need to create a person if they were deleted in the past
-            if (error instanceof NoRowsUpdatedError) {
-                return await this.tryUpdatePerson(await this.getPersonOrError())
-            } else {
-                throw error
-            }
-        }
-    }
-
-    private async tryUpdatePerson(person: Person): Promise<Person> {
         const update: Partial<Person> = {}
         const updatedProperties = this.applyEventPropertyUpdates(person.properties || {})
 
@@ -337,89 +287,53 @@ export class PersonState {
             })
             return undefined
         }
-        return await this.mergeWithoutValidation(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp, 0)
+        return promiseRetry(
+            () => this.mergeDistinctIds(otherPersonDistinctId, mergeIntoDistinctId, teamId, timestamp),
+            'merge_distinct_ids'
+        )
     }
 
-    private async mergeWithoutValidation(
+    private async mergeDistinctIds(
         otherPersonDistinctId: string,
         mergeIntoDistinctId: string,
         teamId: number,
-        timestamp: DateTime,
-        totalMergeAttempts = 0
+        timestamp: DateTime
     ): Promise<Person> {
         this.updateIsIdentified = true
 
         const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
         const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
 
-        try {
-            if (otherPerson && !mergeIntoPerson) {
-                await this.db.addDistinctId(otherPerson, mergeIntoDistinctId)
-                return otherPerson
-            } else if (!otherPerson && mergeIntoPerson) {
-                await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId)
+        if (otherPerson && !mergeIntoPerson) {
+            await this.db.addDistinctId(otherPerson, mergeIntoDistinctId)
+            return otherPerson
+        } else if (!otherPerson && mergeIntoPerson) {
+            await this.db.addDistinctId(mergeIntoPerson, otherPersonDistinctId)
+            return mergeIntoPerson
+        } else if (otherPerson && mergeIntoPerson) {
+            if (otherPerson.id == mergeIntoPerson.id) {
                 return mergeIntoPerson
-            } else if (otherPerson && mergeIntoPerson) {
-                if (otherPerson.id == mergeIntoPerson.id) {
-                    return mergeIntoPerson
-                }
-                return await this.mergePeople({
-                    mergeInto: mergeIntoPerson,
-                    mergeIntoDistinctId: mergeIntoDistinctId,
-                    otherPerson: otherPerson,
-                    otherPersonDistinctId: otherPersonDistinctId,
-                })
             }
-            //  The last case: (!oldPerson && !newPerson)
-            return await this.createPerson(
-                // TODO: in this case we could skip the properties updates later
-                timestamp,
-                this.eventProperties['$set'] || {},
-                this.eventProperties['$set_once'] || {},
-                teamId,
-                null,
-                true,
-                this.newUuid,
-                this.event.uuid,
-                [mergeIntoDistinctId, otherPersonDistinctId]
-            )
-        } catch (error) {
-            // Retrying merging up to `MAX_FAILED_PERSON_MERGE_ATTEMPTS` times, in case race conditions occur.
-            // E.g. Catch race case when somebody already added this distinct_id between .get and .addDistinctId
-            // E.g. Catch race condition where in between getting and creating, another request already created this person
-            // An example is a distinct ID being aliased in another plugin server instance,
-            // between `moveDistinctId` and `deletePerson` being called here
-            // – in such a case a distinct ID may be assigned to the person in the database
-            // AFTER `otherPersonDistinctIds` was fetched, so this function is not aware of it and doesn't merge it.
-            // That then causes `deletePerson` to fail, because of foreign key constraints –
-            // the dangling distinct ID added elsewhere prevents the person from being deleted!
-            // This is low-probability so likely won't occur on second retry of this block.
-            // In the rare case of the person changing VERY often however, it may happen even a few times,
-            // in which case we'll bail and rethrow the error.
-            status.error('🚨', 'merge_failed', {
-                error,
-                teamId: this.teamId,
-                previousDistinctId: otherPersonDistinctId,
-                distinctId: mergeIntoDistinctId,
+            return await this.mergePeople({
+                mergeInto: mergeIntoPerson,
+                mergeIntoDistinctId: mergeIntoDistinctId,
+                otherPerson: otherPerson,
+                otherPersonDistinctId: otherPersonDistinctId,
             })
-            totalMergeAttempts++
-            if (totalMergeAttempts >= this.maxMergeAttempts) {
-                status.error('🚨', 'merge_failed_final', {
-                    error,
-                    teamId: this.teamId,
-                    previousDistinctId: otherPersonDistinctId,
-                    distinctId: mergeIntoDistinctId,
-                })
-                throw error // Very much not OK, failed repeatedly so rethrowing the error
-            }
-            return await this.mergeWithoutValidation(
-                otherPersonDistinctId,
-                mergeIntoDistinctId,
-                teamId,
-                timestamp,
-                totalMergeAttempts
-            )
         }
+        //  The last case: (!oldPerson && !newPerson)
+        return await this.createPerson(
+            // TODO: in this case we could skip the properties updates later
+            timestamp,
+            this.eventProperties['$set'] || {},
+            this.eventProperties['$set_once'] || {},
+            teamId,
+            null,
+            true,
+            this.newUuid,
+            this.event.uuid,
+            [mergeIntoDistinctId, otherPersonDistinctId]
+        )
     }
 
     public async mergePeople({

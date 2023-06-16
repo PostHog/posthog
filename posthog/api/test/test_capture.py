@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
-
 import lzstring
 import pytest
 import structlog
@@ -34,6 +33,7 @@ from posthog.api.capture import (
 )
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
+from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
@@ -89,14 +89,14 @@ class TestCapture(BaseTest):
     def _send_session_recording_event(
         self,
         number_of_events=1,
-        event_data="data",
+        event_data={},
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
         window_id="def456",
         distinct_id="ghi789",
         timestamp=1658516991883,
-    ):
+    ) -> dict:
         event = {
             "event": "$snapshot",
             "properties": {
@@ -115,6 +115,8 @@ class TestCapture(BaseTest):
         self.client.post(
             "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token}
         )
+
+        return event
 
     def test_is_randomly_parititoned(self):
         """Test is_randomly_partitioned under local configuration."""
@@ -406,6 +408,27 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce.call_count, 2)
 
         validate_response(openapi_spec, response)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_drops_performance_events(self, kafka_produce):
+        self.client.post(
+            "/batch/",
+            data={
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "$performance_event",
+                            "properties": {"distinct_id": "eeee", "token": self.team.api_token},
+                        },
+                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(kafka_produce.call_count, 1)
+        assert "boop" in kafka_produce.call_args_list[0][1]["data"]["data"]
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_emojis_in_text(self, kafka_produce):
@@ -1100,26 +1123,24 @@ class TestCapture(BaseTest):
         )
 
     def test_sentry_tracing_headers(self):
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/e/?ip=1&_=1651741927805",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/decide/",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
@@ -1128,34 +1149,32 @@ class TestCapture(BaseTest):
         # Azure App Insights sends the same tracing headers as Sentry
         # _and_ a request-context header
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/e/?ip=1&_=1651741927805",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"],
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
         )
 
-        response = self.client.generic(
-            "OPTIONS",
+        response = self.client.options(
             "/decide/",
             HTTP_ORIGIN="https://localhost",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
-        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"],
             "X-Requested-With,Content-Type,traceparent,request-id,request-context",
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_recording_data_sent_to_kafka(self, kafka_produce) -> None:
+    def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
         self._send_session_recording_event(session_id=session_id)
         self.assertEqual(kafka_produce.call_count, 1)
@@ -1164,43 +1183,10 @@ class TestCapture(BaseTest):
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
 
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
-        # `$performance_events` are not normal analytics events but rather
-        # displayed along side session recordings. They are sent to the
-        # `KAFKA_SESSION_RECORDING_EVENTS` topic to isolate them from causing
-        # any issues with normal analytics events.
-        session_id = "abc123"
-        window_id = "def456"
-        distinct_id = "ghi789"
-
-        event = {
-            "event": "$performance_event",
-            "properties": {
-                "$session_id": session_id,
-                "$window_id": window_id,
-                "distinct_id": distinct_id,
-            },
-            "offset": 1993,
-        }
-
-        response = self.client.post(
-            "/e/",
-            data={"batch": [event], "api_key": self.team.api_token},
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-
-        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
-        key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, None)
-
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @freeze_time("2021-05-10")
-    def test_recording_data_is_compressed_and_transformed_before_sent_to_kafka(self, kafka_produce, _) -> None:
+    def test_legacy_recording_ingestion_compression_and_transformation(self, kafka_produce, _) -> None:
         self.maxDiff = None
         timestamp = 1658516991883
         session_id = "fake-session-id"
@@ -1208,27 +1194,22 @@ class TestCapture(BaseTest):
         window_id = "fake-window-id"
         snapshot_source = 8
         snapshot_type = 8
-        event_data = "{'foo': 'bar'}"
-        self._send_session_recording_event(
-            timestamp=timestamp,
-            snapshot_source=snapshot_source,
-            snapshot_type=snapshot_type,
-            session_id=session_id,
-            distinct_id=distinct_id,
-            window_id=window_id,
-            event_data=event_data,
-        )
+        event_data = {"foo": "bar"}
+        with self.settings(REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1):
+            self._send_session_recording_event(
+                timestamp=timestamp,
+                snapshot_source=snapshot_source,
+                snapshot_type=snapshot_type,
+                session_id=session_id,
+                distinct_id=distinct_id,
+                window_id=window_id,
+                event_data=event_data,
+            )
         self.assertEqual(kafka_produce.call_count, 1)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
-
-        # Decompress the data sent to kafka to compare it to the original data
-        decompressed_data = gzip.decompress(
-            base64.b64decode(data_sent_to_kafka["properties"]["$snapshot_data"]["data"])
-        ).decode("utf-16", "surrogatepass")
-        data_sent_to_kafka["properties"]["$snapshot_data"]["data"] = decompressed_data
 
         self.assertEqual(
             data_sent_to_kafka,
@@ -1236,25 +1217,10 @@ class TestCapture(BaseTest):
                 "event": "$snapshot",
                 "properties": {
                     "$snapshot_data": {
+                        "chunk_count": 1,
                         "chunk_id": "fake-uuid",
                         "chunk_index": 0,
-                        "chunk_count": 1,
-                        "data": json.dumps(
-                            [
-                                {
-                                    "type": snapshot_type,
-                                    "data": {"source": snapshot_source, "data": event_data},
-                                    "timestamp": timestamp,
-                                }
-                            ]
-                        ),
-                        "events_summary": [
-                            {
-                                "type": snapshot_type,
-                                "data": {"source": snapshot_source},
-                                "timestamp": timestamp,
-                            }
-                        ],
+                        "data": "H4sIAIB3mGAC/42NSwqAQAxD31Fk1m4GUUavIi78ggtR/CxEvLoaPweQQJu2SXoeKRuGmZWBWizBw+GrGipyXfJve+smehZGyh/aRtr+mw2FbqP6LryOmZZOOdPj6/T/1VoiQuWGD4sFq8kRyJlxAaIGxIyyAAAA",
                         "compression": "gzip-base64",
                         "has_full_snapshot": False,
                         "events_summary": [
@@ -1273,21 +1239,75 @@ class TestCapture(BaseTest):
             },
         )
 
-    def test_get_distinct_id_non_json_properties(self) -> None:
-        with self.assertRaises(ValueError):
-            get_distinct_id({"properties": "str"})
-
-        with self.assertRaises(ValueError):
-            get_distinct_id({"properties": 123})
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_large_recording_data_is_split_into_multiple_messages(self, kafka_produce) -> None:
+    def test_legacy_recording_ingestion_large_is_split_into_multiple_messages(self, kafka_produce) -> None:
         data = [
             random.choice(string.ascii_letters) for _ in range(700 * 1024)
         ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
         self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
+
+    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_can_redirect_session_recordings_to_alternative_kafka(
+        self,
+        kafka_produce: MagicMock,
+        default_kafka_producer_mock: MagicMock,
+        session_recording_producer_mock: MagicMock,
+    ) -> None:
+
+        with self.settings(
+            SESSION_RECORDING_KAFKA_HOSTS=["kafka://another-server:9092"],
+            REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
+        ):
+            default_kafka_producer_mock.return_value = KafkaProducer()
+            session_recording_producer_mock.return_value = sessionRecordingKafkaProducer()
+
+            data = "example"
+            self._send_session_recording_event(event_data=data)
+            default_kafka_producer_mock.assert_called()
+            session_recording_producer_mock.assert_called()
+
+            data_sent_to_default_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
+            assert data_sent_to_default_kafka["event"] == "$snapshot"
+            assert data_sent_to_default_kafka["properties"]["$snapshot_data"]["chunk_count"] == 1
+
+            data_sent_to_recording_kafka = json.loads(kafka_produce.call_args_list[1][1]["data"]["data"])
+            assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
+            assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
+
+    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
+    @patch("posthog.api.capture.KafkaProducer")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_uses_does_not_produce_if_session_recording_kafka_unavailable(
+        self,
+        kafka_produce: MagicMock,
+        default_kafka_producer_mock: MagicMock,
+        session_recording_producer_mock: MagicMock,
+    ) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_HOSTS=None,
+            REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
+        ):
+            default_kafka_producer_mock.return_value = KafkaProducer()
+            session_recording_producer_mock.side_effect = Exception("Kafka not available")
+
+            data = "example"
+            self._send_session_recording_event(event_data=data)
+
+            default_kafka_producer_mock.assert_called()
+            session_recording_producer_mock.assert_not_called()
+            assert len(kafka_produce.call_args_list) == 1
+            assert json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])["event"] == "$snapshot"
+
+    def test_get_distinct_id_non_json_properties(self) -> None:
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": "str"})
+
+        with self.assertRaises(ValueError):
+            get_distinct_id({"properties": 123})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):

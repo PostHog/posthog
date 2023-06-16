@@ -14,7 +14,7 @@ from posthog.hogql.constants import (
     ADD_TIMEZONE_TO_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table
+from posthog.hogql.database.models import Table, FunctionCallTable
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
@@ -234,35 +234,27 @@ class _Printer(Visitor):
         if node.join_type is not None:
             join_strings.append(node.join_type)
 
-        if isinstance(node.type, ast.TableAliasType):
-            table_type = node.type.table_type
-            if table_type is None:
-                raise HogQLException(f"Table alias {node.type.alias} does not resolve!")
+        if isinstance(node.type, ast.TableAliasType) or isinstance(node.type, ast.TableType):
+            table_type = node.type
+            while isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+
             if not isinstance(table_type, ast.TableType):
-                raise HogQLException(f"Table alias {node.type.alias} does not resolve to a table!")
+                raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
+
+            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
+            # Skip function call tables like numbers(), s3(), etc.
+            if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
+                extra_where = team_id_guard_for_table(node.type, self.context)
 
             if self.dialect == "clickhouse":
-                table_name = table_type.table.clickhouse_table()
+                sql = table_type.table.to_printed_clickhouse(self.context)
             else:
-                table_name = table_type.table.hogql_table()
-            join_strings.append(self._print_identifier(table_name))
+                sql = table_type.table.to_printed_hogql()
+            join_strings.append(sql)
 
-            if node.alias is not None:
+            if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
-
-            if self.dialect == "clickhouse":
-                # TODO: do this in a separate pass before printing, along with person joins and other transforms
-                extra_where = team_id_guard_for_table(node.type, self.context)
-
-        elif isinstance(node.type, ast.TableType):
-            if self.dialect == "clickhouse":
-                join_strings.append(self._print_identifier(node.type.table.clickhouse_table()))
-            else:
-                join_strings.append(self._print_identifier(node.type.table.hogql_table()))
-
-            if self.dialect == "clickhouse":
-                # TODO: do this in a separate pass before printing, along with person joins and other transforms
-                extra_where = team_id_guard_for_table(node.type, self.context)
 
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
@@ -274,11 +266,15 @@ class _Printer(Visitor):
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
-        elif isinstance(node.type, ast.LazyTableType) and self.dialect == "hogql":
-            join_strings.append(self._print_identifier(node.type.table.hogql_table()))
-
+        elif isinstance(node.type, ast.LazyTableType):
+            if self.dialect == "hogql":
+                join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
+            else:
+                raise HogQLException(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
         else:
-            raise HogQLException("Only selecting from a table or a subquery is supported")
+            raise HogQLException(
+                f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
+            )
 
         if node.table_final:
             join_strings.append("FINAL")
@@ -389,22 +385,20 @@ class _Printer(Visitor):
             isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
         ):
             # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
-            key = f"hogql_val_{len(self.context.values)}"
-            self.context.values[key] = node.value
-            return f"%({key})s"
+            return self.context.add_value(node.value)
         else:
             return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
-        original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
         if node.type is None:
-            raise HogQLException(f"Field {original_field} has no type")
+            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+            raise HogQLException(f"Field {field} has no type")
 
         if self.dialect == "hogql":
             if node.chain == ["*"]:
                 return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
-            return ".".join([self._print_identifier(identifier) for identifier in node.chain])
+            return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
         if node.type is not None:
             if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
@@ -448,33 +442,61 @@ class _Printer(Visitor):
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
             clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
-            args = [self.visit(arg) for arg in node.args]
 
-            if min_args is not None and len(args) < min_args:
+            if min_args is not None and len(node.args) < min_args:
                 if min_args == max_args:
-                    raise HogQLException(f"Function '{node.name}' expects {min_args} arguments. Passed {len(args)}.")
+                    raise HogQLException(
+                        f"Function '{node.name}' expects {min_args} arguments. Passed {len(node.args)}."
+                    )
                 raise HogQLException(
-                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(args)}."
+                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(node.args)}."
                 )
 
-            if max_args is not None and len(args) > max_args:
+            if max_args is not None and len(node.args) > max_args:
                 if min_args == max_args:
-                    raise HogQLException(f"Function '{node.name}' expects {max_args} arguments. Passed {len(args)}.")
+                    raise HogQLException(
+                        f"Function '{node.name}' expects {max_args} arguments. Passed {len(node.args)}."
+                    )
                 raise HogQLException(
-                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(args)}."
+                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(node.args)}."
                 )
 
             if self.dialect == "clickhouse":
-                if (clickhouse_name == "now64" and len(args) == 0) or (
-                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(args) == 1
+                if node.name == "concat":
+                    args: List[str] = []
+                    for arg in node.args:
+                        if isinstance(arg, ast.Constant):
+                            if arg.value is None:
+                                args.append("''")
+                            elif isinstance(arg.value, str):
+                                args.append(self.visit(arg))
+                            else:
+                                args.append(f"toString({self.visit(arg)})")
+                        elif isinstance(arg, ast.Call) and arg.name == "toString":
+                            if len(arg.args) == 1 and isinstance(arg.args[0], ast.Constant):
+                                if arg.args[0].value is None:
+                                    args.append("''")
+                                else:
+                                    args.append(self.visit(arg))
+                            else:
+                                args.append(f"ifNull({self.visit(arg)}, '')")
+                        else:
+                            args.append(f"ifNull(toString({self.visit(arg)}), '')")
+                else:
+                    args = [self.visit(arg) for arg in node.args]
+
+                if (clickhouse_name == "now64" and len(node.args) == 0) or (
+                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
                 ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
+
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
+
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
-                return f"{node.name}({', '.join(args)})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         else:
             all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)
@@ -485,7 +507,7 @@ class _Printer(Visitor):
             raise HogQLException(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise HogQLException(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
+        raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
         inside = self.visit(node.expr)
@@ -495,9 +517,9 @@ class _Printer(Visitor):
 
     def visit_table_type(self, type: ast.TableType):
         if self.dialect == "clickhouse":
-            return self._print_identifier(type.table.clickhouse_table())
+            return type.table.to_printed_clickhouse(self.context)
         else:
-            return self._print_identifier(type.table.hogql_table())
+            return type.table.to_printed_hogql()
 
     def visit_table_alias_type(self, type: ast.TableAliasType):
         return self._print_identifier(type.alias)
@@ -584,9 +606,9 @@ class _Printer(Visitor):
         materialized_property_sql: Optional[str] = None
         if isinstance(table, ast.TableType):
             if self.dialect == "clickhouse":
-                table_name = table.table.clickhouse_table()
+                table_name = table.table.to_printed_clickhouse(self.context)
             else:
-                table_name = table.table.hogql_table()
+                table_name = table.table.to_printed_hogql()
             if field is None:
                 raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
@@ -726,6 +748,12 @@ class _Printer(Visitor):
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_identifier(name)
+        return escape_hogql_identifier(name)
+
+    def _print_hogql_identifier_or_index(self, name: str | int) -> str:
+        # Regular identifiers can't start with a number. Print digit strings as-is for unesacped tuple access.
+        if isinstance(name, int) and str(name).isdigit():
+            return str(name)
         return escape_hogql_identifier(name)
 
     def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:

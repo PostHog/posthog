@@ -9,42 +9,32 @@ from posthog.hogql.errors import NotImplementedException, HogQLException, Syntax
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
-from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
+from posthog.hogql.placeholders import replace_placeholders
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
-
     return node
 
 
-def parse_order_expr(
-    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
-) -> ast.Expr:
+def parse_order_expr(order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(order_expr).orderExpr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
-
     return node
 
 
 def parse_select(
-    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None
 ) -> ast.SelectQuery | ast.SelectUnionQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
-    elif no_placeholders:
-        assert_no_placeholders(node)
     return node
 
 
@@ -54,13 +44,30 @@ def get_parser(query: str) -> HogQLParser:
     stream = CommonTokenStream(lexer)
     parser = HogQLParser(stream)
     parser.removeErrorListeners()
-    parser.addErrorListener(HogQLErrorListener())
+    parser.addErrorListener(HogQLErrorListener(query))
     return parser
 
 
 class HogQLErrorListener(ErrorListener):
+    query: str
+
+    def __init__(self, query: str = ""):
+        super().__init__()
+        self.query = query
+
+    def get_position(self, line, column):
+        lines = self.query.split("\n")
+        try:
+            position = sum(len(lines[i]) + 1 for i in range(line - 1)) + column
+        except IndexError:
+            return -1
+        if position > len(self.query):
+            return -1
+        return position
+
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
-        raise SyntaxException(msg, line=line, column=column)
+        start = max(self.get_position(line, column), 0)
+        raise SyntaxException(msg, start=start, end=len(self.query))
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
@@ -103,7 +110,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
-            macros=self.visit(ctx.withClause()) if ctx.withClause() else None,
+            ctes=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
@@ -441,17 +448,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.BinaryOperation(left=left, right=right, op=op)
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
-        if ctx.PLUS():
-            op = ast.BinaryOperationOp.Add
-        elif ctx.DASH():
-            op = ast.BinaryOperationOp.Sub
-        elif ctx.CONCAT():
-            raise NotImplementedException(f"Yet unsupported text concat operation: {ctx.operator.text}")
-        else:
-            raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
-        return ast.BinaryOperation(left=left, right=right, op=op)
+
+        if ctx.PLUS():
+            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Add)
+        elif ctx.DASH():
+            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Sub)
+        elif ctx.CONCAT():
+            args = []
+            if isinstance(left, ast.Call) and left.name == "concat":
+                args.extend(left.args)
+            else:
+                args.append(left)
+
+            if isinstance(right, ast.Call) and right.name == "concat":
+                args.extend(right.args)
+            else:
+                args.append(right)
+
+            return ast.Call(name="concat", args=args)
+        else:
+            raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():
@@ -523,12 +541,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Tuple(exprs=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [])
 
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
-        object = self.visit(ctx.columnExpr(0))
-        property = self.visit(ctx.columnExpr(1))
-        if isinstance(object, ast.Field) and isinstance(property, ast.Constant):
-            return ast.Field(chain=object.chain + [property.value])
-        else:
-            return ast.ArrayAccess(array=object, property=property)
+        object: ast.Expr = self.visit(ctx.columnExpr(0))
+        property: ast.Expr = self.visit(ctx.columnExpr(1))
+        if isinstance(property, ast.Constant) and property.value == 0:
+            raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
+        return ast.ArrayAccess(array=object, property=property)
+
+    def visitColumnExprPropertyAccess(self, ctx: HogQLParser.ColumnExprPropertyAccessContext):
+        object = self.visit(ctx.columnExpr())
+        property = ast.Constant(value=self.visit(ctx.identifier()))
+        return ast.ArrayAccess(array=object, property=property)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise NotImplementedException(f"Unsupported node: ColumnExprBetween")
@@ -570,7 +592,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Or(exprs=left_array + right_array)
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
-        return ast.TupleAccess(tuple=self.visit(ctx.columnExpr()), index=int(ctx.DECIMAL_LITERAL().getText()))
+        tuple = self.visit(ctx.columnExpr())
+        index = int(ctx.DECIMAL_LITERAL().getText())
+        if index == 0:
+            raise SyntaxException("SQL indexes start from one, not from zero. E.g: array[1]")
+        return ast.TupleAccess(tuple=tuple, index=index)
 
     def visitColumnExprCase(self, ctx: HogQLParser.ColumnExprCaseContext):
         columns = [self.visit(column) for column in ctx.columnExpr()]
@@ -634,21 +660,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
-        macros: Dict[str, ast.Macro] = {}
+        ctes: Dict[str, ast.CTE] = {}
         for expr in ctx.withExpr():
-            macro = self.visit(expr)
-            macros[macro.name] = macro
-        return macros
+            cte = self.visit(expr)
+            ctes[cte.name] = cte
+        return ctes
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=subquery, macro_format="subquery")
+        return ast.CTE(name=name, expr=subquery, cte_type="subquery")
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())
         name = self.visit(ctx.identifier())
-        return ast.Macro(name=name, expr=expr, macro_format="column")
+        return ast.CTE(name=name, expr=expr, cte_type="column")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():
@@ -658,8 +684,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
 
         if len(table) == 0 and len(nested) > 0:
-            if isinstance(nested[0], ast.Expr):
-                return nested[0]
             text = ctx.getText().lower()
             if text == "true":
                 return ast.Constant(value=True)
@@ -747,9 +771,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         ):
             text = parse_string(text)
         return text
-
-    def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):
-        raise NotImplementedException(f"Unsupported node: IdentifierOrNull")
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
         raise NotImplementedException(f"Unsupported node: EnumValue")
