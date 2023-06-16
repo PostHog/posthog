@@ -485,7 +485,6 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
-    All = 'all',
 }
 
 export enum PropertyFilterType {

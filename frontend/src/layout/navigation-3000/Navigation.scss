@@ -371,6 +371,9 @@
     &.SidebarListItem--marker-status-danger {
         --sidebar-list-item-status-color: var(--danger);
     }
+    &.SidebarListItem--marker-status-completion {
+        --sidebar-list-item-status-color: var(--purple);
+    }
 }
 
 .SidebarListItem__link,
@@ -398,6 +401,7 @@
 }
 
 .SidebarListItem__link {
+    row-gap: 1px;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
     &:hover {
         color: inherit;
