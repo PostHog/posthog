@@ -8,14 +8,8 @@ import json
 import os
 import ssl
 from tempfile import NamedTemporaryFile
-from typing import List
 
 from django.conf import settings
-
-try:
-    from urllib.parse import urlparse
-except ImportError:
-    from urlparse import urlparse  # type: ignore
 
 from base64 import standard_b64encode
 
