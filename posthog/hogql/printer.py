@@ -27,6 +27,7 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.cohorts import resolve_cohort_subqueries
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
@@ -68,6 +69,7 @@ def prepare_ast_for_printing(
     node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
+        node = resolve_cohort_subqueries(node, context)
         resolve_lazy_tables(node, stack, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
@@ -379,6 +381,14 @@ class _Printer(Visitor):
             return f"match({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotRegex:
             return f"not(match({left}, {right}))"
+        elif node.op == ast.CompareOperationOp.InCohort:
+            if self.dialect == "clickhouse":
+                raise HogQLException("InCohort is not supported in ClickHouse")
+            return f"{left} IN COHORT {right}"
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            if self.dialect == "clickhouse":
+                raise HogQLException("NotInCohort is not supported in ClickHouse")
+            return f"{left} NOT IN COHORT {right}"
         else:
             raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 

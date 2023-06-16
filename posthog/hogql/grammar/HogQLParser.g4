@@ -118,22 +118,22 @@ columnExpr
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
-    | left=columnExpr ( operator=ASTERISK                                                               // multiply
+    | left=columnExpr ( operator=ASTERISK                                                          // multiply
                  | operator=SLASH                                                                  // divide
                  | operator=PERCENT                                                                // modulo
                  ) right=columnExpr                                                             # ColumnExprPrecedence1
-    | left=columnExpr ( operator=PLUS                                                                   // plus
+    | left=columnExpr ( operator=PLUS                                                              // plus
                  | operator=DASH                                                                   // minus
                  | operator=CONCAT                                                                 // concat
                  ) right=columnExpr                                                             # ColumnExprPrecedence2
-    | left=columnExpr ( operator=EQ_DOUBLE                                                              // equals
+    | left=columnExpr ( operator=EQ_DOUBLE                                                         // equals
                  | operator=EQ_SINGLE                                                              // equals
                  | operator=NOT_EQ                                                                 // notEquals
                  | operator=LE                                                                     // lessOrEquals
                  | operator=GE                                                                     // greaterOrEquals
                  | operator=LT                                                                     // less
                  | operator=GT                                                                     // greater
-                 | operator=GLOBAL? NOT? IN                                                        // in, notIn, globalIn, globalNotIn
+                 | operator=GLOBAL? NOT? IN COHORT?                                                // in, notIn, globalIn, globalNotIn
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
