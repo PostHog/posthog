@@ -94,8 +94,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 )
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
-
-        if stage == EarlyAccessFeature.Stage.ARCHIVED:
+        elif instance.stage == EarlyAccessFeature.Stage.BETA:
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
                 related_feature_flag.filters = {
