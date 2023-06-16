@@ -67,7 +67,7 @@ export function EarlyAccessFeatures(): JSX.Element {
             />
             {showIntro && (
                 <ProductIntroduction
-                    productName="Early Access Features"
+                    productName="Early access features"
                     productKey={ProductKey.EARLY_ACCESS_FEATURES}
                     thingName="feature"
                     description="Allow your users to individually enable or disable features that are in public beta."
@@ -76,50 +76,52 @@ export function EarlyAccessFeatures(): JSX.Element {
                     action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 />
             )}
-            <LemonTable
-                loading={earlyAccessFeaturesLoading}
-                columns={[
-                    {
-                        title: 'Name',
-                        key: 'name',
-                        render(_, feature) {
-                            return (
-                                <>
-                                    <Link to={urls.earlyAccessFeature(feature.id)}>
-                                        <div className="row-name">{feature.name}</div>
-                                    </Link>
-                                    {feature.description && (
-                                        <div className="row-description">{feature.description}</div>
-                                    )}
-                                </>
-                            )
+            {!shouldShowEmptyState && (
+                <LemonTable
+                    loading={earlyAccessFeaturesLoading}
+                    columns={[
+                        {
+                            title: 'Name',
+                            key: 'name',
+                            render(_, feature) {
+                                return (
+                                    <>
+                                        <Link to={urls.earlyAccessFeature(feature.id)}>
+                                            <div className="row-name">{feature.name}</div>
+                                        </Link>
+                                        {feature.description && (
+                                            <div className="row-description">{feature.description}</div>
+                                        )}
+                                    </>
+                                )
+                            },
+                            sorter: (a, b) => a.name.localeCompare(b.name),
                         },
-                        sorter: (a, b) => a.name.localeCompare(b.name),
-                    },
-                    {
-                        title: 'Stage',
-                        dataIndex: 'stage',
-                        render(_, { stage }) {
-                            return (
-                                <LemonTag
-                                    type={
-                                        stage === 'beta'
-                                            ? 'warning'
-                                            : stage === 'general-availability'
-                                            ? 'success'
-                                            : 'default'
-                                    }
-                                    className="uppercase cursor-default"
-                                >
-                                    {stage}
-                                </LemonTag>
-                            )
+                        {
+                            title: 'Stage',
+                            dataIndex: 'stage',
+                            render(_, { stage }) {
+                                return (
+                                    <LemonTag
+                                        type={
+                                            stage === 'beta'
+                                                ? 'warning'
+                                                : stage === 'general-availability'
+                                                ? 'success'
+                                                : 'default'
+                                        }
+                                        className="uppercase cursor-default"
+                                    >
+                                        {stage}
+                                    </LemonTag>
+                                )
+                            },
+                            sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
                         },
-                        sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
-                    },
-                ]}
-                dataSource={earlyAccessFeatures}
-            />
+                    ]}
+                    dataSource={earlyAccessFeatures}
+                />
+            )}
         </>
     )
 }
