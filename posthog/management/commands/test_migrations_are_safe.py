@@ -39,7 +39,7 @@ class Command(BaseCommand):
                         tables_created_so_far.append(table_name)
 
                     if (
-                        re.findall(r"(?<!DROP) (NOT NULL|DEFAULT)", operation_sql, re.M & re.I)
+                        re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
                         and "CREATE TABLE" not in operation_sql
                         and "-- not-null-ignore" not in operation_sql
                     ):

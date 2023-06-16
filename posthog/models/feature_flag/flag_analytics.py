@@ -126,8 +126,9 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
 
         try:
             flag = FeatureFlag.objects.get(team_id=team_id, key=flag_key)
-            flag.has_enriched_analytics = True
-            flag.save()
+            if not flag.has_enriched_analytics:
+                flag.has_enriched_analytics = True
+                flag.save()
         except FeatureFlag.DoesNotExist:
             pass
         except Exception as e:
