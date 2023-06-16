@@ -1,102 +1,191 @@
-import { Extension } from '@tiptap/core'
-import Suggestion, { SuggestionOptions } from '@tiptap/suggestion'
+import { Editor, Extension } from '@tiptap/core'
+import Suggestion, { SuggestionKeyDownProps } from '@tiptap/suggestion'
 
 import { FloatingMenu, ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
 import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
-import { useCallback } from 'react'
+import { forwardRef, useCallback, useImperativeHandle, useState } from 'react'
 import { isCurrentNodeEmpty } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
-import { useKeyboardNavigation } from 'lib/lemon-ui/LemonMenu/useKeyboardNavigation'
-import { LemonMenuOverlay, isLemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { Popover } from 'lib/lemon-ui/Popover'
 
-export function SlashCommands(): JSX.Element | null {
+type SlashCommandsProps = {
+    editor?: any
+    range?: any
+    command?: any
+    onKeyDown?: () => void
+    decorationNode?: any
+}
+
+type SlashCommandsRef = {
+    onKeyDown: (props: SuggestionKeyDownProps) => boolean | undefined
+}
+
+type SlashCommandsItem = {
+    title: string
+    icon?: JSX.Element
+    command: (props: { editor: Editor; insertPostHogNode: (node: NotebookNodeType, properties?: any) => void }) => void
+}
+
+const TEXT_CONTROLS: SlashCommandsItem[] = [
+    {
+        title: 'H1',
+        command: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    },
+    {
+        title: 'H2',
+        command: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    },
+    {
+        title: 'H3',
+        command: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+    },
+    {
+        title: 'B',
+        command: ({ editor }) => editor.chain().focus().toggleBold().run(),
+    },
+    {
+        title: 'I',
+        command: ({ editor }) => editor.chain().focus().toggleBold().run(),
+    },
+]
+
+const SLASH_COMMANDS: SlashCommandsItem[] = [
+    {
+        title: 'HoqQL',
+        icon: <IconQueryEditor />,
+        command: ({ editor }) =>
+            editor
+                .chain()
+                .focus()
+                .insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } })
+                .run(),
+    },
+    {
+        title: 'Events',
+        icon: <IconTableChart />,
+        command: ({ editor }) =>
+            editor
+                .chain()
+                .focus()
+                .insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } })
+                .run(),
+    },
+    {
+        title: 'Persons',
+        icon: <IconCohort />,
+        command: ({ editor }) =>
+            editor
+                .chain()
+                .focus()
+                .insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } })
+                .run(),
+    },
+    {
+        title: 'Session Replays',
+        icon: <IconRecording />,
+        command: ({ editor }) =>
+            editor.chain().focus().insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }).run(),
+    },
+]
+
+const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
+    props,
+    ref
+): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
     const { insertPostHogNode } = useActions(notebookLogic)
 
-    const items = [
-        {
-            title: (
-                <div className="flex items-center gap-1 border-b pb-1">
-                    <LemonButton
-                        status="primary-alt"
-                        size="small"
-                        onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-                    >
-                        H1
-                    </LemonButton>
-                    <LemonButton
-                        status="primary-alt"
-                        size="small"
-                        onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-                    >
-                        H2
-                    </LemonButton>
-                    <LemonButton
-                        status="primary-alt"
-                        size="small"
-                        onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
-                    >
-                        H3
-                    </LemonButton>
-                </div>
-            ),
-            items: [
-                {
-                    icon: <IconRecording />,
-                    label: 'Session Replays',
-                    onClick: () => {
-                        insertPostHogNode(NotebookNodeType.RecordingPlaylist)
-                    },
-                },
-                {
-                    icon: <IconTableChart />,
-                    label: 'Events',
-                    onClick: () => {
-                        insertPostHogNode(NotebookNodeType.Query, {
-                            query: examples['EventsTableFull'],
-                        })
-                    },
-                },
-                {
-                    icon: <IconQueryEditor />,
-                    label: 'HoqQL',
-                    onClick: () => {
-                        insertPostHogNode(NotebookNodeType.Query, {
-                            query: examples['HogQLTable'],
-                        })
-                    },
-                },
-                {
-                    icon: <IconCohort />,
-                    label: 'Persons',
-                    onClick: () => {
-                        insertPostHogNode(NotebookNodeType.Query, {
-                            query: examples['PersonsTableFull'],
-                        })
-                    },
-                },
-            ],
+    const [selectedIndex, setSelectedIndex] = useState(0)
+
+    // const selectItem = (index) => {
+    //     const item = props.items[index]
+
+    //     if (item) {
+    //         props.command({ id: item })
+    //     }
+    // }
+
+    // const upHandler = () => {
+    //     setSelectedIndex((selectedIndex + props.items.length - 1) % props.items.length)
+    // }
+
+    // const downHandler = () => {
+    //     setSelectedIndex((selectedIndex + 1) % props.items.length)
+    // }
+
+    // const enterHandler = () => {
+    //     selectItem(selectedIndex)
+    // }
+
+    // useEffect(() => setSelectedIndex(0), [props.items])
+
+    const onPressEnter = () => {}
+    const onPressUp = () => {}
+    const onPressDown = () => {}
+
+    useImperativeHandle(ref, () => ({
+        onKeyDown: ({ event }) => {
+            const keyMappings = {
+                ArrowUp: onPressUp,
+                ArrowDown: onPressDown,
+                Enter: onPressEnter,
+            }
+
+            if (keyMappings[event.key]) {
+                keyMappings[event.key]()
+                return true
+            }
+
+            return false
         },
-    ]
+    }))
 
-    const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLDivElement, HTMLButtonElement>(
-        items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length
-    )
-
-    console.log('JERE?!')
+    if (!editor) {
+        return null
+    }
 
     return (
-        <div ref={referenceRef}>
-            <LemonMenuOverlay items={items} tooltipPlacement={'right'} itemsRef={itemsRef} />
+        <div className="SlashCommands">
+            <div className="flex items-center gap-1 border-b pb-1">
+                {TEXT_CONTROLS.map((item) => (
+                    <LemonButton
+                        key={item.title}
+                        status="primary-alt"
+                        size="small"
+                        onClick={() => item.command({ editor, insertPostHogNode })}
+                    >
+                        {item.title}
+                    </LemonButton>
+                ))}
+            </div>
+
+            {SLASH_COMMANDS.map((item) => (
+                <LemonButton
+                    key={item.title}
+                    fullWidth
+                    status="stealth"
+                    icon={item.icon}
+                    onClick={() => item.command({ editor, insertPostHogNode })}
+                >
+                    {item.title}
+                </LemonButton>
+            ))}
         </div>
     )
-}
+})
 
-export function FloatingControls(): JSX.Element | null {
+const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommandsPopover(
+    props: SlashCommandsProps,
+    ref
+): JSX.Element | null {
+    return <Popover overlay={<SlashCommands ref={ref} />} visible referenceElement={props.decorationNode} />
+})
+
+export function FloatingSlashCommands(): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
 
     const shouldShow = useCallback((): boolean => {
@@ -146,63 +235,18 @@ export const SlashCommandsExtension = Extension.create({
                     props.command({ editor, range })
                 },
                 items: ({ query }) => {
-                    console.log('ITEMS')
-
-                    return [
-                        {
-                            title: 'H1',
-                            command: ({ editor, range }) => {
-                                editor.chain().focus().deleteRange(range).setNode('heading', { level: 1 }).run()
-                            },
-                        },
-                        {
-                            title: 'H2',
-                            command: ({ editor, range }) => {
-                                editor.chain().focus().deleteRange(range).setNode('heading', { level: 2 }).run()
-                            },
-                        },
-                        {
-                            title: 'bold',
-                            command: ({ editor, range }) => {
-                                editor.chain().focus().deleteRange(range).setMark('bold').run()
-                            },
-                        },
-                        {
-                            title: 'italic',
-                            command: ({ editor, range }) => {
-                                editor.chain().focus().deleteRange(range).setMark('italic').run()
-                            },
-                        },
-                    ]
-                        .filter((item) => item.title.toLowerCase().startsWith(query.toLowerCase()))
-                        .slice(0, 10)
+                    return SLASH_COMMANDS.filter((item) => item.title.toLowerCase().startsWith(query.toLowerCase()))
                 },
 
                 render: () => {
-                    console.log('RENDER')
-                    let renderer: ReactRenderer
+                    let renderer: ReactRenderer<SlashCommandsRef>
 
                     return {
                         onStart: (props) => {
-                            console.log('START', props)
-                            renderer = new ReactRenderer(SlashCommands, {
+                            renderer = new ReactRenderer(SlashCommandsPopover, {
                                 props,
                                 editor: props.editor,
                             })
-
-                            if (!props.clientRect) {
-                                return
-                            }
-
-                            // let popup = tippy('body', {
-                            //     getReferenceClientRect: props.clientRect,
-                            //     appendTo: () => document.body,
-                            //     content: component.element,
-                            //     showOnCreate: true,
-                            //     interactive: true,
-                            //     trigger: 'manual',
-                            //     placement: 'bottom-start',
-                            // })
                         },
 
                         onUpdate(props) {
@@ -211,20 +255,14 @@ export const SlashCommandsExtension = Extension.create({
                             if (!props.clientRect) {
                                 return
                             }
-
-                            // popup[0].setProps({
-                            //     getReferenceClientRect: props.clientRect,
-                            // })
                         },
 
                         onKeyDown(props) {
-                            // if (props.event.key === 'Escape') {
-                            //     popup[0].hide()
-                            //     return true
-                            // }
-                            // return component.ref?.onKeyDown(props)
-
-                            return false
+                            if (props.event.key === 'Escape') {
+                                renderer.destroy()
+                                return true
+                            }
+                            return renderer.ref?.onKeyDown(props) ?? false
                         },
 
                         onExit() {
