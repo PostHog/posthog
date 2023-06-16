@@ -28,16 +28,8 @@ export function allOperatorsToHumanName(operator?: PropertyOperator | null): str
 }
 
 export function propertyValueToHumanName(value?: PropertyFilterValue): string {
-    if (value?.[0]) {
-        return value[0]
-    }
-    if (value === '') {
-        return '(empty string)'
-    }
-    if (!value) {
-        return String(value)
-    }
-    return ''
+    const values = Array.isArray(value) ? value : [value]
+    return values.map((value) => (value === '' ? '(empty string)' : String(value))).join(' or ')
 }
 
 export function getSingularType(type: TaxonomicFilterGroupType): string {
