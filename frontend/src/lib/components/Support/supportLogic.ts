@@ -31,7 +31,7 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `http://go/admin${cloudRegion}/${user.email}`
-    return `Admin: ${link} (project ID ${currentTeamId})`
+    return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
 function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
