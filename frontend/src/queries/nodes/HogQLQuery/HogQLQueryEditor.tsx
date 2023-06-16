@@ -109,6 +109,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     }
                     fullWidth
                     center
+                    data-attr="hogql-query-editor-save"
                 >
                     {!props.setQuery ? 'No permission to update' : 'Update'}
                 </LemonButton>

@@ -39,6 +39,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_MECHANISM: null,
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
+        KAFKA_CLIENT_RACK: null,
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
