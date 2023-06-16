@@ -121,6 +121,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
         SESSION_RECORDING_KAFKA_HOSTS: 'kafka:9092',
+        SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: Change this to 'all' when we release it fully
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
