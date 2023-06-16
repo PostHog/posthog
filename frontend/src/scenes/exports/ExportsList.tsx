@@ -2,8 +2,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from '../urls'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
 import { LemonTag } from '../../lib/lemon-ui/LemonTag/LemonTag'
-import { IconPlay, IconPause } from 'lib/lemon-ui/icons'
-import { useCurrentTeamId, useExports, useExportAction } from './api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { IconPlay, IconPause, IconDelete } from 'lib/lemon-ui/icons'
+import { useCurrentTeamId, useExports, useExportAction, useDeleteExport } from './api'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
@@ -17,7 +18,8 @@ export function Exports(): JSX.Element {
     // useCurrentTeamId hook to get the current team ID, and then use the
     // useExports hook to fetch the list of exports for that team.
     const { currentTeamId } = useCurrentTeamId()
-    const { loading, exports, error } = useExports(currentTeamId)
+    const { exportsState, updateCallback } = useExports(currentTeamId)
+    const { loading, error, exports } = exportsState
 
     // If exports hasn't been set yet, we display a placeholder and a loading
     // spinner.
@@ -103,6 +105,12 @@ export function Exports(): JSX.Element {
                                 error: resumeError,
                             } = useExportAction(currentTeamId, export_.id, 'unpause')
 
+                            const {
+                                deleteExport,
+                                deleting,
+                                error: deleteError,
+                            } = useDeleteExport(currentTeamId, export_.id)
+
                             return (
                                 <div className={clsx('flex flex-wrap')}>
                                     <LemonButton
@@ -124,6 +132,39 @@ export function Exports(): JSX.Element {
                                         icon={export_.paused ? <IconPlay /> : <IconPause />}
                                         tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
                                         loading={pausing || resuming}
+                                        disabled={deleting}
+                                    />
+                                    <LemonButton
+                                        status="danger"
+                                        type="secondary"
+                                        onClick={() => {
+                                            deleteExport().then(() => {
+                                                if (deleteError === null) {
+                                                    updateCallback(undefined)
+                                                    lemonToast['success'](
+                                                        <>
+                                                            <b>{export_.name}</b> has been deleted
+                                                        </>,
+                                                        {
+                                                            toastId: `delete-export-success-${export_.id}`,
+                                                        }
+                                                    )
+                                                } else {
+                                                    lemonToast['error'](
+                                                        <>
+                                                            <b>{export_.name}</b> could not be deleted: {deleteError}
+                                                        </>,
+                                                        {
+                                                            toastId: `delete-export-error-${export_.id}`,
+                                                        }
+                                                    )
+                                                }
+                                            })
+                                        }}
+                                        icon={<IconDelete />}
+                                        tooltip="Permanently delete this BatchExport"
+                                        loading={deleting}
+                                        disabled={pausing || resuming}
                                     />
                                 </div>
                             )
