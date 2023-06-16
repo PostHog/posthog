@@ -94,25 +94,21 @@ export function Exports(): JSX.Element {
                     {
                         title: 'Actions',
                         render: function Render(_, export_) {
-                            const {
-                                executeExportAction: pauseExport,
-                                loading: pausing,
-                                error: pauseError,
-                            } = useExportAction(currentTeamId, export_.id, 'pause')
-                            const {
-                                executeExportAction: resumeExport,
-                                loading: resuming,
-                                error: resumeError,
-                            } = useExportAction(currentTeamId, export_.id, 'unpause')
+                            const { executeExportAction: pauseExport, error: pauseError } = useExportAction(
+                                currentTeamId,
+                                export_.id,
+                                'pause'
+                            )
+                            const { executeExportAction: resumeExport, error: resumeError } = useExportAction(
+                                currentTeamId,
+                                export_.id,
+                                'unpause'
+                            )
 
-                            const {
-                                deleteExport,
-                                deleting,
-                                error: deleteError,
-                            } = useDeleteExport(currentTeamId, export_.id)
+                            const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
                             return (
-                                <div className={clsx('flex flex-wrap')}>
+                                <div className={clsx('flex flex-wrap gap-2')}>
                                     <LemonButton
                                         status="primary"
                                         type="secondary"
@@ -120,19 +116,55 @@ export function Exports(): JSX.Element {
                                             export_.paused
                                                 ? resumeExport().then(() => {
                                                       if (resumeError === null) {
-                                                          export_.paused = false
+                                                          updateCallback(undefined)
+                                                          lemonToast['success'](
+                                                              <>
+                                                                  <b>{export_.name}</b> has been resumed
+                                                              </>,
+                                                              {
+                                                                  toastId: `resume-export-success-${export_.id}`,
+                                                              }
+                                                          )
+                                                      } else {
+                                                          lemonToast['error'](
+                                                              <>
+                                                                  <b>{export_.name}</b> could not be resumed:{' '}
+                                                                  {resumeError}
+                                                              </>,
+                                                              {
+                                                                  toastId: `resume-export-error-${export_.id}`,
+                                                              }
+                                                          )
                                                       }
                                                   })
                                                 : pauseExport().then(() => {
                                                       if (pauseError === null) {
-                                                          export_.paused = true
+                                                          updateCallback(undefined)
+                                                          lemonToast['info'](
+                                                              <>
+                                                                  <b>{export_.name}</b> has been paused
+                                                              </>,
+                                                              {
+                                                                  toastId: `pause-export-info-${export_.id}`,
+                                                              }
+                                                          )
+                                                      } else {
+                                                          lemonToast['error'](
+                                                              <>
+                                                                  <b>{export_.name}</b> could not be resumed:{' '}
+                                                                  {pauseError}
+                                                              </>,
+                                                              {
+                                                                  toastId: `pause-export-error-${export_.id}`,
+                                                              }
+                                                          )
                                                       }
                                                   })
                                         }}
                                         icon={export_.paused ? <IconPlay /> : <IconPause />}
                                         tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
-                                        loading={pausing || resuming}
-                                        disabled={deleting}
+                                        disabled={loading}
+                                        loading={loading}
                                     />
                                     <LemonButton
                                         status="danger"
@@ -163,8 +195,8 @@ export function Exports(): JSX.Element {
                                         }}
                                         icon={<IconDelete />}
                                         tooltip="Permanently delete this BatchExport"
-                                        loading={deleting}
-                                        disabled={pausing || resuming}
+                                        disabled={loading}
+                                        loading={loading}
                                     />
                                 </div>
                             )
