@@ -170,7 +170,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                 ))}
             </div>
 
-            <LemonDivider className="my-0" />
+            <LemonDivider className="my-2" />
 
             {filteredSlashCommands.map((item, index) => (
                 <LemonButton
