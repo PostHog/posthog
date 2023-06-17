@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonCollapse, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonCollapse, LemonCheckbox, Link } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -24,7 +24,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { editPlugin } = useActions(pluginsLogic)
-    const [setupModalIsOpen, setSetupModalIsOpen] = useState(false)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     useEffect(() => {
@@ -69,11 +68,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="primary"
                                         onClick={() => {
-                                            if (!surveyPlugin && !survey.conditions?.is_headless) {
-                                                setSetupModalIsOpen(true)
-                                            } else {
-                                                launchSurvey()
-                                            }
+                                            launchSurvey()
                                         }}
                                     >
                                         Launch
@@ -235,14 +230,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     />
                 </>
             )}
-            <SurveyLaunchSetupModal
-                isOpen={setupModalIsOpen}
-                closeModal={() => setSetupModalIsOpen(false)}
-                launchSurvey={() => {
-                    launchSurvey()
-                    setSetupModalIsOpen(false)
-                }}
-            />
         </div>
     )
 }
@@ -251,37 +238,3 @@ const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
     opt_in_site_apps: true // <--- Add this line
 })`
-
-interface SurveyLaunchSetupModalProps {
-    isOpen: boolean
-    closeModal: () => void
-    launchSurvey: () => void
-}
-
-function SurveyLaunchSetupModal({ isOpen, closeModal, launchSurvey }: SurveyLaunchSetupModalProps): JSX.Element {
-    return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={closeModal}
-            width={600}
-            title="Launch setup instructions"
-            description="To launch this survey, you'll need to make sure you've enabled site apps in your PostHog instance by adding this option:"
-            footer={
-                <div className="flex gap-4">
-                    <LemonButton type="primary" onClick={launchSurvey}>
-                        Launch
-                    </LemonButton>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Cancel
-                    </LemonButton>
-                </div>
-            }
-        >
-            <CodeSnippet language={Language.JavaScript} wrap>
-                {OPT_IN_SNIPPET}
-            </CodeSnippet>
-            Launching this survey will install the surveys app for your project. You can then enable the app and save it
-            to complete the setup.
-        </LemonModal>
-    )
-}
