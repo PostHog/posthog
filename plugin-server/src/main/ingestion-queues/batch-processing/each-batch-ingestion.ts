@@ -108,8 +108,8 @@ export async function eachBatchParallelIngestion(
                         }
                     } catch (error) {
                         status.error('🔥', `Error processing message`, {
-                            name: error.name,
-                            error: error.stack ?? error.message,
+                            stack: error.stack,
+                            error: error,
                         })
 
                         // If there error is a non-retriable error, push

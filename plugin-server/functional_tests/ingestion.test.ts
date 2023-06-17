@@ -432,6 +432,19 @@ test.concurrent('consumer handles messages just less than 1MB gracefully', async
 
     const eventUuid = new UUIDT().toString()
     await capture({ teamId, distinctId, uuid: eventUuid, event: 'custom event', properties: eventProperties })
+
+    // Now push through an event that we think will get processed, with the same
+    // distinct_id. We are relying on this event being processed in order to be
+    // a good indicator that the processing hasn't stalled.
+    const eventUuid2 = new UUIDT().toString()
+    await capture({ teamId, distinctId, uuid: eventUuid2, event: 'custom event', properties: {} })
+
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(teamId, eventUuid2)
+        expect(event).toBeDefined()
+    })
+
+    // TODO: verify we produce to the DLQ topic
 })
 
 test.concurrent('consumer updates timestamp exported to prometheus', async () => {
