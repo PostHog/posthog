@@ -13,6 +13,7 @@ export class DependencyUnavailableError extends Error {
     }
     readonly dependencyName: string
     readonly error: Error
+    readonly isRetriable = true
 }
 
 export async function processError(
