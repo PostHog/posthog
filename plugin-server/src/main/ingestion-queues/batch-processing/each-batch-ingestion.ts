@@ -34,7 +34,7 @@ export enum IngestionOverflowMode {
 }
 
 type IngestionSplitBatch = {
-    toProcess: [KafkaMessage, PipelineEvent][][]
+    toProcess: { message: KafkaMessage; pluginEvent: PipelineEvent }[][]
     toOverflow: KafkaMessage[]
 }
 
@@ -79,7 +79,9 @@ export async function eachBatchParallelIngestion(
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
-        async function processMicroBatches(batches: [KafkaMessage, PipelineEvent][][]): Promise<void> {
+        async function processMicroBatches(
+            batches: { message: KafkaMessage; pluginEvent: PipelineEvent }[][]
+        ): Promise<void> {
             let currentBatch
             let processedBatches = 0
             while ((currentBatch = batches.pop()) !== undefined) {
@@ -90,8 +92,8 @@ export async function eachBatchParallelIngestion(
 
                 // Process overflow ingestion warnings
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
-                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0][1])
-                    const distinct_id = currentBatch[0][1].distinct_id
+                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
+                    const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
                         captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
                             overflowDistinctId: distinct_id,
@@ -100,7 +102,7 @@ export async function eachBatchParallelIngestion(
                 }
 
                 // Process every message sequentially, stash promises to await on later
-                for (const [message, pluginEvent] of currentBatch) {
+                for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = await eachMessage(pluginEvent, queue)
                         if (result.promises) {
@@ -286,11 +288,11 @@ export function splitIngestionBatch(
          * so we just return batches of one to increase concurrency.
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */
-        output.toProcess = kafkaMessages.map((m) => new Array(formPipelineEvent(m)))
+        output.toProcess = kafkaMessages.map((m) => new Array({ message: m, pluginEvent: formPipelineEvent(m) }))
         return output
     }
 
-    const batches: Map<string, [KafkaMessage, PipelineEvent][]> = new Map()
+    const batches: Map<string, { message: KafkaMessage; pluginEvent: PipelineEvent }[]> = new Map()
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
@@ -311,9 +313,9 @@ export function splitIngestionBatch(
         }
         const siblings = batches.get(eventKey)
         if (siblings) {
-            siblings.push([message, pluginEvent])
+            siblings.push({ message, pluginEvent })
         } else {
-            batches.set(eventKey, [[message, pluginEvent]])
+            batches.set(eventKey, [{ message, pluginEvent }])
         }
     }
     output.toProcess = Array.from(batches.values())
