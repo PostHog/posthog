@@ -3,7 +3,7 @@ import { HighLevelProducer, LibrdKafkaError } from 'node-rdkafka-acosom'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
-import { DependencyUnavailableError } from './error'
+import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
@@ -57,6 +57,8 @@ export class KafkaProducerWrapper {
                 // If we get a retriable error, bubble that up so that the
                 // caller can retry.
                 throw new DependencyUnavailableError(error.message, 'Kafka', error)
+            } else if ((error as LibrdKafkaError).code === 10) {
+                throw new MessageSizeTooLarge(error.message, error)
             }
 
             throw error
