@@ -190,7 +190,7 @@ export function SessionRecordingsFilters({
                 setFilters={(payload) => {
                     setLocalFilters(payload)
                 }}
-                typeKey={'session-recordings-2'}
+                typeKey={'session-recordings'}
                 mathAvailability={MathAvailability.None}
                 buttonCopy="Filter for events or actions"
                 hideRename

@@ -233,7 +233,7 @@ export function Experiments(): JSX.Element {
                                             }
                                         }}
                                         options={[
-                                            { label: 'All', value: ProgressStatus.All },
+                                            { label: 'All', value: 'all' },
                                             { label: 'Draft', value: ProgressStatus.Draft },
                                             { label: 'Running', value: ProgressStatus.Running },
                                             { label: 'Complete', value: ProgressStatus.Complete },

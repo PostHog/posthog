@@ -485,7 +485,6 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
-    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -2123,6 +2122,11 @@ export enum EarlyAccessFeatureStage {
     Archived = 'archived',
 }
 
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
@@ -2911,6 +2915,7 @@ export type NotebookListItemType = {
     // id: string
     short_id: string
     title?: string
+    is_template?: boolean
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string
@@ -2918,7 +2923,6 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }

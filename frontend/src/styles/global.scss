@@ -170,8 +170,7 @@ input::-ms-clear {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
     border-radius: var(--radius);
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-family: var(--font-sans);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
     font-size: 1rem;
@@ -517,7 +516,7 @@ input::-ms-clear {
     }
 
     &.or-light-grey {
-        font-family: Inter;
+        font-family: var(--font-sans);
         background-color: var(--mid);
         text-align: center;
         max-width: 50px;
@@ -655,6 +654,13 @@ body {
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
         line-height: 1.5rem;
+    }
+
+    pre,
+    code,
+    kbd,
+    samp {
+        font-family: var(--font-mono);
     }
 
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`

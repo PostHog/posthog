@@ -4,7 +4,9 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, DEBUG
+from posthog.settings.utils import get_from_env
+from posthog.utils import str_to_bool
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -59,3 +61,6 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+
+# Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
+ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)

@@ -6,7 +6,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SurveyType } from 'posthog-js'
 import { useState, useEffect } from 'react'
@@ -19,11 +18,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyPlugin, installingPlugin } = useValues(surveyLogic)
+    const { survey, dataTableQuery, surveyLoading, surveyPlugin } = useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, installSurveyPlugin } =
-        useActions(surveyLogic)
+    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { editPlugin } = useActions(pluginsLogic)
     const [setupModalIsOpen, setSetupModalIsOpen] = useState(false)
@@ -173,17 +171,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                     <CodeSnippet language={Language.JavaScript} wrap>
                                                                         {OPT_IN_SNIPPET}
                                                                     </CodeSnippet>
-                                                                    <div className="flex gap-1 items-center">
-                                                                        <LemonCheckbox checked={!!surveyPlugin} />{' '}
-                                                                        {surveyPlugin ? (
-                                                                            <span>Install survey app</span>
-                                                                        ) : (
-                                                                            <LemonButton onClick={installSurveyPlugin}>
-                                                                                Install the survey app
-                                                                            </LemonButton>
-                                                                        )}{' '}
-                                                                        {installingPlugin && <Spinner />}
-                                                                    </div>
                                                                     <div className="flex items-center gap-1">
                                                                         <LemonCheckbox />{' '}
                                                                         <LemonButton
@@ -252,7 +239,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 isOpen={setupModalIsOpen}
                 closeModal={() => setSetupModalIsOpen(false)}
                 launchSurvey={() => {
-                    installSurveyPlugin()
                     launchSurvey()
                     setSetupModalIsOpen(false)
                 }}

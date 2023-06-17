@@ -11,7 +11,7 @@ export type LemonTagType =
     | 'danger'
     | 'success'
     | 'default'
-    | 'purple'
+    | 'completion'
     | 'caution'
     | 'none'
 

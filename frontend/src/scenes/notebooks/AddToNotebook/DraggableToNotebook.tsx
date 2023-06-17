@@ -70,7 +70,7 @@ export function DraggableToNotebook({
                         <div className="DraggableToNotebook__highlighter">
                             <div className="DraggableToNotebook__highlighter__info">
                                 <span className="DraggableToNotebook__highlighter__info__text">Drag to notebook</span>
-                                <IconJournalPlus />
+                                <IconJournalPlus className="text-lg" />
                             </div>
                         </div>
                     ) : null}

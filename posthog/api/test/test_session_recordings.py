@@ -150,8 +150,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @snapshot_postgres_queries
     def test_listing_recordings_is_not_nplus1_for_persons(self):
-        # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
         with freeze_time("2022-06-03T12:00:00.000Z"):
+            # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
