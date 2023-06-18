@@ -1,6 +1,6 @@
-import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
-import { waitForExpect } from './expectations'
+import { UUIDT } from '../../src/utils/utils'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from '../api'
+import { waitForExpect } from '../expectations'
 
 let organizationId: string
 
@@ -389,62 +389,6 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
         expect(events.length).toBe(1)
         expect(events[0].team_id).toBe(teamId)
     })
-})
-
-test.concurrent('consumer handles messages just less than 1MB gracefully', async () => {
-    // For this we basically want the plugin-server to try and produce a new
-    // message larger than 1MB. We can do this by sending two messages, one with
-    // person_properties that are just under 1MB, and another event with
-    // `properties` that are just under 1MB. The resulting message should be
-    // larger than 1MB after denormalizing the person properties onto the event.
-    // Note that we use compression when producing to Kafka, so we want to try
-    // to produce a message that is just under 1MB *after* compression. To do
-    // this we use random strings for keys and values which will hopefully be
-    // incompressible.
-    const teamId = await createTeam(organizationId)
-    const distinctId = new UUIDT().toString()
-
-    const personProperties = {
-        distinct_id: distinctId,
-        $set: {},
-    }
-
-    for (let i = 0; i < 10000; i++) {
-        personProperties.$set[new UUIDT().toString()] = new UUIDT().toString()
-    }
-
-    const personEventUuid = new UUIDT().toString()
-    await capture({
-        teamId,
-        distinctId,
-        uuid: personEventUuid,
-        event: '$identify',
-        properties: personProperties,
-    })
-
-    const eventProperties = {
-        distinct_id: distinctId,
-    }
-
-    for (let i = 0; i < 10000; i++) {
-        eventProperties[new UUIDT().toString()] = new UUIDT().toString()
-    }
-
-    const eventUuid = new UUIDT().toString()
-    await capture({ teamId, distinctId, uuid: eventUuid, event: 'custom event', properties: eventProperties })
-
-    // Now push through an event that we think will get processed, with the same
-    // distinct_id. We are relying on this event being processed in order to be
-    // a good indicator that the processing hasn't stalled.
-    const eventUuid2 = new UUIDT().toString()
-    await capture({ teamId, distinctId, uuid: eventUuid2, event: 'custom event', properties: {} })
-
-    await waitForExpect(async () => {
-        const [event] = await fetchEvents(teamId, eventUuid2)
-        expect(event).toBeDefined()
-    })
-
-    // TODO: verify we produce to the DLQ topic
 })
 
 test.concurrent('consumer updates timestamp exported to prometheus', async () => {
