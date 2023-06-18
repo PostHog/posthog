@@ -211,7 +211,7 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
                         },
                         {
                             type: 'listItem',
-                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '🚧 HoqQL support' }] }],
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: '🚧 HogQL support' }] }],
                         },
                         {
                             type: 'listItem',

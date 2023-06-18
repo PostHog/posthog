@@ -28,6 +28,7 @@ type SlashCommandsRef = {
 
 type SlashCommandsItem = {
     title: string
+    search?: string
     icon?: JSX.Element
     command: (chain: ChainedCommands) => ChainedCommands
 }
@@ -57,25 +58,29 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
 
 const SLASH_COMMANDS: SlashCommandsItem[] = [
     {
-        title: 'HoqQL',
+        title: 'HogQL',
+        search: 'sql',
         icon: <IconQueryEditor />,
         command: (chain) =>
             chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['HogQLTable'] } }),
     },
     {
         title: 'Events',
+        search: 'data explore',
         icon: <IconTableChart />,
         command: (chain) =>
             chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['EventsTableFull'] } }),
     },
     {
         title: 'Persons',
+        search: 'people users',
         icon: <IconCohort />,
         command: (chain) =>
             chain.insertContent({ type: NotebookNodeType.Query, attrs: { query: examples['PersonsTableFull'] } }),
     },
     {
         title: 'Session Replays',
+        search: 'recordings video',
         icon: <IconRecording />,
         command: (chain) => chain.insertContent({ type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
     },
@@ -93,7 +98,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
 
     const fuse = useMemo(() => {
         return new Fuse(allCommmands, {
-            keys: ['title'],
+            keys: ['title', 'search'],
             threshold: 0.3,
         })
     }, [allCommmands])
@@ -105,15 +110,21 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
         return fuse.search(query).map((result) => result.item)
     }, [query, fuse])
 
-    const filteredSlashCommands = useMemo(() => {
-        return filteredCommands.filter((item) => SLASH_COMMANDS.includes(item))
-    }, [filteredCommands])
+    const filteredSlashCommands = useMemo(
+        () => filteredCommands.filter((item) => SLASH_COMMANDS.includes(item)),
+        [filteredCommands]
+    )
+
+    useEffect(() => {
+        setSelectedIndex(0)
+        setSelectedHorizontalIndex(0)
+    }, [query])
 
     const onPressEnter = (): void => {
         const command =
             selectedIndex === -1
                 ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                : SLASH_COMMANDS[selectedIndex].command
+                : filteredSlashCommands[selectedIndex].command
 
         command(editor.chain().focus().deleteRange(range)).run()
     }
@@ -148,11 +159,11 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
 
             return false
         },
-        [selectedIndex, selectedHorizontalIndex]
+        [selectedIndex, selectedHorizontalIndex, filteredCommands]
     )
 
     // Expose the keydown handler to the tiptap extension
-    useImperativeHandle(ref, () => ({ onKeyDown }))
+    useImperativeHandle(ref, () => ({ onKeyDown }), [onKeyDown])
 
     useEffect(() => {
         if (mode !== 'add') {
@@ -208,6 +219,12 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                     {item.title}
                 </LemonButton>
             ))}
+
+            {filteredSlashCommands.length === 0 && (
+                <div className="text-muted-alt p-1">
+                    Nothing matching <code>/{query}</code>
+                </div>
+            )}
 
             {mode === 'add' && (
                 <>
