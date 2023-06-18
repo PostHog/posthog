@@ -27,7 +27,7 @@
       
       
       
-  ) ENGINE = Kafka('', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -634,7 +634,7 @@
       error_type String,
       error_details String CODEC(ZSTD(3))
   )
-  ENGINE=Kafka('', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
+  ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -660,7 +660,7 @@
       error VARCHAR,
       tags Array(VARCHAR)
       
-  ) ENGINE = Kafka('', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '
 ---
@@ -693,7 +693,7 @@
       
       
       
-  ) ENGINE = Kafka('', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
       SETTINGS kafka_skip_broken_messages = 100
   
@@ -710,7 +710,7 @@
       team_id Int64,
       group_properties VARCHAR
       
-  ) ENGINE = Kafka('', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -725,7 +725,7 @@
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
       
-  ) ENGINE = Kafka('', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -782,7 +782,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  ) ENGINE = Kafka('', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -799,7 +799,7 @@
       is_deleted Int8,
       version UInt64
       
-  ) ENGINE = Kafka('', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -814,7 +814,7 @@
       is_deleted Int8,
       version Int64
       
-  ) ENGINE = Kafka('', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -828,7 +828,7 @@
       team_id Int64,
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
-  ) ENGINE = Kafka('', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -879,7 +879,7 @@
       message VARCHAR,
       instance_id UUID
       
-  ) ENGINE = Kafka('', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -898,7 +898,7 @@
       created_at DateTime64(6, 'UTC')
       
       
-  ) ENGINE = Kafka('', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
   
   '
 ---
@@ -920,7 +920,7 @@
       console_log_count Int64,
       console_warn_count Int64,
       console_error_count Int64
-  ) ENGINE = Kafka('', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
+  ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
 ---
