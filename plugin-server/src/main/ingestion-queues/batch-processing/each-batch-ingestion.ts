@@ -134,7 +134,14 @@ export async function eachBatchParallelIngestion(
                             await queue.pluginsServer.kafkaProducer.queueMessage({
                                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
                                 messages: [
-                                    { ...message, headers: { ...message.headers, 'sentry-event-id': sentryEventId } },
+                                    {
+                                        ...message,
+                                        headers: {
+                                            ...message.headers,
+                                            'sentry-event-id': sentryEventId,
+                                            'event-id': pluginEvent.uuid,
+                                        },
+                                    },
                                 ],
                             })
                         } else {
