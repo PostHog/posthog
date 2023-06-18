@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -18,7 +18,7 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
-from posthog.models import Element, Filter, Person
+from posthog.models import Filter, Person
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -31,25 +31,6 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.utils import convert_property_value, flatten
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
-
-
-class ElementSerializer(serializers.ModelSerializer):
-    event = serializers.CharField()
-
-    class Meta:
-        model = Element
-        fields = [
-            "event",
-            "text",
-            "tag_name",
-            "attr_class",
-            "href",
-            "attr_id",
-            "nth_child",
-            "nth_of_type",
-            "attributes",
-            "order",
-        ]
 
 
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -172,7 +153,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def retrieve(
         self, request: request.Request, pk: Optional[Union[int, str]] = None, *args: Any, **kwargs: Any
     ) -> response.Response:
-
         if not isinstance(pk, str) or not UUIDT.is_valid_uuid(pk):
             return response.Response(
                 {"detail": "Invalid UUID", "code": "invalid", "type": "validation_error"}, status=400
