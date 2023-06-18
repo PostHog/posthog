@@ -1195,7 +1195,7 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        with self.settings(REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1):
+        with self.settings(REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=0):
             self._send_session_recording_event(
                 timestamp=timestamp,
                 snapshot_source=snapshot_source,
