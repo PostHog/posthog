@@ -167,7 +167,8 @@ def _parse_kafka_hosts(hosts_string: str) -> List[str]:
         else:
             hosts.append(host)
 
-    return hosts
+    # We don't want empty strings
+    return [host for host in hosts if host]
 
 
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
@@ -175,7 +176,8 @@ def _parse_kafka_hosts(hosts_string: str) -> List[str]:
 KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
 # Dedicated kafka hosts for session recordings
 SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
-# Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
+# Kafka broker host(s) that is used by clickhouse for ingesting messages.
+# Useful if clickhouse is hosted outside the cluster.
 KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
 
 # can set ('gzip', 'snappy', 'lz4', None)
