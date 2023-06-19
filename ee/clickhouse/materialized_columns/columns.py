@@ -114,7 +114,7 @@ def materialize(
         settings={"alter_sync": 1},
     )
 
-    sync_execute(f"ATTACH TABLE IF NOT EXISTS {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+    sync_execute(f"ATTACH TABLE IF NOT EXISTS {table}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC")
 
     if create_minmax_index:
         add_minmax_index(table, column_name)
