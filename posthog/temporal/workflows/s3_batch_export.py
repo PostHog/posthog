@@ -124,7 +124,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             with create_temporary_file(compression=inputs.compression) as (reader, writer):
                 try:
                     while True:
-                        result = await anext(results_iterator)
+                        try:
+                            result = await anext(results_iterator)
+                        except StopAsyncIteration:
+                            raise ChunkSizeLimitReached()
 
                         if not result:
                             continue
@@ -158,7 +161,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                             break
 
-                except StopAsyncIteration:
+                except ChunkSizeLimitReached:
                     # Upload the last part
                     writer.close()
                     response = s3_client.upload_part(
@@ -181,6 +184,15 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             UploadId=upload_id,
             MultipartUpload={"Parts": parts},
         )
+
+
+class ChunkSizeLimitReached(Exception):
+    """
+    Represents that the chunk size limit has been reached. This is used to
+    control the flow of the chunk writing process.
+    """
+
+    pass
 
 
 @contextlib.contextmanager
