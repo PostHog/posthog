@@ -14,7 +14,7 @@ describe('ExportActionButtons', () => {
 
         const testExports = {
             123: {
-                id: exportId,
+                id: exportId.toString(),
                 name: name,
                 team_id: 1,
                 status: 'RUNNING',
@@ -61,7 +61,7 @@ describe('ExportActionButtons', () => {
 
         const testExports = {
             456: {
-                id: exportId,
+                id: exportId.toString(),
                 name: name,
                 team_id: 1,
                 status: 'RUNNING',
@@ -108,7 +108,7 @@ describe('ExportActionButtons', () => {
 
         const testExports = {
             789: {
-                id: exportId,
+                id: exportId.toString(),
                 name: name,
                 team_id: 1,
                 status: 'RUNNING',
