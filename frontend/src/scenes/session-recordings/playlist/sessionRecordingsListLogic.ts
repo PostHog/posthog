@@ -39,6 +39,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     value: 60,
     operator: PropertyOperator.GreaterThan,
 }
+
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     session_recording_duration: defaultRecordingDurationFilter,
     properties: [],
