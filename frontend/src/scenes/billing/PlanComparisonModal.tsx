@@ -193,7 +193,7 @@ export const PlanComparisonModal = ({
                                             <th scope="row">
                                                 <p className="ml-0">
                                                     <span className="font-bold">{addon.name}</span>
-                                                    <LemonTag type="purple" className="ml-2">
+                                                    <LemonTag type="completion" className="ml-2">
                                                         addon
                                                     </LemonTag>
                                                 </p>

@@ -87,6 +87,23 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
             </div>
+            <div>
+                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <Link
+                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                {person.is_identified ? <strong>Cannot</strong> : 'Can'} be used as `alias_id` - click
+                                for more info.
+                            </>
+                        }
+                    >
+                        <IconInfo className="ml-1 text-base shrink-0" />
+                    </Tooltip>
+                </Link>
+            </div>
         </div>
     )
 }

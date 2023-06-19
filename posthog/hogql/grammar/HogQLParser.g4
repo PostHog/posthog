@@ -92,13 +92,7 @@ columnTypeExpr
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnsExpr (COMMA columnsExpr)*;
-columnsExpr
-    : (tableIdentifier DOT)? ASTERISK  # ColumnsExprAsterisk
-    | LPAREN selectUnionStmt RPAREN    # ColumnsExprSubquery
-    // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
-    | columnExpr                       # ColumnsExprColumn
-    ;
+columnExprList: columnExpr (COMMA columnExpr)*;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -143,7 +137,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with Clickhouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
+    // Note: difference with ClickHouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
     | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
