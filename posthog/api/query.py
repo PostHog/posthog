@@ -147,10 +147,15 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
 
 def _response_to_dict(response: BaseModel) -> Dict:
-    dict = {}
+    returned = {}
     for key in response.__fields__.keys():
-        dict[key] = getattr(response, key)
-    return dict
+        if isinstance(getattr(response, key), list):
+            returned[key] = [_response_to_dict(item) for item in getattr(response, key)]
+        elif isinstance(getattr(response, key), BaseModel):
+            returned[key] = _response_to_dict(getattr(response, key))
+        else:
+            returned[key] = getattr(response, key)
+    return returned
 
 
 def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:

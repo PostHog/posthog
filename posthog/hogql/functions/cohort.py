@@ -3,6 +3,7 @@ from typing import List
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
+from posthog.schema import HogQLNotice
 
 
 def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
@@ -25,6 +26,13 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
     if isinstance(arg.value, str):
         cohorts = Cohort.objects.filter(name=arg.value, team_id=context.team_id).values_list("id", "is_static")
         if len(cohorts) == 1:
+            context.warnings.append(
+                HogQLNotice(
+                    start=arg.start,
+                    end=arg.end,
+                    message=f"Searching for cohort by name. Replace with numeric id {cohorts[0][0]} to protect against renames.",
+                )
+            )
             return cohort_subquery(cohorts[0][0], cohorts[0][1])
         elif len(cohorts) > 1:
             raise HogQLException(f"Found multiple cohorts with name '{arg.value}'", node=arg)

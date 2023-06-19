@@ -134,13 +134,18 @@ export interface HogQLQuery extends DataNode {
     response?: HogQLQueryResponse
 }
 
+export interface HogQLNotice {
+    start?: number
+    end?: number
+    message: string
+}
+
 export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
-    error?: string
-    errorStart?: number
-    errorEnd?: number
+    errors: HogQLNotice[]
+    warnings: HogQLNotice[]
 }
 
 export interface HogQLMetadata extends DataNode {
