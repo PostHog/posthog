@@ -23,7 +23,7 @@ class TestTable(BaseTest):
         table = DataWarehouseTable.objects.create(
             name="bla",
             url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
-            type=DataWarehouseTable.TableType.Parquet,
+            format=DataWarehouseTable.TableFormat.Parquet,
             team=self.team,
             columns={
                 "id": "String",
