@@ -13,7 +13,6 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import S3BatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -31,6 +30,34 @@ if TYPE_CHECKING:
 class CompressionType(enum.Enum):
     GZIP = "gzip"
     NONE = "none"
+
+
+@dataclass
+class S3BatchExportInputs:
+    """Inputs for S3 export workflow.
+
+    Attributes:
+        bucket_name: The S3 bucket we are exporting to.
+        region: The AWS region where the bucket is located.
+        prefix: A prefix for the file name to be created in S3.
+        batch_window_size: The size in seconds of the batch window.
+            For example, for one hour batches, this should be 3600.
+        team_id: The team_id whose data we are exporting.
+        data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
+            scheduled runs and for backfills.
+        compression: The compression format to use. Currently only gzip is supported.
+    """
+
+    bucket_name: str
+    region: str
+    prefix: str
+    batch_window_size: int
+    team_id: int
+    batch_export_id: str
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    data_interval_end: str | None = None
+    compression: CompressionType = CompressionType.NONE
 
 
 @dataclass
