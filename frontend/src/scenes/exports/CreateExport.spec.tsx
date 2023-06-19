@@ -30,13 +30,11 @@ import userEvent from '@testing-library/user-event'
 // Required as LemonSelect uses this when we click on the select button.
 global.ResizeObserver = require('resize-observer-polyfill')
 
-// We call posthog-js throughout the app, so we want to mock it out to avoid it
-// making network requests. We use the jest.mock function to mock out the
-// posthog-js library. For the purposes of these tests we are not interested in
-// simulating any of the library's functionality.
-jest.mock('posthog-js')
+afterEach(() => {
+    jest.useRealTimers()
+})
 
-jest.useFakeTimers({ advanceTimers: 30 })
+jest.setTimeout(5000)
 
 describe('CreateExport', () => {
     it('renders an S3 export form by default and allows submission', async () => {
@@ -74,7 +72,12 @@ describe('CreateExport', () => {
         userEvent.click(await screen.findByText('Canada (Central)'))
 
         // Should be able to submit the form
+
+        jest.useFakeTimers({ advanceTimers: true })
         userEvent.click(getByRole(form, 'button', { name: 'Create Export' }))
+
+        // Wait e.g. for the create request to complete
+        jest.advanceTimersByTime(5000)
 
         // Validate that the export was added to the list of exports, with the
         // correct values.
