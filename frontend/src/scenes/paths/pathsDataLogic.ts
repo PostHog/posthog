@@ -94,7 +94,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 }
             },
         ],
-        pathsLoading: [(s) => [s.insightDataLoading], (insightDataLoading) => insightDataLoading],
         taxonomicGroupTypes: [
             (s) => [s.pathsFilter],
             (pathsFilter) => {

@@ -5,7 +5,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { pathsDataLogic } from './pathsDataLogic'
 
-import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PathNodeCard } from './PathNodeCard'
 import { renderPaths } from './renderPaths'
 import type { PathNodeData } from './pathUtils'
@@ -24,7 +24,7 @@ export function Paths(): JSX.Element {
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { paths, pathsLoading, pathsError, pathsFilter } = useValues(pathsDataLogic(insightProps))
+    const { paths, pathsFilter, insightDataLoading, insightDataError } = useValues(pathsDataLogic(insightProps))
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -37,13 +37,17 @@ export function Paths(): JSX.Element {
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         renderPaths(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodeCards)
-    }, [paths, !pathsLoading, canvasWidth, canvasHeight])
+    }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
+
+    if (insightDataError) {
+        return <InsightErrorState excludeDetail />
+    }
 
     return (
         <div className="h-full w-full overflow-auto" id={id}>
             <div ref={canvasRef} className="Paths" data-attr="paths-viz">
-                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
-                {!pathsError &&
+                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
+                {!insightDataError &&
                     nodeCards &&
                     nodeCards.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
             </div>
