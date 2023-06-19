@@ -9,7 +9,7 @@ import {
     IconCoffee,
     IconCohort,
     IconComment,
-    IconDNS,
+    IconDatabase,
     IconExperiment,
     IconFlag,
     IconGauge,
@@ -221,7 +221,7 @@ function Pages(): JSX.Element {
                     />
                     {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                         <PageButton
-                            icon={<IconDNS />}
+                            icon={<IconDatabase />}
                             identifier={Scene.DataWarehouse}
                             title={'Data Warehouse'}
                             to={urls.dataWarehouse()}
