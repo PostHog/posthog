@@ -500,7 +500,7 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_FUNCTIONS:
-            raise HogQLException(f"Unexpected unresolved HOGQL_FUNCTION '{node.name}(...)'")
+            raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)
