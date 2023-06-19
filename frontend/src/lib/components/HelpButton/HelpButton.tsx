@@ -79,7 +79,7 @@ export function HelpButton({
     customKey,
     inline = false,
     contactOnly = false,
-}: HelpButtonProps): JSX.Element {
+}: HelpButtonProps): JSX.Element | null {
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
@@ -92,6 +92,10 @@ export function HelpButton({
     const { preflight } = useValues(preflightLogic)
 
     const showSupportOptions: boolean = preflight?.cloud || false
+
+    if (contactOnly && !showSupportOptions) {
+        return null // We don't offer support for self-hosted instances
+    }
 
     return (
         <>
