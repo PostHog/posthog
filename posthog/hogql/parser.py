@@ -4,6 +4,7 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleC
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
@@ -76,7 +77,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         end = ctx.stop.stop + 1 if ctx.stop else None
         try:
             node = super().visit(ctx)
-            if isinstance(node, ast.AST):
+            if isinstance(node, AST):
                 node.start = start
                 node.end = end
             return node

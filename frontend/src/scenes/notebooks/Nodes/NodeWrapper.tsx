@@ -1,5 +1,5 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useCallback, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -18,6 +18,7 @@ export interface NodeWrapperProps extends NodeViewProps {
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     heightEstimate?: number | string
     href?: string
+    resizeable?: boolean
 }
 
 export function NodeWrapper({
@@ -27,9 +28,16 @@ export function NodeWrapper({
     selected,
     href,
     heightEstimate = '4rem',
+    resizeable = true,
+    node,
+    updateAttributes,
 }: NodeWrapperProps): JSX.Element {
-    const { ready, shortId } = useValues(notebookLogic)
+    const { shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
+    const contentRef = useRef<HTMLDivElement | null>(null)
+
+    // If resizeable is true then the node attr "height" is required
+    const height = node.attrs.height
 
     useEffect(() => {
         if (selected && shortId) {
@@ -40,6 +48,25 @@ export function NodeWrapper({
         }
     }, [selected])
 
+    const onResizeStart = useCallback((): void => {
+        if (!resizeable) {
+            return
+        }
+        const initialHeightAttr = contentRef.current?.style.height
+        const onResizedEnd = (): void => {
+            window.removeEventListener('mouseup', onResizedEnd)
+            // css resize sets the style attr so we check that to detect changes. Resize obsserver doesn't trigger for style changes
+            const heightAttr = contentRef.current?.style.height
+            if (heightAttr && heightAttr !== initialHeightAttr) {
+                updateAttributes({
+                    height: contentRef.current?.clientHeight,
+                })
+            }
+        }
+
+        window.addEventListener('mouseup', onResizedEnd)
+    }, [resizeable, updateAttributes])
+
     return (
         <NodeViewWrapper
             ref={ref}
@@ -49,7 +76,7 @@ export function NodeWrapper({
             })}
         >
             <ErrorBoundary>
-                {!ready || !inView ? (
+                {!inView ? (
                     <>
                         <div className="h-4" /> {/* Placeholder for the drag handle */}
                         <div style={{ height: heightEstimate }}>
@@ -79,8 +106,17 @@ export function NodeWrapper({
                                 )}
                             </div>
                         </div>
-                        <div className="flex flex-row gap-4 relative z-0">
-                            <div className={clsx('relative mb-2 overflow-y-auto flex-1')}>{children}</div>
+                        <div
+                            ref={contentRef}
+                            className={clsx(
+                                'flex flex-col relative z-0 overflow-hidden min-h-40',
+                                resizeable && 'resize-y'
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ height }}
+                            onMouseDown={onResizeStart}
+                        >
+                            {children}
                         </div>
                     </>
                 )}

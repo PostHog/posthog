@@ -15,6 +15,7 @@
         "KAFKA_ENABLED": "true",
         "KAFKA_HOSTS": "kafka:9092",
         "KAFKA_URL": "kafka://kafka:9092",
+        "SESSION_RECORDING_KAFKA_URL": "kafka://kafka:9092",
         "CLICKHOUST_HOST": "localhost",
         "CLICKHOUSE_DATABASE": "posthog_test",
         "CLICKHOUSE_VERIFY": "False",

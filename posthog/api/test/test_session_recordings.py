@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.api.test.test_team import create_team
 from posthog.models import Organization, Person, SessionRecording
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.test.test_factory import create_session_recording_events
@@ -140,10 +141,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(second_session["viewed"], False)
         self.assertEqual(second_session["person"]["id"], p.pk)
 
+    @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
+    def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
+        self.client.get(f'/api/projects/{self.team.id}/session_recordings?version=3&console_logs=["warn", "error"]')
+        assert len(mock_summary_lister.call_args_list) == 1
+        filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
+        assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
+
     @snapshot_postgres_queries
     def test_listing_recordings_is_not_nplus1_for_persons(self):
-        # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
         with freeze_time("2022-06-03T12:00:00.000Z"):
+            # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)

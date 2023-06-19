@@ -23,6 +23,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             href={urls.featureFlag(id)}
             heightEstimate={'3rem'}
+            resizeable={false}
         >
             <div className="border rounded bg-inverse">
                 <div className="flex items-center gap-2 p-4">

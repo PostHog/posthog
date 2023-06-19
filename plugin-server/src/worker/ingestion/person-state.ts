@@ -12,7 +12,6 @@ import { timeoutGuard } from '../../utils/db/utils'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
-import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
@@ -49,7 +48,6 @@ export class PersonState {
 
     private db: DB
     private statsd: StatsD | undefined
-    private personManager: PersonManager
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
     private poEEmbraceJoin: boolean
 
@@ -60,7 +58,6 @@ export class PersonState {
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined,
-        personManager: PersonManager,
         poEEmbraceJoin: boolean,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
@@ -75,7 +72,6 @@ export class PersonState {
 
         this.db = db
         this.statsd = statsd
-        this.personManager = personManager
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`

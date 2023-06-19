@@ -13,7 +13,11 @@ from posthog.hogql.database.models import (
     LazyJoin,
     VirtualTable,
     Table,
+    DateDatabaseField,
+    FloatDatabaseField,
+    FunctionCallTable,
 )
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -21,7 +25,9 @@ from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTa
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import HogQLException
 from posthog.utils import PersonOnEventsMode
 
@@ -38,14 +44,19 @@ class Database(BaseModel):
     person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
+    session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
 
+    raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
+
+    # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
+    aapl_stock: S3Table = create_aapl_stock_s3_table()
 
     def __init__(self, timezone: Optional[str]):
         super().__init__()
@@ -82,36 +93,52 @@ def serialize_database(database: Database) -> dict:
     tables: Dict[str, List[Dict[str, Any]]] = {}
 
     for table_key in database.__fields__.keys():
-        fields: List[Dict[str, Any]] = []
+        # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
+        if table_key == "aapl_stock":
+            continue
+
+        field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
-        for field_key in table.__fields__.keys() if table else []:
-            field = getattr(table, field_key, None)
+        if isinstance(table, FunctionCallTable):
+            field_input.update(table.get_asterisk())
+        elif isinstance(table, Table):
+            for field in table.__fields__.keys():
+                field_input[field] = getattr(table, field, None)
+
+        field_output: List[Dict[str, Any]] = []
+        for field_key, field in field_input.items():
             if field_key == "team_id":
                 pass
             elif isinstance(field, DatabaseField):
                 if isinstance(field, IntegerDatabaseField):
-                    fields.append({"key": field_key, "type": "integer"})
+                    field_output.append({"key": field_key, "type": "integer"})
+                elif isinstance(field, FloatDatabaseField):
+                    field_output.append({"key": field_key, "type": "float"})
                 elif isinstance(field, StringDatabaseField):
-                    fields.append({"key": field_key, "type": "string"})
+                    field_output.append({"key": field_key, "type": "string"})
                 elif isinstance(field, DateTimeDatabaseField):
-                    fields.append({"key": field_key, "type": "datetime"})
+                    field_output.append({"key": field_key, "type": "datetime"})
+                elif isinstance(field, DateDatabaseField):
+                    field_output.append({"key": field_key, "type": "date"})
                 elif isinstance(field, BooleanDatabaseField):
-                    fields.append({"key": field_key, "type": "boolean"})
+                    field_output.append({"key": field_key, "type": "boolean"})
                 elif isinstance(field, StringJSONDatabaseField):
-                    fields.append({"key": field_key, "type": "json"})
+                    field_output.append({"key": field_key, "type": "json"})
             elif isinstance(field, LazyJoin):
-                fields.append({"key": field_key, "type": "lazy_table", "table": field.join_table.hogql_table()})
+                field_output.append(
+                    {"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()}
+                )
             elif isinstance(field, VirtualTable):
-                fields.append(
+                field_output.append(
                     {
                         "key": field_key,
                         "type": "virtual_table",
-                        "table": field.hogql_table(),
+                        "table": field.to_printed_hogql(),
                         "fields": list(field.__fields__.keys()),
                     }
                 )
             elif isinstance(field, FieldTraverser):
-                fields.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
-        tables[table_key] = fields
+                field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        tables[table_key] = field_output
 
     return tables

@@ -85,7 +85,8 @@ runs:
 
         - name: Wait for Temporal
           shell: bash
-          run: bin/check_temporal_up
+          run: |
+              bin/check_temporal_up
 
         - name: Determine if --snapshot-update should be on
           # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
@@ -119,6 +120,11 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
+
+        - name: Show docker compose log
+          if: ${{ always() }}
+          shell: bash
+          run: docker compose -f docker-compose.dev.yml logs --tail=5000
 
         # Post-tests
 
