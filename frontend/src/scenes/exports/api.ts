@@ -210,12 +210,33 @@ export const useExportAction = (
 export const useExport = (
     teamId: number,
     exportId: string
-): { loading: boolean; export_: BatchExport | undefined; error: Error | undefined } => {
+): {
+    loading: boolean
+    export_: BatchExport | undefined
+    error: Error | undefined
+    updateCallback: (signal: AbortSignal | undefined) => void
+} => {
     // Fetches the export details for the given team and export ID.
     const [loading, setLoading] = useState(true)
     const [export_, setExport] = useState<BatchExport>()
     const [error, setError] = useState<Error>()
 
+    const updateCallback = useCallback(
+        (signal: AbortSignal | undefined) => {
+            fetch(`/api/projects/${teamId}/batch_exports/${exportId}`, { signal })
+                .then((res) => res.json())
+                .then((data) => {
+                    setExport(data)
+                    setLoading(false)
+                })
+                .catch((error) => {
+                    setError(error)
+                    setLoading(false)
+                })
+        },
+        [teamId, exportId]
+    )
+
     useEffect(() => {
         const controller = new AbortController()
         const signal = controller.signal
@@ -223,54 +244,62 @@ export const useExport = (
         setLoading(true)
         setError(undefined)
 
-        fetch(`/api/projects/${teamId}/batch_exports/${exportId}`, { signal })
-            .then((res) => res.json())
-            .then((data) => {
-                setExport(data)
-                setLoading(false)
-            })
-            .catch((error) => {
-                setError(error)
-                setLoading(false)
-            })
+        updateCallback(signal)
 
         return () => controller.abort()
     }, [teamId, exportId])
 
-    return { loading, export_, error }
+    return { loading, export_, error, updateCallback }
 }
 
 export const useExportRuns = (
     teamId: number,
-    exportId: string
-): { loading: boolean; exportRuns: BatchExportRun[] | undefined; error: Error | undefined } => {
+    exportId: string,
+    limit: number | null
+): {
+    loading: boolean
+    exportRuns: BatchExportRun[] | undefined
+    error: Error | undefined
+    updateCallback: (signal: AbortSignal | undefined, numberOfRows: number | null) => Promise<void>
+} => {
     // Fetches the export runs for the given team and export ID.
     const [loading, setLoading] = useState(true)
     const [exportRuns, setExportRuns] = useState<BatchExportRun[]>()
     const [error, setError] = useState<Error>()
 
+    const updateCallback = useCallback(
+        (signal: AbortSignal | undefined, numberOfRows: number | null) => {
+            setLoading(true)
+            setError(undefined)
+
+            const url = numberOfRows
+                ? `/api/projects/${teamId}/batch_exports/${exportId}/runs?limit=${numberOfRows}`
+                : `/api/projects/${teamId}/batch_exports/${exportId}/runs`
+
+            return fetch(url, { signal })
+                .then((res) => res.json() as Promise<BatchExportRunsResponse>)
+                .then((data) => {
+                    setExportRuns(data.results)
+                    setLoading(false)
+                })
+                .catch((error) => {
+                    setError(error)
+                    setLoading(false)
+                })
+        },
+        [teamId, exportId]
+    )
+
     useEffect(() => {
         const controller = new AbortController()
         const signal = controller.signal
 
-        setLoading(true)
-        setError(undefined)
-
-        fetch(`/api/projects/${teamId}/batch_exports/${exportId}/runs`, { signal })
-            .then((res) => res.json() as Promise<BatchExportRunsResponse>)
-            .then((data) => {
-                setExportRuns(data.results)
-                setLoading(false)
-            })
-            .catch((error) => {
-                setError(error)
-                setLoading(false)
-            })
+        updateCallback(signal, limit)
 
         return () => controller.abort()
-    }, [teamId, exportId])
+    }, [teamId, exportId, limit])
 
-    return { loading, exportRuns, error }
+    return { loading, exportRuns, error, updateCallback }
 }
 
 type BatchExportRunStatus =
