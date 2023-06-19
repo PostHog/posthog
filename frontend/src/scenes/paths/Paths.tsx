@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from './pathsDataLogic'
 
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -37,7 +36,7 @@ export function Paths(): JSX.Element {
         const elements = document?.getElementById(id)?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter, setNodeCards)
+        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodeCards)
     }, [paths, !pathsLoading, canvasWidth, canvasHeight])
 
     return (

@@ -4,7 +4,6 @@ import { Dropdown, Tooltip } from 'antd'
 import { InsightLogicProps } from '~/types'
 
 import { pageUrl, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
-import { pathsLogic } from './pathsLogic'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
@@ -17,9 +16,7 @@ export type PathNodeCardProps = {
 
 export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Element | null {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
-    // TODO: convert to data exploration
-    const { openPersonsModal, viewPathToFunnel } = useActions(pathsLogic(insightProps))
+    const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
     const filter = pathsFilter || {}
 

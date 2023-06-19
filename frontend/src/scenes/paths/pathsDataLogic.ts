@@ -1,11 +1,18 @@
-import { kea, path, props, key, connect, selectors } from 'kea'
-import { InsightLogicProps, FilterType, PathType } from '~/types'
+import { kea, path, props, key, connect, selectors, actions, listeners } from 'kea'
+import { InsightLogicProps, FilterType, PathType, PathsFilterType, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { isPathsQuery } from '~/queries/utils'
+import { PathNodeData } from './pathUtils'
+import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightQueryNode } from '~/queries/schema'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -49,10 +56,17 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'insightDataLoading',
                 'insightDataError',
                 'pathsFilter',
+                'dateRange',
             ],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter']],
     })),
+
+    actions({
+        openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
+            props,
+        viewPathToFunnel: (pathItemCard: PathNodeData) => ({ pathItemCard }),
+    }),
 
     selectors({
         results: [
@@ -101,4 +115,62 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             },
         ],
     }),
+
+    listeners(({ values }) => ({
+        openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
+            const filters: Partial<PathsFilterType> = {
+                ...queryNodeToFilter(values.vizQuerySource as InsightQueryNode),
+                path_start_key,
+                path_end_key,
+                path_dropoff_key,
+            }
+            const personsUrl = buildPeopleUrl({
+                date_from: '',
+                date_to: '',
+                filters,
+            })
+            if (personsUrl) {
+                openPersonsModal({
+                    url: personsUrl,
+                    title: pathsTitle({
+                        label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                        isDropOff: Boolean(path_dropoff_key),
+                    }),
+                })
+            }
+        },
+        viewPathToFunnel: ({ pathItemCard }) => {
+            const events = []
+            let currentItemCard = pathItemCard
+            while (currentItemCard.targetLinks.length > 0) {
+                const name = currentItemCard.name.includes('http')
+                    ? '$pageview'
+                    : currentItemCard.name.replace(/(^[0-9]+_)/, '')
+                events.push({
+                    id: name,
+                    name: name,
+                    type: 'events',
+                    order: currentItemCard.depth - 1,
+                    ...(currentItemCard.name.includes('http') && {
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                            },
+                        ],
+                    }),
+                })
+                currentItemCard = currentItemCard.targetLinks[0].source
+            }
+            router.actions.push(
+                urls.insightNew({
+                    insight: InsightType.FUNNELS,
+                    events,
+                    date_from: values.dateRange?.date_from,
+                })
+            )
+        },
+    })),
 ])
