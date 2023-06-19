@@ -329,7 +329,7 @@ async def test_s3_export_workflow_with_gzip_compression(bucket_name, s3_client, 
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(1)
+        for i in range(10000)
     ]
 
     # Insert some data into the `sharded_events` table.
