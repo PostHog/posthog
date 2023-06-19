@@ -1,5 +1,6 @@
 import contextlib
 import datetime as dt
+import enum
 import gzip
 import json
 import os
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
 
 
+class CompressionType(enum.Enum):
+    GZIP = "gzip"
+    NONE = "none"
+
+
 @dataclass
 class S3InsertInputs:
     """Inputs for S3 exports."""
@@ -43,7 +49,7 @@ class S3InsertInputs:
     data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-    compression: Literal["gzip", "none"] = "none"
+    compression: CompressionType = CompressionType.NONE
 
 
 @activity.defn
@@ -138,9 +144,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                         # Write results to S3 when the file reaches 50MB and
                         # reset the file, or if there is nothing else to write.
-                        # TODO: verify what tell actually gives us here by way
-                        # of is it the compressed or uncompressed size. We want
-                        # the compressed size.
+                        #
+                        # TODO: we should be able to avoid using os calls here
+                        # by using e.g. zlib.Compressor and keeping track of the
+                        # compressed size ourselves.
                         file_stats = os.stat(writer.name)
                         file_size = file_stats.st_size
                         if file_size > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
@@ -213,7 +220,7 @@ def create_temporary_file(
     type to use here.
     """
     with tempfile.NamedTemporaryFile("rb") as temp_file:
-        if compression == "gzip":
+        if compression == CompressionType.GZIP:
             with gzip.open(temp_file.name, "wb") as gzip_file:
                 yield temp_file, gzip_file
         else:
