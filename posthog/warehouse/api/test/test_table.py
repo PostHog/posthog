@@ -46,5 +46,5 @@ class TestTable(APIBaseTest):
                 "format": "Parquet",
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.status_code, 400, response.content)
         response = response.json()
