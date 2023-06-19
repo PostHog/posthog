@@ -485,7 +485,6 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
-    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -1481,8 +1480,9 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
 }
 
-export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
     date_marker: dayjs.Dayjs | null
+    created_at: dayjs.Dayjs
 }
 
 export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
@@ -2256,6 +2256,7 @@ export type HotKey =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+    | 'forwardslash'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 

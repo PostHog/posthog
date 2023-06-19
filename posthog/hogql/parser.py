@@ -376,19 +376,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ColumnTypeExprParam")
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
-        return [self.visit(c) for c in ctx.columnsExpr()]
-
-    def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
-        if ctx.tableIdentifier():
-            table = self.visit(ctx.tableIdentifier())
-            return ast.Field(chain=table + ["*"])
-        return ast.Field(chain=["*"])
-
-    def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
-        return self.visit(ctx.selectUnionStmt())
-
-    def visitColumnsExprColumn(self, ctx: HogQLParser.ColumnsExprColumnContext):
-        return self.visit(ctx.columnExpr())
+        return [self.visit(c) for c in ctx.columnExpr()]
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(

@@ -22,7 +22,7 @@ import { notebookSettingsLogic } from './notebookSettingsLogic'
 import posthog from 'posthog-js'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { FloatingControls } from './FloatingControls'
+import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 
 export type NotebookProps = {
     shortId: string
@@ -83,6 +83,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            SlashCommandsExtension,
 
             // Ensure this is last as a fallback for all PostHog links
             // LinkExtension.configure({}),
@@ -167,7 +168,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
-                <FloatingControls />
+                <FloatingSlashCommands />
                 {!notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />

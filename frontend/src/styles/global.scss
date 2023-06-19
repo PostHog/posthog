@@ -621,20 +621,22 @@ body {
         --inverse: var(--bg-3000);
         --mid: var(--bg-3000);
         background: var(--bg-3000);
-        cursor: default; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+        user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
-        ::-webkit-scrollbar {
-            width: 0.5rem;
-            height: 0.5rem;
-        }
-        ::-webkit-scrollbar-track {
-            background: var(--accent-3000);
-        }
-        ::-webkit-scrollbar-thumb {
-            border-radius: 0.25rem;
-            background: var(--trace-3000);
-            &:hover {
-                background: var(--muted-3000);
+        * > {
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+            ::-webkit-scrollbar-track {
+                background: var(--accent-3000);
+            }
+            ::-webkit-scrollbar-thumb {
+                border-radius: 0.25rem;
+                background: var(--trace-3000);
+                &:hover {
+                    background: var(--muted-3000);
+                }
             }
         }
     }
@@ -748,5 +750,12 @@ body {
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
         display: none;
+    }
+}
+
+.posthog-3000 {
+    .ant-radio-button-wrapper {
+        background: var(--secondary-3000);
+        border-color: transparent;
     }
 }

@@ -1,6 +1,6 @@
-import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
-import { waitForExpect } from './expectations'
+import { UUIDT } from '../../src/utils/utils'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from '../api'
+import { waitForExpect } from '../expectations'
 
 let organizationId: string
 

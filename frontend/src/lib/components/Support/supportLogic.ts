@@ -19,7 +19,7 @@ function getSessionReplayLink(): string {
         0
     )
     const link = `http://go/session/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `Session: ${link} (at ${window.location.href})`
+    return `Session: ${link} (at ${window.location.href.replace(/&supportModal=.+($|&)?/, '$1')})`
 }
 
 function getDjangoAdminLink(

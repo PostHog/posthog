@@ -9,7 +9,7 @@ import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ActionType, AnyPropertyFilter, ColumnChoice, EventsTableRowItem } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -281,7 +281,7 @@ export function EventsTable({
                             ? e.substring(18)
                             : e
                         return {
-                            title: keyMapping['event'][key] ? keyMapping['event'][key].label : key,
+                            title: KEY_MAPPING['event'][key] ? KEY_MAPPING['event'][key].label : key,
                             key: key,
                             render: function render(_, item: EventsTableRowItem) {
                                 const { event } = item

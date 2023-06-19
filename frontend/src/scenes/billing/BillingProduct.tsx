@@ -78,7 +78,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.subscribed && (
                                 <div>
-                                    <LemonTag type="purple" icon={<IconCheckmark />}>
+                                    <LemonTag type="completion" icon={<IconCheckmark />}>
                                         Subscribed
                                     </LemonTag>
                                 </div>
@@ -110,7 +110,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             />
                         </>
                     ) : addon.included_with_main_product ? (
-                        <LemonTag type="purple" icon={<IconCheckmark />}>
+                        <LemonTag type="completion" icon={<IconCheckmark />}>
                             Included with plan
                         </LemonTag>
                     ) : (

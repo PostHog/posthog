@@ -1,5 +1,6 @@
 import os
 import json
+from typing import List
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -157,16 +158,27 @@ CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhous
 READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
-# Kafka configs
 
-_parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
+def _parse_kafka_hosts(hosts_string: str) -> List[str]:
+    hosts = []
+    for host in hosts_string.split(","):
+        if "://" in host:
+            hosts.append(urlparse(host).netloc)
+        else:
+            hosts.append(host)
+
+    # We don't want empty strings
+    return [host for host in hosts if host]
+
 
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
-KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
-
-SESSION_RECORDING_KAFKA_URL = os.getenv("SESSION_RECORDING_KAFKA_URL", "")
-SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(SESSION_RECORDING_KAFKA_URL)
+# We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
+KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
+# Dedicated kafka hosts for session recordings
+SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
+# Kafka broker host(s) that is used by clickhouse for ingesting messages.
+# Useful if clickhouse is hosted outside the cluster.
+KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
 
 # can set ('gzip', 'snappy', 'lz4', None)
 SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
@@ -176,9 +188,6 @@ SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRES
 # https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans
 # for details.
 KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
-
-# Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 

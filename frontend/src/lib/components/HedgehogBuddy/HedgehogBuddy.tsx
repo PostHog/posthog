@@ -371,7 +371,7 @@ export class HedgehogActor {
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`,
+                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt})`,
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,
