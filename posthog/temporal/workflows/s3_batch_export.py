@@ -2,6 +2,7 @@ import contextlib
 import datetime as dt
 import gzip
 import json
+import os
 import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, BinaryIO, Generator, List, Literal, Tuple, Union
@@ -137,7 +138,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         # TODO: verify what tell actually gives us here by way
                         # of is it the compressed or uncompressed size. We want
                         # the compressed size.
-                        if writer.tell() and writer.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                        file_stats = os.stat(writer.name)
+                        file_size = file_stats.st_size
+                        if file_size > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
                             activity.logger.info("Uploading part %s", part_number)
 
                             writer.close()
