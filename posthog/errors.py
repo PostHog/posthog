@@ -4,7 +4,11 @@ from typing import Dict
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QueryErrorTooManySimultaneousQueries
+from posthog.exceptions import (
+    EstimatedQueryExecutionTimeTooLong,
+    CHQueryErrorTooManySimultaneousQueries,
+    CHQueryErrorAllConnectionTriesFailed,
+)
 
 
 class InternalCHQueryError(ServerException):
@@ -40,9 +44,12 @@ def wrap_query_error(err: Exception) -> Exception:
         return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
 
     # Return a 512 error for queries that fail due to too many simultaneous queries
-    match = re.search(r"Too many simultaneous queries. Maximum: \(.* max_queries\).", err.message)
-    if match:
-        return QueryErrorTooManySimultaneousQueries(detail=match.group(0))
+    if hasattr(err, "code") and err.code == 202:
+        return CHQueryErrorTooManySimultaneousQueries()
+
+    # Return a 512 error for queries that fail due unable to connect
+    if hasattr(err, "code") and err.code == 279:
+        return CHQueryErrorAllConnectionTriesFailed()
 
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):

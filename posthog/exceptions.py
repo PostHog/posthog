@@ -38,9 +38,14 @@ class EstimatedQueryExecutionTimeTooLong(APIException):
     default_detail = "Estimated query execution time is too long"
 
 
-class QueryErrorTooManySimultaneousQueries(APIException):
+class CHQueryErrorTooManySimultaneousQueries(APIException):
     status_code = 512  # Custom error code
     default_detail = "Too many simultaneous queries"
+
+
+class CHQueryErrorAllConnectionTriesFailed(APIException):
+    status_code = 512  # Custom error code
+    default_detail = "All connection tries failed while connecting to ClickHouse node."
 
 
 class ExceptionContext(TypedDict):
