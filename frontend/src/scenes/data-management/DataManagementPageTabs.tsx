@@ -6,7 +6,6 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export enum DataManagementTab {
@@ -15,7 +14,6 @@ export enum DataManagementTab {
     PropertyDefinitions = 'properties',
     History = 'history',
     IngestionWarnings = 'warnings',
-    Database = 'database',
 }
 
 const tabUrls = {
@@ -24,7 +22,6 @@ const tabUrls = {
     [DataManagementTab.Actions]: urls.actions(),
     [DataManagementTab.History]: urls.dataManagementHistory(),
     [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),
-    [DataManagementTab.Database]: urls.database(),
 }
 
 const eventsTabsLogic = kea<eventsTabsLogicType>({
@@ -48,7 +45,6 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
         ],
-        showDatabaseTab: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HOGQL]],
     },
     actionToUrl: () => ({
         setTab: ({ tab }) => tabUrls[tab as DataManagementTab] || urls.events(),
@@ -68,7 +64,7 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 })
 
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
-    const { showWarningsTab, showDatabaseTab } = useValues(eventsTabsLogic)
+    const { showWarningsTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
 
     return (
@@ -119,18 +115,6 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                     showWarningsTab && {
                         key: DataManagementTab.IngestionWarnings,
                         label: <span data-attr="data-management-warnings-tab">Ingestion Warnings</span>,
-                    },
-
-                    showDatabaseTab && {
-                        key: DataManagementTab.Database,
-                        label: (
-                            <span data-attr="data-management-database-tab">
-                                Database
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </span>
-                        ),
                     },
                 ]}
             />

@@ -19,7 +19,7 @@ export function DataWarehouse(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (
-        <div className="mt-10">
+        <div>
             <PageHeader
                 title={
                     <div className="flex items-center gap-2">
@@ -37,6 +37,15 @@ export function DataWarehouse(): JSX.Element {
                     >
                         New Table
                     </LemonButton>
+                }
+                caption={
+                    <div>
+                        These are the database tables you can query under SQL insights with{' '}
+                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                            HogQL
+                        </a>
+                        . Connect your own tables from S3 to query data from outside posthog
+                    </div>
                 }
             />
             {!user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE] && (
