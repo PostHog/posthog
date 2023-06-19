@@ -88,17 +88,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
     # PostHog Cloud cron jobs
-    if is_cloud():
-        # Verify that persons data is in sync every day at 4 AM UTC
-        sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+    # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
+    # Verify that persons data is in sync every day at 4 AM UTC
+    sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
-        # Every 30 minutes, send decide request counts to the main posthog instance
-        sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
+    # Every 30 minutes, send decide request counts to the main posthog instance
+    sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
 
-    if is_cloud() or settings.DEMO:
-        # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
-        # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-        sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
+    # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
+    # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
+    sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -742,6 +741,9 @@ def calculate_decide_usage() -> None:
     from django.db.models import Q
     from posthoganalytics import Posthog
 
+    if not is_cloud():
+        return
+
     # send EU data to EU, US data to US
     api_key = None
     host = None
@@ -770,7 +772,8 @@ def calculate_decide_usage() -> None:
 def demo_reset_master_team():
     from posthog.tasks.demo_reset_master_team import demo_reset_master_team
 
-    demo_reset_master_team()
+    if is_cloud() or settings.DEMO:
+        demo_reset_master_team()
 
 
 @app.task(ignore_result=True)
@@ -790,6 +793,9 @@ def check_async_migration_health():
 @app.task(ignore_result=True)
 def verify_persons_data_in_sync():
     from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
+
+    if not is_cloud():
+        return
 
     verify()
 
