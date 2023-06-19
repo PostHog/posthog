@@ -14,6 +14,7 @@ export function deserializeAnnotation(annotation: RawAnnotationType, projectTime
     return {
         ...annotation,
         date_marker: annotation.date_marker ? dayjsUtcToTimezone(annotation.date_marker, projectTimezone) : null,
+        created_at: dayjsUtcToTimezone(annotation.created_at, projectTimezone),
     }
 }
 
@@ -21,6 +22,7 @@ export function serializeAnnotation(annotation: AnnotationType): RawAnnotationTy
     return {
         ...annotation,
         date_marker: annotation.date_marker ? annotation.date_marker.toISOString() : null,
+        created_at: annotation.created_at.toISOString(),
     }
 }
 

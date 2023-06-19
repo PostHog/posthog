@@ -14,11 +14,14 @@ import {
     standardAccessories,
     AccessoryInfo,
     accessoryGroups,
+    baseSpritePath,
+    baseSpriteAccessoriesPath,
 } from './sprites/sprites'
 import { FlaggedFeature } from '../FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import './HedgehogBuddy.scss'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -30,6 +33,15 @@ const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
+
+const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
+}
 
 export class HedgehogActor {
     animations = standardAnimations
@@ -50,7 +62,8 @@ export class HedgehogActor {
     animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
-    accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunshine]
+    accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunglasses]
+    darkMode = false
 
     constructor() {
         this.setAnimation('fall')
@@ -58,7 +71,11 @@ export class HedgehogActor {
 
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
+            if (shouldIgnoreInput(e)) {
+                return
+            }
             const key = e.key.toLowerCase()
+
             if ([' ', 'w', 'arrowup'].includes(key)) {
                 this.jump()
             }
@@ -90,11 +107,11 @@ export class HedgehogActor {
         }
 
         const keyUpListener = (e: KeyboardEvent): void => {
-            const key = e.key.toLowerCase()
-
-            if (key === ' ') {
-                this.jump()
+            if (shouldIgnoreInput(e)) {
+                return
             }
+
+            const key = e.key.toLowerCase()
 
             if (['arrowdown', 's'].includes(key)) {
                 this.setAnimation('stop')
@@ -284,9 +301,20 @@ export class HedgehogActor {
 
     render({ onClick }: { onClick: () => void }): JSX.Element {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
+        const imgExt = this.darkMode ? 'dark.png' : 'png'
+        const preloadContent =
+            Object.values(this.animations)
+                .map((x) => `url(${baseSpritePath()}/${x.img}.${imgExt})`)
+                .join(' ') +
+            ' ' +
+            this.accessories
+                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`)
+                .join(' ')
+
         return (
             <div
                 className="HedgehogBuddy"
+                data-content={preloadContent}
                 onMouseDown={() => {
                     let moved = false
                     const onMouseMove = (e: any): void => {
@@ -326,7 +354,7 @@ export class HedgehogActor {
                         imageRendering: 'pixelated',
                         width: SPRITE_SIZE,
                         height: SPRITE_SIZE,
-                        backgroundImage: `url(${this.animation.img})`,
+                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.${imgExt})`,
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
@@ -343,25 +371,10 @@ export class HedgehogActor {
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${accessory.img})`,
+                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt})`,
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,
-                        }}
-                    />
-                ))}
-
-                {/* We need to preload the images to avoid flashing on the first animation
-                    The images are small and this is the best way I could find...  */}
-                {Object.keys(this.animations).map((x) => (
-                    <div
-                        key={x}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            position: 'absolute',
-                            width: 1, // This needs to be 1 as browsers are clever enough to realise the image isn't visible...
-                            height: 1,
-                            backgroundImage: `url(${this.animations[x].img})`,
                         }}
                     />
                 ))}
@@ -385,6 +398,8 @@ export function HedgehogBuddy({
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
+    const { isDarkModeOn } = useValues(themeLogic)
+
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
         if (_actorRef) {
@@ -406,6 +421,10 @@ export function HedgehogBuddy({
     useEffect(() => {
         actor.accessories = accessories
     }, [accessories])
+
+    useEffect(() => {
+        actor.darkMode = isDarkModeOn
+    }, [isDarkModeOn])
 
     useEffect(() => {
         let timer: any = null
@@ -483,7 +502,7 @@ export function HedgehogBuddy({
                         <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG} match>
                             <>
                                 <LemonDivider />
-                                <div className="flex gap-2 my-2 max-w-100 overflow-y-auto">
+                                <div className="flex gap-2 my-2 overflow-y-auto">
                                     {Object.keys(standardAnimations).map((x) => (
                                         <LemonButton
                                             key={x}

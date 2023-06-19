@@ -54,14 +54,13 @@ export class OffsetManager {
 
     public addOffset(topic: string, partition: number, session_id: string, offset: number): void {
         const key = `${topic}-${partition}`
+        const tracker = this.offsetsByPartitionTopic.get(key) || []
 
         if (!this.offsetsByPartitionTopic.has(key)) {
-            this.offsetsByPartitionTopic.set(key, [])
+            this.offsetsByPartitionTopic.set(key, tracker)
         }
 
-        const current = this.offsetsByPartitionTopic.get(key) || []
-        current.push({ session_id, offset })
-        this.offsetsByPartitionTopic.set(key, current)
+        tracker.push({ session_id, offset })
     }
 
     /**

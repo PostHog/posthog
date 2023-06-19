@@ -45,8 +45,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             fullWidth
                             sideIcon={<IconLink />}
                             data-attr="events-table-event-link"
-                            onClick={() =>
-                                copyToClipboard(
+                            onClick={async () =>
+                                await copyToClipboard(
                                     `${window.location.origin}${urls.event(String(event.uuid), event.timestamp)}`,
                                     'link to event'
                                 )

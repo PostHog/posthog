@@ -136,8 +136,8 @@ class ApiRequest {
         return this
     }
 
-    public withQueryString(queryString?: string): ApiRequest {
-        this.queryString = queryString
+    public withQueryString(queryString?: string | Record<string, any>): ApiRequest {
+        this.queryString = typeof queryString === 'object' ? toParams(queryString) : queryString
         return this
     }
 
@@ -1069,8 +1069,14 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<RawAnnotationType>> {
-            return await new ApiRequest().annotations().get()
+        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+            return await new ApiRequest()
+                .annotations()
+                .withQueryString({
+                    limit: params?.limit,
+                    offset: params?.offset,
+                })
+                .get()
         },
         async create(
             data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
@@ -1214,10 +1220,7 @@ const api = {
         async delete(surveyId: Survey['id']): Promise<void> {
             await new ApiRequest().survey(surveyId).delete()
         },
-        async update(
-            surveyId: Survey['id'],
-            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
-        ): Promise<Survey> {
+        async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
     },

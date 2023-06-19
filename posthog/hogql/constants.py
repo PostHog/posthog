@@ -538,6 +538,7 @@ HOGQL_AGGREGATIONS = {
     "argMinIf": 3,
     "argMax": 2,
     "argMaxIf": 3,
+    "argMinMerge": 1,
     "avgWeighted": 2,
     "avgWeightedIf": 3,
     # "topK": 1,
@@ -672,6 +673,7 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPosition": 2,
     "maxIntersectionsPositionIf": 3,
 }
+CHART_FUNCTIONS = {"sparkline": 1}
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
 # Functions where we use a -OrNull variant by default
 ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
@@ -693,5 +695,5 @@ class HogQLSettings(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    readonly: Optional[int] = 1
+    readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60

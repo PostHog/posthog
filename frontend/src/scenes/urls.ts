@@ -1,5 +1,6 @@
 import {
     ActionType,
+    AnnotationType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
@@ -100,6 +101,7 @@ export const urls = {
     surveys: (): string => '/surveys',
     survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
     annotations: (): string => '/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,

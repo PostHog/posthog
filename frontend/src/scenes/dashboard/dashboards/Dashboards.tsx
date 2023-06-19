@@ -72,7 +72,7 @@ export function Dashboards(): JSX.Element {
                         <LemonButton
                             data-attr={'new-notebook'}
                             onClick={() => {
-                                createNotebook(true)
+                                createNotebook()
                             }}
                             type="primary"
                             disabledReason={notebooksLoading ? 'Loading...' : undefined}
