@@ -42,7 +42,7 @@ function toElementsChain(element: HTMLElement): ElementType[] {
                 href: element.getAttribute('href') || undefined,
                 tag_name: element.tagName.toLowerCase(),
                 text: index === 0 ? element.innerText : undefined,
-            } satisfies ElementType)
+            } as ElementType)
     )
 }
 
