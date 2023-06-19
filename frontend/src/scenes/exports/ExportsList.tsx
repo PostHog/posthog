@@ -42,8 +42,8 @@ export function ExportActionButtons({
                 type="secondary"
                 onClick={() => {
                     export_.paused
-                        ? resumeExport().then(() => {
-                              if (resumeError === null) {
+                        ? resumeExport()
+                              .then(() => {
                                   updateCallback(undefined)
                                   lemonToast['success'](
                                       <>
@@ -53,7 +53,8 @@ export function ExportActionButtons({
                                           toastId: `resume-export-success-${export_.id}`,
                                       }
                                   )
-                              } else {
+                              })
+                              .catch(() => {
                                   lemonToast['error'](
                                       <>
                                           <b>{export_.name}</b> could not be resumed: {resumeError}
@@ -62,10 +63,9 @@ export function ExportActionButtons({
                                           toastId: `resume-export-error-${export_.id}`,
                                       }
                                   )
-                              }
-                          })
-                        : pauseExport().then(() => {
-                              if (pauseError === null) {
+                              })
+                        : pauseExport()
+                              .then(() => {
                                   updateCallback(undefined)
                                   lemonToast['info'](
                                       <>
@@ -75,7 +75,8 @@ export function ExportActionButtons({
                                           toastId: `pause-export-info-${export_.id}`,
                                       }
                                   )
-                              } else {
+                              })
+                              .catch(() => {
                                   lemonToast['error'](
                                       <>
                                           <b>{export_.name}</b> could not be resumed: {pauseError}
@@ -84,8 +85,7 @@ export function ExportActionButtons({
                                           toastId: `pause-export-error-${export_.id}`,
                                       }
                                   )
-                              }
-                          })
+                              })
                 }}
                 icon={export_.paused ? <IconPlay /> : <IconPause />}
                 tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
@@ -96,8 +96,8 @@ export function ExportActionButtons({
                 status="danger"
                 type="secondary"
                 onClick={() => {
-                    deleteExport().then(() => {
-                        if (deleteError === null) {
+                    deleteExport()
+                        .then(() => {
                             updateCallback(undefined)
                             lemonToast['success'](
                                 <>
@@ -107,7 +107,8 @@ export function ExportActionButtons({
                                     toastId: `delete-export-success-${export_.id}`,
                                 }
                             )
-                        } else {
+                        })
+                        .catch(() => {
                             lemonToast['error'](
                                 <>
                                     <b>{export_.name}</b> could not be deleted: {deleteError}
@@ -116,8 +117,7 @@ export function ExportActionButtons({
                                     toastId: `delete-export-error-${export_.id}`,
                                 }
                             )
-                        }
-                    })
+                        })
                 }}
                 icon={<IconDelete />}
                 tooltip="Permanently delete this BatchExport"
