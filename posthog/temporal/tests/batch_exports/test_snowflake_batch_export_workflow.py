@@ -302,7 +302,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                         "uuid": event["uuid"],
                         "event": event["event"],
                         "timestamp": event["timestamp"],
-                        "properties": event["properties"],
+                        "properties": json.loads(event["properties"]),
                         "person_id": event["person_id"],
                     }
                     for event in json_data
