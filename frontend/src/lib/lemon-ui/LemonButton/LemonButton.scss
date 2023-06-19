@@ -225,6 +225,28 @@
                     border-color: var(--#{$status}-dark, var(--status));
                 }
             }
+
+            &.LemonButton--link {
+                &:not(.LemonButton--disabled):hover,
+                &.LemonButton--active {
+                    color: var(--#{$status}-light, var(--#{$status}));
+                }
+
+                &:not(.LemonButton--disabled):active {
+                    color: var(--#{$status}-dark, var(--status));
+                }
+            }
+        }
+    }
+
+    &.LemonButton--link {
+        background: none !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        &[href] {
+            text-decoration: underline;
+            text-decoration-thickness: max(0.08em, 1px);
+            text-underline-offset: 0.15em;
         }
     }
 

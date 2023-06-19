@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React, { useContext } from 'react'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconArrowDropDown, IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from '../Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -27,7 +27,7 @@ export interface LemonButtonPropsBase
         | 'aria-haspopup'
     > {
     children?: React.ReactNode
-    type?: 'primary' | 'secondary' | 'tertiary'
+    type?: 'primary' | 'secondary' | 'tertiary' | 'link'
     /** Button color scheme. */
     status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'default-dark'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
@@ -119,6 +119,9 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
             if (loading) {
                 icon = <Spinner monocolor />
+            }
+            if (targetBlank && !sideIcon) {
+                sideIcon = <IconOpenInNew />
             }
 
             let tooltipContent: TooltipProps['title']

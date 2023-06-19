@@ -21,7 +21,7 @@ export function AverageTimeInspector({
     // Inspector button which automatically shows/hides the info text.
     const wrapperRef = useRef<HTMLDivElement | null>(null)
     const infoTextRef = useRef<HTMLDivElement | null>(null)
-    const buttonRef = useRef<HTMLDivElement | null>(null)
+    const buttonRef = useRef<HTMLAnchorElement | null>(null)
     const [infoTextVisible, setInfoTextVisible] = useState(true)
 
     function decideTextVisible(): void {
@@ -54,8 +54,7 @@ export function AverageTimeInspector({
                 Average time:{' '}
             </span>
             <ValueInspectorButton
-                innerRef={buttonRef}
-                style={{ paddingLeft: 0, paddingRight: 0 }}
+                ref={buttonRef}
                 onClick={onClick}
                 disabled={disabled}
                 title={`Average of time elapsed for each ${aggregationTargetLabel.singular} between completing this step and starting the next one.`}

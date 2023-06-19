@@ -17,7 +17,7 @@ import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
-const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
+const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary', 'link']
 
 export default {
     title: 'Lemon UI/Lemon Button',
