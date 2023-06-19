@@ -6,6 +6,7 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+import backoff
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
@@ -15,6 +16,7 @@ from posthog.clickhouse.client.connection import Workload, get_pool
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
+from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QueryErrorTooManySimultaneousQueries
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -71,6 +73,8 @@ def validated_client_query_id() -> Optional[str]:
 
 
 @patchable
+@backoff.on_exception(backoff.expo, QueryErrorTooManySimultaneousQueries, max_tries=3, max_time=60)
+@backoff.on_exception(backoff.expo, EstimatedQueryExecutionTimeTooLong, max_tries=3, max_time=120)
 def sync_execute(
     query,
     args=None,

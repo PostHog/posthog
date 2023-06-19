@@ -38,6 +38,11 @@ class EstimatedQueryExecutionTimeTooLong(APIException):
     default_detail = "Estimated query execution time is too long"
 
 
+class QueryErrorTooManySimultaneousQueries(APIException):
+    status_code = 512  # Custom error code
+    default_detail = "Too many simultaneous queries"
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 
