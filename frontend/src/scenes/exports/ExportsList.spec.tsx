@@ -2,17 +2,20 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 
+import { BatchExport } from './api'
 import { createExportServiceHandlers } from './api-mocks'
-import { ExportActionButtons } from './ExportsList'
+import { ExportActionButtons, Exports } from './ExportsList'
 import { initKeaTests } from '../../test/init'
 import { useMocks } from '../../mocks/jest'
+
+jest.setTimeout(20000)
 
 describe('ExportActionButtons', () => {
     it('renders a pause button that can be clicked to pause an export', async () => {
         const exportId = 123
         const name = `test-export-${Math.random().toString(36).substring(7)}`
 
-        const testExports = {
+        const testExports: { [id: number]: BatchExport } = {
             123: {
                 id: exportId.toString(),
                 name: name,
@@ -21,6 +24,17 @@ describe('ExportActionButtons', () => {
                 paused: false,
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
+                interval: 'hour' as const,
+                destination: {
+                    type: 'S3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'posthog-events',
+                        aws_access_key_id: 'accessKeyId',
+                        aws_secret_access_key: 'secretAccessKey',
+                    },
+                },
             },
         }
         const { exports, handlers } = createExportServiceHandlers(testExports)
@@ -59,7 +73,7 @@ describe('ExportActionButtons', () => {
         const exportId = 456
         const name = `test-export-${Math.random().toString(36).substring(7)}`
 
-        const testExports = {
+        const testExports: { [id: number]: BatchExport } = {
             456: {
                 id: exportId.toString(),
                 name: name,
@@ -68,6 +82,17 @@ describe('ExportActionButtons', () => {
                 paused: true,
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
+                interval: 'hour' as const,
+                destination: {
+                    type: 'S3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'posthog-events',
+                        aws_access_key_id: 'accessKeyId',
+                        aws_secret_access_key: 'secretAccessKey',
+                    },
+                },
             },
         }
         const { exports, handlers } = createExportServiceHandlers(testExports)
@@ -106,7 +131,7 @@ describe('ExportActionButtons', () => {
         const exportId = 789
         const name = `test-export-${Math.random().toString(36).substring(7)}`
 
-        const testExports = {
+        const testExports: { [id: number]: BatchExport } = {
             789: {
                 id: exportId.toString(),
                 name: name,
@@ -115,6 +140,17 @@ describe('ExportActionButtons', () => {
                 paused: false,
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
+                interval: 'hour' as const,
+                destination: {
+                    type: 'S3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'posthog-events',
+                        aws_access_key_id: 'accessKeyId',
+                        aws_secret_access_key: 'secretAccessKey',
+                    },
+                },
             },
         }
         const { exports, handlers } = createExportServiceHandlers(testExports)
@@ -141,5 +177,89 @@ describe('ExportActionButtons', () => {
         await waitFor(() => {
             expect(Object.keys(exports).length).toEqual(0)
         })
+    })
+})
+
+describe('Exports', () => {
+    it('renders a table with 3 exports', async () => {
+        const testExports: { [id: number]: BatchExport } = {
+            1: {
+                id: '1',
+                name: 'test-export-1',
+                team_id: 1,
+                status: 'RUNNING' as const,
+                paused: false,
+                created_at: new Date().toISOString(),
+                last_updated_at: new Date().toISOString(),
+                interval: 'hour' as const,
+                destination: {
+                    type: 'S3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'posthog-events',
+                        aws_access_key_id: 'accessKeyId',
+                        aws_secret_access_key: 'secretAccessKey',
+                    },
+                },
+            },
+            2: {
+                id: '2',
+                name: 'test-export-2',
+                team_id: 1,
+                status: 'RUNNING' as const,
+                paused: false,
+                created_at: new Date().toISOString(),
+                last_updated_at: new Date().toISOString(),
+                interval: 'hour' as const,
+                destination: {
+                    type: 'S3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'posthog-events',
+                        aws_access_key_id: 'accessKeyId',
+                        aws_secret_access_key: 'secretAccessKey',
+                    },
+                },
+            },
+            3: {
+                id: '3',
+                name: 'test-export-3',
+                team_id: 1,
+                status: 'RUNNING' as const,
+                paused: false,
+                created_at: new Date().toISOString(),
+                last_updated_at: new Date().toISOString(),
+                interval: 'hour' as const,
+                destination: {
+                    type: 'S3',
+                    config: {
+                        bucket_name: 'my-bucket',
+                        region: 'us-east-1',
+                        prefix: 'posthog-events',
+                        aws_access_key_id: 'accessKeyId',
+                        aws_secret_access_key: 'secretAccessKey',
+                    },
+                },
+            },
+        }
+
+        const { handlers } = createExportServiceHandlers(testExports)
+        useMocks(handlers)
+        initKeaTests()
+
+        render(<Exports />)
+
+        await waitFor(
+            () => {
+                const exportsTable = screen.getByRole('table')
+                expect(exportsTable).toBeInTheDocument()
+
+                const rows = screen.getAllByRole('row')
+                expect(rows).toHaveLength(4)
+            },
+            { timeout: 5000 }
+        )
     })
 })
