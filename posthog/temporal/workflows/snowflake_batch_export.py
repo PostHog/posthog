@@ -102,20 +102,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                f"""
-                CREATE DATABASE IF NOT EXISTS "{inputs.database}"
-                COMMENT = 'PostHog generated database'
-                """
-            )
-
-            cursor.execute(
-                f"""
-                CREATE SCHEMA IF NOT EXISTS "{inputs.database}"."{inputs.schema}"
-                COMMENT = 'PostHog generated schema'
-                """
-            )
-
             cursor.execute(f'USE DATABASE "{inputs.database}"')
             cursor.execute(f'USE SCHEMA "{inputs.schema}"')
 

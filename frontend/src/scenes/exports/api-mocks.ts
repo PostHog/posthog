@@ -61,6 +61,11 @@ export const createExportServiceHandlers = (
                 return res(ctx.delay(1000), ctx.json(exports[id]))
             },
         },
+        delete: {
+            '/api/projects/:team_id/batch_exports/:export_id': (_: any, res: any, ctx: any) => {
+                return res(ctx.delay(1000))
+            },
+        },
     }
 
     return { handlers, exports }

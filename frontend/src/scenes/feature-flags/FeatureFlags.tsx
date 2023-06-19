@@ -162,8 +162,8 @@ export function OverViewTab({
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={() => {
-                                        copyToClipboard(featureFlag.key, 'feature flag key')
+                                    onClick={async () => {
+                                        await copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
                                     fullWidth
                                 >
