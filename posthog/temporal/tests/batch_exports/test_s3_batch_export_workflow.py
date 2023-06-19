@@ -24,6 +24,7 @@ from posthog.api.test.test_team import acreate_team
 from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
+    CompressionType,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
@@ -360,7 +361,7 @@ async def test_s3_export_workflow_with_gzip_compression(bucket_name, s3_client, 
         data_interval_end=data_interval_end,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
-        compression="gzip",
+        compression=CompressionType.GZIP,
     )
 
     with override_settings(
