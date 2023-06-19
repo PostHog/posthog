@@ -39,7 +39,7 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: IngestionConsumer | null
+    queue: KafkaJSIngestionConsumer | IngestionConsumer | null
     stop: () => Promise<void>
 }
 
@@ -79,8 +79,8 @@ export async function startPluginsServer(
     //    has enabled.
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
-    let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
-    let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
+    let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
