@@ -190,9 +190,9 @@ function Pages(): JSX.Element {
                         />
                     )}
 
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
+                    {featureFlags[FEATURE_FLAGS.SURVEYS] && (
                         <PageButton
-                            icon={<IconDNS />}
+                            icon={<IconFeedback />}
                             identifier={Scene.Surveys}
                             title={'Surveys'}
                             to={urls.surveys()}
@@ -220,7 +220,7 @@ function Pages(): JSX.Element {
                     />
                     {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                         <PageButton
-                            icon={<IconFeedback />}
+                            icon={<IconDNS />}
                             identifier={Scene.DataWarehouse}
                             title={'Data Warehouse'}
                             to={urls.dataWarehouse()}

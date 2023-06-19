@@ -3,25 +3,19 @@ import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { surveysLogic } from './tablesLogic'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductKey } from '~/types'
+import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 
 export const scene: SceneExport = {
-    component: Surveys,
-    logic: surveysLogic,
+    component: DataWarehouse,
+    logic: databaseSceneLogic,
 }
 
-export enum SurveysTabs {
-    All = 'all',
-    Yours = 'yours',
-    Archived = 'archived',
-}
-
-export function Surveys(): JSX.Element {
+export function DataWarehouse(): JSX.Element {
     const { user } = useValues(userLogic)
 
     return (

@@ -1212,7 +1212,7 @@ const api = {
 
     surveys: {
         async list(): Promise<PaginatedResponse<Survey>> {
-            return await new ApiRequest().warehouseTables().get()
+            return await new ApiRequest().surveys().get()
         },
         async get(surveyId: Survey['id']): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).get()
@@ -1232,20 +1232,20 @@ const api = {
         async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
             return await new ApiRequest().dataWarehouseTables().get()
         },
-        async get(tableId: Survey['id']): Promise<DataWarehouseTable> {
+        async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
         },
-        async create(data: Partial<Survey>): Promise<DataWarehouseTable> {
+        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTables().create({ data })
         },
-        async delete(tableId: Survey['id']): Promise<void> {
-            await new ApiRequest().survey(tableId).delete()
+        async delete(tableId: DataWarehouseTable['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).delete()
         },
         async update(
-            tableId: Survey['id'],
-            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
-        ): Promise<Survey> {
-            return await new ApiRequest().survey(tableId).update({ data })
+            tableId: DataWarehouseTable['id'],
+            data: Pick<DataWarehouseTable, 'name'>
+        ): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
         },
     },
 

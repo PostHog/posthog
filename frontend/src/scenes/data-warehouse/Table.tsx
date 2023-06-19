@@ -42,7 +42,7 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                                     editingTable(false)
                                     loadTable()
                                 } else {
-                                    router.actions.push(urls.tables())
+                                    router.actions.push(urls.dataWarehouse())
                                 }
                             }}
                         >
@@ -134,7 +134,7 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                             editingTable(false)
                             loadTable()
                         } else {
-                            router.actions.push(urls.tables())
+                            router.actions.push(urls.dataWarehouse())
                         }
                     }}
                 >
