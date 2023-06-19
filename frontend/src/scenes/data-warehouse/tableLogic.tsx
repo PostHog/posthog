@@ -107,11 +107,11 @@ export const tableLogic = kea<tableLogicType>([
     forms(({ actions, props }) => ({
         table: {
             defaults: { ...NEW_TABLE } as DataWarehouseTable,
-            errors: ({ name, url_pattern, credential, format }) => ({
+            errors: ({ name, url_pattern, access_key, access_secret, format }) => ({
                 name: !name && 'Please enter a name.',
                 url_pattern: !url_pattern && 'Please enter a url pattern.',
-                access_secret: !credential.access_secret && 'Please enter an access secret.',
-                access_key: !credential.access_key && 'Please enter an access key.',
+                access_secret: !access_secret && 'Please enter an access secret.',
+                access_key: !access_key && 'Please enter an access key.',
                 format: !format && 'Please enter the format of your files.',
             }),
             submit: async (tablePayload) => {

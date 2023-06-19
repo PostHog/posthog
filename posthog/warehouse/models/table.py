@@ -38,7 +38,7 @@ ExtractErrors = {
 
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class TableFormat(models.TextChoices):
-        CSV = "csv", "CSV"
+        CSV = "CSV", "CSV"
         Parquet = "Parquet", "Parquet"
 
     name: models.CharField = models.CharField(max_length=128)
