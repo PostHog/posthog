@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("name", models.CharField(max_length=128)),
-                ("format", models.CharField(choices=[("csv", "CSV"), ("Parquet", "Parquet")], max_length=128)),
+                ("format", models.CharField(choices=[("CSV", "CSV"), ("Parquet", "Parquet")], max_length=128)),
                 ("url_pattern", models.CharField(max_length=500)),
                 (
                     "columns",
