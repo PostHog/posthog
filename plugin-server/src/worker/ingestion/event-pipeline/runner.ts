@@ -216,16 +216,17 @@ export class EventPipelineRunner {
     }
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-        status.error('🔔', 'step_failed', { currentStepName, err })
+        const retry = this.shouldRetry(err)
+        status.error('🔔', 'step_failed', { currentStepName, err, retry })
         Sentry.captureException(err, {
-            tags: { team_id: teamId, pipeline_step: currentStepName },
+            tags: { team_id: teamId, pipeline_step: currentStepName, retry },
             extra: { currentArgs, originalEvent: this.originalEvent },
         })
 
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
         // Should we throw or should we drop and send the event to DLQ.
-        if (this.shouldRetry(err)) {
+        if (retry) {
             pipelineStepThrowCounter.labels(currentStepName).inc()
             throw err
         }
