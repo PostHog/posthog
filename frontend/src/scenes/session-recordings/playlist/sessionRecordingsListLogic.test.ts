@@ -446,4 +446,24 @@ describe('sessionRecordingsListLogic', () => {
             }).toMatchValues({ totalFiltersCount: 2 })
         })
     })
+
+    describe('resetting filters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsListLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('resets console log filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    console_logs: ['warn', 'error'],
+                } satisfies Partial<RecordingFilters>)
+                logic.actions.resetFilters()
+            }).toMatchValues({ totalFiltersCount: 0 })
+        })
+    })
 })
