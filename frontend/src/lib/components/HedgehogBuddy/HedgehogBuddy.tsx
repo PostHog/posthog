@@ -34,6 +34,15 @@ const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: 
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
 
+const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
+}
+
 export class HedgehogActor {
     animations = standardAnimations
     iterationCount = 0
@@ -62,7 +71,11 @@ export class HedgehogActor {
 
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
+            if (shouldIgnoreInput(e)) {
+                return
+            }
             const key = e.key.toLowerCase()
+
             if ([' ', 'w', 'arrowup'].includes(key)) {
                 this.jump()
             }
@@ -94,11 +107,11 @@ export class HedgehogActor {
         }
 
         const keyUpListener = (e: KeyboardEvent): void => {
-            const key = e.key.toLowerCase()
-
-            if (key === ' ') {
-                this.jump()
+            if (shouldIgnoreInput(e)) {
+                return
             }
+
+            const key = e.key.toLowerCase()
 
             if (['arrowdown', 's'].includes(key)) {
                 this.setAnimation('stop')
@@ -358,7 +371,7 @@ export class HedgehogActor {
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`,
+                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt})`,
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,

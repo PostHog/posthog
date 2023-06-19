@@ -163,6 +163,9 @@ $_lifecycle_dormant: $_danger;
     --opacity-disabled: 0.6;
     --font-medium: 500;
     --font-semibold: 600;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', Helvetica, Arial,
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 
     // Colors of the PostHog logo
     --brand-blue: #1d4aff;

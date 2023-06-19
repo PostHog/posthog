@@ -1,51 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 import { Chart, ChartItem, TooltipModel } from 'lib/Chart'
-import { range } from 'lib/utils'
-import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
-import { teamLogic } from '../../teamLogic'
-import { IngestionWarningSummary } from './ingestionWarningsLogic'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { offset } from '@floating-ui/react'
 
-import './WarningEventsGraph.scss'
+import './TableCellSparkline.scss'
+import { getColorVar } from 'lib/colors'
 
-export function WarningEventsGraph({ summary }: { summary: IngestionWarningSummary }): JSX.Element {
+export function TableCellSparkline({ labels, data }: { labels?: string[]; data: number[] }): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
-    const { timezone } = useValues(teamLogic)
 
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const [popoverOffset, setPopoverOffset] = useState(0)
 
-    const dates = useMemo(
-        () =>
-            range(0, 30)
-                .map((i) => dayjs().subtract(i, 'days').format('D MMM YYYY'))
-                .reverse(),
-        []
-    )
-    const data = useMemo(() => {
-        const result = new Array(30).fill(0)
-        for (const warning of summary.warnings) {
-            const date = dayjsUtcToTimezone(warning.timestamp, timezone)
-            result[dayjs().diff(date, 'days')] += 1
-        }
-        return result.reverse()
-    }, [summary])
-
     useEffect(() => {
+        // data should always be provided but React can render this without it,
+        // so, fall back to an empty array for safety
+        if (data === undefined) {
+            return
+        }
+
         let chart: Chart
         if (canvasRef.current) {
             chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
                 type: 'bar',
                 data: {
-                    labels: dates,
+                    labels: labels || data.map(() => ''),
                     datasets: [
                         {
-                            data,
+                            data: data,
                             minBarLength: 3,
-                            hoverBackgroundColor: 'brand-blue',
+                            hoverBackgroundColor: getColorVar('primary'),
                         },
                     ],
                 },
@@ -72,13 +57,10 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
                                     setPopoverContent(null)
                                     return
                                 }
-
                                 const datapoint = tooltip.dataPoints[0]
-                                setPopoverContent(
-                                    <>
-                                        {datapoint.label}: {datapoint.formattedValue}
-                                    </>
-                                )
+                                const tooltipLabel = datapoint.label ? `${datapoint.label}: ` : ''
+                                const tooltipContent = `${tooltipLabel} ${datapoint.formattedValue}`
+                                setPopoverContent(<>{tooltipContent}</>)
                                 setPopoverOffset(tooltip.x)
                             },
                         },
@@ -95,10 +77,10 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
         return () => {
             chart?.destroy()
         }
-    }, [summary, dates, data])
+    }, [labels, data])
 
     return (
-        <div className="warning-events-graph">
+        <div className="TableCellSparkline">
             <canvas ref={canvasRef} />
             <Popover
                 visible={!!popoverContent}

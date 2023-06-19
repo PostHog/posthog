@@ -22,6 +22,7 @@ import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
 import { annotationsSidebarLogic } from './sidebars/annotations'
+import { experimentsSidebarLogic } from './sidebars/experiments'
 
 /** A list of navbar sections with items. */
 export const NAVBAR_ITEMS: NavbarItem[][] = [
@@ -90,6 +91,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
             identifier: Scene.Experiments,
             label: 'A/B Testing',
             icon: <IconExperiment />,
+            logic: experimentsSidebarLogic,
         },
     ],
     [

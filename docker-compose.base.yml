@@ -13,6 +13,10 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            interval: 5s
+            timeout: 5s
 
     redis:
         image: redis:6.2.7-alpine
@@ -144,7 +148,9 @@ services:
             - /var/lib/elasticsearch/data
     temporal:
         depends_on:
-            - db
+            db:
+                condition: service_healthy
+
         environment:
             - DB=postgresql
             - DB_PORT=5432

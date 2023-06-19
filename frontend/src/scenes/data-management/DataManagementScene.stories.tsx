@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import { DatabaseSchemaQueryResponse } from '~/queries/schema'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
+import { dayjs } from 'lib/dayjs'
 
 const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     events: [
@@ -91,6 +93,11 @@ export default {
     },
     decorators: [
         mswDecorator({
+            get: {
+                '/api/projects/:team_id/ingestion_warnings/': () => {
+                    return [200, ingestionWarningsResponse(dayjs('2023-02-15T16:00:00.000Z'))]
+                },
+            },
             post: {
                 '/api/projects/:team_id/query/': (req) => {
                     if ((req.body as any).query.kind === 'DatabaseSchemaQuery') {
@@ -107,6 +114,13 @@ export function Database(): JSX.Element {
     useFeatureFlags([FEATURE_FLAGS.HOGQL])
     useEffect(() => {
         router.actions.push(urls.database())
+    }, [])
+    return <App />
+}
+
+export function IngestionWarnings(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.ingestionWarnings())
     }, [])
     return <App />
 }
