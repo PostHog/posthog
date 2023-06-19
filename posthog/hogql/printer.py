@@ -8,7 +8,9 @@ from typing import List, Literal, Optional, Union, cast
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
     CLICKHOUSE_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
@@ -464,7 +466,17 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name == "concat":
+                if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
+                    args: List[str] = []
+                    for idx, arg in enumerate(node.args):
+                        if idx == 0:
+                            if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
+                                args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
+                            else:
+                                args.append(f"toDateTime({self.visit(arg)})")
+                        else:
+                            args.append(self.visit(arg))
+                elif node.name == "concat":
                     args: List[str] = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
