@@ -3,7 +3,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { NotebookListItemType } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { notebooksListLogic } from '../Notebook/notebooksListLogic'
 import { useEffect, useMemo, useState } from 'react'
@@ -52,6 +52,10 @@ export function NotebooksTable(): JSX.Element {
             keyof NotebookListItemType | undefined
         >,
         createdAtColumn<NotebookListItemType>() as LemonTableColumn<
+            NotebookListItemType,
+            keyof NotebookListItemType | undefined
+        >,
+        updatedAtColumn<NotebookListItemType>() as LemonTableColumn<
             NotebookListItemType,
             keyof NotebookListItemType | undefined
         >,
