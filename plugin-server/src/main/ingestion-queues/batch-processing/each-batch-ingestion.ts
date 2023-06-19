@@ -125,15 +125,14 @@ export async function eachBatchParallelIngestion(
                         // node-rdkafka adheres to the `isRetriable` interface.
                         if (error?.isRetriable === false) {
                             const sentryEventId = Sentry.captureException(error)
-                            const eventHeaders: MessageHeader[] = [
-                                { key: 'sentry-event-id', value: sentryEventId },
-                                { key: 'event-id', value: pluginEvent.uuid },
-                            ]
+                            const headers: MessageHeader[] = message.headers ?? []
+                            headers.push({ ['sentry-event-id']: sentryEventId })
+                            headers.push({ ['event-id']: pluginEvent.uuid })
                             await queue.pluginsServer.kafkaProducer.produce({
                                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
                                 value: message.value,
                                 key: message.key,
-                                headers: message.headers ? message.headers.concat(eventHeaders) : eventHeaders,
+                                headers: headers,
                                 waitForAck: true,
                             })
                         } else {
