@@ -11,7 +11,6 @@ import {
     IconComment,
     IconDNS,
     IconExperiment,
-    IconFeedback,
     IconFlag,
     IconGauge,
     IconLive,
@@ -23,6 +22,7 @@ import {
     IconRecording,
     IconRocketLaunch,
     IconSettings,
+    IconSurveys,
     IconTools,
     IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
@@ -192,10 +192,11 @@ function Pages(): JSX.Element {
 
                     {featureFlags[FEATURE_FLAGS.SURVEYS] && (
                         <PageButton
-                            icon={<IconFeedback />}
+                            icon={<IconSurveys />}
                             identifier={Scene.Surveys}
                             title={'Surveys'}
                             to={urls.surveys()}
+                            highlight="beta"
                         />
                     )}
 

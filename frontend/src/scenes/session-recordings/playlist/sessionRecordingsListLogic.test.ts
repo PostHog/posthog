@@ -7,7 +7,7 @@ import {
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
@@ -422,6 +422,48 @@ describe('sessionRecordingsListLogic', () => {
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
             await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
+        })
+    })
+
+    describe('total filters count', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsListLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+        it('starts with a count of zero', async () => {
+            await expectLogic(logic).toMatchValues({ totalFiltersCount: 0 })
+        })
+
+        it('counts console log filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    console_logs: ['warn', 'error'],
+                } satisfies Partial<RecordingFilters>)
+            }).toMatchValues({ totalFiltersCount: 2 })
+        })
+    })
+
+    describe('resetting filters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsListLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('resets console log filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    console_logs: ['warn', 'error'],
+                } satisfies Partial<RecordingFilters>)
+                logic.actions.resetFilters()
+            }).toMatchValues({ totalFiltersCount: 0 })
         })
     })
 })

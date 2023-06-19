@@ -1,4 +1,11 @@
 // This is the incoming message from Kafka
+
+export type RRWebEvent = Record<string, any> & {
+    timestamp: number
+    type: number
+    data: any
+}
+
 export type IncomingRecordingMessage = {
     metadata: {
         topic: string
@@ -11,19 +18,7 @@ export type IncomingRecordingMessage = {
     distinct_id: string
     session_id: string
     window_id?: string
-
-    // Properties data
-    chunk_id: string
-    chunk_index: number
-    chunk_count: number
-    data: string
-    compression: string
-    has_full_snapshot: boolean
-    events_summary: {
-        timestamp: number
-        type: number
-        data: any
-    }[]
+    events: RRWebEvent[]
 }
 
 // This is the incoming message from Kafka

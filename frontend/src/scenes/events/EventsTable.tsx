@@ -9,7 +9,7 @@ import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ActionType, AnyPropertyFilter, ColumnChoice, EventsTableRowItem } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -281,7 +281,7 @@ export function EventsTable({
                             ? e.substring(18)
                             : e
                         return {
-                            title: keyMapping['event'][key] ? keyMapping['event'][key].label : key,
+                            title: KEY_MAPPING['event'][key] ? KEY_MAPPING['event'][key].label : key,
                             key: key,
                             render: function render(_, item: EventsTableRowItem) {
                                 const { event } = item
@@ -545,17 +545,16 @@ export function EventsTable({
                               }
                             : undefined
                     }
+                    footer={
+                        hasNext || isLoadingNext ? (
+                            <div className="m-2 flex items-center">
+                                <LemonButton onClick={fetchNextEvents} loading={isLoadingNext} fullWidth center>
+                                    Load more events
+                                </LemonButton>
+                            </div>
+                        ) : null
+                    }
                 />
-                {hasNext || isLoadingNext ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={fetchNextEvents}
-                        loading={isLoadingNext}
-                        className="my-8 mx-auto"
-                    >
-                        Load more events
-                    </LemonButton>
-                ) : null}
             </div>
             <SessionPlayerModal />
         </>

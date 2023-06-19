@@ -6,18 +6,18 @@ from rest_framework.exceptions import NotAuthenticated, ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportRun,
-    User,
-)
 from posthog.batch_exports.service import (
     backfill_export,
     create_batch_export,
     delete_schedule,
     pause_batch_export,
     unpause_batch_export,
+)
+from posthog.models import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportRun,
+    User,
 )
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
@@ -178,6 +178,15 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         batch_export = self.get_object()
         runs = BatchExportRun.objects.filter(batch_export=batch_export).order_by("-created_at")
+
+        limit = self.request.query_params.get("limit", None)
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
+
+            runs = runs[:limit]
 
         page = self.paginate_queryset(runs)
         if page is not None:

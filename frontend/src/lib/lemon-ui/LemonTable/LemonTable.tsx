@@ -81,6 +81,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     style?: React.CSSProperties
     'data-attr'?: string
     display?: 'stealth' | 'default'
+    /** Footer to be shown below the table. */
+    footer?: React.ReactNode
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -113,6 +115,7 @@ export function LemonTable<T extends Record<string, any>>({
     style,
     'data-attr': dataAttr,
     display = 'default',
+    footer,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -402,6 +405,8 @@ export function LemonTable<T extends Record<string, any>>({
                             )}
                         </tbody>
                     </table>
+                    {footer && <div className="LemonTable__footer">{footer}</div>}
+
                     <PaginationControl {...paginationState} nouns={nouns} />
                     <div className="LemonTable__overlay" />
                 </div>

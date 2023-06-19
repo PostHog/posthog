@@ -101,7 +101,3 @@ PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
     from ee.settings import *  # noqa: F401, F403
-
-# TODO: We can remove this line and essentially disable all posthog-cloud specific code before we remove the image all-together
-# Lastly, cloud settings override and modify all
-from posthog.settings.cloud import *  # noqa: F401, E402

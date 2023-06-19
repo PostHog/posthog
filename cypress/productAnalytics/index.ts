@@ -147,7 +147,7 @@ export const insight = {
             cy.get(`[data-attr="${selector}"] textarea`).type('{del}', { force: true })
         }
 
-        cy.get(`[data-attr="${selector}"] button`).click()
+        cy.get(`[data-attr="${selector}-save"]`).click()
     },
 }
 

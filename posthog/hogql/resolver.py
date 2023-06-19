@@ -286,7 +286,8 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType()
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
+
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
@@ -447,6 +448,10 @@ def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.
             raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name)
+
+        if scope.parent:
+            return lookup_field_by_name(scope.parent, name)
+
         return None
 
 

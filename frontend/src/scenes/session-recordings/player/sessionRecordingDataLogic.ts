@@ -430,7 +430,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
                             try {
                                 const snapshotLine = JSON.parse(l)
-                                const snapshotData = JSON.parse(snapshotLine['data'])
+                                const snapshotData = snapshotLine['data']
 
                                 return snapshotData.map((d: any) => ({
                                     windowId: snapshotLine['window_id'],
@@ -565,7 +565,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { person } = values.sessionPlayerData
 
-                    // TODO: Move this to an optimised HoqQL query when available...
+                    // TODO: Move this to an optimised HogQL query when available...
                     try {
                         const res: any = await api.query({
                             kind: 'EventsQuery',

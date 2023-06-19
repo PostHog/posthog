@@ -6,12 +6,16 @@ from typing import List, Literal, Optional, Union, cast
 
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.constants import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
     CLICKHOUSE_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
     ADD_TIMEZONE_TO_FUNCTIONS,
+    CHART_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable
@@ -96,15 +100,15 @@ class _Printer(Visitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[ast.AST]] = None,
+        stack: Optional[List[AST]] = None,
         settings: Optional[HogQLSettings] = None,
     ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[ast.AST] = stack or []  # Keep track of all traversed nodes.
+        self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
 
-    def visit(self, node: ast.AST):
+    def visit(self, node: AST):
         self.stack.append(node)
         response = super().visit(node)
         self.stack.pop()
@@ -462,7 +466,17 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
-                if node.name == "concat":
+                if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
+                    args: List[str] = []
+                    for idx, arg in enumerate(node.args):
+                        if idx == 0:
+                            if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
+                                args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
+                            else:
+                                args.append(f"toDateTime({self.visit(arg)})")
+                        else:
+                            args.append(self.visit(arg))
+                elif node.name == "concat":
                     args: List[str] = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
@@ -497,6 +511,15 @@ class _Printer(Visitor):
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+        elif node.name in CHART_FUNCTIONS:
+            if len(node.args) != 1:
+                raise HogQLException(
+                    f"Chart function '{node.name}' expects exactly one argument. Passed {len(node.args)}"
+                )
+            sparkline = f"tuple('__hogql_chart_type', 'sparkline', 'results', {self.visit(node.args[0])})"
+            if isinstance(self.stack[-1], ast.Alias):
+                return sparkline
+            return f"{sparkline} AS sparkline"
         else:
             all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)
@@ -685,7 +708,7 @@ class _Printer(Visitor):
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise HogQLException("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
-    def visit_unknown(self, node: ast.AST):
+    def visit_unknown(self, node: AST):
         raise HogQLException(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):
