@@ -44,6 +44,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                 {
                     key: 'feature-flags',
                     title: 'Feature Flags',
+                    loading: featureFlagsLoading,
                     items: relevantFeatureFlags.map(([featureFlag, matches]) => {
                         if (!featureFlag.id) {
                             throw new Error('Feature flag ID should never be missing in the sidebar')
@@ -101,8 +102,8 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Copy flag key',
-                                            onClick: () => {
-                                                copyToClipboard(featureFlag.key, 'feature flag key')
+                                            onClick: async () => {
+                                                await copyToClipboard(featureFlag.key, 'feature flag key')
                                             },
                                         },
                                         {
@@ -135,7 +136,6 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                             status: 'danger',
                                         },
                                     ],
-                                    loading: featureFlagsLoading,
                                 },
                             ],
                         } as ExtendedListItem

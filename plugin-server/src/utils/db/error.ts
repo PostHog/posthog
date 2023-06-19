@@ -13,6 +13,17 @@ export class DependencyUnavailableError extends Error {
     }
     readonly dependencyName: string
     readonly error: Error
+    readonly isRetriable = true
+}
+
+export class MessageSizeTooLarge extends Error {
+    constructor(message: string, error: Error) {
+        super(message)
+        this.name = 'MessageSizeTooLarge'
+        this.error = error
+    }
+    readonly error: Error
+    readonly isRetriable = false
 }
 
 export async function processError(

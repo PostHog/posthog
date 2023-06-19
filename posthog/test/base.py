@@ -22,7 +22,7 @@ from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache
+from posthog.cloud_utils import TEST_clear_cloud_cache, is_cloud
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -202,9 +202,14 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    @contextmanager
     def is_cloud(self, value: bool):
-        TEST_clear_cloud_cache()
-        return self.settings(MULTI_TENANCY=value)
+        previous_value = is_cloud()
+        try:
+            TEST_clear_cloud_cache(value)
+            yield value
+        finally:
+            TEST_clear_cloud_cache(previous_value)
 
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
@@ -224,11 +229,15 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
+    initial_cloud_mode: Optional[bool] = False
+
     def setUp(self):
+
         super().setUp()
 
-        # Clear the cached "is_cloud" setting so that it's recalculated for each test
-        TEST_clear_cloud_cache()
+        TEST_clear_cloud_cache(self.initial_cloud_mode)
+
+        # Sets the cloud mode to stabilise things tests, especially num query counts
         # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
         rate_limit.is_rate_limit_enabled.cache_clear()
         rate_limit.get_team_allow_list.cache_clear()
@@ -246,9 +255,15 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         with assert_faster_than(duration_ms):
             yield
 
+    @contextmanager
     def is_cloud(self, value: bool):
-        TEST_clear_cloud_cache()
-        return self.settings(MULTI_TENANCY=value)
+        # Typically the is_cloud setting is controlled by License but we need to be able to override it for tests
+        previous_value = is_cloud()
+        try:
+            TEST_clear_cloud_cache(value)
+            yield value
+        finally:
+            TEST_clear_cloud_cache(previous_value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):

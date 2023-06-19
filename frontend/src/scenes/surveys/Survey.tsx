@@ -38,6 +38,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { userLogic } from 'scenes/userLogic'
+import { canGloballyManagePlugins } from 'scenes/plugins/access'
 
 export const scene: SceneExport = {
     component: Survey,
@@ -93,7 +95,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             htmlType="submit"
                             loading={surveyLoading}
                         >
-                            Save
+                            {id === 'new' ? 'Save as draft' : 'Save'}
                         </LemonButton>
                     </div>
                 }
@@ -140,6 +142,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 <PureField label="Targeting (optional)" className="mt-4">
                     <span className="text-muted">
                         Choose when the survey appears based on url, selector, and user properties.
+                    </span>
+                    <span>
+                        <b>
+                            Warning: If there are no targeting options set, the survey will display on all domains to
+                            everyone.
+                        </b>
                     </span>
                     <LemonDivider />
                     <Field name="conditions">
@@ -248,7 +256,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     Cancel
                 </LemonButton>
                 <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" loading={surveyLoading}>
-                    Save
+                    {id === 'new' ? 'Save as draft' : 'Save'}
                 </LemonButton>
             </div>
         </Form>
@@ -265,6 +273,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { editPlugin } = useActions(pluginsLogic)
     const [setupModalIsOpen, setSetupModalIsOpen] = useState(false)
+    const { user } = useValues(userLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     useEffect(() => {
@@ -520,20 +529,28 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                     <CodeSnippet language={Language.JavaScript} wrap>
                                                                         {OPT_IN_SNIPPET}
                                                                     </CodeSnippet>
-                                                                    <div className="flex gap-1 items-center">
-                                                                        <LemonCheckbox checked={!!surveyPlugin} />{' '}
-                                                                        {surveyPlugin ? (
-                                                                            <span>Install survey app</span>
-                                                                        ) : (
-                                                                            <LemonButton onClick={installSurveyPlugin}>
-                                                                                Install the survey app
-                                                                            </LemonButton>
-                                                                        )}{' '}
-                                                                        {installingPlugin && <Spinner />}
-                                                                    </div>
+                                                                    {user &&
+                                                                    canGloballyManagePlugins(user.organization) ? (
+                                                                        <div className="flex gap-1 items-center">
+                                                                            <LemonCheckbox checked={!!surveyPlugin} />{' '}
+                                                                            {surveyPlugin ? (
+                                                                                <span>Install survey app</span>
+                                                                            ) : (
+                                                                                <LemonButton
+                                                                                    size="small"
+                                                                                    onClick={installSurveyPlugin}
+                                                                                >
+                                                                                    Install the survey app
+                                                                                </LemonButton>
+                                                                            )}{' '}
+                                                                            {installingPlugin && <Spinner />}
+                                                                        </div>
+                                                                    ) : null}
+
                                                                     <div className="flex items-center gap-1">
                                                                         <LemonCheckbox />{' '}
                                                                         <LemonButton
+                                                                            size="small"
                                                                             onClick={() =>
                                                                                 surveyPlugin?.id &&
                                                                                 editPlugin(surveyPlugin.id)
@@ -548,7 +565,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                                         Option 2: Create your own custom survey UI with
                                                                         our headless API
                                                                     </span>
-                                                                    <Link to="/docs/features/surveys">
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/surveys/manual"
+                                                                        target="_blank"
+                                                                    >
                                                                         See documentation
                                                                     </Link>
                                                                 </div>
