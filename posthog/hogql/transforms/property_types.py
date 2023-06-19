@@ -28,11 +28,11 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.
 
     person_property_values = (
         PropertyDefinition.objects.filter(
-            name__in=property_finder.person_properties,
+            name__in=property_finder.person_properties.union(property_finder.event_person_properties),
             team_id=context.team_id,
             type=PropertyDefinition.Type.PERSON,
         ).values_list("name", "property_type")
-        if property_finder.person_properties
+        if property_finder.person_properties or property_finder.event_person_properties
         else []
     )
     person_properties = {name: property_type for name, property_type in person_property_values if property_type}
@@ -53,6 +53,7 @@ class PropertyFinder(TraversingVisitor):
         super().__init__()
         self.person_properties: Set[str] = set()
         self.event_properties: Set[str] = set()
+        self.event_person_properties: Set[str] = set()
         self.found_timestamps = False
 
     def visit_property_type(self, node: ast.PropertyType):
@@ -62,7 +63,19 @@ class PropertyFinder(TraversingVisitor):
                 if table == "persons" or table == "raw_persons":
                     self.person_properties.add(node.chain[0])
                 if table == "events":
-                    self.event_properties.add(node.chain[0])
+                    if (
+                        isinstance(node.field_type.table_type, ast.VirtualTableType)
+                        and node.field_type.table_type.field == "poe"
+                    ):
+                        self.event_person_properties.add(node.chain[0])
+                    else:
+                        self.event_properties.add(node.chain[0])
+        # if node.field_type.name == "person_properties" and len(node.chain) == 1:
+        #     if isinstance(node.field_type.table_type, ast.BaseTableType):
+        #         table = node.field_type.table_type.resolve_database_table().to_printed_hogql()
+        #         if table == "events":
+        #             self.event_person_properties.add(node.chain[0])
+        #             print("!!!!")
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -86,7 +99,13 @@ class PropertySwapper(CloningVisitor):
 
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
-            if isinstance(type.field_type.table_type, ast.BaseTableType):
+            if (
+                isinstance(type.field_type.table_type, ast.VirtualTableType)
+                and type.field_type.table_type.field == "poe"
+            ):
+                if type.chain[0] in self.person_properties:
+                    return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])
+            elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
                 if table == "persons" or table == "raw_persons":
                     if type.chain[0] in self.person_properties:
@@ -94,6 +113,12 @@ class PropertySwapper(CloningVisitor):
                 if table == "events":
                     if type.chain[0] in self.event_properties:
                         return self._add_type_to_string_field(node, self.event_properties[type.chain[0]])
+        if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
+            if isinstance(type.field_type.table_type, ast.BaseTableType):
+                table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
+                if table == "events":
+                    if type.chain[0] in self.person_properties:
+                        return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])
 
         return node
 
