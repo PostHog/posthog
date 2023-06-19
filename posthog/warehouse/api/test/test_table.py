@@ -17,8 +17,8 @@ class TestTable(APIBaseTest):
             {
                 "name": "whatever",
                 "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
-                "type": "Parquet",
                 "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
             },
         )
         self.assertEqual(response.status_code, 201, response.content)
@@ -42,8 +42,8 @@ class TestTable(APIBaseTest):
             {
                 "name": "whatever",
                 "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
-                "type": "Parquet",
                 "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
             },
         )
         self.assertEqual(response.status_code, 201, response.content)

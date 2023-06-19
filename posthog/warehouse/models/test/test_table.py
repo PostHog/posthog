@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
 
 
 class TestTable(BaseTest):
@@ -20,6 +20,7 @@ class TestTable(BaseTest):
     #     table.get_columns()
 
     def test_hogql_definition(self):
+        credential = DataWarehouseCredential.objects.create(access_key="", access_secret="", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",
             url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
@@ -31,6 +32,6 @@ class TestTable(BaseTest):
                 "mrr": "Nullable(Int64)",
                 "offset": "UInt32",
             },
+            credential=credential,
         )
-
-        self.assertEqual(list(table.hogql_definition().__fields__.keys()), ["id", "timestamp", "mrr", "offset"])
+        self.assertEqual(list(table.hogql_definition().fields.keys()), ["id", "timestamp", "mrr", "offset"])
