@@ -74,7 +74,7 @@ def materialize(
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
     # prevent schema from getting out of sync on new parts coming in while the column is added
-    sync_execute(f"DETACH VIEW IF EXISTS {table}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+    sync_execute(f"DETACH VIEW IF EXISTS {table}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC")
 
     if table == "events":
         sync_execute(
