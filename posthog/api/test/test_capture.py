@@ -1195,7 +1195,7 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        with self.settings(REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1):
+        with self.settings(REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=0):
             self._send_session_recording_event(
                 timestamp=timestamp,
                 snapshot_source=snapshot_source,
@@ -1260,7 +1260,7 @@ class TestCapture(BaseTest):
 
         with self.settings(
             SESSION_RECORDING_KAFKA_HOSTS=["kafka://another-server:9092"],
-            REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
+            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
             session_recording_producer_mock.return_value = sessionRecordingKafkaProducer()
@@ -1281,18 +1281,15 @@ class TestCapture(BaseTest):
     @patch("posthog.api.capture.sessionRecordingKafkaProducer")
     @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_uses_does_not_produce_if_session_recording_kafka_unavailable(
+    def test_uses_does_not_produce_if_blob_ingestion_disabled(
         self,
         kafka_produce: MagicMock,
         default_kafka_producer_mock: MagicMock,
         session_recording_producer_mock: MagicMock,
     ) -> None:
-        with self.settings(
-            SESSION_RECORDING_KAFKA_HOSTS=None,
-            REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO=1,
-        ):
+        with self.settings(REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=0):
             default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_mock.side_effect = Exception("Kafka not available")
+            session_recording_producer_mock.side_effect = sessionRecordingKafkaProducer()
 
             data = "example"
             self._send_session_recording_event(event_data=data)
