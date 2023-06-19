@@ -452,7 +452,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     (equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
-                        : 1)
+                        : 1) +
+                    (filters.console_logs?.length || 0)
                 )
             },
         ],
