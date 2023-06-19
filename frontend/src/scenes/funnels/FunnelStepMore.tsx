@@ -60,6 +60,7 @@ function FunnelStepMoreComponent({
     return (
         <More
             placement="bottom-start"
+            noPadding
             overlay={
                 <>
                     {stepNumber > 1 && (

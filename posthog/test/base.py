@@ -7,20 +7,22 @@ from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
+import freezegun
 
 import pytest
 import sqlparse
 from django.apps import apps
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog import rate_limit
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.cloud_utils import TEST_clear_cloud_cache
+from posthog.cloud_utils import TEST_clear_cloud_cache, is_cloud
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -42,7 +44,17 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
+from posthog.models.session_replay_event.sql import (
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
 from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.test.assert_faster_than import assert_faster_than
+
+# Make sure freezegun ignores our utils class that times functions
+freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
+
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -59,6 +71,29 @@ def _setup_test_data(klass):
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
         klass.organization_membership = klass.user.organization_memberships.get()
+
+
+class FuzzyInt(int):
+    """
+    Some query count assertions vary depending on the order of tests in the run because values are cached and so their related query doesn't always run.
+
+    For the purposes of testing query counts we don't care about that variation
+    """
+
+    lowest: int
+    highest: int
+
+    def __new__(cls, lowest, highest):
+        obj = super(FuzzyInt, cls).__new__(cls, highest)
+        obj.lowest = lowest
+        obj.highest = highest
+        return obj
+
+    def __eq__(self, other):
+        return self.lowest <= other <= self.highest
+
+    def __repr__(self):
+        return "[%d..%d]" % (self.lowest, self.highest)
 
 
 class ErrorResponsesMixin:
@@ -167,9 +202,14 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    @contextmanager
     def is_cloud(self, value: bool):
-        TEST_clear_cloud_cache()
-        return self.settings(MULTI_TENANCY=value)
+        previous_value = is_cloud()
+        try:
+            TEST_clear_cloud_cache(value)
+            yield value
+        finally:
+            TEST_clear_cloud_cache(previous_value)
 
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
@@ -189,11 +229,18 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     Functional API tests using Django REST Framework test suite.
     """
 
+    initial_cloud_mode: Optional[bool] = False
+
     def setUp(self):
+
         super().setUp()
 
-        # Clear the cached "is_cloud" setting so that it's recalculated for each test
-        TEST_clear_cloud_cache()
+        TEST_clear_cloud_cache(self.initial_cloud_mode)
+
+        # Sets the cloud mode to stabilise things tests, especially num query counts
+        # Clear the is_rate_limit lru_Caches so that they does not flap in test snapshots
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
@@ -203,9 +250,20 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
 
+    @contextmanager
+    def assertFasterThan(self, duration_ms: float):
+        with assert_faster_than(duration_ms):
+            yield
+
+    @contextmanager
     def is_cloud(self, value: bool):
-        TEST_clear_cloud_cache()
-        return self.settings(MULTI_TENANCY=value)
+        # Typically the is_cloud setting is controlled by License but we need to be able to override it for tests
+        previous_value = is_cloud()
+        try:
+            TEST_clear_cloud_cache(value)
+            yield value
+        finally:
+            TEST_clear_cloud_cache(previous_value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
@@ -322,14 +380,15 @@ class QueryMatchingTest:
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
             # feature flag conditions use primary keys as columns in queries, so replace those too
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
+            query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
         # hog ql checks team ids differently
         query = re.sub(
-            r"equals\(team_id, \d+\)",
-            "equals(team_id, 2)",
+            r"equals\(([^.]+\.)?team_id?, \d+\)",
+            r"equals(\1team_id, 2)",
             query,
         )
 
@@ -342,6 +401,13 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""("organization_id"|"posthog_organization"\."id") IN \('[^']+'::uuid\)""",
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+            query,
+        )
+
+        # Replace person id (when querying session recording replay events)
+        query = re.sub(
+            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+            r"and person_id = '00000000-0000-0000-0000-000000000000'",
             query,
         )
 
@@ -369,6 +435,17 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace Savepoint numbers
+        query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
+        # test_formula has some values that change on every run
+        query = re.sub(r"\SELECT \[\d+, \d+] as breakdown_value", "SELECT [1, 2] as breakdown_value", query)
+        query = re.sub(
+            r"SELECT distinct_id,[\n\r\s]+\d+ as value",
+            "SELECT distinct_id, 1 as value",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -377,7 +454,10 @@ class QueryMatchingTest:
 
 @contextmanager
 def snapshot_postgres_queries_context(
-    testcase: QueryMatchingTest, replace_all_numbers: bool = True, using: str = "default"
+    testcase: QueryMatchingTest,
+    replace_all_numbers: bool = True,
+    using: str = "default",
+    capture_all_queries: bool = False,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -410,7 +490,9 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        if capture_all_queries:
+            testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -567,10 +649,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
     snapshot: Any
 
     def capture_select_queries(self):
-        return self.capture_queries(("SELECT", "WITH"))
+        return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, str]]):
+    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -644,6 +726,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 TRUNCATE_GROUPS_TABLE_SQL,
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -651,10 +734,19 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
         run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
     def tearDown(self):
@@ -666,13 +758,24 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
+        )
+
+        run_clickhouse_statement_in_parallel(
+            [
+                EVENTS_TABLE_SQL(),
+                PERSONS_TABLE_SQL(),
+                SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
-            [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
-        )
-        run_clickhouse_statement_in_parallel(
-            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+            [
+                DISTRIBUTED_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            ]
         )
 
 
@@ -756,6 +859,18 @@ def also_test_with_different_timezones(fn):
     return fn
 
 
+def also_test_with_person_on_events_v2(fn):
+    @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def fn_with_poe_v2(self, *args, **kwargs):
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
+
+    return fn
+
+
 def _create_insight(
     team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
 ) -> Tuple[Insight, Dashboard, DashboardTile]:
@@ -769,7 +884,9 @@ def _create_insight(
 # for a person with a given distinct ID `distinct_id_from` to a given distinct ID
 # `distinct_id_to` such that with person_on_events_mode set to V2_ENABLED these
 # persons will both count as 1
-def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_to: str, team_id: int):
+def create_person_id_override_by_distinct_id(
+    distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
+):
     person_ids_result = sync_execute(
         f"""
         SELECT distinct_id, person_id
@@ -784,7 +901,7 @@ def create_person_id_override_by_distinct_id(distinct_id_from: str, distinct_id_
 
     sync_execute(
         f"""
-        INSERT INTO person_overrides (team_id, old_person_id, override_person_id)
-        VALUES ({team_id}, '{person_id_from}', '{person_id_to}')
+        INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version)
+        VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
     """
     )

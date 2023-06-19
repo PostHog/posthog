@@ -13,11 +13,12 @@ from typing import (
 )
 
 from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -27,13 +28,12 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
-from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
+from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.client import sync_execute
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
-from posthog.models import Cohort, Filter, Person, User
+from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -42,7 +42,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
@@ -62,9 +61,24 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    relative_date_parse,
+)
 
 DEFAULT_PAGE_LIMIT = 100
+# Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
+PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    "email",
+    "Email",
+    "name",
+    "Name",
+    "username",
+    "Username",
+    "UserName",
+]
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -84,18 +98,26 @@ class PersonLimitOffsetPagination(LimitOffsetPagination):
                     "format": "uri",
                     "example": "https://app.posthog.com/api/projects/{project_id}/accounts/?offset=400&limit=100",
                 },
+                "count": {"type": "integer", "example": 400},
                 "results": schema,
             },
         }
 
 
-def get_person_name(person: Person) -> str:
-    if person.properties.get("email"):
-        return person.properties["email"]
+def get_person_name(team: Team, person: Person) -> str:
+    if display_name := get_person_display_name(person, team):
+        return display_name
     if len(person.distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+def get_person_display_name(person: Person, team: Team) -> str | None:
+    for property in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
+        if person.properties.get(property):
+            return person.properties.get(property)
+    return None
 
 
 class PersonsThrottle(ClickHouseSustainedRateThrottle):
@@ -121,7 +143,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
-        return get_person_name(person)
+        team = self.context["get_team"]()
+        return get_person_name(team, person)
 
     def to_representation(self, instance: Person) -> Dict[str, Any]:
         representation = super().to_representation(instance)
@@ -155,7 +178,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
     """
@@ -175,6 +198,24 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        person_id = self.kwargs[self.lookup_field]
+
+        try:
+            queryset = get_pk_or_uuid(queryset, person_id)
+        except ValueError:
+            raise ValidationError(
+                f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
+            )
+
+        obj = get_object_or_404(queryset)
+
+        # May raise a permission denied
+        self.check_object_permissions(self.request, obj)
+
+        return obj
 
     @extend_schema(
         parameters=[
@@ -203,14 +244,33 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True, filter_future_persons=True)
-
-        raw_result = insight_sync_execute(
-            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+        person_query = PersonQuery(filter, team.pk)
+        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+        raw_paginated_result = insight_sync_execute(
+            paginated_query,
+            {**paginated_params, **filter.hogql_context.values},
+            filter=filter,
+            query_type="person_list",
+            team_id=team.pk,
         )
+        actor_ids = [row[0] for row in raw_paginated_result]
+        _, serialized_actors = get_people(team, actor_ids)
 
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
+        # If the undocumented include_total param is set to true, we'll return the total count of people
+        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+        total_count: Optional[int] = None
+        if "include_total" in request.GET:
+            total_query, total_params = person_query.get_query(paginate=False, filter_future_persons=True)
+            total_query_aggregated = f"SELECT count() FROM ({total_query})"
+            raw_paginated_result = insight_sync_execute(
+                total_query_aggregated,
+                {**total_params, **filter.hogql_context.values},
+                filter=filter,
+                query_type="person_list_total",
+                team_id=team.pk,
+            )
+            total_count = raw_paginated_result[0][0]
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -220,7 +280,14 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             else None
         )
 
-        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+        return Response(
+            {
+                "results": serialized_actors,
+                "next": next_url,
+                "previous": previous_url,
+                **({"count": total_count} if total_count is not None else {}),
+            }
+        )
 
     @extend_schema(
         parameters=[
@@ -260,19 +327,9 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                     ],
                     ignore_conflicts=True,
                 )
-            return response.Response(status=204)
+            return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
-
-    @action(methods=["GET"], detail=False)
-    def properties(self, request: request.Request, **kwargs) -> response.Response:
-        result = self.get_properties(request)
-
-        return response.Response(result)
-
-    def get_properties(self, request: request.Request):
-        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
-        return [{"name": name, "count": count} for name, count in rows]
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
@@ -337,8 +394,18 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     )
     @action(methods=["POST"], detail=True)
     def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        if request.data.get("value") is None:
+            return Response(
+                {"attr": "value", "code": "This field is required.", "detail": "required", "type": "validation_error"},
+                status=400,
+            )
+        if request.data.get("key") is None:
+            return Response(
+                {"attr": "key", "code": "This field is required.", "detail": "required", "type": "validation_error"},
+                status=400,
+            )
         self._set_properties({request.data["key"]: request.data["value"]}, request.user)
-        return Response(status=204)
+        return Response(status=202)
 
     @extend_schema(
         parameters=[
@@ -355,7 +422,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             distinct_id=person.distinct_ids[0],
             ip=None,
             site_url=None,
-            team_id=self.team_id,
+            token=self.team.api_token,
             now=datetime.now(),
             sent_at=None,
             event={
@@ -422,8 +489,18 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         This means that only the properties listed will be updated, but other properties won't be removed nor updated.
         If you would like to remove a property use the `delete_property` endpoint.
         """
+        if request.data.get("properties") is None:
+            return Response(
+                {
+                    "attr": "properties",
+                    "code": "This field is required.",
+                    "detail": "required",
+                    "type": "validation_error",
+                },
+                status=400,
+            )
         self._set_properties(request.data["properties"], request.user)
-        return Response(status=204)
+        return Response(status=202)
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
@@ -438,7 +515,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             distinct_id=instance.distinct_ids[0],
             ip=None,
             site_url=None,
-            team_id=instance.team_id,
+            token=instance.team.api_token,
             now=datetime.now(),
             sent_at=None,
             event={

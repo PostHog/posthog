@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, KafkaJSError, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
 import * as path from 'path'
@@ -15,7 +15,9 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { connectObjectStorage } from '../../main/services/object_storage'
+import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
+import { createKafkaProducer } from '../../kafka/producer'
+import { getObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
     Hub,
@@ -29,7 +31,6 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -39,7 +40,6 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
-import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
@@ -130,13 +130,10 @@ export async function createHub(
 
     const kafka = createKafkaClient(serverConfig as KafkaConfig)
 
-    const producer = kafka.producer({
-        retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
-        createPartitioner: Partitioners.LegacyPartitioner,
-    })
-    await producer.connect()
+    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
+    const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
 
-    const kafkaProducer = new KafkaProducerWrapper(producer, statsd, serverConfig)
+    const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
@@ -160,11 +157,12 @@ export async function createHub(
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
-    try {
-        connectObjectStorage(serverConfig)
+
+    const objectStorage = getObjectStorage(serverConfig)
+    if (objectStorage) {
         status.info('👍', 'Object storage ready')
-    } catch (e) {
-        status.warn('🪣', `Object storage could not be created: ${e}`)
+    } else {
+        status.warn('🪣', `Object storage could not be created`)
     }
 
     const promiseManager = new PromiseManager(serverConfig, statsd)
@@ -193,31 +191,15 @@ export async function createHub(
         // an acknowledgement as for instance there are some jobs that are
         // chained, and if we do not manage to produce then the chain will be
         // broken.
-        try {
-            await kafkaProducer.producer.send({
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        key: job.pluginConfigTeam.toString(),
-                        value: JSON.stringify(job),
-                    },
-                ],
-            })
-        } catch (error) {
-            if (error instanceof KafkaJSError) {
-                // If we get a retriable Kafka error (maybe it's down for
-                // example), rethrow the error as a generic `DependencyUnavailableError`
-                // passing through retriable such that we can decide if this is
-                // something we should retry at the consumer level.
-                if (error.retriable) {
-                    throw new DependencyUnavailableError(error.message, 'Kafka', error)
-                }
-            }
-
-            // Otherwise, just rethrow the error as is. E.g. if we fail to
-            // serialize then we don't want to retry.
-            throw error
-        }
+        await kafkaProducer.queueMessage({
+            topic: KAFKA_JOBS,
+            messages: [
+                {
+                    value: Buffer.from(JSON.stringify(job)),
+                    key: Buffer.from(job.pluginConfigTeam.toString()),
+                },
+            ],
+        })
     }
 
     const hub: Partial<Hub> = {
@@ -232,6 +214,7 @@ export async function createHub(
         kafkaProducer,
         statsd,
         enqueuePluginJob,
+        objectStorage: objectStorage,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -254,7 +237,6 @@ export async function createHub(
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
-    hub.personManager = new PersonManager(hub as Hub)
 
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
@@ -270,13 +252,14 @@ export async function createHub(
 export type KafkaConfig = {
     KAFKA_HOSTS: string
     KAFKAJS_LOG_LEVEL: keyof typeof KAFKAJS_LOG_LEVEL_MAPPING
-    KAFKA_SECURITY_PROTOCOL: string
+    KAFKA_SECURITY_PROTOCOL: 'PLAINTEXT' | 'SSL' | 'SASL_PLAINTEXT' | 'SASL_SSL' | undefined
     KAFKA_CLIENT_CERT_B64?: string
     KAFKA_CLIENT_CERT_KEY_B64?: string
     KAFKA_TRUSTED_CERT_B64?: string
     KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
+    KAFKA_CLIENT_RACK?: string
 }
 
 export function createKafkaClient({

@@ -12,7 +12,7 @@ from posthog.queries.insight import insight_sync_execute
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from posthog.queries.util import correct_result_for_sampling
-from posthog.utils import encode_get_request_params
+from posthog.utils import encode_get_request_params, generate_short_id
 
 
 class Stickiness:
@@ -23,7 +23,7 @@ class Stickiness:
 
         response = []
         for entity in filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
                 entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
 
             entity_resp = handle_compare(filter=filter, func=self._serialize_entity, team=team, entity=entity)
@@ -47,6 +47,7 @@ class Stickiness:
             {**event_params, **filter.hogql_context.values, "num_intervals": filter.total_intervals},
             query_type="stickiness",
             filter=filter,
+            team_id=team.pk,
         )
         return self.process_result(counts, filter, entity)
 
@@ -97,6 +98,7 @@ class Stickiness:
 
     def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
         persons_url = []
+        cache_invalidation_key = generate_short_id()
         for interval_idx in range(1, filter.total_intervals):
             filter_params = filter.to_params()
             extra_params = {
@@ -108,6 +110,9 @@ class Stickiness:
             }
             parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
-                {"filter": extra_params, "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}"}
+                {
+                    "filter": extra_params,
+                    "url": f"api/person/stickiness/?{urllib.parse.urlencode(parsed_params)}&cache_invalidation_key={cache_invalidation_key}",
+                }
             )
         return persons_url

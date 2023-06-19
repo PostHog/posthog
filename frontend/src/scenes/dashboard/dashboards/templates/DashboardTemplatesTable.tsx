@@ -1,7 +1,6 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { DashboardTemplateType } from '~/types'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -12,7 +11,6 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
-    const { searchTerm } = useValues(dashboardsLogic)
     const { allTemplates, allTemplatesLoading } = useValues(dashboardTemplatesLogic)
 
     const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate, updateDashboardTemplate } =
@@ -138,13 +136,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     columnKey: 'name',
                     order: 1,
                 }}
-                emptyState={
-                    searchTerm ? (
-                        `No dashboard templates matching "${searchTerm}"!`
-                    ) : (
-                        <>There are no dashboard templates.</>
-                    )
-                }
+                emptyState={<>There are no dashboard templates.</>}
                 nouns={['template', 'templates']}
             />
             <DashboardTemplateEditor />

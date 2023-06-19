@@ -1,5 +1,5 @@
 // eslint-disable-next-line no-restricted-imports
-import dayjs, { Dayjs as DayjsOriginal } from 'dayjs'
+import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'
@@ -21,7 +21,7 @@ dayjs.extend(quarterOfYear)
 
 const now = (): Dayjs => dayjs()
 
-export { dayjs, now }
+export { dayjs, now, isDayjs }
 
 /** Parse UTC datetime string using Day.js, taking into account time zone conversion edge cases. */
 export function dayjsUtcToTimezone(

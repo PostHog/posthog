@@ -1,7 +1,6 @@
 import { Hub } from '../src/types'
 import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig } from './config/config'
-import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
 import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
@@ -20,8 +19,6 @@ enum AlternativeMode {
 let alternativeMode: AlternativeMode | undefined
 if (argv.includes('--version') || argv.includes('-v')) {
     alternativeMode = AlternativeMode.Version
-} else if (argv.includes('--healthcheck')) {
-    alternativeMode = AlternativeMode.Healthcheck
 } else if (argv.includes('--migrate')) {
     alternativeMode = AlternativeMode.Migrate
 }
@@ -32,9 +29,6 @@ status.info('⚡', `@posthog/plugin-server v${version}`)
 
 switch (alternativeMode) {
     case AlternativeMode.Version:
-        break
-    case AlternativeMode.Healthcheck:
-        void healthcheckWithExit()
         break
     case AlternativeMode.Migrate:
         initApp(defaultConfig)

@@ -160,7 +160,7 @@ export class GraphileWorker {
                 pgPool: this.consumerPool as Pool as any,
                 schema: this.hub.JOB_QUEUE_GRAPHILE_SCHEMA,
                 noPreparedStatements: !this.hub.JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS,
-                concurrency: 1,
+                concurrency: this.hub.JOB_QUEUE_GRAPHILE_CONCURRENCY,
                 // Do not install signal handlers, we are handled signals in
                 // higher level code. If we let graphile worker handle the signals it
                 // ends up sending another SIGTERM.

@@ -237,11 +237,13 @@ const featureFlagActionsMapping: Record<
     created_by: () => null,
     is_simple_flag: () => null,
     experiment_set: () => null,
+    features: () => null,
     usage_dashboard: () => null,
     // TODO: handle activity
     rollback_conditions: () => null,
     performed_rollback: () => null,
     can_edit: () => null,
+    analytics_dashboards: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

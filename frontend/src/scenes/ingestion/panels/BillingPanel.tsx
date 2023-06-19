@@ -12,12 +12,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
-    const { billing: billingV2, billingVersion } = useValues(billingLogic)
+    const { billing } = useValues(billingLogic)
 
-    if (!billingVersion || billingVersion !== 'v2') {
+    if (!billing) {
         return (
             <CardContainer>
-                <div className="space-y-4" style={{ width: 800 }}>
+                <div className="space-y-4" style={{ width: 550 }}>
                     <LemonSkeleton className="w-full h-10" />
                     <LemonSkeleton className="w-full" />
                     <LemonSkeleton className="w-full" />
@@ -30,9 +30,14 @@ export function BillingPanel(): JSX.Element {
         )
     }
 
+    const hasSubscribedToAllProducts = billing.products
+        .filter((product) => !product.contact_support)
+        .every((product) => product.subscribed)
+    const hasSubscribedToAnyProduct = billing.products.some((product) => product.subscribed)
+
     return (
         <CardContainer>
-            {billingV2?.has_active_subscription ? (
+            {hasSubscribedToAllProducts ? (
                 <div className="flex flex-col space-y-4">
                     <h1 className="ingestion-title">You're good to go!</h1>
 
@@ -54,7 +59,7 @@ export function BillingPanel(): JSX.Element {
                 </div>
             ) : (
                 <div className="text-left flex flex-col space-y-4">
-                    <h1 className="ingestion-title">Add payment method</h1>
+                    <h1 className="ingestion-title">Subscribe for access to all features</h1>
                     <Billing />
 
                     <LemonDivider dashed />
@@ -63,13 +68,13 @@ export function BillingPanel(): JSX.Element {
                         size="large"
                         fullWidth
                         center
-                        type="tertiary"
+                        type={hasSubscribedToAnyProduct ? 'primary' : 'tertiary'}
                         onClick={() => {
                             completeOnboarding()
-                            reportIngestionContinueWithoutBilling()
+                            !hasSubscribedToAnyProduct && reportIngestionContinueWithoutBilling()
                         }}
                     >
-                        Skip for now
+                        {hasSubscribedToAnyProduct ? 'Continue' : 'Skip for now'}
                     </LemonButton>
                 </div>
             )}

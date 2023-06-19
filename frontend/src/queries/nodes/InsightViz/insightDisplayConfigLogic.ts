@@ -4,7 +4,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 import type { insightDisplayConfigLogicType } from './insightDisplayConfigLogicType'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -46,6 +46,18 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
                 (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness,
+        ],
+        showValueOnSeries: [
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) => {
+                if (isTrends || isStickiness) {
+                    return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
+                } else if (isLifecycle) {
+                    return true
+                } else {
+                    return false
+                }
+            },
         ],
         showUnit: [(s) => [s.supportsDisplay, s.isTrends], (supportsDisplay, isTrends) => supportsDisplay && isTrends],
         showChart: [(s) => [s.supportsDisplay], (supportsDisplay) => supportsDisplay],

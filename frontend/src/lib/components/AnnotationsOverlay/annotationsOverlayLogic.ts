@@ -1,15 +1,14 @@
 import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
 import { groupBy } from 'lib/utils'
-import { AnnotationScope, InsightLogicProps, InsightModel, IntervalType } from '~/types'
+import { AnnotationScope, DatedAnnotationType, InsightLogicProps, InsightModel, IntervalType } from '~/types'
 import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tick } from 'chart.js'
 
-export interface AnnotationsOverlayLogicProps {
-    dashboardItemId: InsightLogicProps['dashboardItemId']
+export interface AnnotationsOverlayLogicProps extends InsightLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
     dates: string[]
     ticks: Tick[]
@@ -126,19 +125,22 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         relevantAnnotations: [
             (s) => [s.annotations, s.dateRange, (_, props) => props.insightNumericId],
             (annotations, dateRange, insightNumericId) => {
-                // This assumes that there are no more than AnnotationsViewSet.default_limit (500) annotations
-                // in the project. Right now this is true on Cloud, though some projects are getting close (400+).
-                // If we see the scale increasing, we might need to fetch annotations on a per-insight basis here.
-                // That would greatly increase the number of requests to the annotations endpoint though.
-                return dateRange
-                    ? annotations.filter(
-                          (annotation) =>
-                              (annotation.scope !== AnnotationScope.Insight ||
-                                  annotation.dashboard_item === insightNumericId) &&
-                              annotation.date_marker >= dateRange[0] &&
-                              annotation.date_marker < dateRange[1]
-                      )
-                    : []
+                // This assumes that there are no more annotations in the project than AnnotationsViewSet
+                // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
+                // where 3 projects exceed this limit. To accomodate those, we should always make a request for the
+                // date range of the graph, and not rely on the annotations in the store.
+                return (
+                    dateRange
+                        ? annotations.filter(
+                              (annotation) =>
+                                  (annotation.scope !== AnnotationScope.Insight ||
+                                      annotation.dashboard_item === insightNumericId) &&
+                                  annotation.date_marker &&
+                                  annotation.date_marker >= dateRange[0] &&
+                                  annotation.date_marker < dateRange[1]
+                          )
+                        : []
+                ) as DatedAnnotationType[]
             },
         ],
         groupedAnnotations: [

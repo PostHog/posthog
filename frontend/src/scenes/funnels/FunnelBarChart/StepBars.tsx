@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { StepBarProps, StepBar } from './StepBar'
 
-export function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX.Element {
+export function StepBars({ step, stepIndex, showPersonsModal }: Omit<StepBarProps, 'series'>): JSX.Element {
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__grid">
@@ -15,7 +15,13 @@ export function StepBars({ step, stepIndex }: Omit<StepBarProps, 'series'>): JSX
                     ))}
             </div>
             {step.nested_breakdown?.map((series) => (
-                <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
+                <StepBar
+                    key={`bar-${stepIndex}-${series.order}`}
+                    step={step}
+                    stepIndex={stepIndex}
+                    series={series}
+                    showPersonsModal={showPersonsModal}
+                />
             ))}
         </div>
     )

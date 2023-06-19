@@ -44,7 +44,7 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
             const key = event.key
 
             // Ignore explicit hotkey exceptions
-            if (exceptions.some((exception) => (event.target as Element).matches(exception))) {
+            if (exceptions.some((exception) => (event.target as Element)?.matches(exception))) {
                 return
             }
 
@@ -67,8 +67,8 @@ export function useKeyboardHotkeys(hotkeys: HotkeysInterface, deps?: DependencyL
                 if (!hotkey.willHandleEvent && (event.metaKey || event.ctrlKey || event.altKey)) {
                     continue
                 }
-
-                if (key.toLowerCase() === relevantKey) {
+                const normalizedKey = (key === ' ' ? 'space' : key.toLowerCase()) as HotKey
+                if (normalizedKey === relevantKey) {
                     if (!hotkey.willHandleEvent) {
                         event.preventDefault()
                     }

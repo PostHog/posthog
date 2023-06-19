@@ -10,7 +10,7 @@ import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyG
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions, useValues } from 'kea'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
@@ -65,9 +65,9 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                         </Row>
                                         <LemonDivider className="my-4" />
                                         {error && (
-                                            <AlertMessage className="m-2" type="error">
+                                            <LemonBanner className="m-2" type="error">
                                                 {error}
-                                            </AlertMessage>
+                                            </LemonBanner>
                                         )}
                                         {kids}
                                     </div>

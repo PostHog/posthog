@@ -1,21 +1,23 @@
-import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
-import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
+import { useEffect, useRef } from 'react'
+import { Handler, viewportResizeDimension } from '@rrweb/types'
 import { useActions, useValues } from 'kea'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import useSize from '@react-hook/size'
 import './PlayerFrame.scss'
 
-export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
-    { sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps,
-    ref: Ref<HTMLDivElement>
-): JSX.Element {
+export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const { setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
-    const frameRef = ref as MutableRefObject<HTMLDivElement>
+    const { player, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
+
+    const frameRef = useRef<HTMLDivElement | null>(null)
+    // Need useEffect to populate replayer on component paint
+    useEffect(() => {
+        if (frameRef.current) {
+            setRootFrame(frameRef.current)
+        }
+    }, [frameRef, sessionRecordingId])
+
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
 
@@ -62,7 +64,7 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
 
     return (
         <div ref={containerRef} className="PlayerFrame ph-no-capture">
-            <div className="PlayerFrame__content" ref={ref} />
+            <div className="PlayerFrame__content" ref={frameRef} />
         </div>
     )
-})
+}

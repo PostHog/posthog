@@ -28,6 +28,7 @@ describe('the authorized urls list logic', () => {
         initKeaTests()
         logic = authorizedUrlListLogic({
             type: AuthorizedUrlListType.TOOLBAR_URLS,
+            actionId: null,
         })
         logic.mount()
     })
@@ -106,6 +107,7 @@ describe('the authorized urls list logic', () => {
         beforeEach(() => {
             logic = authorizedUrlListLogic({
                 type: AuthorizedUrlListType.RECORDING_DOMAINS,
+                actionId: null,
             })
             logic.mount()
         })

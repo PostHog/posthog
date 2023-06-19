@@ -14,7 +14,7 @@
         margin: 1rem;
 
         g#bars {
-            fill: var(--funnel-alt);
+            fill: var(--funnel-default);
         }
 
         g#y-gridlines {
@@ -55,10 +55,10 @@
         g#labels {
             text.bar-label {
                 font-size: 14px;
-                font-weight: bold;
-                fill: var(--light);
+                font-weight: 500;
+                fill: var(--inverse);
                 &.outside {
-                    fill: var(--funnel-alt);
+                    fill: var(--funnel-default);
                 }
             }
         }

@@ -1,4 +1,4 @@
-import { kea, path, props, key, connect, selectors } from 'kea'
+import { kea, path, props, key, connect, selectors, actions, reducers } from 'kea'
 import {
     FilterType,
     FunnelResultType,
@@ -24,11 +24,12 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
-import { isFunnelsQuery, isNewEntityNode } from '~/queries/utils'
+import { isFunnelsQuery } from '~/queries/utils'
 import { percentage, sum, average } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import {
     aggregateBreakdownResult,
+    aggregationLabelForHogQL,
     flattenedStepsByBreakdown,
     getIncompleteConversionWindowStartDate,
     getLastFilledStep,
@@ -51,7 +52,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         values: [
             insightVizDataLogic(props),
             [
-                'querySource',
+                'querySource as vizQuerySource',
                 'insightFilter',
                 'funnelsFilter',
                 'breakdown',
@@ -66,7 +67,25 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),
 
+    actions({
+        hideSkewWarning: true,
+    }),
+
+    reducers({
+        skewWarningHidden: [
+            false,
+            {
+                hideSkewWarning: () => true,
+            },
+        ],
+    }),
+
     selectors(({ props }) => ({
+        querySource: [
+            (s) => [s.vizQuerySource],
+            (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
+        ],
+
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
@@ -108,7 +127,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     groupTypeIndex: number | null | undefined,
                     deferToUserWording?: boolean | undefined
                 ) => Noun
-            ): Noun => aggregationLabel(querySource.aggregation_group_type_index),
+            ): Noun =>
+                querySource.funnelsFilter?.funnel_aggregate_by_hogql
+                    ? aggregationLabelForHogQL(querySource.funnelsFilter.funnel_aggregate_by_hogql)
+                    : aggregationLabel(querySource.aggregation_group_type_index),
         ],
 
         results: [
@@ -136,7 +158,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
-                return (series?.filter((node) => !isNewEntityNode(node)).length || 0) > 1
+                return (series?.length || 0) > 1
             },
         ],
         steps: [
@@ -370,6 +392,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.insightDataError],
             (insightDataError): boolean => {
                 return !(insightDataError?.status === 400 && insightDataError?.type === 'validation_error')
+            },
+        ],
+
+        isSkewed: [
+            (s) => [s.conversionMetrics, s.skewWarningHidden],
+            (conversionMetrics, skewWarningHidden): boolean => {
+                return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
+            },
+        ],
+
+        canOpenPersonModal: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean => {
+                return !funnelsFilter?.funnel_aggregate_by_hogql
             },
         ],
     })),

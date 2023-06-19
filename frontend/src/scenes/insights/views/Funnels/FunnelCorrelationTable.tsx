@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { ConfigProvider, Row, Table } from 'antd'
+import { useEffect } from 'react'
+import { ConfigProvider, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
@@ -12,51 +12,51 @@ import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
+import { EventCorrelationActionsCell } from './CorrelationActionsCell'
+import { Link } from 'lib/lemon-ui/Link'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
+    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const {
-        steps,
-        correlationValues,
         correlationTypes,
-        eventHasPropertyCorrelations,
-        eventWithPropertyCorrelationsValues,
-        parseDisplayNameForCorrelation,
         correlationsLoading,
-        eventWithPropertyCorrelationsLoading,
-        nestedTableExpandedKeys,
-        correlationPropKey,
-        filters,
-        aggregationTargetLabel,
+        correlationValues,
         loadedEventCorrelationsTableOnce,
-    } = useValues(logic)
+        eventHasPropertyCorrelations,
+        eventWithPropertyCorrelationsLoading,
+        eventWithPropertyCorrelationsValues,
+        nestedTableExpandedKeys,
+    } = useValues(funnelCorrelationLogic(insightProps))
     const {
         setCorrelationTypes,
+        loadEventCorrelations,
         loadEventWithPropertyCorrelations,
         addNestedTableExpandedKey,
         removeNestedTableExpandedKey,
-        openCorrelationPersonsModal,
-        loadEventCorrelations,
-    } = useActions(logic)
+    } = useActions(funnelCorrelationLogic(insightProps))
 
-    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
-
-    // Load correlations only if this component is mounted, and then reload if filters change
+    // Load correlations only if this component is mounted, and then reload if the query changes
     useEffect(() => {
-        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
+        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
         if (loadedEventCorrelationsTableOnce) {
             loadEventCorrelations({})
         }
-    }, [filters])
+    }, [querySource])
+
+    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (correlationTypes) {
@@ -96,7 +96,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 </h4>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -190,7 +190,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     <Column
                         title=""
                         key="actions"
-                        render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                        render={(_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />}
                         align="center"
                         width={30}
                     />
@@ -234,14 +234,27 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     </span>
                 </span>
                 <ConfigProvider
-                    renderEmpty={() => (
-                        <FunnelCorrelationTableEmptyState
-                            infoMessage="Correlated events highlights events users have also performed that are likely to have affected their conversion
-                            rate within the funnel."
-                            showLoadResultsButton={!loadedEventCorrelationsTableOnce}
-                            loadResults={() => loadEventCorrelations({})}
-                        />
-                    )}
+                    renderEmpty={() =>
+                        loadedEventCorrelationsTableOnce ? (
+                            <Empty />
+                        ) : (
+                            <p style={{ margin: 'auto', maxWidth: 500 }}>
+                                Highlight events which are likely to have affected the conversion rate within the
+                                funnel.{' '}
+                                <Link to="https://posthog.com/manual/correlation">
+                                    Learn more about correlation analysis.
+                                </Link>
+                                <br />
+                                <LemonButton
+                                    onClick={() => loadEventCorrelations({})}
+                                    type="secondary"
+                                    className="m-auto"
+                                >
+                                    Load results
+                                </LemonButton>
+                            </p>
+                        )
+                    }
                 >
                     <Table
                         dataSource={correlationValues}
@@ -258,7 +271,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         expandable={{
                             expandedRowRender: (record) => renderNestedTable(record.event.event),
                             expandedRowKeys: nestedTableExpandedKeys,
-                            rowExpandable: () => filters.aggregation_group_type_index === undefined,
+                            rowExpandable: () => querySource?.aggregation_group_type_index === undefined,
                             expandIcon: ({ expanded, onExpand, record, expandable }) => {
                                 if (!expandable) {
                                     return null
@@ -309,7 +322,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     Completed
                                     <Tooltip
                                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                            querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } performed the event and completed the entire funnel.`}
                                     >
                                         <InfoCircleOutlined className="column-info" />
@@ -329,7 +342,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         title={
                                             <>
                                                 {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                                {querySource?.aggregation_group_type_index != undefined
+                                                    ? 'that'
+                                                    : 'who'}{' '}
                                                 performed the event and did <b>not complete</b> the entire funnel.
                                             </>
                                         }
@@ -346,7 +361,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         <Column
                             title=""
                             key="actions"
-                            render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                            render={(_, record: FunnelCorrelation) => <EventCorrelationActionsCell record={record} />}
                             width={30}
                         />
                     </Table>
@@ -354,53 +369,4 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             </div>
         </VisibilitySensor>
     ) : null
-}
-
-const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { excludeEventPropertyFromProject, excludeEventFromProject, setFunnelCorrelationDetails } = useActions(logic)
-    const { isEventPropertyExcluded, isEventExcluded } = useValues(logic)
-    const components = record.event.event.split('::')
-    const [popoverOpen, setPopoverOpen] = useState(false)
-
-    return (
-        <Row style={{ justifyContent: 'flex-end' }}>
-            <Popover
-                visible={popoverOpen}
-                actionable
-                onClickOutside={() => setPopoverOpen(false)}
-                overlay={
-                    <>
-                        {record.result_type === FunnelCorrelationResultsType.Events && (
-                            <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth status="stealth">
-                                View correlation details
-                            </LemonButton>
-                        )}
-                        <LemonButton
-                            disabled={
-                                record.result_type === FunnelCorrelationResultsType.EventWithProperties
-                                    ? isEventPropertyExcluded(components[1])
-                                    : isEventExcluded(components[0])
-                            }
-                            onClick={() =>
-                                record.result_type === FunnelCorrelationResultsType.EventWithProperties
-                                    ? excludeEventPropertyFromProject(components[0], components[1])
-                                    : excludeEventFromProject(components[0])
-                            }
-                            fullWidth
-                            title="Remove this event from any correlation analysis report in this project."
-                            status="stealth"
-                        >
-                            Exclude event from project
-                        </LemonButton>
-                    </>
-                }
-            >
-                <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined className="insight-dropdown-actions" />
-                </LemonButton>
-            </Popover>
-        </Row>
-    )
 }

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { FilterLogicalOperator, FilterType, AnyPropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
 import { useMountedLogic } from 'kea'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PropertyGroupFilters } from './PropertyGroupFilters'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -36,7 +35,6 @@ const taxonomicGroupTypes = [
 ]
 
 export function GroupPropertyFilters(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 
     const [propertyGroupFilter, setPropertyGroupFilter] = useState<PropertyGroupFilter>({
@@ -73,7 +71,6 @@ export function GroupPropertyFilters(): JSX.Element {
 }
 
 export function EmptyGroupPropertyFilters(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 
     const [propertyGroupFilter, setPropertyGroupFilter] = useState<PropertyGroupFilter>({

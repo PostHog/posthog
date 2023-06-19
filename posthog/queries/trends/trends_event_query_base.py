@@ -8,7 +8,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.util import get_active_user_params
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, get_active_user_params
 from posthog.queries.util import get_person_properties_mode
 from posthog.utils import PersonOnEventsMode
 
@@ -32,7 +32,7 @@ class TrendsEventQueryBase(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id",
+            person_id_joined_alias=self._person_id_alias,
         )
 
         self.params.update(prop_params)
@@ -68,19 +68,28 @@ class TrendsEventQueryBase(EventQuery):
 
         return query, self.params
 
+    def _determine_should_join_distinct_ids(self) -> None:
+        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._should_join_distinct_ids = False
+
+        is_entity_per_user = self._entity.math in (
+            UNIQUE_USERS,
+            WEEKLY_ACTIVE,
+            MONTHLY_ACTIVE,
+            *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys(),
+        )
+        if (
+            is_entity_per_user
+            and not self._aggregate_users_by_distinct_id
+            and self._entity.math_group_type_index is None
+        ) or self._column_optimizer.is_using_cohort_propertes:
+            self._should_join_distinct_ids = True
+
     def _determine_should_join_persons(self) -> None:
         if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
-            self._should_join_distinct_ids = False
             self._should_join_persons = False
         else:
             EventQuery._determine_should_join_persons(self)
-
-    def _determine_should_join_distinct_ids(self) -> None:
-        is_entity_per_user = self._entity.math in (UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE)
-        if (
-            is_entity_per_user and not self._aggregate_users_by_distinct_id
-        ) or self._column_optimizer.is_using_cohort_propertes:
-            self._should_join_distinct_ids = True
 
     def _get_not_null_actor_condition(self) -> str:
         if self._entity.math_group_type_index is None:
@@ -131,6 +140,7 @@ class TrendsEventQueryBase(EventQuery):
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=get_person_properties_mode(self._team),
             hogql_context=self._filter.hogql_context,
+            person_id_joined_alias=self._person_id_alias,
         )
 
         return entity_format_params["entity_query"], entity_params

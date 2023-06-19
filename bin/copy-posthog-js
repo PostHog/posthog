@@ -2,7 +2,7 @@
 
 set -e
 
-# This script copies the following built files from posthog-js so that they can served on Posthog's CDN
+# This script copies the following built files from posthog-js so that they can served on PostHog's CDN
 
 cp node_modules/posthog-js/dist/array.js* frontend/dist/
 cp node_modules/posthog-js/dist/array.full.js* frontend/dist/

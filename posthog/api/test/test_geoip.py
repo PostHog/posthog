@@ -9,12 +9,12 @@ from posthog.api.geoip import geoip, get_geoip_properties
 
 australia_ip = "13.106.122.3"
 uk_ip = "31.28.64.3"
-uk_ip_v6 = "2a01:4b00:875f:cf01:109e:dbfd:8cb9:a5d4"
+us_ip_v6 = "2600:6c52:7a00:11c:1b6:b7b0:ea19:6365"
 local_ip = "127.0.0.1"
 
 
 @pytest.mark.parametrize(
-    "test_input,expected", [(australia_ip, "Australia"), (uk_ip, "United Kingdom"), (uk_ip_v6, "United Kingdom")]
+    "test_input,expected", [(australia_ip, "Australia"), (uk_ip, "United Kingdom"), (us_ip_v6, "United States")]
 )
 def test_geoip_results(test_input, expected):
     properties = get_geoip_properties(test_input)
@@ -31,7 +31,6 @@ class TestGeoIPDBError(TestCase):
         geoip.city = self.geoip_city_method  # type: ignore
 
     def test_geoip_with_invalid_database_file_returns_successfully(self):
-
         properties = get_geoip_properties(australia_ip)
 
         self.assertEqual(properties, {})
@@ -39,13 +38,11 @@ class TestGeoIPDBError(TestCase):
 
 class TestGeoIPError(TestCase):
     def test_geoip_on_local_ip_returns_successfully(self):
-
         properties = get_geoip_properties(local_ip)
 
         self.assertEqual(properties, {})
 
     def test_geoip_on_invalid_ip_returns_successfully(self):
-
         properties = get_geoip_properties(None)
 
         self.assertEqual(properties, {})

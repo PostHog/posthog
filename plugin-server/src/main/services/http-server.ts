@@ -9,7 +9,7 @@ export const HTTP_SERVER_PORT = 6738
 prometheus.collectDefaultMetrics()
 
 export function createHttpServer(
-    healthChecks: { [service: string]: () => Promise<boolean> },
+    healthChecks: { [service: string]: () => Promise<boolean> | boolean },
     analyticsEventsIngestionConsumer?: IngestionConsumer
 ): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -63,7 +63,7 @@ export function createHttpServer(
             if (statusCode === 200) {
                 status.info('💚', 'Server liveness check succeeded')
             } else {
-                status.info('💔', 'Server liveness check failed', checkResults)
+                status.info('💔', 'Server liveness check failed', checkResultsMapping)
             }
 
             res.end(JSON.stringify({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping }))
@@ -86,16 +86,6 @@ export function createHttpServer(
                 res.end(JSON.stringify(responseBody))
             }
         } else if (req.url === '/_metrics' && req.method === 'GET') {
-            // Return prometheus metrics for this process.
-            //
-            // NOTE: we do not currently support gathering metrics from forked
-            // processes e.g. those recorded in Piscina Workers. This is because
-            // it may well be better to simply remove Piscina workers.
-            //
-            // See
-            // https://github.com/siimon/prom-client/blob/master/example/cluster.js
-            // for an example of how to gather metrics from forked processes.
-
             prometheus.register
                 .metrics()
                 .then((metrics) => {

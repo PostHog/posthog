@@ -200,7 +200,7 @@ function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPe
     let maxTime = 0
     const pointsInTime: PointInTimeMarker[] = []
     const resourceTimings: ResourceTiming[] = []
-    let timestamp: string | null = null
+    let timestamp: number | string | null = null
 
     pageviewEvents?.forEach((performanceEvent) => {
         if (performanceEvent.entry_type === 'navigation') {

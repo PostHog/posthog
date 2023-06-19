@@ -27,6 +27,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
+import * as Sentry from '@sentry/react'
 
 const reverseInsightMap: Record<Exclude<InsightType, InsightType.JSON | InsightType.SQL>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -51,8 +52,9 @@ export const actionsAndEventsToSeries = ({
                 name: f.name || undefined,
                 custom_name: f.custom_name,
                 properties: f.properties,
-                math: f.math,
+                math: f.math || 'total',
                 math_property: f.math_property,
+                math_hogql: f.math_hogql,
                 math_group_type_index: f.math_group_type_index,
             })
             if (f.type === 'actions') {
@@ -64,12 +66,6 @@ export const actionsAndEventsToSeries = ({
             } else if (f.type === 'events') {
                 return {
                     kind: NodeKind.EventsNode,
-                    event: f.id,
-                    ...shared,
-                }
-            } else if (f.type === 'new_entity') {
-                return {
-                    kind: NodeKind.NewEntityNode,
                     event: f.id,
                     ...shared,
                 }
@@ -100,6 +96,13 @@ export const cleanHiddenLegendSeries = (
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+    const captureException = (message: string): void => {
+        Sentry.captureException(new Error(message), {
+            tags: { DataExploration: true },
+            extra: { filters },
+        })
+    }
+
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
     }
@@ -108,6 +111,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         kind: reverseInsightMap[filters.insight],
         properties: filters.properties,
         filterTestAccounts: filters.filter_test_accounts,
+        samplingFactor: filters.sampling_factor,
     }
 
     // date range
@@ -126,15 +130,40 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     // breakdown
     if (isInsightQueryWithBreakdown(query)) {
+        /* handle multi-breakdowns */
+        // not undefined or null
+        if (filters.breakdowns != null) {
+            if (filters.breakdowns.length === 1) {
+                filters.breakdown_type = filters.breakdowns[0].type
+                filters.breakdown = filters.breakdowns[0].property as string
+            } else {
+                captureException(
+                    'Could not convert multi-breakdown property `breakdowns` - found more than one breakdown'
+                )
+            }
+        }
+
+        /* handle missing breakdown_type */
+        // check for undefined and null values
+        if (filters.breakdown != null && filters.breakdown_type == null) {
+            filters.breakdown_type = 'event'
+        }
+
         query.breakdown = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
             breakdowns: filters.breakdowns,
-            breakdown_value: filters.breakdown_value,
             breakdown_group_type_index: filters.breakdown_group_type_index,
-            aggregation_group_type_index: filters.aggregation_group_type_index,
+            ...(isTrendsFilter(filters)
+                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                : {}),
         })
+    }
+
+    // group aggregation
+    if (filters.aggregation_group_type_index !== undefined) {
+        query.aggregation_group_type_index = filters.aggregation_group_type_index
     }
 
     // trends filter
@@ -147,10 +176,10 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             aggregation_axis_format: filters.aggregation_axis_format,
             aggregation_axis_prefix: filters.aggregation_axis_prefix,
             aggregation_axis_postfix: filters.aggregation_axis_postfix,
-            breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
             formula: filters.formula,
             shown_as: filters.shown_as,
             display: filters.display,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 
@@ -178,6 +207,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             entrance_period_start: filters.entrance_period_start,
             drop_off: filters.drop_off,
             hidden_legend_breakdowns: cleanHiddenLegendSeries(filters.hidden_legend_keys),
+            funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql,
         })
     }
 
@@ -226,6 +256,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             stickiness_days: filters.stickiness_days,
             shown_as: filters.shown_as,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 
@@ -234,6 +265,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.lifecycleFilter = objectCleanWithEmpty({
             shown_as: filters.shown_as,
             toggledLifecycles: filters.toggledLifecycles,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 

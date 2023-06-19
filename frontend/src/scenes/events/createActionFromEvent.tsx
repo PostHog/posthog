@@ -4,7 +4,7 @@ import { autoCaptureEventToDescription } from 'lib/utils'
 import { Link } from 'lib/lemon-ui/Link'
 import {
     ActionStepType,
-    ActionStepUrlMatching,
+    StringMatching,
     ActionType,
     ElementType,
     EventType,
@@ -58,10 +58,10 @@ export async function createActionFromEvent(
                 ...(event.event === '$pageview' || event.event === '$autocapture'
                     ? {
                           url: event.properties.$current_url,
-                          url_matching: ActionStepUrlMatching.Exact,
+                          url_matching: StringMatching.Exact,
                       }
                     : {}),
-                ...(event.elements.length > 0 ? elementsToAction(event.elements) : {}),
+                ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
             },
         ],
     }

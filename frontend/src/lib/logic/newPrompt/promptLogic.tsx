@@ -122,7 +122,6 @@ export const promptLogic = kea<promptLogicType>([
                     })
                 }
             })
-            console.log(promptFlags)
             actions.setPromptFlags(promptFlags)
             actions.searchForValidFlags()
         },

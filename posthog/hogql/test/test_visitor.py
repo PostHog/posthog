@@ -1,6 +1,7 @@
 from posthog.hogql import ast
+from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, Visitor
+from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor
 from posthog.test.base import BaseTest
 
 
@@ -39,12 +40,12 @@ class TestVisitor(BaseTest):
                 ast.And(
                     exprs=[
                         ast.CompareOperation(
-                            op=ast.CompareOperationType.Eq,
+                            op=ast.CompareOperationOp.Eq,
                             left=ast.Field(chain=["a"]),
                             right=ast.Constant(value=1),
                         ),
                         ast.BinaryOperation(
-                            op=ast.BinaryOperationType.Add,
+                            op=ast.BinaryOperationOp.Add,
                             left=ast.Field(chain=["b"]),
                             right=ast.Constant(value=2),
                         ),
@@ -76,7 +77,7 @@ class TestVisitor(BaseTest):
                             join_type="INNER",
                             table=ast.Field(chain=["f"]),
                             constraint=ast.CompareOperation(
-                                op=ast.CompareOperationType.Eq,
+                                op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["d"]),
                                 right=ast.Field(chain=["e"]),
                             ),
@@ -116,6 +117,18 @@ class TestVisitor(BaseTest):
             def visit_binary_operation(self, node: ast.BinaryOperation):
                 return self.visit(node.left) + node.op + self.visit(node.right)
 
-        with self.assertRaises(ValueError) as e:
+        with self.assertRaises(HogQLException) as e:
             UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
         self.assertEqual(str(e.exception), "Visitor has no method visit_constant")
+
+    def test_hogql_exception_start_end(self):
+        class EternalVisitor(TraversingVisitor):
+            def visit_constant(self, node: ast.Constant):
+                if node.value == 616:
+                    raise HogQLException("You tried accessing a forbidden number, perish.")
+
+        with self.assertRaises(HogQLException) as e:
+            EternalVisitor().visit(parse_expr("1 + 616 / 'asd2'"))
+        self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish.")
+        self.assertEqual(e.exception.start, 4)
+        self.assertEqual(e.exception.end, 7)

@@ -19,7 +19,6 @@ from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
-    OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
@@ -82,6 +81,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "name",
             "api_token",
             "autocapture_opt_out",
+            "autocapture_exceptions_opt_in",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
@@ -120,9 +120,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_display_name_properties",
             "correlation_config",
             "autocapture_opt_out",
-            "session_recording_opt_in",
+            "autocapture_exceptions_opt_in",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
+            "session_recording_opt_in",
             "session_recording_version",
             "effective_membership_level",
             "access_control",
@@ -133,6 +134,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
             "inject_web_apps",
+            "extra_settings",
         )
         read_only_fields = (
             "id",
@@ -173,7 +175,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id=organization_id, user=request.user
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:
-                raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+                raise exceptions.PermissionDenied("Your organization access level is insufficient.")
 
         if "session_recording_version" in attrs:
             if attrs["session_recording_version"] not in ["v1", "v2"]:

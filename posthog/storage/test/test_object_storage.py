@@ -10,7 +10,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.storage.object_storage import health_check, read, write
+from posthog.storage.object_storage import health_check, read, write, get_presigned_url, list_objects
 from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "test_storage_bucket"
@@ -52,3 +52,54 @@ class TestStorage(APIBaseTest):
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, "my content".encode("utf-8"))
             self.assertEqual(read(file_name), "my content")
+
+    def test_can_generate_presigned_url_for_existing_file(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            session_id = str(uuid.uuid4())
+            chunk_id = uuid.uuid4()
+            name = f"{session_id}/{0}-{chunk_id}"
+            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_url_for_existing_file/{name}"
+            write(file_name, "my content".encode("utf-8"))
+
+            presigned_url = get_presigned_url(file_name)
+            assert presigned_url is not None
+            self.assertRegex(
+                presigned_url,
+                r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_generate_presigned_url_for_existing_file/.*\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+            )
+
+    def test_can_generate_presigned_url_for_non_existent_file(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            name = "a/b-c"
+            file_name = f"{TEST_BUCKET}/test_can_ignore_presigned_url_for_non_existent_file/{name}"
+
+            presigned_url = get_presigned_url(file_name)
+            assert presigned_url is not None
+            self.assertRegex(
+                presigned_url,
+                r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+            )
+
+    def test_can_list_objects_with_prefix(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            shared_prefix = "a_shared_prefix"
+
+            for file in ["a", "b", "c"]:
+                file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
+                write(file_name, "my content".encode("utf-8"))
+
+            listing = list_objects(prefix=f"{TEST_BUCKET}/{shared_prefix}")
+
+            assert listing == [
+                "test_storage_bucket/a_shared_prefix/a",
+                "test_storage_bucket/a_shared_prefix/b",
+                "test_storage_bucket/a_shared_prefix/c",
+            ]
+
+    def test_can_list_unknown_prefix(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            shared_prefix = str(uuid.uuid4())
+
+            listing = list_objects(prefix=shared_prefix)
+
+            assert listing is None

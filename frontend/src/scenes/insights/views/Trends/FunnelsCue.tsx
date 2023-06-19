@@ -3,7 +3,7 @@ import { funnelsCueLogic } from 'scenes/insights/views/Trends/funnelsCueLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { InsightType } from '~/types'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function FunnelsCue(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -15,7 +15,7 @@ export function FunnelsCue(): JSX.Element | null {
     }
 
     return (
-        <AlertMessage
+        <LemonBanner
             type="info"
             action={{
                 to: urls.insightNew({ insight: InsightType.FUNNELS }),
@@ -27,6 +27,6 @@ export function FunnelsCue(): JSX.Element | null {
         >
             Looks like you have multiple events. A funnel can help better visualize your user’s progression across each
             event.
-        </AlertMessage>
+        </LemonBanner>
     )
 }

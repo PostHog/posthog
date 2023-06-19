@@ -137,7 +137,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
         group_type_index = request.GET.get("group_type_index")
         id = request.GET["id"]
 
-        results = RelatedActorsQuery(self.team.pk, group_type_index, id).run()
+        results = RelatedActorsQuery(self.team, group_type_index, id).run()
         return response.Response(results)
 
     @action(methods=["GET"], detail=False)

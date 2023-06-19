@@ -119,7 +119,7 @@ class TrendsActors(ActorBaseQuery):
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            and self._team.person_on_events_mode == PersonOnEventsMode.DISABLED,
+            and self._team.person_on_events_mode != PersonOnEventsMode.V1_ENABLED,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
             person_on_events_mode=self._team.person_on_events_mode,
@@ -156,6 +156,8 @@ class TrendsActors(ActorBaseQuery):
     @cached_property
     def _aggregation_actor_value_expression_with_params(self) -> Tuple[str, Dict[str, Any]]:
         if self.entity.math in PROPERTY_MATH_FUNCTIONS:
-            math_aggregate_operation, _, math_params = process_math(self.entity, self._team, event_table_alias="e")
+            math_aggregate_operation, _, math_params = process_math(
+                self.entity, self._team, filter=self._filter, event_table_alias="e"
+            )
             return math_aggregate_operation, math_params
         return "count()", {}

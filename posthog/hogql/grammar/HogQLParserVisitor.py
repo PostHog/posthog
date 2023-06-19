@@ -1,6 +1,6 @@
-# Generated from HogQLParser.g4 by ANTLR 4.11.1
+# Generated from HogQLParser.g4 by ANTLR 4.13.0
 from antlr4 import *
-if __name__ is not None and "." in __name__:
+if "." in __name__:
     from .HogQLParser import HogQLParser
 else:
     from HogQLParser import HogQLParser
@@ -244,21 +244,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#ColumnsExprAsterisk.
-    def visitColumnsExprAsterisk(self, ctx:HogQLParser.ColumnsExprAsteriskContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnsExprSubquery.
-    def visitColumnsExprSubquery(self, ctx:HogQLParser.ColumnsExprSubqueryContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#ColumnsExprColumn.
-    def visitColumnsExprColumn(self, ctx:HogQLParser.ColumnsExprColumnContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#ColumnExprTernaryOp.
     def visitColumnExprTernaryOp(self, ctx:HogQLParser.ColumnExprTernaryOpContext):
         return self.visitChildren(ctx)
@@ -356,6 +341,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnExprBetween.
     def visitColumnExprBetween(self, ctx:HogQLParser.ColumnExprBetweenContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprPropertyAccess.
+    def visitColumnExprPropertyAccess(self, ctx:HogQLParser.ColumnExprPropertyAccessContext):
         return self.visitChildren(ctx)
 
 
@@ -536,11 +526,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#identifier.
     def visitIdentifier(self, ctx:HogQLParser.IdentifierContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#identifierOrNull.
-    def visitIdentifierOrNull(self, ctx:HogQLParser.IdentifierOrNullContext):
         return self.visitChildren(ctx)
 
 

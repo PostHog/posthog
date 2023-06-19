@@ -12,7 +12,12 @@
     border-radius: 0.125rem;
     border-width: 1px;
     background: var(--accent-3000);
+    color: var(--default);
     text-transform: capitalize;
+    .KeyboardShortcut--muted > & {
+        background: none;
+        color: var(--muted);
+    }
     & + .KeyboardShortcut__key {
         margin-left: 0.25rem;
     }

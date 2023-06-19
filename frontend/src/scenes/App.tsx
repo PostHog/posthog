@@ -25,6 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { useEffect } from 'react'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -128,6 +129,7 @@ function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
@@ -142,6 +144,7 @@ function AppScene(): JSX.Element | null {
             draggable={false}
             closeButton={<ToastCloseButton />}
             position="bottom-right"
+            theme={isDarkModeOn ? 'dark' : 'light'}
         />
     )
 

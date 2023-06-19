@@ -1,5 +1,4 @@
 # Web app specific settings/middleware/apps setup
-# :NOTE: posthog-cloud modifies some of these values
 import os
 from datetime import timedelta
 from typing import List
@@ -19,6 +18,17 @@ AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+
+# Decide rate limit setting
+
+DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
+DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
+
+# Decide billing analytics
+
+DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
+DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
 # Application definition
 
@@ -51,7 +61,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -80,8 +90,10 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "django_prometheus.middleware.PrometheusAfterMiddleware",
+    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
+
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
@@ -202,7 +214,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/.*$"
+CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
 CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
 
 REST_FRAMEWORK = {

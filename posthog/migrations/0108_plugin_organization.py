@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
             ),
             preserve_default=False,
         ),
-        migrations.RunPython(set_plugin_organization, migrations.RunPython.noop),
+        migrations.RunPython(set_plugin_organization, migrations.RunPython.noop, elidable=True),
         migrations.AlterField(
             model_name="plugin",
             name="organization",

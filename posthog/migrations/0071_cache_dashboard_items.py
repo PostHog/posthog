@@ -61,5 +61,5 @@ class Migration(migrations.Migration):
                 to="posthog.Funnel",
             ),
         ),
-        migrations.RunPython(forwards_func, reverse_func),
+        migrations.RunPython(forwards_func, reverse_func, elidable=True),
     ]

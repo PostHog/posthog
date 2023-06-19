@@ -94,6 +94,8 @@ function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string 
             return 'INGESTION-OVERFLOW'
         case 'recordings-ingestion':
             return 'RECORDINGS-INGESTION'
+        case 'recordings-blob-ingestion':
+            return 'RECORDINGS-BLOB-INGESTION'
         case 'async':
             return 'ASYNC'
         case 'exports':

@@ -27,7 +27,7 @@ type APIMockReturnType = {
     [K in keyof Pick<
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
-    >]: jest.Mock<ReturnType<typeof apiReal[K]>, Parameters<typeof apiReal[K]>>
+    >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -70,6 +70,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     capture_console_log_opt_in: true,
     session_recording_version: 'v1',
     capture_performance_opt_in: true,
+    autocapture_exceptions_opt_in: false,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
@@ -96,6 +97,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
         taxonomy_set_events_count: 60,
         taxonomy_set_properties_count: 17,
     },
+    available_product_features: [],
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {

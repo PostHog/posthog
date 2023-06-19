@@ -6,6 +6,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
+import posthog from 'posthog-js'
 
 import type { announcementLogicType } from './announcementLogicType'
 
@@ -15,6 +16,9 @@ export enum AnnouncementType {
     NewFeature = 'NewFeature',
     AttentionRequired = 'AttentionRequired',
 }
+
+export const DEFAULT_CLOUD_ANNOUNCEMENT =
+    "We're experiencing technical difficulties, see more at [status.posthog.com](https://status.posthog.com)"
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false
@@ -112,10 +116,14 @@ export const announcementLogic = kea<announcementLogicType>([
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
-                const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                return !!flagValue && typeof flagValue === 'string'
-                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
-                    : null
+                const flagPayload = posthog.getFeatureFlagPayload(FEATURE_FLAGS.CLOUD_ANNOUNCEMENT)
+                const flagEnabled = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+
+                if (flagEnabled && !flagPayload) {
+                    // Default to standard cloud announcement if no payload is set
+                    return DEFAULT_CLOUD_ANNOUNCEMENT
+                }
+                return !!flagPayload && typeof flagPayload === 'string' ? flagPayload : null
             },
         ],
     }),

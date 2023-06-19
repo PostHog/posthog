@@ -27,6 +27,10 @@ export function loadPostHogJS(): void {
                 bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
                 loaded: (posthog) => {
+                    if (posthog.webPerformance) {
+                        posthog.webPerformance._forceAllowLocalhost = true
+                    }
+
                     if (window.IMPERSONATED_SESSION) {
                         posthog.opt_out_capturing()
                     } else {
@@ -52,11 +56,12 @@ export function loadPostHogJS(): void {
         })
     }
 
-    if ((window as any).SENTRY_DSN) {
+    if (window.SENTRY_DSN) {
         Sentry.init({
-            dsn: (window as any).SENTRY_DSN,
-            ...(window.location.host.indexOf('app.posthog.com') > -1 && {
-                integrations: [new posthog.SentryIntegration(posthog, 'posthog2', 1899813)],
+            dsn: window.SENTRY_DSN,
+            environment: window.SENTRY_ENVIRONMENT,
+            ...(location.host.includes('posthog.com') && {
+                integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
             }),
         })
     }

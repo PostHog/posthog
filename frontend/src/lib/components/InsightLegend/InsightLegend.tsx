@@ -13,7 +13,7 @@ export interface InsightLegendProps {
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
-    const { insightProps, filters, highlightedSeries } = useValues(insightLogic)
+    const { insightProps, filters, highlightedSeries, isSingleSeries } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
@@ -34,7 +34,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
                             hiddenLegendKeys={hiddenLegendKeys}
                             item={item}
                             rowIndex={index}
-                            hasMultipleSeries={indexedResults.length > 1}
+                            hasMultipleSeries={!isSingleSeries}
                             highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
                             toggleVisibility={toggleVisibility}
                             filters={filters}

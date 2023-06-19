@@ -44,5 +44,5 @@ class Migration(migrations.Migration):
             name="filters",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
         ),
-        migrations.RunPython(move_funnel_steps, revert_funnel_steps),
+        migrations.RunPython(move_funnel_steps, revert_funnel_steps, elidable=True),
     ]

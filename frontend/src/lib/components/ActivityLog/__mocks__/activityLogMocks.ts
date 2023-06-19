@@ -620,18 +620,69 @@ export const personActivityResponseJson: ActivityLogItem[] = [
 
 export const insightsActivityResponseJson: ActivityLogItem[] = [
     {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738509',
-        detail: {
-            changes: null,
-            merge: null,
-            trigger: null,
-            name: 'an amazing discovery awaits',
-            short_id: 'kUUjoSL9' as InsightShortId,
+        user: {
+            first_name: 'Cory',
+            email: 'cory@posthog.com',
         },
-        created_at: '2022-05-03T16:28:29.544239Z',
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '999296',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'derived_name',
+                    before: 'from HogQL into a data table.',
+                    after: "Pageview unique sessions by person's $email",
+                },
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'filters',
+                    before: {},
+                    after: {
+                        events: [
+                            {
+                                id: '$pageview',
+                                math: 'unique_session',
+                                name: '$pageview',
+                                type: 'events',
+                                order: 0,
+                            },
+                        ],
+                        actions: [],
+                        display: 'ActionsLineGraph',
+                        insight: 'TRENDS',
+                        interval: 'month',
+                        breakdown: '$email',
+                        new_entity: [],
+                        properties: [],
+                        breakdown_type: 'person',
+                        filter_test_accounts: false,
+                    },
+                },
+                {
+                    type: 'Insight',
+                    action: 'deleted',
+                    field: 'query',
+                    before: {
+                        full: true,
+                        kind: 'DataTableNode',
+                        source: {
+                            kind: 'HogQLQuery',
+                            query: '   select event,\n          person.properties.email,\n          properties.$browser,\n          count()\n     from events\n    where timestamp > now () - interval 1 day\n      and person.properties.email is not null\n group by event,\n          properties.$browser,\n          person.properties.email\n order by count() desc\n    limit 100',
+                        },
+                    },
+                    after: null,
+                },
+            ],
+            trigger: null,
+            name: 'Users by session count',
+            short_id: 'XxmUm8A6' as InsightShortId,
+        },
+        created_at: '2023-04-20T18:35:14.033429Z',
     },
     {
         user: { first_name: 'Cameron', email: 'cameron@posthog.com' },

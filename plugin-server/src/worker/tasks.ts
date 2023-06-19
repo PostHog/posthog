@@ -33,10 +33,6 @@ export const workerTasks: Record<string, TaskRunner> = {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runEventPipeline(args.event)
     },
-    runBufferEventPipeline: async (hub, args: { event: PluginEvent }) => {
-        const runner = new EventPipelineRunner(hub, args.event)
-        return await runner.runBufferEventPipeline(args.event)
-    },
     runAsyncHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
         return await runner.runAsyncHandlersEventPipeline(args.event)

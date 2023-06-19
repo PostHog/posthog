@@ -5,6 +5,7 @@
     <option name="PARENT_ENVS" value="true" />
     <envs>
       <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
+      <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
       <env name="CLICKHOUSE_SECURE" value="False" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
       <env name="DEBUG" value="1" />
@@ -13,8 +14,9 @@
       <env name="KEA_VERBOSE_LOGGING" value="false" />
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO" value="1" />
+      <env name="SESSION_RECORDING_KAFKA_URL" value="kafka://localhost" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
-      <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="SDK_NAME" value="Python 3.10 (posthog)" />

@@ -15,11 +15,11 @@ selectStmt:
     columns=columnExprList
     from=fromClause?
     arrayJoinClause?
-    windowClause?
     prewhereClause?
     where=whereClause?
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
+    windowClause?
     orderByClause?
     limitClause?
     settingsClause?
@@ -29,7 +29,7 @@ withClause: WITH withExprList;
 topClause: TOP DECIMAL_LITERAL (WITH TIES)?;
 fromClause: FROM joinExpr;
 arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
-windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN;
+windowClause: WINDOW identifier AS LPAREN windowExpr RPAREN (COMMA identifier AS LPAREN windowExpr RPAREN)*;
 prewhereClause: PREWHERE columnExpr;
 whereClause: WHERE columnExpr;
 groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnExprList);
@@ -92,13 +92,7 @@ columnTypeExpr
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnsExpr (COMMA columnsExpr)*;
-columnsExpr
-    : (tableIdentifier DOT)? ASTERISK  # ColumnsExprAsterisk
-    | LPAREN selectUnionStmt RPAREN    # ColumnsExprSubquery
-    // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
-    | columnExpr                       # ColumnsExprColumn
-    ;
+columnExprList: columnExpr (COMMA columnExpr)*;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -116,6 +110,7 @@ columnExpr
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
+    | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                               // multiply
                  | operator=SLASH                                                                  // divide
@@ -142,7 +137,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with Clickhouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
+    // Note: difference with ClickHouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
     | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
@@ -228,5 +223,4 @@ keywordForAlias
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
-identifierOrNull: identifier | NULL_SQL;  // NULL_SQL can be only 'Null' here.
 enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;

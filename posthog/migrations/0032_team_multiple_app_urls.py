@@ -38,7 +38,7 @@ class Migration(migrations.Migration):
                 size=None,
             ),
         ),
-        migrations.RunPython(migrate_to_array, rollback_to_string),
+        migrations.RunPython(migrate_to_array, rollback_to_string, elidable=True),
         migrations.RemoveField(
             model_name="team",
             name="app_url",

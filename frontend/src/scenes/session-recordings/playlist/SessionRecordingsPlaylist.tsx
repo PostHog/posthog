@@ -1,31 +1,39 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType } from '~/types'
+import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
 import {
+    DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
+    SessionRecordingListLogicProps,
     sessionRecordingsListLogic,
 } from './sessionRecordingsListLogic'
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
-import { StickyView } from 'lib/components/StickyView/StickyView'
 import clsx from 'clsx'
-import { SessionRecordingsPlaylistFilters } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistFilters'
-import { PLAYLIST_PREVIEW_RECORDINGS_LIMIT } from 'scenes/notebooks/Nodes/RecordingPlaylistNode'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { urls } from 'scenes/urls'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-const MARGIN_TOP = 16
+const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
+    <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
+)
 
 export function RecordingsLists({
     playlistShortId,
     personUUID,
     filters: defaultFilters,
     updateSearchParams,
-    embedded,
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps = {
         playlistShortId,
@@ -44,8 +52,22 @@ export function RecordingsLists({
         showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
+        totalFiltersCount,
+        listingVersion,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters } = useActions(logic)
+    const {
+        setSelectedRecordingId,
+        loadNext,
+        loadPrev,
+        setFilters,
+        maybeLoadSessionRecordings,
+        setShowFilters,
+        resetFilters,
+    } = useActions(logic)
+    const { autoplayDirection } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
 
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
     const offset = filters.offset ?? 0
@@ -79,77 +101,182 @@ export function RecordingsLists({
         </div>
     ) : null
 
-    if (embedded) {
-        return (
-            <SessionRecordingsList
-                listKey="other"
-                embedded
-                title={'Recordings in playlist'}
-                onRecordingClick={() => console.log('TODO')}
-                onPropertyClick={() => console.log('TODO')}
-                recordings={sessionRecordings.slice(0, PLAYLIST_PREVIEW_RECORDINGS_LIMIT)}
-                loading={sessionRecordingsResponseLoading}
-                loadingSkeletonCount={PLAYLIST_PREVIEW_RECORDINGS_LIMIT}
-                empty={<>No matching recordings found</>}
-            />
-        )
-    }
-
     return (
         <>
-            {/* Pinned recordings */}
-            {!!playlistShortId && !showFilters ? (
+            <div className="SessionRecordingsPlaylist__lists">
+                {/* Pinned recordings */}
+                {!!playlistShortId && !showFilters ? (
+                    <SessionRecordingsList
+                        className={clsx({
+                            'max-h-1/2 h-fit': !collapsed.other,
+                            'shrink-1': !collapsed.pinned && collapsed.other,
+                        })}
+                        listKey="pinned"
+                        title="Pinned Recordings"
+                        titleRight={
+                            pinnedRecordingsResponse?.results?.length ? (
+                                <CounterBadge>{pinnedRecordingsResponse.results.length}</CounterBadge>
+                            ) : null
+                        }
+                        onRecordingClick={onRecordingClick}
+                        onPropertyClick={onPropertyClick}
+                        collapsed={collapsed.pinned}
+                        onCollapse={() => setCollapsed({ ...collapsed, pinned: !collapsed.pinned })}
+                        recordings={pinnedRecordingsResponse?.results}
+                        loading={pinnedRecordingsResponseLoading}
+                        info={
+                            <>
+                                You can pin recordings to a playlist to easily keep track of relevant recordings for the
+                                task at hand. Pinned recordings are always shown, regardless of filters.
+                            </>
+                        }
+                        activeRecordingId={activeSessionRecording?.id}
+                    />
+                ) : null}
+
+                {/* Other recordings */}
                 <SessionRecordingsList
                     className={clsx({
-                        'max-h-1/2 h-fit': !collapsed.other,
-                        'shrink-1': !collapsed.pinned && collapsed.other,
+                        'flex-1': !collapsed.other,
+                        'shrink-0': collapsed.other,
                     })}
-                    listKey="pinned"
-                    title="Pinned Recordings"
+                    listKey="other"
+                    title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
-                        pinnedRecordingsResponse?.results?.length ? (
-                            <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">
-                                {pinnedRecordingsResponse?.results?.length}
-                            </span>
+                        <>
+                            {infiniteScrollerEnabled ? (
+                                sessionRecordings.length ? (
+                                    <Tooltip
+                                        placement="bottom"
+                                        title={
+                                            <>
+                                                Showing {sessionRecordings.length} results.
+                                                <br />
+                                                Scrolling to the bottom or the top of the list will load older or newer
+                                                recordings respectively.
+                                            </>
+                                        }
+                                    >
+                                        <span>
+                                            <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        </span>
+                                    </Tooltip>
+                                ) : null
+                            ) : (
+                                paginationControls
+                            )}
+
+                            <LemonButton
+                                noPadding
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'primary' : 'tertiary'}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconFilter />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
+
+                            <Tooltip
+                                title={
+                                    <div className="text-center">
+                                        Autoplay next recording
+                                        <br />({!autoplayDirection ? 'disabled' : autoplayDirection})
+                                    </div>
+                                }
+                                placement="bottom"
+                            >
+                                <span>
+                                    <LemonSwitch
+                                        checked={!!autoplayDirection}
+                                        onChange={toggleAutoplayDirection}
+                                        handleContent={
+                                            <span
+                                                className={clsx(
+                                                    'transition-all flex items-center',
+                                                    !autoplayDirection && 'text-border text-sm',
+                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    autoplayDirection === 'newer' && 'rotate-180'
+                                                )}
+                                            >
+                                                {autoplayDirection ? <IconPlay /> : <IconPause />}
+                                            </span>
+                                        }
+                                    />
+                                </span>
+                            </Tooltip>
+                        </>
+                    }
+                    subheader={
+                        showFilters ? (
+                            <SessionRecordingsFilters
+                                filters={filters}
+                                setFilters={setFilters}
+                                showPropertyFilters={!personUUID}
+                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                usesListingV3={listingVersion === '3'}
+                            />
                         ) : null
                     }
                     onRecordingClick={onRecordingClick}
                     onPropertyClick={onPropertyClick}
-                    collapsed={collapsed.pinned}
-                    onCollapse={() => setCollapsed({ ...collapsed, pinned: !collapsed.pinned })}
-                    recordings={pinnedRecordingsResponse?.results}
-                    loading={pinnedRecordingsResponseLoading}
-                    info={
-                        <>
-                            You can pin recordings to a playlist to easily keep track of relevant recordings for the
-                            task at hand. Pinned recordings are always shown, regardless of filters.
-                        </>
+                    collapsed={collapsed.other}
+                    onCollapse={
+                        !!playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
+                    }
+                    recordings={sessionRecordings}
+                    loading={sessionRecordingsResponseLoading}
+                    loadingSkeletonCount={RECORDINGS_LIMIT}
+                    empty={
+                        <div className={'flex flex-col items-center space-y-2'}>
+                            <span>No matching recordings found</span>
+                            {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                <>
+                                    <LemonButton
+                                        type={'secondary'}
+                                        data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                        onClick={() => {
+                                            setFilters({
+                                                date_from: '-21d',
+                                            })
+                                        }}
+                                    >
+                                        Search over the last 21 days
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
                     }
                     activeRecordingId={activeSessionRecording?.id}
+                    onScrollToEnd={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('older') : undefined}
+                    onScrollToStart={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('newer') : undefined}
+                    footer={
+                        infiniteScrollerEnabled ? (
+                            <>
+                                <LemonDivider />
+                                <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                                    {sessionRecordingsResponseLoading ? (
+                                        <>
+                                            <Spinner monocolor /> Loading older recordings
+                                        </>
+                                    ) : hasNext ? (
+                                        <LemonButton
+                                            status="primary"
+                                            onClick={() => maybeLoadSessionRecordings('older')}
+                                        >
+                                            Load more
+                                        </LemonButton>
+                                    ) : (
+                                        'No more results'
+                                    )}
+                                </div>
+                            </>
+                        ) : null
+                    }
+                    draggableHref={urls.replay(ReplayTabs.Recent, filters)}
                 />
-            ) : null}
-
-            {/* Other recordings */}
-            <SessionRecordingsList
-                className={clsx({
-                    'flex-1': !collapsed.other,
-                    'shrink-0': collapsed.other,
-                })}
-                listKey="other"
-                title={!playlistShortId ? 'Recent recordings' : 'Other recordings'}
-                titleRight={paginationControls}
-                onRecordingClick={onRecordingClick}
-                onPropertyClick={onPropertyClick}
-                collapsed={collapsed.other}
-                onCollapse={
-                    !!playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
-                }
-                recordings={sessionRecordings}
-                loading={sessionRecordingsResponseLoading}
-                loadingSkeletonCount={RECORDINGS_LIMIT}
-                empty={<>No matching recordings found</>}
-                activeRecordingId={activeSessionRecording?.id}
-            />
+            </div>
         </>
     )
 }
@@ -160,7 +287,8 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
-    embedded?: boolean
+    autoPlay?: boolean
+    mode?: 'standard' | 'notebook'
 }
 
 export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps): JSX.Element {
@@ -170,46 +298,44 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         filters: defaultFilters,
         updateSearchParams,
         onFiltersChange,
-        embedded = false,
+        autoPlay = true,
     } = props
-    const logicProps = {
+
+    const logicProps: SessionRecordingListLogicProps = {
         playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
+        autoPlay,
+        onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, filters, showFilters } = useValues(logic)
-    const { setFilters } = useActions(logic)
-    const playlistRef = useRef<HTMLDivElement>(null)
+    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
 
-    useEffect(() => {
-        if (filters !== defaultFilters) {
-            onFiltersChange?.(filters)
-        }
-    }, [filters])
-
-    const lists = (
-        <div className="SessionRecordingsPlaylist__lists">
-            {showFilters ? (
-                <SessionRecordingsFilters filters={filters} setFilters={setFilters} showPropertyFilters={!personUUID} />
-            ) : null}
-            <RecordingsLists {...props} />
-        </div>
-    )
+    const { ref: playlistRef, size } = useResizeBreakpoints({
+        0: 'small',
+        750: 'medium',
+    })
 
     return (
         <>
-            {!embedded && <SessionRecordingsPlaylistFilters {...props} />}
-            <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
-                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4', embedded && '-mr-4')}>
-                    {embedded ? (
-                        <div className="sticky top-0 border-r">{lists}</div>
-                    ) : (
-                        <StickyView top="3.5rem" marginTop={MARGIN_TOP}>
-                            {lists}
-                        </StickyView>
-                    )}
+            {/* This was added around Jun 23 so at some point can just be removed */}
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+                <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
+                <span className="mx-1 text-lg">
+                    <IconFilter />
+                </span>
+                icon at the top of the list of recordings.
+            </LemonBanner>
+            <div
+                ref={playlistRef}
+                data-attr="session-recordings-playlist"
+                className={clsx('SessionRecordingsPlaylist', {
+                    'SessionRecordingsPlaylist--wide': size !== 'small',
+                })}
+            >
+                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
+                    <RecordingsLists {...props} />
                 </div>
                 <div className="SessionRecordingsPlaylist__right-column">
                     {activeSessionRecording?.id ? (
@@ -220,7 +346,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             matching={activeSessionRecording?.matching_events}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
-                            embedded={embedded}
                         />
                     ) : (
                         <div className="mt-20">

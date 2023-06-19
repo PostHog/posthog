@@ -9,7 +9,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Form } from 'kea-forms'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
@@ -47,10 +47,10 @@ function NewPasswordForm(): JSX.Element {
         <>
             <div className="text-center mb-4">Please enter a new password for your account.</div>
             {!isPasswordResetSubmitting && passwordResetManualErrors.generic && (
-                <AlertMessage type="error">
+                <LemonBanner type="error">
                     {passwordResetManualErrors.generic?.detail ||
                         'Could not complete your password reset request. Please try again.'}
-                </AlertMessage>
+                </LemonBanner>
             )}
             <Form logic={passwordResetLogic} formKey={'passwordReset'} className="space-y-4" enableFormOnSubmit>
                 <Field

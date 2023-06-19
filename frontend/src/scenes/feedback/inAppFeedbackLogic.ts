@@ -82,7 +82,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
                                 {
                                     kind: NodeKind.EventsNode,
                                     event: source.event,
-                                    name: source.event,
+                                    name: source.event ?? undefined,
                                 },
                             ],
                             dateRange: {

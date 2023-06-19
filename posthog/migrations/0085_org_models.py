@@ -305,5 +305,5 @@ class Migration(migrations.Migration):
                 name="max_uses_respected",
             ),
         ),
-        migrations.RunPython(forwards_func, reverse_func),
+        migrations.RunPython(forwards_func, reverse_func, elidable=True),
     ]

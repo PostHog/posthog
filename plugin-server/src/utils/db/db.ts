@@ -29,7 +29,6 @@ import {
     GroupTypeIndex,
     GroupTypeToColumnIndex,
     Hook,
-    IngestionPersonData,
     OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
@@ -141,6 +140,7 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ETIMEDOUT',
+    'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
 
 /** The recommended way of accessing the database. */
@@ -278,7 +278,7 @@ export class DB {
     public redisGet<T = unknown>(key: string, defaultValue: T, options: CacheOptions = {}): Promise<T | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery(this.statsd, 'query.regisGet', undefined, async () => {
+        return instrumentQuery(this.statsd, 'query.redisGet', undefined, async () => {
             const client = await this.redisPool.acquire()
             const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
             try {
@@ -520,129 +520,10 @@ export class DB {
         })
     }
 
-    REDIS_PERSON_ID_PREFIX = 'person_id'
-    REDIS_PERSON_UUID_PREFIX = 'person_uuid'
-    REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
-    REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
     REDIS_GROUP_DATA_PREFIX = 'group_data_cache_v2'
-
-    private getPersonIdCacheKey(teamId: number, distinctId: string): string {
-        return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
-    }
-
-    private getPersonUuidCacheKey(teamId: number, personId: number): string {
-        return `${this.REDIS_PERSON_UUID_PREFIX}:${teamId}:${personId}`
-    }
-
-    private getPersonCreatedAtCacheKey(teamId: number, personId: number): string {
-        return `${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}`
-    }
-
-    private getPersonPropertiesCacheKey(teamId: number, personId: number): string {
-        return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
-    }
 
     public getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
         return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
-    }
-
-    private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
-        await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.PERSONS_AND_GROUPS_CACHE_TTL)
-    }
-
-    private async updatePersonUuidCache(teamId: number, personId: number, uuid: string): Promise<void> {
-        await this.redisSet(this.getPersonUuidCacheKey(teamId, personId), uuid, this.PERSONS_AND_GROUPS_CACHE_TTL)
-    }
-
-    private async updatePersonCreatedAtIsoCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
-        await this.redisSet(
-            this.getPersonCreatedAtCacheKey(teamId, personId),
-            createdAtIso,
-            this.PERSONS_AND_GROUPS_CACHE_TTL
-        )
-    }
-
-    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
-        await this.updatePersonCreatedAtIsoCache(teamId, personId, createdAt.toISO())
-    }
-
-    private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
-        await this.redisSet(
-            this.getPersonPropertiesCacheKey(teamId, personId),
-            properties,
-            this.PERSONS_AND_GROUPS_CACHE_TTL
-        )
-    }
-
-    public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
-        const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
-        if (personId) {
-            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
-            return Number(personId)
-        }
-        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
-        // Query from postgres and update cache
-        const result = await this.postgresQuery(
-            'SELECT person_id FROM posthog_persondistinctid WHERE team_id=$1 AND distinct_id=$2 LIMIT 1',
-            [teamId, distinctId],
-            'fetchPersonId'
-        )
-        if (result.rows.length > 0) {
-            const personId = Number(result.rows[0].person_id)
-            await this.updatePersonIdCache(teamId, distinctId, personId)
-            return personId
-        }
-        return null
-    }
-
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<IngestionPersonData | undefined> {
-        const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
-            this.redisGet(this.getPersonUuidCacheKey(teamId, personId), null),
-            this.redisGet(this.getPersonCreatedAtCacheKey(teamId, personId), null),
-            this.redisGet(this.getPersonPropertiesCacheKey(teamId, personId), null),
-        ])
-        if (personUuid !== null && personCreatedAtIso !== null && personProperties !== null) {
-            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
-
-            return {
-                team_id: teamId,
-                uuid: String(personUuid),
-                created_at: DateTime.fromISO(String(personCreatedAtIso)).toUTC(),
-                properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
-                id: personId,
-            }
-        }
-        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
-        // Query from postgres and update cache
-        const result = await this.postgresQuery(
-            'SELECT uuid, created_at, properties FROM posthog_person WHERE team_id=$1 AND id=$2 LIMIT 1',
-            [teamId, personId],
-            'fetchPersonProperties'
-        )
-        if (result.rows.length !== 0) {
-            const personUuid = String(result.rows[0].uuid)
-            const personCreatedAtIso = String(result.rows[0].created_at)
-            const personProperties: Properties = result.rows[0].properties
-            this.promiseManager.trackPromise(this.updatePersonUuidCache(teamId, personId, personUuid))
-            this.promiseManager.trackPromise(this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso))
-            this.promiseManager.trackPromise(this.updatePersonPropertiesCache(teamId, personId, personProperties))
-            return {
-                team_id: teamId,
-                uuid: personUuid,
-                created_at: DateTime.fromISO(personCreatedAtIso).toUTC(),
-                properties: personProperties,
-                id: personId,
-            }
-        }
-        return undefined
-    }
-
-    public async getPersonData(teamId: number, distinctId: string): Promise<IngestionPersonData | undefined> {
-        const personId = await this.getPersonId(teamId, distinctId)
-        if (personId) {
-            return await this.getPersonDataByPersonId(teamId, personId)
-        }
-        return undefined
     }
 
     public async updateGroupCache(
@@ -679,7 +560,7 @@ export class DB {
                     continue
                 }
             } catch (error) {
-                captureException(error)
+                captureException(error, { tags: { team_id: teamId } })
             }
 
             this.statsd?.increment('group_info_cache.miss')
@@ -705,7 +586,7 @@ export class DB {
                         created_at: createdAt,
                     })
                 } catch (error) {
-                    captureException(error)
+                    captureException(error, { tags: { team_id: teamId } })
                 }
             } else {
                 // We couldn't find the data from the cache nor Postgres, so record this in a metric and in Sentry
@@ -864,18 +745,6 @@ export class DB {
         })
 
         await this.kafkaProducer.queueMessages(kafkaMessages)
-
-        // Update person info cache - we want to await to make sure the Event gets the right properties
-        await Promise.all(
-            (distinctIds || [])
-                .map((distinctId) => this.updatePersonIdCache(teamId, distinctId, person.id))
-                .concat([
-                    this.updatePersonUuidCache(teamId, person.id, person.uuid),
-                    this.updatePersonCreatedAtCache(teamId, person.id, person.created_at),
-                    this.updatePersonPropertiesCache(teamId, person.id, properties),
-                ])
-        )
-
         return person
     }
 
@@ -937,10 +806,6 @@ export class DB {
             await this.kafkaProducer.queueMessage(message)
         }
 
-        // Update person info cache - we want to await to make sure the Event gets the right properties
-        await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
-        await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
-
         return [updatedPerson, kafkaMessages]
     }
 
@@ -967,7 +832,6 @@ export class DB {
                 ),
             ]
         }
-        // TODO: remove from cache
         return kafkaMessages
     }
 
@@ -1014,8 +878,6 @@ export class DB {
         if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
-        // Update person info cache - we want to await to make sure the Event gets the right properties
-        await this.updatePersonIdCache(person.team_id, distinctId, person.id)
     }
 
     public async addDistinctIdPooled(
@@ -1102,9 +964,6 @@ export class DB {
                     },
                 ],
             })
-
-            // Update person info cache - we want to await to make sure the Event gets the right properties
-            await this.updatePersonIdCache(usefulColumns.team_id, usefulColumns.distinct_id, usefulColumns.person_id)
         }
         return kafkaMessages
     }
@@ -1134,17 +993,18 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, person: IngestionPersonData): Promise<boolean> {
+    public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
         const psqlResult = await this.postgresQuery(
             `
             SELECT count(1) AS count
             FROM posthog_cohortpeople
             JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
+            JOIN (SELECT * FROM posthog_person where team_id = $3) AS posthog_person_in_team ON (posthog_cohortpeople.person_id = posthog_person_in_team.id)
             WHERE cohort_id=$1
-              AND person_id=$2
+              AND posthog_person_in_team.uuid=$2
               AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
             `,
-            [cohortId, person.id],
+            [cohortId, personUuid, teamId],
             'doesPersonBelongToCohort'
         )
         return psqlResult.rows[0].count > 0
@@ -1274,9 +1134,17 @@ export class DB {
         })
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PLUGIN_LOG_ENTRIES, parsedEntry.id, parsedEntry)
+            await this.kafkaProducer.queueSingleJsonMessage(
+                KAFKA_PLUGIN_LOG_ENTRIES,
+                parsedEntry.id,
+                parsedEntry,
+                // For logs, we relax our durability requirements a little and
+                // do not wait for acks that Kafka has persisted the message to
+                // disk.
+                false
+            )
         } catch (e) {
-            captureException(e)
+            captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
         }
     }

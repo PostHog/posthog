@@ -9,7 +9,7 @@ export default {
     },
 } as ComponentMeta<typeof HedgehogBuddy>
 
-export const Template: ComponentStory<typeof HedgehogBuddy> = () => {
+export const TheHedgehog: ComponentStory<typeof HedgehogBuddy> = () => {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ height: 200 }}>
@@ -17,5 +17,3 @@ export const Template: ComponentStory<typeof HedgehogBuddy> = () => {
         </div>
     )
 }
-
-export const TheHedgehog = Template.bind({})

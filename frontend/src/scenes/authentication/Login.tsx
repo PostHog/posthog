@@ -10,9 +10,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconBugShield } from 'lib/lemon-ui/icons'
+import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { captureException } from '@sentry/react'
+import { SupportModal } from 'lib/components/Support/SupportModal'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -49,9 +56,22 @@ export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { openSupportLoggedOutForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+
+    useEffect(() => {
+        try {
+            // Turn on E2E test when this flag is removed
+            if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
+                redirectIfLoggedInOtherInstance()
+            }
+        } catch (e) {
+            captureException(e)
+        }
+    }, [])
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -69,15 +89,30 @@ export function Login(): JSX.Element {
                     <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
+            footer={
+                <div className="text-center">
+                    <LemonButton
+                        onClick={() => {
+                            openSupportLoggedOutForm(null, null, 'bug', 'login')
+                        }}
+                        status="stealth"
+                        icon={<IconBugShield />}
+                        size="small"
+                    >
+                        <span className="text-muted">Report an issue</span>
+                    </LemonButton>
+                    <SupportModal loggedIn={false} />
+                </div>
+            }
         >
             <div className="space-y-2">
                 <h2>Log in</h2>
                 {generalError && (
-                    <AlertMessage type="error">
+                    <LemonBanner type="error">
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
                     <RegionSelect />

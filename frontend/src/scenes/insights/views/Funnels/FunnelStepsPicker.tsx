@@ -76,11 +76,11 @@ export function FunnelStepsPickerComponent({
                     ? {
                           value: stepIndex,
                           label: `Step ${stepIndex + 1}`,
-                          element: (
-                              <div className="flex flex-row">
-                                  <span className="mr-1">Step {stepIndex + 1}:</span>
+                          labelInMenu: (
+                              <>
+                                  <span>Step ${stepIndex + 1} – </span>
                                   <EntityFilterInfo filter={stepFilter as EntityFilter} />
-                              </div>
+                              </>
                           ),
                       }
                     : null
@@ -99,7 +99,9 @@ export function FunnelStepsPickerComponent({
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(fromRange)}
                 value={funnelsFilter?.funnel_from_step || 0}
-                onChange={(fromStep: number | null) => fromStep && onChange(fromStep, funnelsFilter?.funnel_to_step)}
+                onChange={(fromStep: number | null) =>
+                    fromStep != null && onChange(fromStep, funnelsFilter?.funnel_to_step)
+                }
             />
             <span className="text-muted-alt">to</span>
             <LemonSelect
@@ -110,7 +112,9 @@ export function FunnelStepsPickerComponent({
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(toRange)}
                 value={funnelsFilter?.funnel_to_step || Math.max(numberOfSeries - 1, 1)}
-                onChange={(toStep: number | null) => toStep && onChange(funnelsFilter?.funnel_from_step, toStep)}
+                onChange={(toStep: number | null) =>
+                    toStep != null && onChange(funnelsFilter?.funnel_from_step, toStep)
+                }
             />
         </div>
     )

@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             model_name="pluginconfig",
             index=models.Index(fields=["enabled"], name="posthog_plu_enabled_f5ed94_idx"),
         ),
-        migrations.RunPython(forwards_func, migrations.RunPython.noop),
+        migrations.RunPython(forwards_func, migrations.RunPython.noop, elidable=True),
         migrations.AddField(
             model_name="team",
             name="inject_web_apps",

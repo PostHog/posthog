@@ -1,8 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PersonPropertySelect, PersonPropertySelectProps } from './PersonPropertySelect'
 
 export default {
@@ -30,7 +28,6 @@ export default {
 } as ComponentMeta<typeof PersonPropertySelect>
 
 const Template: ComponentStory<typeof PersonPropertySelect> = (props: Partial<PersonPropertySelectProps>) => {
-    useMountedLogic(personPropertiesModel)
     const [selectedProperties, setSelectProperties] = useState<string[]>([
         '$initial_geoip_postal_code',
         '$initial_geoip_latitude',

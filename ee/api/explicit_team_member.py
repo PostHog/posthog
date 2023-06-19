@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, cast
+from typing import Optional, cast
 
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
@@ -37,7 +37,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
         read_only_fields = ["id", "parent_membership_id", "joined_at", "updated_at", "user", "effective_level"]
 
     def create(self, validated_data):
-        team: Team = self.context["team"]
+        team: Team = self.context["get_team"]()
         user_uuid = validated_data.pop("user_uuid")
         validated_data["team"] = team
         try:
@@ -53,7 +53,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
             raise exceptions.ValidationError("This user likely already is an explicit member of the project.")
 
     def validate(self, attrs):
-        team: Team = self.context["team"]
+        team: Team = self.context["get_team"]()
         if not team.access_control:
             raise exceptions.ValidationError(
                 "Explicit members can only be accessed for projects with project-based permissioning enabled."
@@ -102,14 +102,6 @@ class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
     include_in_docs = False
-
-    def get_serializer_context(self) -> Dict[str, Any]:
-        serializer_context = super().get_serializer_context()
-        try:
-            serializer_context["team"] = Team.objects.get(id=serializer_context["team_id"])
-        except Team.DoesNotExist:
-            raise exceptions.NotFound("Project not found.")
-        return serializer_context
 
     def get_permissions(self):
         if (

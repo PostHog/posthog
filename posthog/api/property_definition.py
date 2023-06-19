@@ -16,6 +16,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition, TaggedItem, User
+from posthog.models.activity_logging.activity_log import log_activity, Detail
+from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
@@ -219,7 +221,8 @@ class QueryContext:
             },
         )
 
-    def as_sql(self):
+    def as_sql(self, order_by_verified: bool):
+        verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -230,7 +233,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -379,6 +382,7 @@ class PropertyDefinitionViewSet(
         )
 
         use_enterprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
+        order_by_verified = False
         if use_enterprise_taxonomy:
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
@@ -397,6 +401,7 @@ class PropertyDefinitionViewSet(
                         "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
                     )
                 )
+                order_by_verified = True
             except ImportError:
                 use_enterprise_taxonomy = False
 
@@ -440,7 +445,7 @@ class PropertyDefinitionViewSet(
 
         self.paginator.set_count(full_count)  # type: ignore
 
-        return queryset.raw(query_context.as_sql(), params=query_context.params)
+        return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
@@ -478,12 +483,25 @@ class PropertyDefinitionViewSet(
         return super().list(request, *args, **kwargs)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance = self.get_object()
+        instance: PropertyDefinition = self.get_object()
+        instance_id = str(instance.id)
         self.perform_destroy(instance)
         # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
             cast(User, request.user),
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
+        )
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            item_id=instance_id,
+            scope="PropertyDefinition",
+            activity="deleted",
+            detail=Detail(
+                name=cast(str, instance.name), type=PropertyDefinition.Type(instance.type).label, changes=None
+            ),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)

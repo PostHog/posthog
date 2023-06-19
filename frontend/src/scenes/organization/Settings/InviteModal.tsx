@@ -5,7 +5,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
 import { IconDelete, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTextArea, LemonInput } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
@@ -21,7 +21,7 @@ const MAX_INVITES_AT_ONCE = 20
 
 export function EmailUnavailableMessage(): JSX.Element {
     return (
-        <AlertMessage type="info" className="my-2">
+        <LemonBanner type="info" className="my-2">
             <>
                 This PostHog instance isn't{' '}
                 <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">
@@ -31,7 +31,7 @@ export function EmailUnavailableMessage(): JSX.Element {
                 .<br />
                 Remember to <u>share the invite link</u> with each team member you invite.
             </>
-        </AlertMessage>
+        </LemonBanner>
     )
 }
 
@@ -172,10 +172,10 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 }
             >
                 {preflight?.licensed_users_available === 0 && (
-                    <AlertMessage type="warning">
+                    <LemonBanner type="warning">
                         You've hit the limit of team members you can invite to your PostHog instance given your license.
                         Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your license.
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 <div className="space-y-2">
                     <div className="flex gap-2">

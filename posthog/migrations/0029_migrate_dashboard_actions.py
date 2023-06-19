@@ -23,4 +23,4 @@ class Migration(migrations.Migration):
         ("posthog", "0028_actionstep_url_matching"),
     ]
 
-    operations = [migrations.RunPython(migrate_to_dict, migrate_to_array)]
+    operations = [migrations.RunPython(migrate_to_dict, migrate_to_array, elidable=True)]

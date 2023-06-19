@@ -23,6 +23,7 @@ class Migration(migrations.Migration):
                     (T1.ctid < T2.ctid AND T1.tag_id = T2.tag_id AND T1.action_id  = T2.action_id);
             """,
             reverse_sql=migrations.RunSQL.noop,
+            elidable=True,
         ),
         migrations.RunSQL(
             sql="""

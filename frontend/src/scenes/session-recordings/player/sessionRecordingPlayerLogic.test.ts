@@ -2,15 +2,12 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    parseMetadataResponse,
-    sessionRecordingDataLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
-import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
+import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import api from 'lib/api'
@@ -27,10 +24,12 @@ describe('sessionRecordingPlayerLogic', () => {
             get: {
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team/events': { results: recordingEventsJson },
             },
             delete: {
                 '/api/projects/:team/session_recordings/:id': { success: true },
+            },
+            post: {
+                '/api/projects/:team/query': recordingEventsJson,
             },
         })
         initKeaTests()
@@ -50,6 +49,46 @@ describe('sessionRecordingPlayerLogic', () => {
     })
 
     describe('loading session core', () => {
+        it('loads metadata only by default', async () => {
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActionsInAnyOrder([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            expect(logic.values.sessionPlayerData).toMatchSnapshot()
+
+            await expectLogic(logic).toNotHaveDispatchedActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
+            ])
+        })
+
+        it('loads metadata and snapshots if autoplay', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
+            logic.mount()
+
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+            ])
+
+            expect(logic.values.sessionPlayerData).toMatchSnapshot()
+
+            await expectLogic(logic).toDispatchActions([
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsSuccess,
+            ])
+
+            expect(logic.values.sessionPlayerData).toMatchSnapshot()
+
+            resumeKeaLoadersErrors()
+        })
+
         it('load snapshot errors and triggers error state', async () => {
             silenceKeaLoadersErrors()
             // Unmount and remount the logic to trigger fetching the data again after the mock change
@@ -60,30 +99,24 @@ describe('sessionRecordingPlayerLogic', () => {
                 },
             })
             logic.mount()
+            logic.actions.loadRecording(true)
 
             await expectLogic(logic, () => {
-                logic.actions.seek(
-                    {
-                        time: 50, // greater than null buffered time
-                        windowId: '1',
-                    },
-                    true
-                )
+                logic.actions.seekToTime(50) // greater than null buffered time
             }).toDispatchActionsInAnyOrder([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-                'seek',
+                'seekToTimestamp',
                 'setErrorPlayerState',
             ])
 
-            expectLogic(logic).toMatchValues({
+            expect(logic.values).toMatchObject({
                 sessionPlayerData: {
                     person: recordingMetaJson.person,
-                    metadata: parseMetadataResponse(recordingMetaJson),
                     snapshotsByWindowId: {},
-                    bufferedTo: null,
+                    bufferedToTime: 0,
                 },
                 isErrored: true,
             })
@@ -145,7 +178,7 @@ describe('sessionRecordingPlayerLogic', () => {
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
             logic.mount()
             jest.spyOn(api, 'delete')
-            router.actions.push(urls.sessionRecording('3'))
+            router.actions.push(urls.replaySingle('3'))
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -156,7 +189,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual(urls.sessionRecordings())
+            expect(router.values.location.pathname).toEqual(urls.replay())
 
             expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()

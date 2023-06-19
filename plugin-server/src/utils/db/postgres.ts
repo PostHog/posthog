@@ -6,7 +6,6 @@ import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } fr
 import { instrumentQuery } from '../../utils/metrics'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
 import { DependencyUnavailableError } from './error'
-import { getFinalPostgresQuery, timeoutGuard } from './utils'
 
 export function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     client: Client | Pool | PoolClient,
@@ -16,20 +15,6 @@ export function postgresQuery<R extends QueryResultRow = any, I extends any[] = 
     statsd?: StatsD
 ): Promise<QueryResult<R>> {
     return instrumentQuery(statsd, 'query.postgres', tag, async () => {
-        let fullQuery = ''
-        try {
-            if (typeof queryString === 'string') {
-                fullQuery = getFinalPostgresQuery(queryString, values as any[])
-            } else {
-                fullQuery = getFinalPostgresQuery(queryString.text, queryString.values as any[])
-            }
-        } catch {}
-        const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
-            queryString,
-            values,
-            fullQuery,
-        })
-
         const queryConfig =
             typeof queryString === 'string'
                 ? {
@@ -49,8 +34,6 @@ export function postgresQuery<R extends QueryResultRow = any, I extends any[] = 
                 throw new DependencyUnavailableError(error.message, 'Postgres', error)
             }
             throw error
-        } finally {
-            clearTimeout(timeout)
         }
     })
 }

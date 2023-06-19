@@ -5,7 +5,7 @@
 
     @keyframes DataTable--highlight {
         0% {
-            background-color: var(--yellow-lightest);
+            background-color: var(--mark-color);
         }
         100% {
             background-color: initial;
@@ -17,7 +17,7 @@
     }
 
     .DataTable__row--category_row {
-        background-color: var(--bg-mid);
+        background-color: var(--mid);
         color: var(--muted);
         font-weight: 600;
         font-size: 0.75rem;

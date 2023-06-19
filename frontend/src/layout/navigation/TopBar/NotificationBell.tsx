@@ -23,7 +23,7 @@ export function NotificationBell(): JSX.Element {
     return (
         <Popover
             visible={isNotificationPopoverOpen}
-            onClickOutside={toggleNotificationsPopover}
+            onClickOutside={() => (isNotificationPopoverOpen ? toggleNotificationsPopover() : null)}
             overlay={
                 <div className="activity-log notifications-menu">
                     <h5>

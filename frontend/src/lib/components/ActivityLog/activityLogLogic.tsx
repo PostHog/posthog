@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
+import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
@@ -17,6 +17,7 @@ import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -34,6 +35,9 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return insightActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
+        case ActivityScope.EVENT_DEFINITION:
+        case ActivityScope.PROPERTY_DEFINITION:
+            return dataManagementActivityDescriber
         default:
             return undefined
     }
@@ -48,13 +52,13 @@ export const activityLogLogic = kea<activityLogLogicType>({
     },
     loaders: ({ values, props }) => ({
         nextPage: [
-            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
-            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },

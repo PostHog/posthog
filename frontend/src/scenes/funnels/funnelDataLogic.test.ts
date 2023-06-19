@@ -7,15 +7,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import {
-    ActionsNode,
-    DataNode,
-    EventsNode,
-    FunnelsQuery,
-    InsightQueryNode,
-    NewEntityNode,
-    NodeKind,
-} from '~/queries/schema'
+import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
     funnelResultTimeToConvert,
@@ -787,7 +779,7 @@ describe('funnelDataLogic', () => {
     })
 
     describe('isFunnelWithEnoughSteps', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode | NewEntityNode)[]): FunnelsQuery => ({
+        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
             kind: NodeKind.FunnelsQuery,
             series,
         })
@@ -799,12 +791,6 @@ describe('funnelDataLogic', () => {
 
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(logic, () => {
-                logic.actions.updateQuerySource(
-                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.NewEntityNode }])
-                )
             }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {

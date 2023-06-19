@@ -1,4 +1,4 @@
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import {
     kea,
     path,
@@ -19,13 +19,14 @@ import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNod
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
 import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import equal from 'fast-deep-equal'
 
 export interface DataNodeLogicProps {
     key: string
@@ -44,12 +45,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
         if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
+        }
+        if (
+            props.cachedResults &&
+            (!values.response || (oldProps.cachedResults && !equal(props.cachedResults, oldProps.cachedResults)))
+        ) {
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -57,6 +64,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
+        setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -68,9 +76,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         response: [
             props.cachedResults ?? null,
             {
+                setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
-                    if (props.cachedResults) {
+                    if (props.cachedResults && !refresh) {
                         return props.cachedResults
                     }
 
@@ -97,7 +106,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return data
                     } catch (e: any) {
                         actions.setElapsedTime(performance.now() - now)
-                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                        if (shouldCancelQuery(e)) {
                             actions.abortQuery({ queryId })
                         }
                         breakpoint()
@@ -248,6 +257,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (errorObject && 'error' in errorObject) {
                         return errorObject.error
                     }
+                    if (errorObject && 'detail' in errorObject) {
+                        return errorObject.detail
+                    }
                     return error ?? 'Error loading data'
                 },
                 loadDataSuccess: () => null,
@@ -268,6 +280,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
+        query: [(_, p) => [p.query], (query) => query],
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
@@ -366,26 +379,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     : null
             },
         ],
-        insightRefreshButtonDisabledReason: [
+        getInsightRefreshButtonDisabledReason: [
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
-            (nextAllowedRefresh: string | null, lastRefresh: string | null): string => {
+            (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
+                const now = dayjs()
                 let disabledReason = ''
-
-                if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
+                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
                     // If this is a saved insight, the result will contain nextAllowedRefresh, and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
+                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
                 } else if (
                     !!lastRefresh &&
-                    now()
-                        .subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        .isBefore(lastRefresh)
+                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
                 ) {
                     // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
                     // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
                     // refreshing the page though, as there's no cache layer on the backend
                     disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
                         .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .fromNow()}`
+                        .from(now)}`
                 }
 
                 return disabledReason

@@ -7,14 +7,15 @@ import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { RetentionDatePickerDataExploration } from 'scenes/insights/RetentionDatePicker'
-import { RetentionReferencePickerDataExploration } from 'scenes/insights/filters/RetentionReferencePicker'
+import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
+import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { PathStepPickerDataExploration } from 'scenes/insights/views/Paths/PathStepPicker'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
+import { ValueOnSeriesFilterDataExploration } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -27,6 +28,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showDateRange,
         disableDateRange,
         showCompare,
+        showValueOnSeries,
         showUnit,
         showChart,
         showInterval,
@@ -60,8 +62,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showRetention && (
                     <ConfigFilter>
-                        <RetentionDatePickerDataExploration />
-                        <RetentionReferencePickerDataExploration />
+                        <RetentionDatePicker />
+                        <RetentionReferencePicker />
                     </ConfigFilter>
                 )}
 
@@ -74,6 +76,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {showCompare && (
                     <ConfigFilter>
                         <CompareFilter />
+                    </ConfigFilter>
+                )}
+
+                {showValueOnSeries && (
+                    <ConfigFilter>
+                        <ValueOnSeriesFilterDataExploration />
                     </ConfigFilter>
                 )}
             </div>

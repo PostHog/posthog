@@ -2,11 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import {
-    AuthorizedUrlListType as AuthorizedUrlListType,
-    authorizedUrlListLogic,
-    AuthorizedUrlListProps,
-} from './authorizedUrlListLogic'
+import { AuthorizedUrlListType as AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -48,7 +44,7 @@ function EmptyState({
 }
 
 function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId, type })
+    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, type })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
@@ -78,12 +74,17 @@ function AuthorizedUrlForm({ actionId, type }: AuthorizedUrlListProps): JSX.Elem
     )
 }
 
+export interface AuthorizedUrlListProps {
+    actionId?: number
+    type: AuthorizedUrlListType
+}
+
 export function AuthorizedUrlList({
     actionId,
     type,
     addText = 'Add',
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
-    const logic = authorizedUrlListLogic({ actionId, type })
+    const logic = authorizedUrlListLogic({ actionId: actionId ?? null, type })
     const {
         urlsKeyed,
         suggestionsLoading,
@@ -161,7 +162,6 @@ export function AuthorizedUrlList({
                                                         : 'Launch url'
                                                 }
                                                 center
-                                                className="ActionButton"
                                                 data-attr="toolbar-open"
                                             >
                                                 Launch
@@ -172,14 +172,12 @@ export function AuthorizedUrlList({
                                                 onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                                 tooltip={'Edit'}
                                                 center
-                                                className="ActionButton"
                                             />
 
                                             <LemonButton
                                                 icon={<IconDelete />}
                                                 tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                                 center
-                                                className="ActionButton"
                                                 onClick={() => {
                                                     LemonDialog.open({
                                                         title: <>Remove {keyedURL.url} ?</>,

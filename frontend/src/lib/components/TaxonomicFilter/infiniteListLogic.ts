@@ -158,7 +158,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                             scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
                             searchParams
                         ),
-                        // if this is an unexpanded scoped list, get the count for the normafull list
+                        // if this is an unexpanded scoped list, get the count for the full list
                         scopedRemoteEndpoint && !isExpanded
                             ? fetchCachedListResponse(remoteEndpoint, {
                                   ...searchParams,
@@ -169,7 +169,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     ])
                     breakpoint()
 
-                    const queryChanged = values.items.searchQuery !== values.searchQuery
+                    const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
 
                     await captureTimeToSeeData(teamLogic.values.currentTeamId, {
                         type: 'properties_load',
@@ -184,7 +184,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
                     return {
                         results: appendAtIndex(
-                            queryChanged ? [] : values.items.results,
+                            queryChanged ? [] : values.remoteItems.results,
                             response.results || response,
                             offset
                         ),
@@ -212,7 +212,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     listeners: ({ values, actions, props, cache }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
-            if (values.isRemoteDataSource) {
+            if (values.hasRemoteDataSource) {
                 let loadFrom: number | null = null
                 for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
                     if (!values.results[i]) {
@@ -221,12 +221,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
                 }
                 if (loadFrom !== null) {
-                    actions.loadRemoteItems({ offset: loadFrom || startIndex, limit: values.limit })
+                    const offset = (loadFrom || startIndex) - values.localItems.count
+                    actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }
         },
         setSearchQuery: () => {
-            if (values.isRemoteDataSource) {
+            if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else {
                 actions.setIndex(0)
@@ -287,7 +288,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (s) => [s.isExpandable, s.index, s.totalListCount],
             (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
         ],
-        isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
+        hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             (selectors) => [
                 (state, props) => {
@@ -357,8 +358,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             },
         ],
         items: [
-            (s) => [s.isRemoteDataSource, s.remoteItems, s.localItems],
-            (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
+            (s) => [s.remoteItems, s.localItems],
+            (remoteItems, localItems) => ({
+                results: [...localItems.results, ...remoteItems.results],
+                count: localItems.count + remoteItems.count,
+                searchQuery: localItems.searchQuery,
+                expandedCount: remoteItems.expandedCount,
+                queryChanged: remoteItems.queryChanged,
+                first: localItems.first && remoteItems.first,
+            }),
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
         totalExtraCount: [
@@ -387,7 +395,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
 
     events: ({ actions, values, props }) => ({
         afterMount: () => {
-            if (values.isRemoteDataSource) {
+            if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else if (values.groupType === props.listGroupType) {
                 const { value, group, results } = values

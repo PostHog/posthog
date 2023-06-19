@@ -36,7 +36,7 @@ export function LemonSegmentedButton<T extends React.Key>({
     const { containerRef, selectionRef, sliderWidth, sliderOffset } = useSliderPositioning<
         HTMLDivElement,
         HTMLButtonElement
-    >(value)
+    >(value, 200)
 
     return (
         <div

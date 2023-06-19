@@ -14,11 +14,11 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
+from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, AvailableFeature
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.team.team import get_available_features_for_team
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -88,7 +88,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
-        team = Team.objects.get(id=self.context["team_id"])
+        team = self.context["get_team"]()
 
         self._check_can_create_playlist(team)
 
@@ -136,15 +136,9 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         return updated_playlist
 
     def _check_can_create_playlist(self, team: Team) -> bool:
-        available_features = get_available_features_for_team(team.id)
         playlist_count = SessionRecordingPlaylist.objects.filter(deleted=False, team=team).count()
-
-        if (
-            AvailableFeature.RECORDINGS_PLAYLISTS not in (available_features or [])
-            and playlist_count >= SESSION_RECORDINGS_PLAYLIST_FREE_COUNT
-        ):
+        if not check_is_feature_available_for_team(team.pk, AvailableFeature.RECORDINGS_PLAYLISTS, playlist_count):
             raise PermissionDenied("You have hit the limit for playlists for this team.")
-
         return True
 
 
@@ -214,7 +208,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             {SESSION_RECORDINGS_FILTER_IDS: json.dumps([x.recording_id for x in playlist_items])}
         )
 
-        return response.Response(list_recordings(filter, request, self.team))
+        return response.Response(list_recordings(filter, request, context=self.get_serializer_context()))
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["POST", "DELETE"], detail=True, url_path="recordings/(?P<session_recording_id>[^/.]+)")

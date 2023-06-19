@@ -36,7 +36,7 @@ SELECT {aggregate_operation} AS total, date FROM (
         {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
-    GROUP BY sessions.$session_id, date
+    GROUP BY e.$session_id, date
 ) GROUP BY date
 """
 
@@ -44,7 +44,7 @@ SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
-    GROUP BY sessions.$session_id
+    GROUP BY e.$session_id
 )
 """
 
@@ -281,7 +281,7 @@ FROM (
         breakdown_value
     FROM (
         SELECT
-        {person_id_alias}.person_id as person_id,
+        {person_id_alias} as person_id,
         timestamp,
         {breakdown_value} as breakdown_value
         FROM
@@ -307,7 +307,7 @@ FROM (
     CROSS JOIN (
         SELECT
             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp,
-            {person_id_alias}.person_id AS person_id,
+            {person_id_alias} AS person_id,
             {breakdown_value} AS breakdown_value
         FROM events e
         {sample_clause}

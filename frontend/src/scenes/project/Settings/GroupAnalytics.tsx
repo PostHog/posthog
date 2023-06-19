@@ -4,7 +4,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupAnalyticsConfigLogic } from 'scenes/project/Settings/groupAnalyticsConfigLogic'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function GroupAnalytics(): JSX.Element | null {
     const { groupTypes, groupTypesLoading, singularChanges, pluralChanges, hasChanges } =
@@ -71,14 +71,14 @@ export function GroupAnalytics(): JSX.Element | null {
             </p>
 
             {groupsAccessStatus !== GroupsAccessStatus.HasGroupTypes && (
-                <AlertMessage type="info" className="mb-4">
+                <LemonBanner type="info" className="mb-4">
                     Group types will show up here after you send your first event associated with a group. Take a look
                     at{' '}
                     <Link to={`https://posthog.com/manual/group-analytics`} target="_blank">
                         this guide
                     </Link>
                     for more information on getting started.
-                </AlertMessage>
+                </LemonBanner>
             )}
 
             <LemonTable columns={columns} dataSource={groupTypes} loading={groupTypesLoading} />

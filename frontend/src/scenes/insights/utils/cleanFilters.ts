@@ -7,25 +7,19 @@ import {
     FunnelsFilterType,
     FunnelVizType,
     InsightType,
+    LifecycleFilterType,
     PathsFilterType,
     PathType,
     RetentionFilterType,
     RetentionPeriod,
+    StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import {
-    BIN_COUNT_AUTO,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    FEATURE_FLAGS,
-    RETENTION_FIRST_TIME,
-    ShownAsValue,
-} from 'lib/constants'
+import { BIN_COUNT_AUTO, NON_VALUES_ON_SERIES_DISPLAY_TYPES, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 import {
@@ -73,11 +67,7 @@ function cleanBreakdownNormalizeURL(
         : undefined
 }
 
-const cleanBreakdownParams = (
-    cleanedParams: Partial<FilterType>,
-    filters: Partial<FilterType>,
-    featureFlags: Record<string, any>
-): void => {
+const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
     const isTrends = isTrendsFilter(filters)
     const canBreakdown = isStepsFunnel || isTrends
@@ -110,23 +100,6 @@ const cleanBreakdownParams = (
                 cleanedParams['breakdown'] as string,
                 filters.breakdown_normalize_url
             )
-        } else if (
-            filters.breakdown &&
-            isStepsFunnel &&
-            featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES] &&
-            ['string', 'number'].includes(typeof filters.breakdown) &&
-            cleanedParams['breakdown_type']
-        ) {
-            cleanedParams['breakdowns'] = [
-                {
-                    property: filters.breakdown as string | number,
-                    type: cleanedParams['breakdown_type'],
-                    normalize_url: cleanBreakdownNormalizeURL(
-                        filters.breakdown as string,
-                        filters.breakdown_normalize_url
-                    ),
-                },
-            ]
         } else if (filters.breakdown) {
             cleanedParams['breakdown'] = filters.breakdown
             cleanedParams['breakdown_normalize_url'] = cleanBreakdownNormalizeURL(
@@ -141,14 +114,42 @@ const cleanBreakdownParams = (
     }
 }
 
+type CommonFiltersTypeKeys = keyof TrendsFilterType &
+    keyof FunnelsFilterType &
+    keyof RetentionFilterType &
+    keyof PathsFilterType &
+    keyof StickinessFilterType &
+    keyof LifecycleFilterType
+
+type CommonFiltersType = {
+    [K in CommonFiltersTypeKeys]: FilterType[K]
+}
+
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
     // @ts-expect-error
     oldFilters?: Partial<AnyFilterType>,
-    featureFlags?: FeatureFlagsSet
+    teamFilterTestAccounts?: boolean
 ): Partial<FilterType> {
+    const commonFilters: Partial<CommonFiltersType> = {
+        ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        ...(filters.properties ? { properties: filters.properties } : {}),
+    }
+
+    // set test account filter default for new insights from team and local storage settings
+    if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
+        if (localStorage.getItem('default_filter_test_accounts') !== null) {
+            // use current user default
+            commonFilters.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
+        } else if (!filters.filter_test_accounts && teamFilterTestAccounts !== undefined) {
+            // overwrite with team default, only if not set
+            commonFilters.filter_test_accounts = teamFilterTestAccounts
+        }
+    }
+
     if (isRetentionFilter(filters)) {
-        const cleanedParams: Partial<RetentionFilterType> = {
+        const retentionFilter: Partial<RetentionFilterType> = {
             insight: InsightType.RETENTION,
             target_entity: filters.target_entity || {
                 id: '$pageview',
@@ -162,17 +163,15 @@ export function cleanFilters(
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
-            properties: filters.properties || [],
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
-            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+            ...commonFilters,
         }
-        return cleanedParams
+        return retentionFilter
     } else if (isFunnelsFilter(filters)) {
-        const cleanedParams: Partial<FunnelsFilterType> = {
+        const funnelsFilter: Partial<FunnelsFilterType> = {
             insight: InsightType.FUNNELS,
             ...(filters.date_from ? { date_from: filters.date_from } : {}),
             ...(filters.date_to ? { date_to: filters.date_to } : {}),
@@ -181,8 +180,6 @@ export function cleanFilters(
             ...(filters.layout ? { layout: filters.layout } : {}),
             ...(filters.new_entity ? { new_entity: filters.new_entity } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
-            ...(filters.properties ? { properties: filters.properties } : {}),
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
             ...(filters.funnel_from_step ? { funnel_from_step: filters.funnel_from_step } : {}),
             ...(filters.funnel_to_step ? { funnel_to_step: filters.funnel_to_step } : {}),
@@ -203,6 +200,9 @@ export function cleanFilters(
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
+            ...(filters.funnel_aggregate_by_hogql
+                ? { funnel_aggregate_by_hogql: filters.funnel_aggregate_by_hogql }
+                : {}),
             ...(filters.breakdown_attribution_type
                 ? { breakdown_attribution_type: filters.breakdown_attribution_type }
                 : {}),
@@ -217,33 +217,32 @@ export function cleanFilters(
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
-            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+            ...commonFilters,
         }
 
-        cleanBreakdownParams(cleanedParams, filters, featureFlags || {})
+        cleanBreakdownParams(funnelsFilter, filters)
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
-        if (isStepsUndefined(cleanedParams)) {
-            cleanedParams.events = [getDefaultEvent()]
-            cleanedParams.actions = []
+        if (isStepsUndefined(funnelsFilter)) {
+            funnelsFilter.events = [getDefaultEvent()]
+            funnelsFilter.actions = []
         }
 
         // make sure exclusion steps are clamped within new step range
         const returnedParams: Partial<FunnelsFilterType> = {
-            ...cleanedParams,
-            ...getClampedStepRangeFilter({ filters: cleanedParams }),
-            exclusions: (cleanedParams.exclusions || []).map((e) =>
+            ...funnelsFilter,
+            ...getClampedStepRangeFilter({ filters: funnelsFilter }),
+            exclusions: (funnelsFilter.exclusions || []).map((e) =>
                 getClampedStepRangeFilter({
                     stepRange: e,
-                    filters: cleanedParams,
+                    filters: funnelsFilter,
                 })
             ),
         }
         return returnedParams
     } else if (isPathsFilter(filters)) {
-        const cleanFilters: Partial<PathsFilterType> = {
+        const pathsFilter: Partial<PathsFilterType> = {
             insight: InsightType.PATHS,
-            properties: filters.properties || [],
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
@@ -255,7 +254,6 @@ export function cleanFilters(
             ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
             date_from: filters.date_from,
             date_to: filters.date_to,
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             path_start_key: filters.path_start_key || undefined,
             path_end_key: filters.path_end_key || undefined,
             path_dropoff_key: filters.path_dropoff_key || undefined,
@@ -266,11 +264,11 @@ export function cleanFilters(
             edge_limit: filters.edge_limit || undefined,
             min_edge_weight: filters.min_edge_weight || undefined,
             max_edge_weight: filters.max_edge_weight || undefined,
-            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
+            ...commonFilters,
         }
-        return cleanFilters
+        return pathsFilter
     } else if (isTrendsFilter(filters) || isLifecycleFilter(filters) || isStickinessFilter(filters)) {
-        const cleanSearchParams: Partial<TrendsFilterType> = {
+        const trendLikeFilter: Partial<TrendsFilterType> = {
             insight: isLifecycleFilter(filters)
                 ? InsightType.LIFECYCLE
                 : isStickinessFilter(filters)
@@ -281,85 +279,80 @@ export function cleanFilters(
             ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
-            properties: filters.properties || [],
             ...(isTrendsFilter(filters) && isStickinessFilter(filters) && filters.hidden_legend_keys
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
-            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             ...(filters.show_values_on_series ? { show_values_on_series: filters.show_values_on_series } : {}),
+            ...commonFilters,
         }
 
         if (
-            'show_values_on_series' in cleanSearchParams &&
-            !!cleanSearchParams.display &&
-            NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(cleanSearchParams.display)
+            'show_values_on_series' in trendLikeFilter &&
+            !!trendLikeFilter.display &&
+            NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(trendLikeFilter.display)
         ) {
-            delete cleanSearchParams.show_values_on_series
+            delete trendLikeFilter.show_values_on_series
         }
 
         if (
-            !!cleanSearchParams.display &&
-            cleanSearchParams.display === ChartDisplayType.ActionsPie &&
-            cleanSearchParams.show_values_on_series === undefined
+            !!trendLikeFilter.display &&
+            trendLikeFilter.display === ChartDisplayType.ActionsPie &&
+            trendLikeFilter.show_values_on_series === undefined
         ) {
-            cleanSearchParams.show_values_on_series = true
+            trendLikeFilter.show_values_on_series = true
         }
 
-        cleanBreakdownParams(cleanSearchParams, filters, featureFlags || {})
-
-        if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
-            cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts(filters.filter_test_accounts || false)
-        }
+        cleanBreakdownParams(trendLikeFilter, filters)
 
         // TODO: Deprecated; should be removed once backend is updated
-        cleanSearchParams['shown_as'] = isStickinessFilter(filters)
+        trendLikeFilter['shown_as'] = isStickinessFilter(filters)
             ? ShownAsValue.STICKINESS
             : isLifecycleFilter(filters)
             ? ShownAsValue.LIFECYCLE
             : undefined
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
-            cleanSearchParams['compare'] = false
+            trendLikeFilter['compare'] = false
         }
 
-        if (cleanSearchParams.interval && cleanSearchParams.smoothing_intervals) {
+        if (trendLikeFilter.interval && trendLikeFilter.smoothing_intervals) {
             if (
-                !smoothingOptions[cleanSearchParams.interval].find(
-                    (option) => option.value === cleanSearchParams.smoothing_intervals
+                !smoothingOptions[trendLikeFilter.interval].find(
+                    (option) => option.value === trendLikeFilter.smoothing_intervals
                 )
             ) {
-                if (cleanSearchParams.smoothing_intervals !== 1) {
-                    cleanSearchParams.smoothing_intervals = 1
+                if (trendLikeFilter.smoothing_intervals !== 1) {
+                    trendLikeFilter.smoothing_intervals = 1
                 }
             }
         }
 
-        if (cleanSearchParams.insight === InsightType.LIFECYCLE) {
-            if (cleanSearchParams.events?.length) {
-                cleanSearchParams.events = [
+        if (trendLikeFilter.insight === InsightType.LIFECYCLE) {
+            if (trendLikeFilter.events?.length) {
+                trendLikeFilter.events = [
                     {
-                        ...cleanSearchParams.events[0],
+                        ...trendLikeFilter.events[0],
                         math: 'total',
                     },
                 ]
-                cleanSearchParams.actions = []
-            } else if (cleanSearchParams.actions?.length) {
-                cleanSearchParams.events = []
-                cleanSearchParams.actions = [
+                trendLikeFilter.actions = []
+            } else if (trendLikeFilter.actions?.length) {
+                trendLikeFilter.events = []
+                trendLikeFilter.actions = [
                     {
-                        ...cleanSearchParams.actions[0],
+                        ...trendLikeFilter.actions[0],
                         math: 'total',
                     },
                 ]
             }
         }
 
-        if (isStepsUndefined(cleanSearchParams)) {
-            cleanSearchParams.events = [getDefaultEvent()]
-            cleanSearchParams.actions = []
+        if (isStepsUndefined(trendLikeFilter)) {
+            trendLikeFilter.events = [getDefaultEvent()]
+            trendLikeFilter.actions = []
         }
 
-        return cleanSearchParams
+        return trendLikeFilter
     } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })

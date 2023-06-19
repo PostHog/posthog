@@ -209,6 +209,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         people = Person.objects.filter(cohort__id=cohort.pk)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertEqual(people.count(), 5)
+        self.assertEqual(cohort.count, 5)
 
     def test_people_arent_returned_multiple_times(self):
 

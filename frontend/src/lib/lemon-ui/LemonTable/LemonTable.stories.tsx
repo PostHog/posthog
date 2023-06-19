@@ -1,5 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonTable, LemonTableProps } from './LemonTable'
+import { LemonButton } from '../LemonButton'
 
 export default {
     title: 'Lemon UI/Lemon Table',
@@ -176,8 +177,8 @@ XSmall.args = { size: 'xs' }
 export const Embedded = BasicTemplate.bind({})
 Embedded.args = { embedded: true }
 
-export const Borderless = BasicTemplate.bind({})
-Borderless.args = { bordered: false }
+export const BorderlessRows = BasicTemplate.bind({})
+BorderlessRows.args = { borderedRows: false }
 
 export const Loading = BasicTemplate.bind({})
 Loading.args = { loading: true }
@@ -193,6 +194,19 @@ WithoutHeader.args = { showHeader: false }
 
 export const WithoutUppercasingInHeader = BasicTemplate.bind({})
 WithoutUppercasingInHeader.args = { uppercaseHeader: false }
+
+export const WithFooter = BasicTemplate.bind({})
+WithFooter.args = {
+    footer: (
+        <>
+            <div className="flex items-center m-2">
+                <LemonButton center fullWidth>
+                    Load more button in the footer!
+                </LemonButton>
+            </div>
+        </>
+    ),
+}
 
 export const WithColorCodedRows = BasicTemplate.bind({})
 WithColorCodedRows.args = {

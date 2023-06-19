@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -14,7 +14,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 export interface OperatorValueSelectProps {
-    type?: string
+    type?: PropertyFilterType
     propkey?: string
     operator?: PropertyOperator | null
     value?: string | number | Array<string | number> | null
@@ -175,6 +175,9 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
                 op && onChange(op)
             }}
             className={props.className}
+            menu={{
+                closeParentPopoverOnClickInside: false,
+            }}
         />
     )
 }

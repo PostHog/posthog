@@ -43,7 +43,7 @@ describe('sessionPlayerModalLogic', () => {
         })
 
         it('is read from the URL on the session recording page', async () => {
-            router.actions.push('/recordings', {}, { sessionRecordingId: 'abc' })
+            router.actions.push('/replay', {}, { sessionRecordingId: 'abc' })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
             await expectLogic(logic).toDispatchActions([logic.actionCreators.openSessionPlayer({ id: 'abc' })])

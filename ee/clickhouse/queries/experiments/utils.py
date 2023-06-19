@@ -28,7 +28,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             events.update(action.get_step_events())
-        else:
+        elif entity.id is not None:
             events.add(entity.id)
 
     entity_query = f"AND event IN %(events_list)s"

@@ -6,7 +6,6 @@ import { makePiscina } from '../src/worker/piscina'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/status')
-jest.mock('../src/utils/db/sql')
 jest.mock('../src/main/utils', () => {
     const actual = jest.requireActual('../src/main/utils')
     return {

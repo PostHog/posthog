@@ -54,7 +54,7 @@ const PlayerFrameOverlayContent = ({
     if (currentPlayerState === SessionPlayerState.BUFFER) {
         content = <div className="text-4xl text-white">Buffering...</div>
     }
-    if (currentPlayerState === SessionPlayerState.PAUSE) {
+    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY) {
         content = <IconPlay className="text-6xl text-white" />
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
@@ -63,9 +63,9 @@ const PlayerFrameOverlayContent = ({
     return content ? <div className="PlayerFrameOverlay__content">{content}</div> : null
 }
 
-export function PlayerFrameOverlay(props: PlayerFrameOverlayProps): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic(props))
-    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic(props))
+export function PlayerFrameOverlay(): JSX.Element {
+    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     const [interrupted, setInterrupted] = useState(false)
 
@@ -77,7 +77,7 @@ export function PlayerFrameOverlay(props: PlayerFrameOverlayProps): JSX.Element 
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
-            <PlayerUpNext {...props} interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
+            <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
         </div>
     )
 }

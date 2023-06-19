@@ -44,16 +44,16 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
             }
         },
-        setFilters: ({ filters }, _, __, previousState) => {
-            const { date_from, date_to } = filters
-            const previousFilters = selectors.filters(previousState)
+        updateQuerySource: ({ querySource }, _, __, previousState) => {
+            const { date_from, date_to } = querySource.dateRange || {}
+            const previousDateRange = selectors.querySource(previousState)?.dateRange || {}
 
             let activeUsersMath: BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers | null = null
 
             // We disallow grouping by certain intervals for weekly active users and monthly active users views
             // e.g. WAUs grouped by month. Here, look for the first event/action running WAUs/MAUs math and
             // pass that down to the interval filter to determine what groupings are allowed.
-            for (const series of [...(values.filters.events || []), ...(values.filters.actions || [])]) {
+            for (const series of (values.querySource as TrendsQuery)?.series || []) {
                 if (series.math === BaseMathType.WeeklyActiveUsers) {
                     activeUsersMath = BaseMathType.WeeklyActiveUsers
                     break
@@ -72,7 +72,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 enabledIntervals.hour = {
                     ...enabledIntervals.hour,
                     disabledReason:
-                        'Grouping by hour is not supported on insights with weekly or monthly active users series.',
+                        'Grouping by hour is not supported on insights with weekly or monthly active users series.',
                 }
 
                 // Disallow grouping by month for WAUs as the resulting view is misleading to users
@@ -80,7 +80,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                     enabledIntervals.month = {
                         ...enabledIntervals.month,
                         disabledReason:
-                            'Grouping by month is not supported on insights with weekly active users series.',
+                            'Grouping by month is not supported on insights with weekly active users series.',
                     }
                 }
             }
@@ -90,36 +90,46 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             // If the user just flipped an event action to use WAUs/MAUs math and their
             // current interval is unsupported by the math type, switch their interval
             // to an appropriate allowed interval and inform them of the change via a toast
-            if (activeUsersMath && values.interval && enabledIntervals[values.interval].disabledReason) {
+            if (
+                activeUsersMath &&
+                (values.querySource as TrendsQuery)?.interval &&
+                enabledIntervals[(values.querySource as TrendsQuery).interval as IntervalType].disabledReason
+            ) {
                 if (values.interval === 'hour') {
                     lemonToast.info(
-                        `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
+                        `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
                     )
-                    actions.setInterval('day')
+                    actions.updateQuerySource({ interval: 'day' } as Partial<InsightQueryNode>)
                 } else {
                     lemonToast.info(
-                        `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
+                        `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
                     )
-                    actions.setInterval('week')
+                    actions.updateQuerySource({ interval: 'week' } as Partial<InsightQueryNode>)
                 }
                 return
             }
 
             if (
                 !date_from ||
-                (objectsEqual(date_from, previousFilters.date_from) && objectsEqual(date_to, previousFilters.date_to))
+                (objectsEqual(date_from, previousDateRange.date_from) &&
+                    objectsEqual(date_to, previousDateRange.date_to))
             ) {
                 return
             }
 
             // automatically set an interval for fixed date ranges
-            if (date_from && date_to && dayjs(filters.date_from).isValid() && dayjs(filters.date_to).isValid()) {
+            if (
+                date_from &&
+                date_to &&
+                dayjs(querySource.dateRange?.date_from).isValid() &&
+                dayjs(querySource.dateRange?.date_to).isValid()
+            ) {
                 if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
-                    actions.setInterval('hour')
+                    actions.updateQuerySource({ interval: 'hour' } as Partial<InsightQueryNode>)
                 } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
-                    actions.setInterval('day')
+                    actions.updateQuerySource({ interval: 'day' } as Partial<InsightQueryNode>)
                 } else {
-                    actions.setInterval('month')
+                    actions.updateQuerySource({ interval: 'month' } as Partial<InsightQueryNode>)
                 }
                 return
             }
@@ -136,7 +146,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                     break
                 }
             }
-            actions.setInterval(interval)
+            actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
         },
     }),
     selectors: {

@@ -39,6 +39,8 @@ class Command(BaseCommand):
             self.add_property_definition(team, "usage_count")
             self.add_property_definition(team, "volume")
             self.add_property_definition(team, "is_first_movie")
+            PropertyDefinition.objects.create(name="name", type=PropertyDefinition.Type.PERSON, team=team)
+            PropertyDefinition.objects.create(name="is_demo", type=PropertyDefinition.Type.PERSON, team=team)
 
             PersonalAPIKey.objects.create(
                 user=user, label="e2e_demo_api_key key", secure_value=hash_key_value("e2e_demo_api_key")

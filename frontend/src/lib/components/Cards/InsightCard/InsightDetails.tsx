@@ -1,6 +1,4 @@
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -26,7 +24,7 @@ import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
-import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import {
     isAnyPropertyfilter,
     isCohortPropertyFilter,
@@ -148,16 +146,23 @@ function SeriesDisplay({
                     {insightType !== InsightType.FUNNELS && (
                         <div>
                             counted by{' '}
-                            {mathDefinition?.category === MathCategory.PropertyValue && filter.math_property && (
+                            {mathDefinition?.category === MathCategory.HogQLExpression ? (
+                                <code>{filter.math_hogql}</code>
+                            ) : (
                                 <>
-                                    {' '}
-                                    event's
-                                    <span className="SeriesDisplay__raw-name">
-                                        <PropertyKeyInfo value={filter.math_property} />
-                                    </span>
+                                    {mathDefinition?.category === MathCategory.PropertyValue &&
+                                        filter.math_property && (
+                                            <>
+                                                {' '}
+                                                event's
+                                                <span className="SeriesDisplay__raw-name">
+                                                    <PropertyKeyInfo value={filter.math_property} />
+                                                </span>
+                                            </>
+                                        )}
+                                    <b>{mathDefinition?.name.toLowerCase()}</b>
                                 </>
                             )}
-                            <b>{mathDefinition?.name.toLowerCase()}</b>
                         </div>
                     )}
                     {filter.properties && filter.properties.length > 0 && (
@@ -172,23 +177,21 @@ function SeriesDisplay({
                 </>
             }
         >
-            <span>
-                {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
-                {filter.custom_name && <b> "{filter.custom_name}"</b>}
-                {filter.type === 'actions' && filter.id ? (
-                    <Link
-                        to={urls.action(filter.id)}
-                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                        title="Action series"
-                    >
-                        {filter.name}
-                    </Link>
-                ) : (
-                    <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
-                        <PropertyKeyInfo value={filter.name || '$pageview'} />
-                    </span>
-                )}
-            </span>
+            {insightType === InsightType.FUNNELS ? 'Performed' : 'Showing'}
+            {filter.custom_name && <b> "{filter.custom_name}"</b>}
+            {filter.type === 'actions' && filter.id ? (
+                <Link
+                    to={urls.action(filter.id)}
+                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
+                    title="Action series"
+                >
+                    {filter.name}
+                </Link>
+            ) : (
+                <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event" title="Event series">
+                    <PropertyKeyInfo value={filter.name || '$pageview'} />
+                </span>
+            )}
         </LemonRow>
     )
 }
@@ -285,16 +288,10 @@ export function FiltersSummary({ filters }: { filters: Partial<FilterType> }): J
 }
 
 export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div>
             <h5>Breakdown by</h5>
-            <TaxonomicBreakdownFilter
-                filters={filters}
-                useMultiBreakdown={
-                    isFunnelsFilter(filters) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
-                }
-            />
+            <TaxonomicBreakdownFilter filters={filters} />
         </div>
     )
 }

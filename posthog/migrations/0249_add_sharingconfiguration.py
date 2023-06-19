@@ -62,5 +62,5 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
         ),
-        migrations.RunPython(create_sharing_configurations, reverse),
+        migrations.RunPython(create_sharing_configurations, reverse, elidable=True),
     ]

@@ -2,13 +2,13 @@ from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.contrib import admin
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.template import loader
 from django.urls import URLPattern, include, path, re_path
-from django.views.decorators import csrf
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
 from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -29,8 +29,9 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
+from posthog.api.early_access_feature import early_access_features
 from posthog.api.prompt import prompt_webhook
-from posthog.cloud_utils import is_cloud
+from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 
@@ -54,30 +55,26 @@ else:
     )
 
 
-try:
-    # See https://github.com/PostHog/posthog-cloud/blob/master/multi_tenancy/router.py
-    from multi_tenancy.router import extend_api_router as extend_api_router_cloud  # noqa
-except ImportError:
-    pass
-else:
-    extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
+@requires_csrf_token
+def handler500(request):
+    """
+    500 error handler.
 
-# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
-admin_urlpatterns = (
-    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
-    if is_cloud() or settings.DEMO or settings.DEBUG
-    else []
-)
+    Templates: :template:`500.html`
+    Context: None
+    """
+    template = loader.get_template("500.html")
+    return HttpResponseServerError(template.render({"sentry_event_id": last_event_id()}))
 
 
-@csrf.ensure_csrf_cookie
+@ensure_csrf_cookie
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     if not request.GET.get("redirect"):
-        return HttpResponse("You need to pass a url to ?redirect=", status=401)
+        return HttpResponse("You need to pass a url to ?redirect=", status=400)
     if not request.META.get("HTTP_REFERER"):
         return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
 
@@ -86,17 +83,17 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     redirect_url = urlparse(request.GET["redirect"])
 
     if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
-        return HttpResponse(f"Can only redirect to a permitted domain.", status=400)
+        return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
-        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=400)
+        return HttpResponse(f"Can only redirect to the same domain as the referer: {referer_url.hostname}", status=403)
 
     if referer_url.scheme != redirect_url.scheme:
-        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=400)
+        return HttpResponse(f"Can only redirect to the same scheme as the referer: {referer_url.scheme}", status=403)
 
     if referer_url.port != redirect_url.port:
         return HttpResponse(
-            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=400
+            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}", status=403
         )
 
     return render_template(
@@ -126,8 +123,6 @@ urlpatterns = [
     opt_slash_path("_preflight", preflight_check),
     # ee
     *ee_urlpatterns,
-    # admin
-    *admin_urlpatterns,
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
@@ -135,6 +130,8 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/prompts/webhook", prompt_webhook),
+    opt_slash_path("api/early_access_features", early_access_features),
+    opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),

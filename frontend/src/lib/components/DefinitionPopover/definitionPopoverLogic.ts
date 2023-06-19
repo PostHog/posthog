@@ -13,8 +13,6 @@ import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -28,7 +26,6 @@ export interface DefinitionPopoverLogicProps {
     type: TaxonomicFilterGroupType | string
     /* Callback to update specific item in in-memory list */
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    onMouseLeave?: () => void
     onCancel?: () => void
     onSave?: () => void
     hideView?: boolean
@@ -39,7 +36,7 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
     props: {} as DefinitionPopoverLogicProps,
     connect: {
-        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['hasAvailableFeature']],
     },
     path: ['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic'],
     actions: {
@@ -103,7 +100,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                                 `api/projects/@current/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
                             )
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
@@ -125,7 +124,6 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
     }),
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
-        onMouseLeave: [() => [(_, props) => props.onMouseLeave], (onMouseLeave) => onMouseLeave],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
         hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
         openDetailInNewTab: [
@@ -145,12 +143,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isViewable: [
-            (s) => [s.featureFlags, s.type],
-            (featureFlags, type) => {
+            (s) => [s.type],
+            (type) => {
                 if (
-                    featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] &&
-                    (type === TaxonomicFilterGroupType.PersonProperties ||
-                        type.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+                    type === TaxonomicFilterGroupType.PersonProperties ||
+                    type.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
                 ) {
                     return true
                 }

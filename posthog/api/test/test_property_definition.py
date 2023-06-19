@@ -4,7 +4,7 @@ from unittest.mock import ANY, patch
 from rest_framework import status
 
 from posthog.api.property_definition import PropertyDefinitionQuerySerializer
-from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team, ActivityLog
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -326,6 +326,13 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             properties={"name": "test_property", "type": "event"},
             groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
         )
+
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        assert activity_log is not None
+        assert activity_log.detail["type"] == "event"
+        assert activity_log.item_id == str(property_definition.id)
+        assert activity_log.detail["name"] == "test_property"
+        assert activity_log.activity == "deleted"
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):

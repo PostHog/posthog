@@ -1,3 +1,4 @@
+import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
@@ -25,9 +26,9 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { PersonManager } from './worker/ingestion/person-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -75,6 +76,8 @@ export enum KafkaSaslMechanism {
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
+    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
+    INGESTION_BATCH_SIZE: number // kafka consumer batch size
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     POSTHOG_DB_NAME: string | null
@@ -100,9 +103,17 @@ export interface PluginsServerConfig {
     KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
+    KAFKA_CLIENT_RACK: string | null
+    KAFKA_CONSUMPTION_MAX_BYTES: number
+    KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
+    KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
+    KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: number // fetch.error.backoff.ms rdkafka parameter
+    KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
+    KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
+    KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
@@ -115,6 +126,7 @@ export interface PluginsServerConfig {
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
+    SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -124,18 +136,17 @@ export interface PluginsServerConfig {
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    INTERNAL_MMDB_SERVER_PORT: number // port of the internal server used for IP location (0 means random)
     JOB_QUEUES: string // retry queue engine and fallback queues
     JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
     JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
     JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
+    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
     JOB_QUEUE_S3_AWS_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
     JOB_QUEUE_S3_AWS_REGION: string
     JOB_QUEUE_S3_BUCKET_NAME: string
     JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
-    STALENESS_RESTART_SECONDS: number // trigger a restart if no event ingested for this duration
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
     PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
@@ -150,10 +161,10 @@ export interface PluginsServerConfig {
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
-    OBJECT_STORAGE_ENDPOINT: string // minio endpoint
+    OBJECT_STORAGE_REGION: string // s3 region
+    OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string // the top level folder for storing session recordings inside the storage bucket
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE:
         | 'ingestion'
@@ -164,6 +175,7 @@ export interface PluginsServerConfig {
         | 'scheduler'
         | 'analytics-ingestion'
         | 'recordings-ingestion'
+        | 'recordings-blob-ingestion'
         | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
@@ -176,6 +188,13 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
+
+    SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
+    // local directory might be a volume mount or a directory on disk (e.g. in local dev)
+    SESSION_RECORDING_LOCAL_DIRECTORY: string
+    SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
+    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
+    SESSION_RECORDING_REMOTE_FOLDER: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -211,9 +230,10 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
-    personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
+    // geoip database, setup in workers
+    mmdb?: ReaderModel
     // diagnostics
     lastActivity: number
     lastActivityType: string
@@ -230,6 +250,7 @@ export interface PluginServerCapabilities {
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     sessionRecordingIngestion?: boolean
+    sessionRecordingBlobIngestion?: boolean
     http?: boolean
     mmdb?: boolean
 }
@@ -414,7 +435,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PipelineEvent) => Promise<void>
+    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
 export type VMMethods = {
@@ -492,9 +513,10 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    slack_incoming_webhook: string
+    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     ingested_event: boolean
+    person_display_name_properties: string[] | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -600,7 +622,11 @@ interface BaseIngestionEvent {
 export type PreIngestionEvent = BaseIngestionEvent
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export type PostIngestionEvent = BaseIngestionEvent
+export interface PostIngestionEvent extends BaseIngestionEvent {
+    person_id?: string // This is not optional, but BaseEvent needs to be fixed first
+    person_created_at: ISOTimestamp | null
+    person_properties: Properties
+}
 
 export interface DeadLetterQueueEvent {
     id: string
@@ -649,8 +675,6 @@ export interface Person extends BasePerson {
     created_at: DateTime
     version: number
 }
-
-export type IngestionPersonData = Pick<Person, 'id' | 'uuid' | 'team_id' | 'properties' | 'created_at'>
 
 /** Clickhouse Person model. */
 export interface ClickHousePerson {
@@ -808,7 +832,7 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -819,10 +843,15 @@ export interface ActionStep {
     action_id: number
     tag_name: string | null
     text: string | null
+    /** @default StringMatching.Exact */
+    text_matching: StringMatching | null
     href: string | null
+    /** @default StringMatching.Exact */
+    href_matching: StringMatching | null
     selector: string | null
     url: string | null
-    url_matching: ActionStepUrlMatching | null
+    /** @default StringMatching.Contains */
+    url_matching: StringMatching | null
     name: string | null
     event: string | null
     properties: PropertyFilter[] | null

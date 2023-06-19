@@ -11,7 +11,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.api.test.fixtures.billing_plans_response import create_billing_plans_mock_response
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.models.license import License
 from posthog.models.organization import OrganizationMembership
@@ -31,7 +30,6 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         deactivated=False,
         custom_limits_usd={},
         has_active_subscription=False,
-        stripe_portal_url="https://billing.stripe.com/p/session/test_1234",
         current_total_amount_usd="0.00",
         products=None,
         billing_period=BillingPeriod(
@@ -50,7 +48,6 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         customer_id="cus_123",
         custom_limits_usd={},
         has_active_subscription=True,
-        stripe_portal_url="https://billing.stripe.com/p/session/test_1234",
         current_total_amount_usd="100.00",
         deactivated=False,
         products=[
@@ -88,7 +85,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
 
 def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct]]:
     data: Any = {
-        "standard": [
+        "products": [
             CustomerProduct(
                 name="Product OS",
                 description="Product Analytics, event pipelines, data warehousing",
@@ -110,30 +107,7 @@ def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct
                 projected_usage=0,
                 projected_amount_usd="0.00",
             )
-        ],
-        "enterprise": [
-            CustomerProduct(
-                name="Product OS Enterprise",
-                description="Product Analytics, event pipelines, data warehousing",
-                price_description=None,
-                type="events",
-                image_url="https://posthog.com/static/images/product-os.png",
-                free_allocation=10000,
-                tiers=[
-                    {"unit_amount_usd": "0.00", "up_to": 1000000, "current_amount_usd": "0.00"},
-                    {"unit_amount_usd": "0.00045", "up_to": 2000000, "current_amount_usd": None},
-                ],
-                tiered=True,
-                unit_amount_usd="0.00",
-                current_amount_usd="0.00",
-                current_usage=0,
-                usage_limit=None,
-                has_exceeded_limit=False,
-                percentage_usage=0,
-                projected_usage=0,
-                projected_amount_usd="0.00",
-            )
-        ],
+        ]
     }
     data.update(kwargs)
     return data
@@ -147,15 +121,15 @@ class TestUnlicensedBillingAPI(APIBaseTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 401
                 mock.json.return_value = {"detail": "Authorization is missing."}
-            if "api/products" in url:
+            elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -165,9 +139,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json() == {
             "available_features": [],
-            "available_plans": create_billing_plans_mock_response()["plans"],
-            "products": create_billing_products_response()["standard"],
-            "products_enterprise": create_billing_products_response()["enterprise"],
+            "products": create_billing_products_response()["products"],
         }
 
 
@@ -187,21 +159,20 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(customer=create_billing_customer())
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
         mock_request.side_effect = mock_implementation
 
         self.client.get("/api/billing-v2")
-        assert mock_request.call_args_list[0].args[0].endswith("/api/plans")
-        assert mock_request.call_args_list[1].args[0].endswith("/api/billing")
-        token = mock_request.call_args_list[1].kwargs["headers"]["Authorization"].split(" ")[1]
+        assert mock_request.call_args_list[0].args[0].endswith("/api/billing")
+        token = mock_request.call_args_list[0].kwargs["headers"]["Authorization"].split(" ")[1]
 
         secret = self.license.key.split("::")[1]
 
@@ -223,12 +194,12 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(customer=create_billing_customer())
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -245,7 +216,6 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
             "available_features": [],
-            "available_plans": create_billing_plans_mock_response()["plans"],
             "deactivated": False,
             "products": [
                 {
@@ -284,15 +254,15 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(customer=create_missing_billing_customer())
-            if "api/products" in url:
+            elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -306,7 +276,6 @@ class TestBillingAPI(APILicensedTest):
             "custom_limits_usd": {},
             "has_active_subscription": False,
             "available_features": [],
-            "available_plans": create_billing_plans_mock_response()["plans"],
             "products": [
                 {
                     "name": "Product OS",
@@ -330,38 +299,6 @@ class TestBillingAPI(APILicensedTest):
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "percentage_usage": 0.0,
                 }
-            ],
-            "products_enterprise": [
-                {
-                    "current_usage": 0,
-                    "description": "Product Analytics, event pipelines, data warehousing",
-                    "free_allocation": 10000,
-                    "name": "Product OS Enterprise",
-                    "price_description": None,
-                    "tiers": [
-                        {
-                            "current_amount_usd": "0.00",
-                            "unit_amount_usd": "0.00",
-                            "up_to": 1000000,
-                        },
-                        {
-                            "current_amount_usd": None,
-                            "unit_amount_usd": "0.00045",
-                            "up_to": 2000000,
-                        },
-                    ],
-                    "type": "events",
-                    "current_amount_usd": "0.00",
-                    "current_amount_usd": "0.00",
-                    "has_exceeded_limit": False,
-                    "projected_amount_usd": "0.00",
-                    "projected_usage": 0,
-                    "tiered": True,
-                    "unit_amount_usd": "0.00",
-                    "usage_limit": None,
-                    "image_url": "https://posthog.com/static/images/product-os.png",
-                    "percentage_usage": 0.0,
-                },
             ],
             "billing_period": {
                 "current_period_start": "2022-10-07T11:12:48",
@@ -457,14 +394,14 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
                     customer=create_billing_customer(available_features=["feature1", "feature2"])
                 )
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -488,19 +425,19 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
                     customer=create_billing_customer(has_active_subscription=True)
                 )
                 mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
 
-            if "api/products" in url:
+            elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -528,15 +465,15 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(customer=create_missing_billing_customer())
-            if "api/products" in url:
+            elif "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -566,15 +503,15 @@ class TestBillingAPI(APILicensedTest):
             mock = MagicMock()
             mock.status_code = 404
 
-            if "api/billing" in url:
+            if "api/billing/portal" in url:
+                mock.status_code = 200
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
                     # Set usage to none so it is calculated from scratch
                     customer=create_billing_customer(has_active_subscription=False, usage=None)
                 )
-            if "api/plans" in url:
-                mock.status_code = 200
-                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 

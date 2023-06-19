@@ -90,7 +90,13 @@ export const PersonPropertySelect = ({
                     />
                 }
             >
-                <LemonButton onClick={() => setOpen(!open)} type="secondary" size="small" icon={<IconPlus />}>
+                <LemonButton
+                    onClick={() => setOpen(!open)}
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlus />}
+                    sideIcon={null}
+                >
                     {addText}
                 </LemonButton>
             </Popover>

@@ -92,12 +92,28 @@ export const preflightLogic = kea<preflightLogicType>([
                     {
                         id: 'redis',
                         name: 'Cache · Redis',
-                        status: preflight?.redis ? 'validated' : 'error',
+                        status: preflight?.redis
+                            ? 'validated'
+                            : preflightMode === 'experimentation'
+                            ? 'warning'
+                            : 'error',
+                        caption:
+                            !preflight?.redis && preflightMode === 'experimentation'
+                                ? 'Required in production environments'
+                                : undefined,
                     },
                     {
                         id: 'celery',
                         name: 'Background jobs · Celery',
-                        status: preflight?.celery ? 'validated' : 'error',
+                        status: preflight?.celery
+                            ? 'validated'
+                            : preflightMode === 'experimentation'
+                            ? 'warning'
+                            : 'error',
+                        caption:
+                            !preflight?.celery && preflightMode === 'experimentation'
+                                ? 'Required in production environments'
+                                : undefined,
                     },
                     {
                         id: 'plugins',

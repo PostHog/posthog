@@ -1,35 +1,30 @@
 import { actions, kea, reducers, path, listeners } from 'kea'
-import { NotebookNodeType } from '../Nodes/types'
-import { notebookLogic } from './notebookLogic'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
+import { urlToAction } from 'kea-router'
+import { RefObject } from 'react'
+import posthog from 'posthog-js'
+import { subscriptions } from 'kea-subscriptions'
+
+export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
     actions({
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
-        addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
-        createNotebook: (id: string) => ({ id }),
-        deleteNotebook: (id: string) => ({ id }),
-        renameNotebook: (id: string, name: string) => ({ id, name }),
         selectNotebook: (id: string) => ({ id }),
+        onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
+        setDesiredWidth: (width: number) => ({ width }),
+        setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
     }),
 
     reducers(() => ({
-        notebooks: [
-            ['scratchpad', 'RFC: Notebooks', 'Feature Flag overview', 'HoqQL examples'] as string[],
-            {
-                createNotebook: (state, { id }) => [...state, id],
-                deleteNotebook: (state, { id }) => state.filter((notebook) => notebook !== id),
-            },
-        ],
         selectedNotebook: [
             'scratchpad',
             { persist: true },
             {
                 selectNotebook: (_, { id }) => id,
-                createNotebook: (_, { id }) => id,
             },
         ],
         notebookSideBarShown: [
@@ -37,7 +32,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             { persist: true },
             {
                 setNotebookSideBarShown: (_, { shown }) => shown,
-                setFullScreen: () => true,
             },
         ],
         fullScreen: [
@@ -47,25 +41,66 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 setNotebookSideBarShown: (state, { shown }) => (!shown ? false : state),
             },
         ],
+        desiredWidth: [
+            750,
+            { persist: true },
+            {
+                setDesiredWidth: (_, { width }) => width,
+            },
+        ],
+
+        elementRef: [
+            null as RefObject<HTMLElement> | null,
+            {
+                setElementRef: (_, { element }) => element,
+            },
+        ],
     })),
 
-    listeners(({ values, actions }) => ({
-        addNodeToNotebook: ({ type, properties }) => {
-            notebookLogic({ id: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
+    subscriptions({
+        notebookSideBarShown: (value, oldvalue) => {
+            if (oldvalue !== undefined && value !== oldvalue) {
+                posthog.capture(`notebook sidebar ${value ? 'shown' : 'hidden'}`)
+            }
+        },
+    }),
 
-            actions.setNotebookSideBarShown(true)
+    listeners(({ values, actions, cache }) => ({
+        onResize: ({ originX, desiredX, finished }) => {
+            if (values.fullScreen) {
+                actions.setFullScreen(false)
+            }
+            if (!values.elementRef?.current) {
+                return
+            }
+            if (!cache.originalWidth) {
+                cache.originalWidth = values.elementRef.current.getBoundingClientRect().width
+            }
 
-            // if (!values.editor) {
-            //     return
-            // }
-            // values.editor
-            //     .chain()
-            //     .focus()
-            //     .insertContent({
-            //         type,
-            //         attrs: props,
-            //     })
-            //     .run()
+            if (window.innerWidth - desiredX < MIN_NOTEBOOK_SIDEBAR_WIDTH / 3) {
+                actions.setNotebookSideBarShown(false)
+                return
+            } else if (!values.notebookSideBarShown) {
+                actions.setNotebookSideBarShown(true)
+            }
+
+            if (finished) {
+                cache.originalWidth = undefined
+                actions.setDesiredWidth(
+                    Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, values.elementRef.current.getBoundingClientRect().width)
+                )
+            } else {
+                actions.setDesiredWidth(
+                    Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, cache.originalWidth - (desiredX - originX))
+                )
+            }
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        '/*': () => {
+            // Any navigation should trigger exiting full screen
+            actions.setFullScreen(false)
         },
     })),
 ])

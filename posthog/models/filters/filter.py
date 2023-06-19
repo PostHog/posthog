@@ -31,6 +31,7 @@ from posthog.models.filters.mixins.common import (
     SelectorMixin,
     ShownAsMixin,
     SmoothingIntervalsMixin,
+    UpdatedAfterMixin,
 )
 from posthog.models.filters.mixins.funnel import (
     FunnelCorrelationActorsMixin,
@@ -44,6 +45,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelWindowDaysMixin,
     FunnelWindowMixin,
     HistogramMixin,
+    FunnelHogQLAggregationMixin,
 )
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
@@ -79,6 +81,7 @@ class Filter(
     FunnelTrendsPersonsMixin,
     FunnelPersonsStepBreakdownMixin,
     FunnelLayoutMixin,
+    FunnelHogQLAggregationMixin,
     FunnelTypeMixin,
     HistogramMixin,
     GroupsAggregationMixin,
@@ -89,6 +92,7 @@ class Filter(
     SearchMixin,
     DistinctIdMixin,
     EmailMixin,
+    UpdatedAfterMixin,
     ClientQueryIdMixin,
     SampleMixin,
     BaseFilter,

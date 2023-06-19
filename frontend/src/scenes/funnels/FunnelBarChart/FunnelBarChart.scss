@@ -116,6 +116,12 @@
         cursor: default;
     }
 }
+.StepBar__unclickable {
+    .StepBar__backdrop,
+    .StepBar__fill {
+        cursor: default;
+    }
+}
 
 .StepBar__backdrop {
     transition: opacity 200ms ease;

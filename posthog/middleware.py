@@ -5,6 +5,7 @@ from typing import Any, Callable, List, Optional, cast
 import structlog
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
@@ -12,16 +13,23 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import PrometheusAfterMiddleware
+from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+from rest_framework import status
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.cloud_utils import is_cloud
+from posthog.exceptions import generate_exception_response
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.rate_limit import DecideRateThrottle
+from posthog.settings import SITE_URL
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
+from posthog.utils import cors_response
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -36,6 +44,17 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
 ]
+
+default_cookie_options = {
+    "max_age": 365 * 24 * 60 * 60,  # one year
+    "expires": None,
+    "path": "/",
+    "domain": "posthog.com",
+    "secure": True,
+    "samesite": "Strict",
+}
+
+cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
 
 
 class AllowIPMiddleware:
@@ -265,6 +284,9 @@ def shortcircuitmiddleware(f):
 class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
+        self.decide_throttler = DecideRateThrottle(
+            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE, bucket_capacity=settings.DECIDE_BUCKET_CAPACITY
+        )
 
     def __call__(self, request: HttpRequest):
         if request.path == "/decide/" or request.path == "/decide":
@@ -278,7 +300,18 @@ class ShortCircuitMiddleware:
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
-                return get_decide(request)
+                if self.decide_throttler.allow_request(request, None):
+                    return get_decide(request)
+                else:
+                    return cors_response(
+                        request,
+                        generate_exception_response(
+                            "decide",
+                            f"Rate limit exceeded ",
+                            code="rate_limit_exceeded",
+                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        ),
+                    )
             finally:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
@@ -303,7 +336,7 @@ class CaptureMiddleware:
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
             CorsMiddleware,
-            PrometheusAfterMiddleware,
+            PrometheusAfterMiddlewareWithTeamIds,
         ):
             try:
                 # Some middlewares raise MiddlewareNotUsed if they are not
@@ -419,3 +452,100 @@ def user_logging_context_middleware(
         return get_response(request)
 
     return middleware
+
+
+PROMETHEUS_EXTENDED_METRICS = [
+    "django_http_requests_total_by_view_transport_method",
+    "django_http_responses_total_by_status_view_method",
+    "django_http_requests_latency_seconds_by_view_method",
+]
+
+
+class CustomPrometheusMetrics(Metrics):
+    def register_metric(self, metric_cls, name, documentation, labelnames=(), **kwargs):
+        if name in PROMETHEUS_EXTENDED_METRICS:
+            labelnames.extend([LABEL_TEAM_ID])
+        return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
+
+
+class PrometheusBeforeMiddlewareWithTeamIds(PrometheusBeforeMiddleware):
+    metrics_cls = CustomPrometheusMetrics
+
+
+class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
+    metrics_cls = CustomPrometheusMetrics
+
+    def label_metric(self, metric, request, response=None, **labels):
+        new_labels = labels
+        if metric._name in PROMETHEUS_EXTENDED_METRICS:
+            if (
+                request
+                and getattr(request, "user", None)
+                and request.user.is_authenticated
+                and hasattr(request.user, "current_team_id")
+            ):
+                team_id = request.user.current_team_id
+            else:
+                team_id = None
+
+            new_labels = {LABEL_TEAM_ID: team_id}
+            new_labels.update(labels)
+        return super().label_metric(metric, request, response=response, **new_labels)
+
+
+class PostHogTokenCookieMiddleware(SessionMiddleware):
+    """
+    Adds two secure cookies to enable auto-filling the current project token on the docs.
+    """
+
+    def process_response(self, request, response):
+        response = super().process_response(request, response)
+
+        if not is_cloud():
+            return response
+
+        # skip adding the cookie on API requests
+        split_request_path = request.path.split("/")
+        if len(split_request_path) and split_request_path[1] in cookie_api_paths_to_ignore:
+            return response
+
+        if request.path.startswith("/logout"):
+            # clears the cookies that were previously set
+            response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
+            response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
+            response.delete_cookie("ph_current_instance", domain=default_cookie_options["domain"])
+        if request.user and request.user.is_authenticated and request.user.team:
+            response.set_cookie(
+                key="ph_current_project_token",
+                value=request.user.team.api_token,
+                max_age=365 * 24 * 60 * 60,
+                expires=default_cookie_options["expires"],
+                path=default_cookie_options["path"],
+                domain=default_cookie_options["domain"],
+                secure=default_cookie_options["secure"],
+                samesite=default_cookie_options["samesite"],
+            )
+
+            response.set_cookie(
+                key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
+                value=request.user.team.name.encode("utf-8").decode("latin-1"),
+                max_age=365 * 24 * 60 * 60,
+                expires=default_cookie_options["expires"],
+                path=default_cookie_options["path"],
+                domain=default_cookie_options["domain"],
+                secure=default_cookie_options["secure"],
+                samesite=default_cookie_options["samesite"],
+            )
+
+            response.set_cookie(
+                key="ph_current_instance",  # clarify which project is active (orgs can have multiple projects)
+                value=SITE_URL,
+                max_age=365 * 24 * 60 * 60,
+                expires=default_cookie_options["expires"],
+                path=default_cookie_options["path"],
+                domain=default_cookie_options["domain"],
+                secure=default_cookie_options["secure"],
+                samesite=default_cookie_options["samesite"],
+            )
+
+        return response

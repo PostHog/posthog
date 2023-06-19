@@ -14,7 +14,6 @@ from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery, SerializedGroup, SerializedPerson
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.util import get_person_properties_mode
-from posthog.utils import PersonOnEventsMode
 
 
 class FunnelCorrelationActors(ActorBaseQuery):
@@ -82,10 +81,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         prop_query, prop_params = event_query._get_prop_groups(
             prop_filters,
             person_properties_mode=get_person_properties_mode(self._team),
-            person_id_joined_alias=f"""{
-                event_query.DISTINCT_ID_TABLE_ALIAS
-                if self._team.person_on_events_mode == PersonOnEventsMode.DISABLED
-                else event_query.EVENT_TABLE_ALIAS}.person_id""",
+            person_id_joined_alias=event_query._get_person_id_alias(self._team.person_on_events_mode),
         )
 
         conversion_filter = (

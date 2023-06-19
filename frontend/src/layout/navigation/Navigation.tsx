@@ -12,7 +12,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
     const { sceneConfig, activeScene } = useValues(sceneLogic)
 
     return (
-        <div>
+        <div className="h-screen flex flex-col">
             {activeScene !== Scene.Ingestion && <TopBar />}
             <SideBar>
                 <div className={clsx('main-app-content', sceneConfig?.plain && 'main-app-content--plain')}>

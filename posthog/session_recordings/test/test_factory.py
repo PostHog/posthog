@@ -9,7 +9,10 @@ from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
-from posthog.session_recordings.session_recording_helpers import RRWEB_MAP_EVENT_TYPE, compress_and_chunk_snapshots
+from posthog.session_recordings.session_recording_helpers import (
+    RRWEB_MAP_EVENT_TYPE,
+    legacy_preprocess_session_recording_events_for_clickhouse,
+)
 from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)
@@ -86,7 +89,7 @@ def create_session_recording_events(
 
     event_ids = []
 
-    for event in compress_and_chunk_snapshots(mock_events, chunk_size=chunk_size):
+    for event in legacy_preprocess_session_recording_events_for_clickhouse(mock_events, chunk_size=chunk_size):
         event_ids.append(
             _insert_session_recording_event(
                 team_id=team_id,
@@ -151,7 +154,7 @@ def create_snapshot(
     )
 
 
-def create_chunked_snapshots(
+def create_snapshots(
     snapshot_count: int,
     distinct_id: str,
     session_id: str,
@@ -160,6 +163,7 @@ def create_chunked_snapshots(
     window_id: str = "",
     has_full_snapshot: bool = True,
     source: int = 0,
+    chunk_size: Optional[int] = 512 * 1024,
 ):
     snapshots = []
     for index in range(snapshot_count):
@@ -196,5 +200,5 @@ def create_chunked_snapshots(
         session_id=session_id,
         window_id=window_id,
         snapshots=snapshots,
-        chunk_size=15,
+        chunk_size=chunk_size,
     )

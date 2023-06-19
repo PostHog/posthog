@@ -2,7 +2,7 @@
   <class 'tuple'> (
     '
       
-                      INNER JOIN (
+                      LEFT JOIN (
                           SELECT
                               group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -23,7 +23,7 @@
   <class 'tuple'> (
     '
       
-                      INNER JOIN (
+                      LEFT JOIN (
                           SELECT
                               group_key,
                               argMax(group_properties, _timestamp) AS group_properties_0
@@ -34,7 +34,7 @@
                       ON call_me_industry == groups_0.group_key
                       
       
-                      INNER JOIN (
+                      LEFT JOIN (
                           SELECT
                               group_key,
                               argMax(group_properties, _timestamp) AS group_properties_2

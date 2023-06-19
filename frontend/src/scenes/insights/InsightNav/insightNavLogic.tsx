@@ -3,7 +3,6 @@ import { InsightLogicProps, InsightType } from '~/types'
 
 import type { insightNavLogicType } from './insightNavLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { NodeKind } from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -13,6 +12,7 @@ import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
 export interface Tab {
     label: string | JSX.Element
@@ -32,8 +32,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
             ['featureFlags'],
             insightDataLogic(props),
             ['query'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
         ],
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -44,10 +46,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     }),
     selectors({
-        isUsingDataExploration: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
-        ],
         allowQueryTab: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
         activeView: [
             (s) => [s.filters, s.query, s.userSelectedView],
@@ -159,30 +157,18 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(examples.HogQLTable)
                 }
             } else {
-                if (values.isUsingDataExploration) {
-                    if (view === InsightType.TRENDS) {
-                        actions.setQuery(queryFromKind(NodeKind.TrendsQuery))
-                    } else if (view === InsightType.FUNNELS) {
-                        actions.setQuery(queryFromKind(NodeKind.FunnelsQuery))
-                    } else if (view === InsightType.RETENTION) {
-                        actions.setQuery(queryFromKind(NodeKind.RetentionQuery))
-                    } else if (view === InsightType.PATHS) {
-                        actions.setQuery(queryFromKind(NodeKind.PathsQuery))
-                    } else if (view === InsightType.STICKINESS) {
-                        actions.setQuery(queryFromKind(NodeKind.StickinessQuery))
-                    } else if (view === InsightType.LIFECYCLE) {
-                        actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
-                    }
-                } else {
-                    actions.setFilters(
-                        cleanFilters(
-                            // double-check that the view is valid
-                            { ...values.filters, insight: view || InsightType.TRENDS },
-                            values.filters
-                        ),
-                        undefined,
-                        true
-                    )
+                if (view === InsightType.TRENDS) {
+                    actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.FUNNELS) {
+                    actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.RETENTION) {
+                    actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.PATHS) {
+                    actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.STICKINESS) {
+                    actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.LIFECYCLE) {
+                    actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
                 }
             }
         },

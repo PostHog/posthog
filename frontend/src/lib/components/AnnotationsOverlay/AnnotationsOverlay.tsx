@@ -20,6 +20,7 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -29,8 +30,8 @@ const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM D',
 }
 
-export interface AnnotationsOverlayProps
-    extends Pick<AnnotationsOverlayLogicProps, 'dashboardItemId' | 'insightNumericId'> {
+export interface AnnotationsOverlayProps {
+    insightNumericId: AnnotationsOverlayLogicProps['insightNumericId']
     dates: string[]
     chart: Chart
     chartWidth: number
@@ -50,13 +51,13 @@ export function AnnotationsOverlay({
     chartWidth,
     chartHeight,
     dates,
-    dashboardItemId,
     insightNumericId,
 }: AnnotationsOverlayProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx } = useAnnotationsPositioning(chart, chartWidth, chartHeight)
 
     const annotationsOverlayLogicProps: AnnotationsOverlayLogicProps = {
-        dashboardItemId,
+        ...insightProps,
         insightNumericId,
         dates,
         ticks: chart.scales.x.ticks,
@@ -231,7 +232,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
         <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
                 <h5 className="grow m-0 text-muted">
-                    {annotation.date_marker.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
+                    {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
                     -level
                 </h5>

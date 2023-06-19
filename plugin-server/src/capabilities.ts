@@ -15,6 +15,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processPluginJobs: true,
                 processAsyncHandlers: true,
                 sessionRecordingIngestion: true,
+                sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
         case 'ingestion':
@@ -40,8 +41,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case 'recordings-ingestion':
             return {
-                mmdb: false,
                 sessionRecordingIngestion: true,
+                ...sharedCapabilities,
+            }
+        case 'recordings-blob-ingestion':
+            return {
+                sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
 

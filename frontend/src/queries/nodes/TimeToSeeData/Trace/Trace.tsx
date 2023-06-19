@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSad } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils'
 import { RefCallback, useEffect, useState } from 'react'
@@ -146,11 +146,11 @@ function TraceOverview({
             <div className={'flex flex-col gap-2 border rounded p-4'}>
                 <NodeFacts facts={sessionNodeFacts(timeToSeeSession)} />
                 <h1 className="mb-0">Session Interactions</h1>
-                <AlertMessage type="info">
+                <LemonBanner type="info">
                     During sessions we capture metrics as "Interactions". Interactions can contain events and queries.
                     Any interaction, event, or query that takes longer than 5 seconds is classified as frustrating.
                     {/* Click on an interaction below to see more details. */}
-                </AlertMessage>
+                </LemonBanner>
                 <div>
                     {processedSpans
                         .filter((spanData) => ['interaction', 'session'].includes(spanData.type))

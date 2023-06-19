@@ -1,27 +1,38 @@
-import { EditorFilterProps } from '~/types'
-import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { FilterType, InsightLogicProps, EditorFilterProps } from '~/types'
+import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic, SamplingFilterLogicProps } from './samplingFilterLogic'
+import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import posthog from 'posthog-js'
-
-interface SamplingFilterProps extends Omit<EditorFilterProps, 'insight' | 'value'> {
-    infoTooltipContent?: string
-    setFilters?: SamplingFilterLogicProps['setFilters']
-    initialSamplingPercentage?: number | null
-}
+import { insightVizDataLogic } from '../insightVizDataLogic'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
     'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
 
+export function SamplingFilterDataExploration({ insightProps }: EditorFilterProps): JSX.Element {
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    return (
+        <SamplingFilter
+            insightProps={insightProps}
+            setFilters={(filters) => updateQuerySource({ samplingFactor: filters?.sampling_factor })}
+        />
+    )
+}
+
+interface SamplingFilterProps {
+    insightProps: InsightLogicProps
+    setFilters?: (filters: Pick<FilterType, 'sampling_factor'>) => void
+    initialSamplingPercentage?: number | null
+    infoTooltipContent?: string
+}
+
 export function SamplingFilter({
-    filters,
     insightProps,
-    infoTooltipContent,
     setFilters,
+    infoTooltipContent,
     initialSamplingPercentage,
-}: SamplingFilterProps): JSX.Element {
+}: SamplingFilterProps): JSX.Element | null {
     const logic = samplingFilterLogic({
-        insightType: filters.insight,
         insightProps,
         setFilters,
         initialSamplingPercentage,
@@ -39,7 +50,7 @@ export function SamplingFilter({
                         info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
                         infoLink="https://posthog.com/manual/sampling"
                     >
-                        Sampling (Beta)
+                        Sampling<LemonTag type="warning">BETA</LemonTag>
                     </LemonLabel>
                     <LemonSwitch
                         className="m-2"
@@ -81,5 +92,5 @@ export function SamplingFilter({
             </>
         )
     }
-    return <></>
+    return null
 }

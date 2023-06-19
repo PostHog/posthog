@@ -38,7 +38,9 @@ def _create_action(**kwargs):
 
 class TestCohort(ClickhouseTestMixin, BaseTest):
     def _get_cohortpeople(self, cohort: Cohort):
-        return sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"team_id": self.team.pk, "cohort_id": cohort.pk})
+        return sync_execute(
+            GET_COHORTPEOPLE_BY_COHORT_ID, {"team_id": self.team.pk, "cohort_id": cohort.pk, "version": cohort.version}
+        )
 
     def test_prop_cohort_basic(self):
 
@@ -1081,7 +1083,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        cohort1.calculate_people_ch(pending_version=5)
 
         cohort1.pending_version = 5
         cohort1.version = 5

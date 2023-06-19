@@ -10,16 +10,16 @@ from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
-from rest_framework import serializers
 
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_OVERRIDES
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID2,
+    INSERT_PERSON_OVERRIDE,
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
@@ -164,6 +164,31 @@ def create_person_distinct_id(
     )
 
 
+def create_person_override(
+    team_id: int,
+    old_person_uuid: str,
+    override_person_uuid: str,
+    version: int,
+    merged_at: datetime.datetime,
+    oldest_event: datetime.datetime,
+    sync: bool = False,
+) -> None:
+    p = ClickhouseProducer()
+    p.produce(
+        topic=KAFKA_PERSON_OVERRIDES,
+        sql=INSERT_PERSON_OVERRIDE,
+        data={
+            "team_id": team_id,
+            "old_person_id": old_person_uuid,
+            "override_person_id": override_person_uuid,
+            "version": version,
+            "merged_at": merged_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "oldest_event": oldest_event.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        },
+        sync=sync,
+    )
+
+
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:
     return Person.objects.filter(
         team_id=team_id, persondistinctid__team_id=team_id, persondistinctid__distinct_id__in=distinct_ids
@@ -213,37 +238,3 @@ def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: 
         is_deleted=True,
         sync=sync,
     )
-
-
-class ClickhousePersonSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
-    created_at = serializers.SerializerMethodField()
-    team_id = serializers.SerializerMethodField()
-    properties = serializers.SerializerMethodField()
-    is_identified = serializers.SerializerMethodField()
-    name = serializers.SerializerMethodField()
-    distinct_ids = serializers.SerializerMethodField()
-
-    def get_name(self, person):
-        props = json.loads(person[3])
-        email = props.get("email", None)
-        return email or person[0]
-
-    def get_id(self, person):
-        return person[0]
-
-    def get_created_at(self, person):
-        return person[1]
-
-    def get_team_id(self, person):
-        return person[2]
-
-    def get_properties(self, person):
-        return json.loads(person[3])
-
-    def get_is_identified(self, person):
-        return person[4]
-
-    # all queries might not retrieve distinct_ids
-    def get_distinct_ids(self, person):
-        return person[5] if len(person) > 5 else []

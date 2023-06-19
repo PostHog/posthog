@@ -211,7 +211,7 @@ export function addHistoricalEventsExportCapability(
             )
         } catch (error) {
             fetchEventsError = error
-            Sentry.captureException(error)
+            Sentry.captureException(error, { tags: { team_id: pluginConfig.team_id } })
         }
 
         let exportEventsError: Error | unknown | null = null

@@ -38,7 +38,7 @@ else
     echo "✅ Specifically back up the contents of :"
     echo "  ☑ /var/lib/postgresql/data in the postgres (*_db_1) container"
     echo "  ☑ /var/lib/clickhouse in the clickhouse (*_clickhouse_1) container"
-    echo "and be ready to check/recopy the data before you boot Posthog next."
+    echo "and be ready to check/recopy the data before you boot PostHog next."
     read -r -p "Do you want to proceed anyway? [y/N] " response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
     then
@@ -99,7 +99,7 @@ then
     echo ""
 fi
 
-read -r -p "Do you want to restart the Posthog stack now ? (docker-compose up) [y/N] " response
+read -r -p "Do you want to restart the PostHog stack now ? (docker-compose up) [y/N] " response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
 then
     echo "OK, Restarting the stack!"

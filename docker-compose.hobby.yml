@@ -105,6 +105,7 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            SKIP_ASYNC_MIGRATIONS_SETUP: 0
 
     # Temporal containers
     temporal:
@@ -115,6 +116,8 @@ services:
             - ENABLE_ES=false
         ports:
             - 7233:7233
+        volumes:
+            - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml

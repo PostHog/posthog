@@ -1,5 +1,7 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
+import { teamLogic } from 'scenes/teamLogic'
+import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
 
 export interface ColumnConfiguratorLogicProps {
     key: string
@@ -19,8 +21,16 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         setColumns: (columns: string[]) => ({ columns }),
         moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
         save: true,
+        toggleSaveAsDefault: true,
     }),
     reducers(({ props }) => ({
+        saveAsDefault: [
+            false,
+            {
+                toggleSaveAsDefault: (state) => !state,
+                showModal: () => false,
+            },
+        ],
         modalVisible: [
             false,
             {
@@ -51,6 +61,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     }),
     listeners(({ values, props }) => ({
         save: () => {
+            if (values.saveAsDefault) {
+                teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
+            }
             props.setColumns(values.columns)
         },
     })),

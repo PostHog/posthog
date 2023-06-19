@@ -29,7 +29,8 @@ export function CopyToClipboardInline({
     style,
     ...props
 }: InlineProps): JSX.Element {
-    const copy = (): boolean => copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
+    const copy = async (): Promise<boolean> =>
+        await copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
 
     const content = (
         <span
@@ -49,12 +50,13 @@ export function CopyToClipboardInline({
             onClick={!selectable ? copy : undefined}
             {...props}
         >
-            <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+            <span className={iconPosition === 'start' ? 'grow-1' : undefined}>{children}</span>
             <LemonButton
                 size="small"
                 icon={<IconCopy style={{ ...iconStyle }} />}
                 noPadding
-                className="copy-icon"
+                className="ml-1"
+                data-attr="copy-icon"
                 onClick={!selectable ? undefined : copy}
             />
         </span>

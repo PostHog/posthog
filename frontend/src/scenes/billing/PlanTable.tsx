@@ -125,9 +125,11 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
     const { billing } = useValues(billingLogic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
+    const plans = billing?.available_plans?.filter((plan) => plan.name !== 'Enterprise')
+
     const excludedFeatures: string[] = [AvailableFeature.DASHBOARD_COLLABORATION]
 
-    const upgradeButtons = billing?.available_plans?.map((plan) => (
+    const upgradeButtons = plans?.map((plan) => (
         <td key={`${plan.name}-cta`}>
             <LemonButton
                 to={`/api/billing-v2/activation?plan=${plan.key}&redirect_path=${redirectPath}`}
@@ -147,7 +149,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
         </td>
     ))
 
-    return !billing?.available_plans?.length ? (
+    return !plans?.length ? (
         <Spinner />
     ) : (
         <div className="PlanTable space-x-4">
@@ -155,7 +157,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                 <thead>
                     <tr>
                         <td />
-                        {billing?.available_plans?.map((plan) => (
+                        {plans?.map((plan) => (
                             <td key={plan.name}>
                                 <h3 className="font-bold">{plan.name}</h3>
                                 <p className="ml-0 text-xs">{plan.description}</p>
@@ -166,7 +168,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                 <tbody>
                     <tr>
                         <th
-                            colSpan={4}
+                            colSpan={3}
                             className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
                         >
                             <span>Pricing</span>
@@ -174,21 +176,20 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     </tr>
                     <tr className="PlanTable__tr__border">
                         <td className="font-bold">Monthly base price</td>
-                        {billing?.available_plans?.map((plan) => (
+                        {plans?.map((plan) => (
                             <td key={`${plan.name}-basePrice`} className="text-sm font-bold">
                                 {getPlanBasePrice(plan)}
                             </td>
                         ))}
                     </tr>
-                    {billing?.available_plans
-                        ? billing?.available_plans[billing?.available_plans.length - 1].products
+                    {plans
+                        ? plans[plans.length - 1].products
                               .filter((product) => product.type !== 'base')
                               .map((product, i) => (
                                   <tr
                                       key={product.type}
                                       className={
-                                          billing?.available_plans?.[0].products.length &&
-                                          i !== billing?.available_plans?.[0].products.length - 1
+                                          plans?.[0].products.length && i !== plans?.[0].products.length - 1
                                               ? 'PlanTable__tr__border'
                                               : ''
                                       }
@@ -199,7 +200,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                               Priced per {product.type === 'events' ? 'event' : 'recording'}
                                           </p>
                                       </th>
-                                      {billing?.available_plans?.map((plan) => (
+                                      {plans?.map((plan) => (
                                           <td key={`${plan.key}-${product}`}>{getProductTiers(plan, product.type)}</td>
                                       ))}
                                   </tr>
@@ -211,15 +212,15 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     </tr>
                     <tr>
                         <th
-                            colSpan={4}
+                            colSpan={3}
                             className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
                         >
                             <span>Features</span>
                         </th>
                     </tr>
 
-                    {billing?.available_plans?.length > 0
-                        ? billing.available_plans[billing.available_plans.length - 1].products.map((product) =>
+                    {plans?.length > 0
+                        ? plans[plans.length - 1].products.map((product) =>
                               product.feature_groups?.map((feature_group) => (
                                   <>
                                       <tr
@@ -228,7 +229,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                       >
                                           <th>{feature_group.name}</th>
                                           {(product.type === 'events' || product.type === 'recordings') &&
-                                              billing?.available_plans?.map((plan) => (
+                                              plans?.map((plan) => (
                                                   <td key={`${plan.name}-${feature_group.name}`}>
                                                       <PlanIcon
                                                           feature={{
@@ -260,7 +261,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                                   <th className="PlanTable__th__subfeature text-muted text-xs">
                                                       <Tooltip title={feature.description}>{feature.name}</Tooltip>
                                                   </th>
-                                                  {billing?.available_plans?.map((plan) => (
+                                                  {plans?.map((plan) => (
                                                       <td key={`${plan.name}-${feature.name}`}>
                                                           <PlanIcon
                                                               feature={plan?.products

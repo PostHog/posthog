@@ -2,19 +2,8 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import type { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import {
-    SystemStatus,
-    SystemStatusRow,
-    SystemStatusQueriesResult,
-    SystemStatusAnalyzeResult,
-    OrganizationType,
-    UserType,
-    PreflightStatus,
-    InstanceSetting,
-} from '~/types'
+import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -65,9 +54,6 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
     actions: {
         setTab: (tab: InstanceStatusTabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),
-        setAnalyzeModalOpen: (isOpen: boolean) => ({ isOpen }),
-        setAnalyzeQuery: (query: string) => ({ query }),
-        openAnalyzeModalWithQuery: (query: string) => ({ query }),
         setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
         updateInstanceConfigValue: (key: string, value?: string | boolean | number) => ({ key, value }),
         clearInstanceConfigEditing: true,
@@ -75,7 +61,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
         setUpdatedInstanceConfigCount: (count: number | null) => ({ count }),
         increaseUpdatedInstanceConfigCount: true,
     },
-    loaders: ({ values }) => ({
+    loaders: () => ({
         systemStatus: [
             null as SystemStatus | null,
             {
@@ -107,16 +93,6 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 loadQueries: async () => (await api.get('api/instance_status/queries')).results,
             },
         ],
-        analyzeQueryResult: [
-            null as SystemStatusAnalyzeResult | null,
-            {
-                setAnalyzeModalOpen: () => null,
-                runAnalyzeQuery: async () => {
-                    return (await api.create('api/instance_status/analyze_ch_query', { query: values.analyzeQuery }))
-                        .results
-                },
-            },
-        ],
     }),
     reducers: {
         tab: [
@@ -136,20 +112,6 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
             { persist: true },
             {
                 setOpenSections: (_, { sections }) => sections,
-            },
-        ],
-        analyzeModalOpen: [
-            false as boolean,
-            {
-                setAnalyzeModalOpen: (_, { isOpen }) => isOpen,
-                openAnalyzeModalWithQuery: () => true,
-            },
-        ],
-        analyzeQuery: [
-            '' as string,
-            {
-                setAnalyzeQuery: (_, { query }) => query,
-                openAnalyzeModalWithQuery: (_, { query }) => query,
             },
         ],
         instanceConfigMode: [
@@ -187,19 +149,6 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
         overview: [
             (s) => [s.systemStatus],
             (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
-        ],
-        showAnalyzeQueryButton: [
-            () => [
-                preflightLogic.selectors.preflight,
-                organizationLogic.selectors.currentOrganization,
-                userLogic.selectors.user,
-            ],
-            (preflight: PreflightStatus | null, org: OrganizationType | null, user: UserType | null): boolean => {
-                if (preflight?.cloud) {
-                    return !!user?.is_staff
-                }
-                return !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin
-            },
         ],
         editableInstanceSettings: [
             (s) => [s.instanceSettings],

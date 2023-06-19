@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -49,13 +49,13 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
             <LemonDivider className="my-6" />
             <AutocaptureSettings />
             <LemonDivider className="my-6" />
-            <p>Need test PostHog on a live site without changing any code?</p>
+            <p>Need to test PostHog on a live site without changing any code?</p>
             <p>
                 Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on and
                 click it. This will enable our tracking, on the currently loaded page only. The data will show up in
                 this project.
             </p>
-            <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
+            <div>{isAuthenticatedTeam(currentTeam) && <JSBookmarklet team={currentTeam} />}</div>
             <LemonDivider className="my-6" />
             <h2 id="custom-events" className="subtitle">
                 Send custom events

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Group } from '~/types'
+import { Group, PropertyDefinitionType } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
@@ -13,25 +13,32 @@ import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export const scene: SceneExport = {
     component: Groups,
     logic: groupsListLogic,
+    paramsToProps: ({ params: { groupTypeIndex } }) => ({
+        groupTypeIndex: parseInt(groupTypeIndex),
+    }),
 }
 
-export function Groups(): JSX.Element {
+export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JSX.Element {
     const {
-        currentTabName,
-        groupName: { singular, plural },
+        groupTypeName: { singular, plural },
         groups,
         groupsLoading,
         search,
     } = useValues(groupsListLogic)
     const { loadGroups, setSearch } = useActions(groupsListLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    if (groupTypeIndex === undefined) {
+        throw new Error('groupTypeIndex is undefined')
+    }
 
     if (
         groupsAccessStatus == GroupsAccessStatus.HasAccess ||
@@ -40,7 +47,7 @@ export function Groups(): JSX.Element {
     ) {
         return (
             <>
-                <PersonPageHeader />
+                <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
                 <GroupsIntroduction access={groupsAccessStatus} />
             </>
         )
@@ -48,7 +55,7 @@ export function Groups(): JSX.Element {
 
     const columns: LemonTableColumns<Group> = [
         {
-            title: currentTabName,
+            title: capitalizeFirstLetter(plural),
             key: 'group_key',
             render: function Render(_, group: Group) {
                 return (
@@ -69,7 +76,7 @@ export function Groups(): JSX.Element {
 
     return (
         <>
-            <PersonPageHeader />
+            <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
             <LemonInput
                 type="search"
                 placeholder={`Search for ${plural}`}
@@ -86,7 +93,7 @@ export function Groups(): JSX.Element {
                 dataSource={groups.results}
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable({ group_properties }) {
-                        return <PropertiesTable properties={group_properties} />
+                        return <PropertiesTable type={PropertyDefinitionType.Group} properties={group_properties} />
                     },
                     rowExpandable: ({ group_properties }) =>
                         !!group_properties && Object.keys(group_properties).length > 0,
@@ -108,7 +115,7 @@ export function Groups(): JSX.Element {
                 }}
                 emptyState={
                     <>
-                        <AlertMessage type="info">
+                        <LemonBanner type="info">
                             No {plural} found. Make sure to send properties with your {singular} for them to show up in
                             the list.{' '}
                             <a
@@ -118,10 +125,10 @@ export function Groups(): JSX.Element {
                             >
                                 Read more here.
                             </a>
-                        </AlertMessage>
+                        </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
                             {`posthog.group('${singular}', 'id:5', {\n` +
-                                `    name: 'Awesome ${currentTabName}',\n` +
+                                `    name: 'Awesome ${singular}',\n` +
                                 '    value: 11\n' +
                                 '});'}
                         </CodeSnippet>

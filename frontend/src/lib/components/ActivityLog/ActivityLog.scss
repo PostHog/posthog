@@ -2,20 +2,6 @@
     &.notifications-menu {
         max-width: 25rem;
     }
-    .empty {
-        text-align: center;
-
-        h1 {
-            font-weight: 700;
-            line-height: 26px;
-            margin-top: 5rem;
-            margin-bottom: 0;
-        }
-
-        div {
-            line-height: 24px;
-        }
-    }
 
     .summary-card {
         border-radius: var(--radius);
@@ -61,7 +47,7 @@
             margin-left: 0.5rem;
 
             .highlighted-activity {
-                background-color: var(--yellow-lightest);
+                background-color: var(--mark-color);
                 display: inline;
 
                 & > .person-header {
@@ -75,12 +61,6 @@
     .activity-description-extended {
         margin-top: 0.5rem;
         margin-bottom: 0.5rem;
-    }
-
-    .PaginationControl {
-        border-width: 0;
-        border-radius: 0;
-        border-top-width: 1px;
     }
 
     .page-caption {

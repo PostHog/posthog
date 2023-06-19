@@ -5,6 +5,7 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     overflow: hidden;
+    flex: 1;
     --row-base-height: 3rem;
     &--xs {
         --row-base-height: 2rem;
@@ -22,17 +23,24 @@
         border-radius: 0;
         background: none;
     }
-    &--borderless {
+    &--borderlessRows {
         tr {
             border: none !important;
         }
     }
+    &--stealth {
+        border: none;
+        border-radius: 0;
+        background: none;
+        .LemonTable__content > table > thead {
+            background: none;
+            border: none;
+        }
+    }
     .PaginationControl {
         height: var(--row-base-height);
-        margin: 0;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
+        padding: 0.5rem;
+        border-top: 1px solid var(--border);
     }
     .row-name {
         display: flex;
@@ -57,7 +65,7 @@
     > thead {
         position: relative;
         border-bottom: 1px solid var(--border);
-        background: var(--bg-mid);
+        background: var(--mid);
         font-size: 0.75rem;
         letter-spacing: 0.03125rem;
         text-transform: uppercase;
@@ -144,6 +152,7 @@
     background: rgba(255, 255, 255, 0.5);
     opacity: 0;
     pointer-events: none;
+    z-index: 1;
     .LemonTable--loading & {
         opacity: 1;
         pointer-events: auto;
@@ -162,4 +171,9 @@
     align-items: center;
     justify-content: space-between;
     line-height: 1.5;
+}
+
+.LemonTable__footer {
+    border-top: 1px solid var(--border);
+    cursor: default;
 }

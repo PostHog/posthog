@@ -145,6 +145,7 @@ class TestExports(APIBaseTest):
                             }
                         ],
                         "trigger": None,
+                        "type": None,
                         "name": self.insight.name,
                         "short_id": self.insight.short_id,
                     },
