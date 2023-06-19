@@ -150,7 +150,10 @@ def _response_to_dict(response: BaseModel) -> Dict:
     returned = {}
     for key in response.__fields__.keys():
         if isinstance(getattr(response, key), list):
-            returned[key] = [_response_to_dict(item) for item in getattr(response, key)]
+            returned[key] = [
+                _response_to_dict(item) if isinstance(item, list) or isinstance(item, BaseModel) else item
+                for item in getattr(response, key)
+            ]
         elif isinstance(getattr(response, key), BaseModel):
             returned[key] = _response_to_dict(getattr(response, key))
         else:
