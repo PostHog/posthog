@@ -2,8 +2,9 @@ import { useRef, useEffect, useState } from 'react'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { pathsDataLogic } from './pathsDataLogic'
 
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PathNodeCard } from './PathNodeCard'
@@ -24,7 +25,7 @@ export function Paths(): JSX.Element {
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
+    const { paths, pathsLoading, pathsError, pathsFilter } = useValues(pathsDataLogic(insightProps))
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -36,7 +37,7 @@ export function Paths(): JSX.Element {
         const elements = document?.getElementById(id)?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, filter, setNodeCards)
+        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter, setNodeCards)
     }, [paths, !pathsLoading, canvasWidth, canvasHeight])
 
     return (

@@ -10,7 +10,6 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isPathsFilter } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { PathNodeData } from './pathUtils'
@@ -127,56 +126,4 @@ export const pathsLogic = kea<pathsLogicType>({
             )
         },
     }),
-    selectors: {
-        filter: [
-            (s) => [s.inflightFilters],
-            (inflightFilters): Partial<PathsFilterType> =>
-                inflightFilters && isPathsFilter(inflightFilters) ? inflightFilters : {},
-        ],
-        results: [
-            (s) => [s.insight],
-            ({ filters, result }): PathNode[] => (filters && isPathsFilter(filters) ? result || [] : []),
-        ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
-        paths: [
-            (s) => [s.results],
-            (results) => {
-                const nodes: Record<string, any> = {}
-                for (const path of results) {
-                    if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source }
-                    }
-                    if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target }
-                    }
-                }
-
-                return {
-                    nodes: Object.values(nodes),
-                    links: results,
-                }
-            },
-        ],
-        pathsError: [(s) => [s.insight], (insight): PathNode => insight.result?.error],
-        taxonomicGroupTypes: [
-            (s) => [s.filter],
-            (filter: Partial<PathsFilterType>) => {
-                const taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
-                if (filter.include_event_types) {
-                    if (filter.include_event_types.includes(PathType.PageView)) {
-                        taxonomicGroupTypes.push(TaxonomicFilterGroupType.PageviewUrls)
-                    }
-                    if (filter.include_event_types.includes(PathType.Screen)) {
-                        taxonomicGroupTypes.push(TaxonomicFilterGroupType.Screens)
-                    }
-                    if (filter.include_event_types.includes(PathType.CustomEvent)) {
-                        taxonomicGroupTypes.push(TaxonomicFilterGroupType.CustomEvents)
-                    }
-                }
-
-                taxonomicGroupTypes.push(TaxonomicFilterGroupType.Wildcards)
-                return taxonomicGroupTypes
-            },
-        ],
-    },
 })

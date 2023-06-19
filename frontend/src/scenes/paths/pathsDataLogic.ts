@@ -5,6 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import type { pathsDataLogicType } from './pathsDataLogicType'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isPathsQuery } from '~/queries/utils'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -39,11 +40,47 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     key(keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY)),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['pathsFilter']],
+        values: [
+            insightVizDataLogic(props),
+            [
+                'querySource as vizQuerySource',
+                'insightQuery',
+                'insightData',
+                'insightDataLoading',
+                'insightDataError',
+                'pathsFilter',
+            ],
+        ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter']],
     })),
 
     selectors({
+        results: [
+            (s) => [s.insightQuery, s.insightData],
+            (insightQuery, insightData): PathNode[] => {
+                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+            },
+        ],
+        paths: [
+            (s) => [s.results],
+            (results) => {
+                const nodes: Record<string, any> = {}
+                for (const path of results) {
+                    if (!nodes[path.source]) {
+                        nodes[path.source] = { name: path.source }
+                    }
+                    if (!nodes[path.target]) {
+                        nodes[path.target] = { name: path.target }
+                    }
+                }
+
+                return {
+                    nodes: Object.values(nodes),
+                    links: results,
+                }
+            },
+        ],
+        pathsLoading: [(s) => [s.insightDataLoading], (insightDataLoading) => insightDataLoading],
         taxonomicGroupTypes: [
             (s) => [s.pathsFilter],
             (pathsFilter) => {
