@@ -150,7 +150,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     # this as a followup.
                     row = {
                         **result,
-                        "properties": json.dumps(result.get("properties", {})),
+                        "properties": json.loads(result.get("properties", "{}")),
                     }
 
                     # Write the results to a local file
