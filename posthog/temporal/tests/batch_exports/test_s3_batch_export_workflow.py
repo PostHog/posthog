@@ -179,7 +179,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
-        for i in range(100000)
+        for i in range(20000)
     ]
 
     # Insert some data into the `sharded_events` table.
@@ -272,6 +272,15 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     key = objects["Contents"][0].get("Key")
     assert key
     object = s3_client.get_object(Bucket=bucket_name, Key=key)
+
+    # Make sure that the object was uploaded as a multipart with more than one
+    # file. We can tell this using the ETag, which should have a `-#` at the end
+    # denoting the number of parts. So we want to check that # > 1.  See
+    # https://stackoverflow.com/questions/58415723/how-to-check-if-my-uploaded-file-is-multipart-or-not
+    # for details.
+    etag = object["ETag"]
+    assert etag.endswith('-2"'), etag
+
     data = object["Body"].read()
 
     # Check that the data is correct.
