@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
-import { Message } from 'node-rdkafka-acosom'
+import { Message, MessageHeader } from 'node-rdkafka-acosom'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
+import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
@@ -125,15 +125,15 @@ export async function eachBatchParallelIngestion(
                         // node-rdkafka adheres to the `isRetriable` interface.
                         if (error?.isRetriable === false) {
                             const sentryEventId = Sentry.captureException(error)
-                            const headers = (message.headers ?? []).concat(
-                                { key: 'sentry-event-id', value: Buffer.from(sentryEventId) },
-                                { key: 'event-id', value: Buffer.from(pluginEvent.uuid) }
-                            )
+                            const eventHeaders: MessageHeader[] = [
+                                { key: 'sentry-event-id', value: sentryEventId },
+                                { key: 'event-id', value: pluginEvent.uuid },
+                            ]
                             await queue.pluginsServer.kafkaProducer.produce({
-                                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                                topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
                                 value: message.value,
                                 key: message.key,
-                                headers: headers,
+                                headers: message.headers ? message.headers.concat(eventHeaders) : eventHeaders,
                                 waitForAck: true,
                             })
                         } else {
