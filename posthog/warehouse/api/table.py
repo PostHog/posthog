@@ -49,7 +49,7 @@ class TableSerializer(serializers.ModelSerializer):
         try:
             table.columns = table.get_columns()
         except Exception as err:
-            raise serializers.ValidationError(err)
+            raise serializers.ValidationError(str(err))
         table.save()
         return table
 
