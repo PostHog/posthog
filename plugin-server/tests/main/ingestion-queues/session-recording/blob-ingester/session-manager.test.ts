@@ -4,11 +4,8 @@ import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
-import { PendingChunks } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/pending-chunks'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
-import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
-import { compressToString } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
-import { createChunkedIncomingRecordingMessage, createIncomingRecordingMessage } from '../fixtures'
+import { createIncomingRecordingMessage } from '../fixtures'
 
 jest.mock('fs', () => {
     return {
@@ -65,10 +62,8 @@ describe('session-manager', () => {
     })
 
     it('adds a message', async () => {
-        const payload = JSON.stringify([{ simple: 'data' }])
         const timestamp = DateTime.now().toMillis() - 10000
         const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
             metadata: {
                 timestamp: timestamp,
             } as any,
@@ -81,11 +76,11 @@ describe('session-manager', () => {
             oldestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
-            size: 61, // The size of the event payload - this may change when test data changes
+            size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
             eventsRange: {
-                firstTimestamp: 1679568043305,
-                lastTimestamp: 1679568043305,
+                firstTimestamp: 1679568314158,
+                lastTimestamp: 1679568314158,
             },
         })
 
@@ -93,67 +88,11 @@ describe('session-manager', () => {
         expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
     })
 
-    it('chunks do not affect oldest message timestamp', async () => {
-        const payload = JSON.stringify([{ simple: 'data' }])
-        const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            chunk_count: 2,
-            metadata: {
-                timestamp: DateTime.now().toMillis() - 10000,
-            } as any,
-        })
-
-        await sessionManager.add(event)
-
-        expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', null)
-    })
-
-    it('chunks affect oldest message timestamp once completed', async () => {
-        const payload = JSON.stringify([{ simple: 'data' }])
-
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                data: compressToString(payload),
-                chunk_count: 2,
-                metadata: {
-                    timestamp: 5000, // this is the oldest message timestamp
-                } as any,
-            })
-        )
-
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                data: compressToString(payload),
-                chunk_count: 1,
-                metadata: {
-                    timestamp: 7000, // this is the effective oldest message timestamp because the chunk wasn't applied
-                } as any,
-            })
-        )
-
-        expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', 7000)
-
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                data: compressToString(payload),
-                chunk_count: 2,
-                chunk_index: 1,
-                metadata: {
-                    timestamp: 9000,
-                } as any,
-            })
-        )
-
-        expect(sessionManager.buffer).toHaveProperty('oldestKafkaTimestamp', 5000)
-    })
-
     it('does not flush if it has received a message recently', async () => {
         const flushThreshold = 2500 // any value here...
         const now = DateTime.now()
 
-        const payload = JSON.stringify([{ simple: 'data' }])
         const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
             metadata: {
                 timestamp: now
                     .minus({
@@ -164,7 +103,6 @@ describe('session-manager', () => {
         })
 
         await sessionManager.add(event)
-
         await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
 
         // as a proxy for flush having been called or not
@@ -176,10 +114,8 @@ describe('session-manager', () => {
         const firstTimestamp = 1679568043305
         const lastTimestamp = 1679568043305 + 4000
 
-        const payload = JSON.stringify([{ simple: 'data' }])
         const eventOne = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            events_summary: [
+            events: [
                 {
                     timestamp: firstTimestamp,
                     type: 4,
@@ -191,8 +127,7 @@ describe('session-manager', () => {
             } as any,
         })
         const eventTwo = createIncomingRecordingMessage({
-            data: compressToString(payload),
-            events_summary: [
+            events: [
                 {
                     timestamp: lastTimestamp,
                     type: 4,
@@ -229,9 +164,7 @@ describe('session-manager', () => {
         const aDayInMilliseconds = 24 * 60 * 60 * 1000
         const now = DateTime.now()
 
-        const payload = JSON.stringify([{ simple: 'data' }])
         const event = createIncomingRecordingMessage({
-            data: compressToString(payload),
             metadata: {
                 timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
             } as any,
@@ -267,7 +200,7 @@ describe('session-manager', () => {
     it('flushes messages and whilst collecting new ones', async () => {
         const event = createIncomingRecordingMessage()
         const event2 = createIncomingRecordingMessage({
-            data: compressToString(JSON.stringify([{ second: 'event' }])),
+            events: [{ timestamp: 1234, type: 4, data: { href: 'http://localhost:3001/' } }],
         })
         await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
@@ -286,303 +219,13 @@ describe('session-manager', () => {
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(sessionManager.buffer.count).toEqual(1)
-        expect(appendFile).toHaveBeenCalledWith(
+
+        expect((appendFile as jest.Mock).mock.calls.length).toBe(2)
+        const lastCall = (appendFile as jest.Mock).mock.calls[1]
+        expect(lastCall).toEqual([
             sessionManager.buffer.file,
-            '{"window_id":"window_id_1","data":"[{\\"second\\":\\"event\\"}]"}\n',
-            'utf-8'
-        )
+            '{"window_id":"window_id_1","data":[{"timestamp":1234,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n',
+            'utf-8',
+        ])
     })
-
-    it('chunks incoming messages', async () => {
-        const events = createChunkedIncomingRecordingMessage(3, {
-            data: compressToString(JSON.stringify([{ simple: 'data' }])),
-        })
-
-        expect(events.length).toEqual(3)
-
-        expect(events[0].data.length).toBeGreaterThan(1)
-        expect(events[1].data.length).toBeGreaterThan(1)
-        expect(events[2].data.length).toBeGreaterThan(1)
-
-        await sessionManager.add(events[0])
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.chunks.size).toEqual(1)
-
-        await sessionManager.add(events[2])
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.chunks.size).toEqual(1)
-
-        await sessionManager.add(events[1])
-        expect(sessionManager.buffer.count).toEqual(1)
-        expect(sessionManager.chunks.size).toEqual(0)
-
-        // the file was created
-        expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
-        // the data was written
-        expect(appendFile).toHaveBeenCalledWith(
-            sessionManager.buffer.file,
-            '{"window_id":"window_id_1","data":"[{\\"simple\\":\\"data\\"}]"}\n',
-            'utf-8'
-        )
-    })
-
-    it('can flush messages without dropping pending chunks', async () => {
-        await sessionManager.add(createIncomingRecordingMessage())
-        // Create an event that ends up in the chunks rather than the buffer
-        await sessionManager.add(
-            createIncomingRecordingMessage({
-                chunk_count: 2,
-            })
-        )
-
-        expect(sessionManager.buffer.count).toEqual(1)
-        expect(sessionManager.chunks.size).toEqual(1)
-
-        const afterResumeFlushPromise = sessionManager.flush('buffer_size')
-
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.flushBuffer?.count).toEqual(1)
-
-        await afterResumeFlushPromise
-
-        expect(sessionManager.flushBuffer).toEqual(undefined)
-        expect(mockFinish).toBeCalledTimes(1)
-        expect(sessionManager.buffer.count).toEqual(0)
-        expect(sessionManager.chunks.size).toEqual(1)
-    })
-
-    it.each([
-        [
-            'incomplete and below threshold of 1000, we keep it in the chunks buffer',
-            2000,
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
-            { '1': [{ chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1999 } } as IncomingRecordingMessage] },
-            [],
-        ],
-        [
-            'incomplete and over the threshold, drop the chunks copying the offsets into the buffer',
-            2500,
-            {
-                '1': [
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 245 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {},
-            [245],
-        ],
-        [
-            'over-complete and over the threshold, should not be possible - drop them',
-            2500,
-            {
-                '1': [
-                    {
-                        chunk_count: 2,
-                        chunk_index: 0,
-                        data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                        metadata: { timestamp: 997, offset: 123 },
-                    } as IncomingRecordingMessage,
-                    //receives chunk two three times 😱
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 124 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 125 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 126 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {},
-            [123, 124, 125, 126],
-        ],
-        [
-            'over-complete and under the threshold, do nothing',
-            1000,
-            {
-                '1': [
-                    //receives chunk two three times 😱
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 245 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 246 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 247 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {
-                '1': [
-                    //receives chunk two three times 😱
-                    // drops one of the duplicates in the processing
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 245 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 246 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 247 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            [],
-        ],
-        [
-            'over-complete and over the threshold, but not all chunks are present, drop the chunks',
-            4000,
-            {
-                1: [
-                    //receives chunk two three times 😱
-                    // worse, the chunk is decompressible even though it is not complete
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                        metadata: { timestamp: 998, offset: 245 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 999, offset: 246 },
-                    } as IncomingRecordingMessage,
-                    {
-                        chunk_count: 2,
-                        chunk_index: 1,
-                        metadata: { timestamp: 1000, offset: 247 },
-                    } as IncomingRecordingMessage,
-                ],
-            },
-            {},
-            [245, 246, 247],
-        ],
-    ])(
-        'correctly handles pending chunks - %s',
-        (
-            _description: string,
-            referenceNow: number,
-            chunks: Record<string, IncomingRecordingMessage[]>,
-            expectedChunks: Record<string, IncomingRecordingMessage[]>,
-            expectedBufferOffsets: number[]
-        ) => {
-            const pendingChunks = new Map<string, PendingChunks>()
-            Object.entries(chunks).forEach(([key, value]) => {
-                const pc = new PendingChunks(value[0])
-                ;(value as IncomingRecordingMessage[]).slice(1).forEach((chunk) => pc.add(chunk))
-                pendingChunks.set(key, pc)
-            })
-
-            const actualChunks = sessionManager.handleIdleChunks(pendingChunks, referenceNow, 1000, {})
-            expect(actualChunks.size).toEqual(Object.keys(expectedChunks).length)
-            Object.entries(expectedChunks).forEach(([key, value]) => {
-                expect(actualChunks.get(key)?.chunks).toEqual(value)
-            })
-            expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
-        }
-    )
-
-    it.each([
-        [
-            'incomplete, we do not add to the buffer',
-            [
-                { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
-                { chunk_count: 2, chunk_index: 1, metadata: { timestamp: 1000 } } as IncomingRecordingMessage,
-            ],
-            0,
-            [],
-        ],
-        [
-            'exactly complete, we add to the buffer',
-            [
-                {
-                    chunk_count: 2,
-                    chunk_index: 0,
-                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                    metadata: { timestamp: 1000, offset: 1 },
-                } as IncomingRecordingMessage,
-                {
-                    chunk_count: 2,
-                    chunk_index: 1,
-                    data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                    metadata: { timestamp: 1000, offset: 2 },
-                } as IncomingRecordingMessage,
-            ],
-            1,
-            [1, 2, 1], // we allow duplicates because the offset manager can cope with them
-        ],
-        [
-            'over complete, we add only necessary data to the buffer, but all offsets',
-            [
-                // receives first event 3 times
-                {
-                    chunk_count: 2,
-                    chunk_index: 0,
-                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                    metadata: { timestamp: 1000, offset: 1 },
-                } as IncomingRecordingMessage,
-                {
-                    chunk_count: 2,
-                    chunk_index: 0,
-                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                    metadata: { timestamp: 1000, offset: 2 },
-                } as IncomingRecordingMessage,
-                {
-                    chunk_count: 2,
-                    chunk_index: 0,
-                    data: 'H4sIAAAAAAAAE4tmqGZQYihmyGTIZShgy',
-                    metadata: { timestamp: 1000, offset: 3 },
-                } as IncomingRecordingMessage,
-                {
-                    chunk_count: 2,
-                    chunk_index: 1,
-                    data: 'GFIBfKsgDiFIZGhBIiVGGoZYhkAOTL8NSYAAAA=',
-                    metadata: { timestamp: 1000, offset: 4 },
-                } as IncomingRecordingMessage,
-            ],
-            1,
-            [1, 2, 3, 4, 1],
-        ],
-    ])(
-        'correctly handles adding to and completing chunks - %s',
-        (
-            _description: string,
-            chunks: IncomingRecordingMessage[],
-            expectedBufferCount: number,
-            expectedBufferOffsets: number[]
-        ) => {
-            chunks.forEach(async (chunk) => {
-                await sessionManager.add(chunk)
-            })
-
-            expect(sessionManager.buffer.count).toEqual(expectedBufferCount)
-            expect(sessionManager.buffer.offsets).toEqual(expectedBufferOffsets)
-        }
-    )
 })

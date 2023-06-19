@@ -31,7 +31,6 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -129,9 +128,8 @@ export async function createHub(
 
     status.info('🤔', `Connecting to Kafka...`)
 
-    const kafka = createKafkaClient(serverConfig as KafkaConfig)
-
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
+    const kafka = createKafkaClient(serverConfig)
+    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
     const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
 
     const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
@@ -238,7 +236,6 @@ export async function createHub(
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
-    hub.personManager = new PersonManager(hub as Hub)
 
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
@@ -261,6 +258,7 @@ export type KafkaConfig = {
     KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
+    KAFKA_CLIENT_RACK?: string
 }
 
 export function createKafkaClient({

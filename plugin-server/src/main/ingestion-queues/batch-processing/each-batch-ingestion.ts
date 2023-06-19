@@ -28,7 +28,7 @@ export enum IngestionOverflowMode {
 }
 
 type IngestionSplitBatch = {
-    toProcess: PipelineEvent[][]
+    toProcess: { message: Message; pluginEvent: PipelineEvent }[][]
     toOverflow: Message[]
 }
 
@@ -73,7 +73,9 @@ export async function eachBatchParallelIngestion(
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
-        async function processMicroBatches(batches: PipelineEvent[][]): Promise<void> {
+        async function processMicroBatches(
+            batches: { message: Message; pluginEvent: PipelineEvent }[][]
+        ): Promise<void> {
             let currentBatch
             let processedBatches = 0
             while ((currentBatch = batches.pop()) !== undefined) {
@@ -84,8 +86,8 @@ export async function eachBatchParallelIngestion(
 
                 // Process overflow ingestion warnings
                 if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
-                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0])
-                    const distinct_id = currentBatch[0].distinct_id
+                    const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
+                    const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
                         captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
                             overflowDistinctId: distinct_id,
@@ -94,10 +96,49 @@ export async function eachBatchParallelIngestion(
                 }
 
                 // Process every message sequentially, stash promises to await on later
-                for (const message of currentBatch) {
-                    const result = await eachMessage(message, queue)
-                    if (result.promises) {
-                        processingPromises.push(...result.promises)
+                for (const { message, pluginEvent } of currentBatch) {
+                    try {
+                        const result = await eachMessage(pluginEvent, queue)
+                        if (result.promises) {
+                            processingPromises.push(...result.promises)
+                        }
+                    } catch (error) {
+                        status.error('🔥', `Error processing message`, {
+                            stack: error.stack,
+                            error: error,
+                        })
+
+                        // If there error is a non-retriable error, push
+                        // to the dlq and commit the offset. Else raise the
+                        // error.
+                        //
+                        // NOTE: there is behavior to push to a DLQ at the
+                        // moment within EventPipelineRunner. This doesn't work
+                        // so well with e.g. messages that when sent to the DLQ
+                        // is it's self too large. Here we explicitly do _not_
+                        // add any additional metadata to the message. We might
+                        // want to add some metadata to the message e.g. in the
+                        // header or reference e.g. the sentry event id.
+                        //
+                        // TODO: property abstract out this `isRetriable` error
+                        // logic. This is currently relying on the fact that
+                        // node-rdkafka adheres to the `isRetriable` interface.
+                        if (error?.isRetriable === false) {
+                            const sentryEventId = Sentry.captureException(error)
+                            const headers = (message.headers ?? []).concat(
+                                { key: 'sentry-event-id', value: Buffer.from(sentryEventId) },
+                                { key: 'event-id', value: Buffer.from(pluginEvent.uuid) }
+                            )
+                            await queue.pluginsServer.kafkaProducer.produce({
+                                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                                value: message.value,
+                                key: message.key,
+                                headers: headers,
+                                waitForAck: true,
+                            })
+                        } else {
+                            throw error
+                        }
                     }
                 }
 
@@ -137,6 +178,7 @@ export async function eachBatchParallelIngestion(
             tasks.push(emitToOverflow(queue, splitBatch.toOverflow))
             overflowSpan.finish()
         }
+
         await Promise.all(tasks)
 
         const awaitSpan = transaction.startChild({ op: 'awaitACKs', data: { promiseCount: processingPromises.length } })
@@ -227,11 +269,11 @@ export function splitIngestionBatch(
          * so we just return batches of one to increase concurrency.
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */
-        output.toProcess = kafkaMessages.map((m) => new Array(formPipelineEvent(m)))
+        output.toProcess = kafkaMessages.map((m) => new Array({ message: m, pluginEvent: formPipelineEvent(m) }))
         return output
     }
 
-    const batches: Map<string, PipelineEvent[]> = new Map()
+    const batches: Map<string, { message: Message; pluginEvent: PipelineEvent }[]> = new Map()
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
@@ -252,9 +294,9 @@ export function splitIngestionBatch(
         }
         const siblings = batches.get(eventKey)
         if (siblings) {
-            siblings.push(pluginEvent)
+            siblings.push({ message, pluginEvent })
         } else {
-            batches.set(eventKey, [pluginEvent])
+            batches.set(eventKey, [{ message, pluginEvent }])
         }
     }
     output.toProcess = Array.from(batches.values())

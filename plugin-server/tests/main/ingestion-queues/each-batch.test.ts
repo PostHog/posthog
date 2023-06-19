@@ -227,8 +227,8 @@ describe('eachBatchX', () => {
             ])
             const stats = new Map()
             for (const group of splitIngestionBatch(batch, IngestionOverflowMode.Disabled).toProcess) {
-                const key = `${group[0].team_id}:${group[0].token}:${group[0].distinct_id}`
-                for (const event of group) {
+                const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
+                for (const { pluginEvent: event } of group) {
                     expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
                 }
                 stats.set(key, group.length)
@@ -355,10 +355,9 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
             ])
             const stats = new Map()
-            for (const group of splitKafkaJSIngestionBatch(batch.batch.messages, IngestionOverflowMode.Disabled)
-                .toProcess) {
-                const key = `${group[0].team_id}:${group[0].token}:${group[0].distinct_id}`
-                for (const event of group) {
+            for (const group of splitIngestionBatch(batch.batch.messages, IngestionOverflowMode.Disabled).toProcess) {
+                const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
+                for (const { pluginEvent: event } of group) {
                     expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
                 }
                 stats.set(key, group.length)

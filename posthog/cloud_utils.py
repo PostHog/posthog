@@ -16,9 +16,6 @@ def is_cloud():
     if isinstance(is_cloud_cached, bool):
         return is_cloud_cached
 
-    # Until billing-v2 is fully migrated, multi-tenancy take priority
-    is_cloud_cached = str(settings.MULTI_TENANCY).lower() in ("true", "1")
-
     if not is_cloud_cached:
         try:
             # NOTE: Important not to import this from ee.models as that will cause a circular import for celery
@@ -38,6 +35,6 @@ def is_cloud():
 
 
 # NOTE: This is purely for testing purposes
-def TEST_clear_cloud_cache():
+def TEST_clear_cloud_cache(value: Optional[bool] = None):
     global is_cloud_cached
-    is_cloud_cached = None
+    is_cloud_cached = value

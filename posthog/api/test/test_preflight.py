@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 from django.utils import timezone
 from rest_framework import status
+from posthog.cloud_utils import TEST_clear_cloud_cache
 
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
@@ -157,7 +158,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_cloud_preflight_limited_db_queries(self):
         with self.is_cloud(True):
             # :IMPORTANT: This code is hit _every_ web request on cloud so avoid ever increasing db load.
-            with self.assertNumQueries(3):  # session, team and slack instance setting.
+            with self.assertNumQueries(4):  # session, user, team and slack instance setting.
                 response = self.client.get("/_preflight/")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -263,6 +264,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
 
     @pytest.mark.ee
     def test_cloud_preflight_based_on_license(self):
+        TEST_clear_cloud_cache()
         try:
             from ee.models.license import License, LicenseManager
         except ImportError:
