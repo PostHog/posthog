@@ -39,7 +39,7 @@ def wrap_query_error(err: Exception) -> Exception:
     if match:
         return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
 
-    # Return a 512 error for queries which would time out
+    # Return a 512 error for queries that fail due to too many simultaneous queries
     match = re.search(r"Too many simultaneous queries. Maximum: \(.* max_queries\).", err.message)
     if match:
         return QueryErrorTooManySimultaneousQueries(detail=match.group(0))
