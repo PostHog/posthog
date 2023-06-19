@@ -15,12 +15,11 @@ export interface TableLogicProps {
     id: string | 'new'
 }
 
-export type NewTable = Pick<DataWarehouseTable, 'name' | 'url_pattern' | 'credential' | 'format'>
-
-const NEW_TABLE: NewTable = {
+const NEW_TABLE: DataWarehouseTable = {
+    id: '',
     name: '',
     url_pattern: '',
-    format: null,
+    format: 'Parquet',
     credential: {
         access_key: '',
         access_secret: '',
@@ -50,7 +49,7 @@ export const tableLogic = kea<tableLogicType>([
                 if (props.id && props.id !== 'new') {
                     return await api.dataWarehouseTables.get(props.id)
                 }
-                return { id: 'helo', ...NEW_TABLE }
+                return { ...NEW_TABLE }
             },
             createTable: async (tablePayload) => {
                 return await api.dataWarehouseTables.create({
