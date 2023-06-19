@@ -16,11 +16,11 @@ export function PathsTargetEnd(props: EditorFilterProps): JSX.Element {
     return <PathsTarget position="end" {...props} />
 }
 
-type PathTargetDataExplorationProps = {
+type PathTargetProps = {
     position: 'start' | 'end'
 } & EditorFilterProps
 
-function PathsTarget({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
+function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
     const { pathsFilter, taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 

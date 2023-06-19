@@ -3,7 +3,7 @@ import { Select } from 'antd'
 import { BarsOutlined } from '@ant-design/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 

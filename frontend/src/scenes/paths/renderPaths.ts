@@ -8,7 +8,7 @@ import { D3Selector } from 'lib/hooks/useD3'
 
 import { HIDE_PATH_CARD_HEIGHT, FALLBACK_CANVAS_WIDTH } from './Paths'
 import { roundedRect, isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
-import { PathNode } from './pathsLogic'
+import { PathNode } from './pathsDataLogic'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
