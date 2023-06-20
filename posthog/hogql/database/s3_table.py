@@ -25,6 +25,3 @@ class S3Table(FunctionCallTable):
                 f"s3Cluster('posthog', {escaped_url}, {escaped_access_key}, {escaped_access_secret}, {escaped_format})"
             )
         return f"s3Cluster('posthog', {escaped_url}, {escaped_format})"
-
-    def get_asterisk(self):
-        return {key: self.get_field(key) for key in self.fields}
