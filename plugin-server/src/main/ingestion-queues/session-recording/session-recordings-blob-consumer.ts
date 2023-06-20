@@ -120,9 +120,9 @@ export class SessionRecordingBlobIngester {
                 session_id,
                 partition,
                 topic,
-                async (offsets, sessionId: string) => {
+                async (offsets) => {
                     const maxOffset = Math.max(...offsets)
-                    await this.sessionOffsetHighWaterMark.add({ topic, partition }, sessionId, maxOffset)
+                    await this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, maxOffset)
 
                     const committedOffset = this.offsetManager?.removeOffsets(topic, partition, offsets)
 
