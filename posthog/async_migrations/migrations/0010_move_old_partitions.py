@@ -7,6 +7,7 @@ from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
 from datetime import datetime
+from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +26,9 @@ class Migration(AsyncMigrationDefinition):
     }
 
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
+
+    def is_required(self) -> bool:
+        return is_cloud()
 
     def _get_partitions_to_move(self):
         result = sync_execute(
@@ -66,7 +70,7 @@ class Migration(AsyncMigrationDefinition):
                 SAMPLE BY cityHash64(distinct_id)
                 SETTINGS index_granularity = 8192
                 """,
-                rollback="DROP TABLE IF EXISTS events_backup_0010_move_old_partitions",
+                rollback=None,
                 per_shard=False,
             ),
         ]
