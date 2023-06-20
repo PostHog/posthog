@@ -352,30 +352,6 @@ class TestEarlyAccessFeature(APIBaseTest):
             "Linked feature flag hick-bondoogling already has a feature attached to it.",
         )
 
-    def test_can_promote_early_access_feature(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/early_access_feature/",
-            data={
-                "name": "Hick bondoogling",
-                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
-                "stage": "concept",
-            },
-            format="json",
-        )
-        response_data = response.json()
-
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/early_access_feature/{str(response_data['id'])}/promote/",
-            format="json",
-        )
-        response_data = response.json()
-
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
-        assert response_data["feature_flag"]["filters"]["super_groups"][0]["properties"] == []
-        assert response_data["feature_flag"]["filters"]["super_groups"][0]["rollout_percentage"] == 100
-
     def test_can_edit_feature(self):
         feature = EarlyAccessFeature.objects.create(
             team=self.team,
@@ -477,7 +453,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             stage="beta",
             feature_flag=feature_flag,
         )
-        feature2 = EarlyAccessFeature.objects.create(
+        EarlyAccessFeature.objects.create(
             team=self.team,
             name="Sprocket",
             description="A fancy new sprocket.",
@@ -502,15 +478,74 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                         "stage": "beta",
                         "documentationUrl": "",
                         "flagKey": "sprocket",
-                    },
+                    }
+                ],
+            )
+
+    def test_early_access_features_beta_only(self):
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "example@posthog.com"})
+
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket",
+            rollout_percentage=0,
+            created_by=self.user,
+        )
+        feature_flag2 = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket2",
+            rollout_percentage=10,
+            created_by=self.user,
+        )
+        feature_flag3 = FeatureFlag.objects.create(
+            team=self.team,
+            name=f"Feature Flag for Feature Sprocket",
+            key="sprocket3",
+            rollout_percentage=10,
+            created_by=self.user,
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="beta",
+            feature_flag=feature_flag,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="alpha",
+            feature_flag=feature_flag2,
+        )
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Sprocket",
+            description="A fancy new sprocket.",
+            stage="draft",
+            feature_flag=feature_flag3,
+        )
+
+        self.client.logout()
+
+        with self.assertNumQueries(2):
+            response = self._get_features()
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get("access-control-allow-origin"), "http://127.0.0.1:8000")
+
+            self.assertListEqual(
+                response.json()["earlyAccessFeatures"],
+                [
                     {
-                        "id": str(feature2.id),
+                        "id": str(feature.id),
                         "name": "Sprocket",
                         "description": "A fancy new sprocket.",
-                        "stage": "alpha",
+                        "stage": "beta",
                         "documentationUrl": "",
-                        "flagKey": "sprocket2",
-                    },
+                        "flagKey": "sprocket",
+                    }
                 ],
             )
 

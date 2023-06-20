@@ -158,16 +158,14 @@ class TestPrinter(BaseTest):
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(
-            self._expr("properties.0", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.0",
+            self._expr("properties.1", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.1",
         )
         self.assertEqual(
-            self._expr("properties.`0`", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.`0`",
+            self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.`1`",
         )
-        self._assert_expr_error(
-            "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
-        )
+        self._assert_expr_error("properties.'no strings'", "no viable alternative at input '.'no strings'", "hogql")
 
     def test_hogql_properties_json(self):
         context = HogQLContext(team_id=self.team.pk)
@@ -251,16 +249,26 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+        self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+        self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_expr_parse_errors_poe_on(self):
+        # VirtualTable
+        self._assert_expr_error("person", "Can't select a table when a column is expected: person")
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_expr_parse_errors_poe_off(self):
+        # LazyTable
+        self._assert_expr_error("person", "Can't select a table when a column is expected: person")
 
     def test_expr_syntax_errors(self):
-        self._assert_expr_error("(", "Syntax error at line 1, column 1: no viable alternative at input '('")
-        self._assert_expr_error("())", "Syntax error at line 1, column 1: no viable alternative at input '()'")
-        self._assert_expr_error(
-            "select query from events", "Syntax error at line 1, column 13: mismatched input 'from' expecting <EOF>"
-        )
+        self._assert_expr_error("(", "no viable alternative at input '('")
+        self._assert_expr_error("())", "no viable alternative at input '()'")
+        self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
-        self._assert_expr_error("1;2", "Syntax error at line 1, column 1: mismatched input ';' expecting <EOF>")
-        self._assert_expr_error("b.a(bla)", "Syntax error at line 1, column 3: mismatched input '(' expecting '.'")
+        self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
+        self._assert_expr_error("b.a(bla)", "mismatched input '(' expecting '.'")
 
     def test_logic(self):
         self.assertEqual(
@@ -495,14 +503,14 @@ class TestPrinter(BaseTest):
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons ON persons.id=events.person_id"
                 ),
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             self.assertEqual(
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id"
                 ),
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events__pdi.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
         with override_settings(PERSON_ON_EVENTS_OVERRIDE=True):
@@ -511,7 +519,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
             expected = self._select(
@@ -519,7 +527,7 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(
                 expected,
-                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+                f"SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id HAVING equals(argMax(person.is_deleted, person.version), 0)) AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
             )
 
     def test_count_distinct(self):
@@ -599,4 +607,38 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id, min(timestamp) over win1 as timestamp FROM events WINDOW win1 as (PARTITION by distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)"
             ),
             f"SELECT events.distinct_id, min(toTimeZone(events.timestamp, %(hogql_val_0)s)) OVER win1 AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk}) WINDOW win1 AS (PARTITION BY events.distinct_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) LIMIT 10000",
+        )
+
+    def test_nullish_concat(self):
+        self.assertEqual(
+            self._expr("concat(null, 'a', 3, toString(4), toString(NULL))"),
+            f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
+        )
+
+    def test_concat_pipes(self):
+        self.assertEqual(
+            self._expr("'a' || 'b' || 3 || timestamp"),
+            f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
+        )
+
+    def test_functions_expecting_datetime_arg(self):
+        self.assertEqual(
+            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(now(), toIntervalDay('1'))"),
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )

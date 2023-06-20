@@ -8,6 +8,7 @@ import {
     clickHouseTimestampToDateTime,
     cloneObject,
     escapeClickHouseString,
+    getPropertyValueByPath,
     groupBy,
     sanitizeSqlIdentifier,
     stringify,
@@ -277,5 +278,26 @@ describe('utils', () => {
                 DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC()
             )
         })
+    })
+})
+
+describe('getPropertyValueByPath', () => {
+    it('returns primitive value when present', () => {
+        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a', 'b'])).toEqual(1)
+    })
+    it('returns object value when present', () => {
+        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a'])).toEqual({ b: 1 })
+    })
+    it('returns undefined when not present', () => {
+        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a', 'c'])).toEqual(undefined)
+    })
+    it('returns undefined when trying to access a property of a primitive', () => {
+        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a', 'b', 'c', 'd'])).toEqual(undefined)
+    })
+    it('returns value from array', () => {
+        expect(getPropertyValueByPath({ a: { b: [1, 2, 3] } }, ['a', 'b', '1'])).toEqual(2)
+    })
+    it('requires at least one path key', () => {
+        expect(() => getPropertyValueByPath({ a: { b: 'foo' } }, [])).toThrowError('No path to property was provided')
     })
 })

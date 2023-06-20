@@ -1,28 +1,22 @@
-import { actions, kea, reducers, path, listeners, connect } from 'kea'
-import { NotebookNodeType } from '../Nodes/types'
-import { notebookLogic } from './notebookLogic'
+import { actions, kea, reducers, path, listeners } from 'kea'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
 import { urlToAction } from 'kea-router'
-import { notebooksListLogic } from './notebooksListLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
+
+export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
 export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookSidebarLogic']),
     actions({
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
-        addNodeToNotebook: (type: NotebookNodeType, properties: Record<string, any>) => ({ type, properties }),
         selectNotebook: (id: string) => ({ id }),
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
-    }),
-
-    connect({
-        actions: [notebooksListLogic, ['createNotebookSuccess']],
     }),
 
     reducers(() => ({
@@ -72,17 +66,10 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
     }),
 
     listeners(({ values, actions, cache }) => ({
-        addNodeToNotebook: ({ type, properties }) => {
-            notebookLogic({ shortId: values.selectedNotebook }).actions.addNodeToNotebook(type, properties)
-            actions.setNotebookSideBarShown(true)
-        },
-
-        createNotebookSuccess: ({ notebooks }) => {
-            // NOTE: This is temporary: We probably only want to select it if it is created from the sidebar
-            actions.selectNotebook(notebooks[notebooks.length - 1].short_id)
-        },
-
         onResize: ({ originX, desiredX, finished }) => {
+            if (values.fullScreen) {
+                actions.setFullScreen(false)
+            }
             if (!values.elementRef?.current) {
                 return
             }
@@ -90,11 +77,22 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 cache.originalWidth = values.elementRef.current.getBoundingClientRect().width
             }
 
+            if (window.innerWidth - desiredX < MIN_NOTEBOOK_SIDEBAR_WIDTH / 3) {
+                actions.setNotebookSideBarShown(false)
+                return
+            } else if (!values.notebookSideBarShown) {
+                actions.setNotebookSideBarShown(true)
+            }
+
             if (finished) {
                 cache.originalWidth = undefined
-                actions.setDesiredWidth(values.elementRef.current.getBoundingClientRect().width)
+                actions.setDesiredWidth(
+                    Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, values.elementRef.current.getBoundingClientRect().width)
+                )
             } else {
-                actions.setDesiredWidth(cache.originalWidth - (desiredX - originX))
+                actions.setDesiredWidth(
+                    Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, cache.originalWidth - (desiredX - originX))
+                )
             }
         },
     })),

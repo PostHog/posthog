@@ -18,8 +18,10 @@ from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
+from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
@@ -27,7 +29,7 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMembe
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
+from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
 from posthog.utils import relative_date_parse
 
 
@@ -99,6 +101,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             return JsonResponse(process_query(self.team, query_json), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
+        except ExposedCHQueryError as e:
+            raise ValidationError(str(e), e.code_name)
 
     def post(self, request, *args, **kwargs):
         request_json = request.data
@@ -109,6 +113,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             return JsonResponse(process_query(self.team, query_json), safe=False)
         except HogQLException as e:
             raise ValidationError(str(e))
+        except ExposedCHQueryError as e:
+            raise ValidationError(str(e), e.code_name)
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is not None:
@@ -163,6 +169,10 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         response = execute_hogql_query(
             query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
         )
+        return _response_to_dict(response)
+    elif query_kind == "HogQLMetadata":
+        metadata_query = HogQLMetadata.parse_obj(query_json)
+        response = get_hogql_metadata(query=metadata_query, team=team)
         return _response_to_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)

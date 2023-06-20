@@ -163,7 +163,10 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(preIngestionEvent: PreIngestionEvent, person: Person): Promise<RawClickHouseEvent> {
+    async createEvent(
+        preIngestionEvent: PreIngestionEvent,
+        person: Person
+    ): Promise<[RawClickHouseEvent, Promise<void>]> {
         const {
             eventUuid: uuid,
             event,
@@ -202,7 +205,7 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        await this.kafkaProducer.queueMessage({
+        const ack = this.kafkaProducer.queueMessage({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [
                 {
@@ -211,7 +214,8 @@ export class EventsProcessor {
                 },
             ],
         })
-        return rawEvent
+
+        return [rawEvent, ack]
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
@@ -271,6 +275,9 @@ export interface SummarizedSessionRecordingEvent {
     keypress_count: number
     mouse_activity_count: number
     active_milliseconds: number
+    console_log_count: number
+    console_warn_count: number
+    console_error_count: number
 }
 
 export const createSessionReplayEvent = (
@@ -312,6 +319,9 @@ export const createSessionReplayEvent = (
     let clickCount = 0
     let keypressCount = 0
     let mouseActivity = 0
+    let consoleLogCount = 0
+    let consoleWarnCount = 0
+    let consoleErrorCount = 0
     let url: string | undefined = undefined
     eventsSummaries.forEach((eventSummary: RRWebEventSummary) => {
         if (eventSummary.type === 3) {
@@ -325,6 +335,16 @@ export const createSessionReplayEvent = (
         }
         if (!!eventSummary.data?.href?.trim().length && url === undefined) {
             url = eventSummary.data.href
+        }
+        if (eventSummary.type === 6 && eventSummary.data?.plugin === 'rrweb/console@1') {
+            const level = eventSummary.data.payload?.level
+            if (level === 'log') {
+                consoleLogCount += 1
+            } else if (level === 'warn') {
+                consoleWarnCount += 1
+            } else if (level === 'error') {
+                consoleErrorCount += 1
+            }
         }
     })
 
@@ -342,6 +362,9 @@ export const createSessionReplayEvent = (
         mouse_activity_count: mouseActivity,
         first_url: url,
         active_milliseconds: activeTime,
+        console_log_count: consoleLogCount,
+        console_warn_count: consoleWarnCount,
+        console_error_count: consoleErrorCount,
     }
 
     return data

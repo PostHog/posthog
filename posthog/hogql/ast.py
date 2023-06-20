@@ -1,10 +1,10 @@
-import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Extra
+from pydantic import Extra
 from pydantic import Field as PydanticField
 
+from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
     DatabaseField,
@@ -18,50 +18,13 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
     BooleanDatabaseField,
+    DateDatabaseField,
+    FloatDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
-
-camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
-
-
-class AST(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    def accept(self, visitor):
-        camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
-        method_name = f"visit_{camel_case_name}"
-        if hasattr(visitor, method_name):
-            visit = getattr(visitor, method_name)
-            return visit(self)
-        if hasattr(visitor, "visit_unknown"):
-            return visitor.visit_unknown(self)
-        raise NotImplementedException(f"Visitor has no method {method_name}")
-
-
-class Type(AST):
-    def get_child(self, name: str) -> "Type":
-        raise NotImplementedException("Type.get_child not overridden")
-
-    def has_child(self, name: str) -> bool:
-        return self.get_child(name) is not None
-
-    def resolve_constant_type(self) -> Optional["ConstantType"]:
-        return UnknownType()
-
-
-class Expr(AST):
-    type: Optional[Type]
-
-
-class Macro(Expr):
-    name: str
-    expr: Expr
-    # Whether the macro is an inlined column "WITH 1 AS a" or a subquery "WITH a AS (SELECT 1)"
-    macro_format: Literal["column", "subquery"]
 
 
 class FieldAliasType(Type):
@@ -154,9 +117,11 @@ class SelectQueryType(Type):
     columns: Dict[str, Type] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
     tables: Dict[str, TableOrSelectType] = PydanticField(default_factory=dict)
-    macros: Dict[str, Macro] = PydanticField(default_factory=dict)
+    ctes: Dict[str, CTE] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List[Union["SelectQueryType", "SelectUnionQueryType"]] = PydanticField(default_factory=list)
+    # the parent select query, if this is a lambda
+    parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
@@ -206,13 +171,6 @@ class SelectQueryAliasType(Type):
 SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 
 
-class ConstantType(Type):
-    data_type: ConstantDataType
-
-    def resolve_constant_type(self) -> "ConstantType":
-        return self
-
-
 class IntegerType(ConstantType):
     data_type: ConstantDataType = PydanticField("int", const=True)
 
@@ -227,10 +185,6 @@ class StringType(ConstantType):
 
 class BooleanType(ConstantType):
     data_type: ConstantDataType = PydanticField("bool", const=True)
-
-
-class UnknownType(ConstantType):
-    data_type: ConstantDataType = PydanticField("unknown", const=True)
 
 
 class DateType(ConstantType):
@@ -269,7 +223,7 @@ class AsteriskType(Type):
 
 
 class FieldTraverserType(Type):
-    chain: List[str]
+    chain: List[str | int]
     table_type: TableOrSelectType
 
 
@@ -288,15 +242,19 @@ class FieldType(Type):
         database_field = self.resolve_database_field()
         if isinstance(database_field, IntegerDatabaseField):
             return IntegerType()
+        elif isinstance(database_field, FloatDatabaseField):
+            return FloatType()
         elif isinstance(database_field, StringDatabaseField):
             return StringType()
         elif isinstance(database_field, BooleanDatabaseField):
             return BooleanType()
         elif isinstance(database_field, DateTimeDatabaseField):
             return DateTimeType()
+        elif isinstance(database_field, DateDatabaseField):
+            return DateType()
         return UnknownType()
 
-    def get_child(self, name: str) -> Type:
+    def get_child(self, name: str | int) -> Type:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
@@ -308,18 +266,22 @@ class FieldType(Type):
 
 
 class PropertyType(Type):
-    chain: List[str]
+    chain: List[str | int]
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType]
     joined_subquery_field_name: Optional[str]
 
-    def get_child(self, name: str) -> "Type":
+    def get_child(self, name: str | int) -> "Type":
         return PropertyType(chain=self.chain + [name], field_type=self.field_type)
 
-    def has_child(self, name: str) -> bool:
+    def has_child(self, name: str | int) -> bool:
         return True
+
+    class Config:
+        # Without this, pydantic converts all integers in "chain" into strings, breaking array access
+        smart_union = True
 
 
 class LambdaArgumentType(Type):
@@ -423,7 +385,7 @@ class Constant(Expr):
 
 
 class Field(Expr):
-    chain: List[str]
+    chain: List[str | int]
 
 
 class Placeholder(Expr):
@@ -472,7 +434,7 @@ class WindowFunction(Expr):
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
-    macros: Optional[Dict[str, Macro]] = None
+    ctes: Optional[Dict[str, CTE]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None

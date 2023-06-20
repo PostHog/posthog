@@ -1,5 +1,6 @@
-from typing import Any, Callable, Dict, List
+from typing import Dict, List
 
+from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     Table,
     IntegerDatabaseField,
@@ -7,40 +8,33 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     LazyJoin,
     LazyTable,
+    FieldOrTable,
 )
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 from posthog.hogql.errors import HogQLException
 
+PERSON_DISTINCT_IDS_FIELDS = {
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "distinct_id": StringDatabaseField(name="distinct_id"),
+    "person_id": StringDatabaseField(name="person_id"),
+    "person": LazyJoin(from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table),
+}
 
-def select_from_person_distinct_ids_table(requested_fields: Dict[str, Any]):
-    from posthog.hogql import ast
 
-    if not requested_fields:
-        requested_fields = {"person_id": ast.Field(chain=["person_id"])}
-
-    fields_to_select: List[ast.Expr] = []
-    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
-        name="argMax", args=[field, ast.Field(chain=["version"])]
-    )
-    for field, expr in requested_fields.items():
-        if field != "distinct_id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
-
-    distinct_id = ast.Field(chain=["distinct_id"])
-
-    return ast.SelectQuery(
-        select=fields_to_select + [distinct_id],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_distinct_ids"])),
-        group_by=[distinct_id],
-        having=ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=argmax_version(ast.Field(chain=["is_deleted"])),
-            right=ast.Constant(value=0),
-        ),
+def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]):
+    # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
+    if "person_id" not in requested_fields:
+        requested_fields = {**requested_fields, "person_id": ["person_id"]}
+    return argmax_select(
+        table_name="raw_person_distinct_ids",
+        select_fields=requested_fields,
+        group_fields=["distinct_id"],
+        argmax_field="version",
+        deleted_field="is_deleted",
     )
 
 
-def join_with_person_distinct_ids_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
+def join_with_person_distinct_ids_table(from_table: str, to_table: str, requested_fields: Dict[str, List[str]]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -56,33 +50,28 @@ def join_with_person_distinct_ids_table(from_table: str, to_table: str, requeste
     return join_expr
 
 
-class RawPersonDistinctIdTable(Table):
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
-    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+class RawPersonDistinctIdsTable(Table):
+    fields: Dict[str, FieldOrTable] = {
+        **PERSON_DISTINCT_IDS_FIELDS,
+        "is_deleted": BooleanDatabaseField(name="is_deleted"),
+        "version": IntegerDatabaseField(name="version"),
+    }
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_distinct_id2"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "raw_person_distinct_ids"
 
 
-class PersonDistinctIdTable(LazyTable):
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    person: LazyJoin = LazyJoin(
-        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
-    )
+class PersonDistinctIdsTable(LazyTable):
+    fields: Dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, Any]):
+    def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_person_distinct_ids_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person_distinct_id2"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "person_distinct_ids"

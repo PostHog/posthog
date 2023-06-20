@@ -57,6 +57,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isInsightVizNode } from '~/queries/utils'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -229,6 +230,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: InsightSQLIcon,
         inMenu: true,
     },
+    [NodeKind.HogQLMetadata]: {
+        name: 'HogQL Metadata',
+        description: 'Metadata for a HogQL query',
+        icon: InsightSQLIcon,
+        inMenu: true,
+    },
     [NodeKind.DatabaseSchemaQuery]: {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema',
@@ -303,7 +310,7 @@ function SavedInsightsGrid(): JSX.Element {
 
     return (
         <>
-            <div className="saved-insights-grid">
+            <div className="saved-insights-grid mb-2">
                 {paginationState.dataSourcePage.map((insight: InsightModel) => (
                     <InsightCard
                         key={insight.short_id}
@@ -327,14 +334,13 @@ function SavedInsightsGrid(): JSX.Element {
                     </div>
                 )}
             </div>
-            <PaginationControl {...paginationState} nouns={['insight', 'insights']} />
+            <PaginationControl {...paginationState} nouns={['insight', 'insights']} bordered />
         </>
     )
 }
 
 export function SavedInsights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingDataExploration = true
     const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
 
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
@@ -366,13 +372,12 @@ export function SavedInsights(): JSX.Element {
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <>
+                    <DraggableToNotebook href={urls.insightView(insight.short_id)}>
                         <span className="row-name">
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
                                         {summarizeInsight(insight.query, insight.filters, {
-                                            isUsingDataExploration,
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
@@ -398,7 +403,7 @@ export function SavedInsights(): JSX.Element {
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
-                    </>
+                    </DraggableToNotebook>
                 )
             },
         },
@@ -500,7 +505,7 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters />
-                    <LemonDivider />
+                    <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 mt-2 items-center">
                         <span className="text-muted-alt">
                             {count

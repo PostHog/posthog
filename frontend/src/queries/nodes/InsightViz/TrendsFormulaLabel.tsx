@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { EditorFilterProps } from '~/types'
 
 export function TrendsFormulaLabel({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { isFormulaOn } = useValues(trendsLogic(insightProps))
-    return isFormulaOn ? <>Formula</> : null
+    const { hasFormula } = useValues(insightVizDataLogic(insightProps))
+    return hasFormula ? <>Formula</> : null
 }

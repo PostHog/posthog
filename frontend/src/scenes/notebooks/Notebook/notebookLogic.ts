@@ -1,27 +1,15 @@
-import {
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
-
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, Editor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
+import { downloadFile, slugify } from 'lib/utils'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const SYNC_DELAY = 1000
 
@@ -34,18 +22,18 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
-        values: [notebooksListLogic, ['scratchpadNotebook']],
+        values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({
         setEditorRef: (editor: Editor) => ({ editor }),
-        addNodeToNotebook: (type: NotebookNodeType, props: Record<string, any>) => ({ type, props }),
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
         setReady: true,
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        exportJSON: true,
     }),
     reducers({
         localContent: [
@@ -84,6 +72,8 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: {},
                             version: 0,
                         }
+                    } else if (props.shortId.startsWith('template-')) {
+                        response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
                     } else {
                         response = await api.notebooks.get(props.shortId)
                     }
@@ -120,6 +110,39 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             },
         ],
+
+        newNotebook: [
+            undefined as NotebookType | undefined,
+            {
+                duplicateNotebook: async () => {
+                    if (!values.notebook) {
+                        return
+                    }
+
+                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
+                    const response = await api.notebooks.create({
+                        content: values.content || values.notebook.content,
+                        title: values.title || values.notebook.title,
+                    })
+
+                    posthog.capture(`notebook duplicated`, {
+                        short_id: response.short_id,
+                    })
+
+                    const source = values.notebook.short_id === 'scratchpad' ? 'Scratchpad' : 'Template'
+                    lemonToast.success(`Notebook created from ${source}!`)
+
+                    if (values.notebook.short_id === 'scratchpad') {
+                        // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
+                        actions.clearLocalContent()
+                    }
+
+                    handleNotebookCreation(response)
+
+                    return response
+                },
+            },
+        ],
     })),
     selectors({
         shortId: [() => [(_, props) => props], (props): string => props.shortId],
@@ -139,9 +162,20 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
 
+        isEmpty: [
+            (s) => [s.editor, s.content],
+            (editor): boolean => {
+                return editor?.isEmpty ?? false
+            },
+        ],
+
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {
+                if (notebook?.is_template) {
+                    return 'synced'
+                }
+
                 if (isLocalOnly) {
                     return 'local'
                 }
@@ -166,21 +200,6 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
     listeners(({ values, actions, sharedListeners }) => ({
-        addNodeToNotebook: ({ type, props }) => {
-            if (!values.editor) {
-                return
-            }
-
-            values.editor
-                .chain()
-                .focus()
-                .insertContent({
-                    type,
-                    attrs: props,
-                })
-                .run()
-        },
-
         setLocalContent: async (_, breakpoint) => {
             await breakpoint(SYNC_DELAY)
 
@@ -206,13 +225,15 @@ export const notebookLogic = kea<notebookLogicType>([
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
         loadNotebookSuccess: sharedListeners.onNotebookChange,
-    })),
 
-    afterMount(({ actions }) => {
-        actions.loadNotebook()
-        // Gives a chance for the notebook to appear before we actually render the content
-        setTimeout(() => {
-            actions.setReady()
-        }, 500)
-    }),
+        exportJSON: () => {
+            const file = new File(
+                [JSON.stringify(values.editor?.getJSON())],
+                `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
+                { type: 'application/json' }
+            )
+
+            downloadFile(file)
+        },
+    })),
 ])

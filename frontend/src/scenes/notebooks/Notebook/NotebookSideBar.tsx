@@ -2,29 +2,29 @@ import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import './NotebookSideBar.scss'
 import { Notebook } from './Notebook'
-import { notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
+import { MIN_NOTEBOOK_SIDEBAR_WIDTH, notebookSidebarLogic } from 'scenes/notebooks/Notebook/notebookSidebarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconFullScreen, IconChevronRight, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
-import { CSSTransition } from 'react-transition-group'
-import { useEffect, useRef, useState } from 'react'
+import { IconFullScreen, IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
+import { useEffect, useRef } from 'react'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import React from 'react'
 import { NotebookListMini } from './NotebookListMini'
-import { SCRATCHPAD_NOTEBOOK, notebooksListLogic } from './notebooksListLogic'
+import { notebooksListLogic } from './notebooksListLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './NotebookMeta'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { notebookLogic } from './notebookLogic'
+import { urls } from 'scenes/urls'
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
     const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth } = useValues(notebookSidebarLogic)
     const { setNotebookSideBarShown, setFullScreen, selectNotebook, onResize, setElementRef } =
         useActions(notebookSidebarLogic)
     const { createNotebook } = useActions(notebooksListLogic)
+    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook }))
 
     const ref = useRef<HTMLDivElement>(null)
-    const [isEditable, setIsEditable] = useState(true)
 
     // NOTE: This doesn't work for some reason, possibly due to the way the editor is rendered
     useKeyboardHotkeys(
@@ -54,26 +54,21 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
         <>
             {clonedChild}
             <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <CSSTransition
-                    in={notebookSideBarShown}
-                    timeout={0} // Disabled this for now until we can agree on style / performance
-                    mountOnEnter
-                    unmountOnExit
-                    classNames="NotebookSidebar-"
+                <div
+                    ref={ref}
+                    className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={
+                        !fullScreen
+                            ? {
+                                  width: notebookSideBarShown ? desiredWidth : 0,
+                                  minWidth: notebookSideBarShown ? MIN_NOTEBOOK_SIDEBAR_WIDTH : 0,
+                              }
+                            : {}
+                    }
                 >
-                    <div
-                        ref={ref}
-                        className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={
-                            !fullScreen
-                                ? {
-                                      width: desiredWidth,
-                                  }
-                                : {}
-                        }
-                    >
-                        <Resizer onResize={onResize} />
+                    <Resizer onResize={onResize} />
+                    {notebookSideBarShown && (
                         <div className="NotebookSidebar__content">
                             <header className="flex items-center justify-between gap-2 font-semibold shrink-0 p-1 border-b">
                                 <span className="flex items-center gap-1 text-primary-alt">
@@ -86,50 +81,51 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                 <span className="flex items-center gap-1 px-1">
                                     {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
-                                    <NotebookExpandButton status="primary-alt" size="small" noPadding />
-
                                     <LemonButton
                                         size="small"
-                                        onClick={() => setIsEditable(!isEditable)}
+                                        to={urls.notebook(selectedNotebook)}
+                                        onClick={() => {
+                                            setNotebookSideBarShown(false)
+                                        }}
                                         status="primary-alt"
-                                        type={!isEditable ? 'primary' : undefined}
-                                        noPadding
-                                    >
-                                        <div className="m-1">{!isEditable ? <IconLock /> : <IconLockOpen />}</div>
-                                    </LemonButton>
+                                        icon={<IconLink />}
+                                        tooltip="Go to Notebook"
+                                        tooltipPlacement="left"
+                                    />
+
+                                    <NotebookExpandButton status="primary-alt" size="small" />
 
                                     <LemonButton
                                         size="small"
                                         onClick={() => setFullScreen(!fullScreen)}
                                         status="primary-alt"
-                                        noPadding
-                                    >
-                                        <IconFullScreen className="text-lg m-1" />
-                                    </LemonButton>
+                                        active={fullScreen}
+                                        icon={<IconFullScreen />}
+                                        tooltip="Toggle full screen"
+                                        tooltipPlacement="left"
+                                    />
 
                                     <LemonButton
                                         size="small"
                                         onClick={() => setNotebookSideBarShown(false)}
                                         status="primary-alt"
-                                        noPadding
-                                    >
-                                        <IconChevronRight className="text-lg" />
-                                    </LemonButton>
+                                        icon={<IconChevronRight />}
+                                        tooltip="Hide Notebook Sidebar"
+                                        tooltipPlacement="left"
+                                    />
                                 </span>
                             </header>
 
-                            {selectedNotebook === SCRATCHPAD_NOTEBOOK.short_id ? (
-                                <LemonBanner type="info" dismissKey="notebook-sidebar-scratchpad" className="m-2">
-                                    This is your scratchpad. It is only visible to you and is persisted only in this
-                                    browser. It's a great place to gather ideas before turning into a saved Notebook!
-                                </LemonBanner>
-                            ) : null}
-                            <div className="flex flex-col flex-1 overflow-y-auto p-4">
-                                <Notebook key={selectedNotebook} shortId={selectedNotebook} editable={isEditable} />
+                            <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
+                                <Notebook
+                                    key={selectedNotebook}
+                                    shortId={selectedNotebook}
+                                    editable={!notebook?.is_template}
+                                />
                             </div>
                         </div>
-                    </div>
-                </CSSTransition>
+                    )}
+                </div>
             </FlaggedFeature>
         </>
     )

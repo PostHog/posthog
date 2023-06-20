@@ -1,10 +1,12 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { Counter } from 'prom-client'
 
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
+import { stringToBoolean } from '../../../utils/env-utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -14,16 +16,39 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
-// Only used in tests
-// TODO: update to test for side-effects of running the pipeline rather than
-// this return type.
+const silentFailuresAsyncHandlers = new Counter({
+    name: 'async_handlers_silent_failure',
+    help: 'Number silent failures from async handlers.',
+})
+const pipelineStepCompletionCounter = new Counter({
+    name: 'events_pipeline_step_executed_total',
+    help: 'Number of events that have completed the step',
+    labelNames: ['step_name'],
+})
+const pipelineStepThrowCounter = new Counter({
+    name: 'events_pipeline_step_throw_total',
+    help: 'Number of events that have thrown error in the step',
+    labelNames: ['step_name'],
+})
+const pipelineStepDLQCounter = new Counter({
+    name: 'events_pipeline_step_dlq_total',
+    help: 'Number of events that have been sent to DLQ in the step',
+    labelNames: ['step_name'],
+})
+
 export type EventPipelineResult = {
+    // Promises that the batch handler should await on before committing offsets,
+    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    promises?: Array<Promise<void>>
+    // Only used in tests
+    // TODO: update to test for side-effects of running the pipeline rather than
+    // this return type.
     lastStep: string
     args: any[]
     error?: string
 }
 
-class StepError extends Error {
+class StepErrorNoRetry extends Error {
     step: string
     args: any[]
     constructor(step: string, args: any[], message: string) {
@@ -39,36 +64,42 @@ export class EventPipelineRunner {
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
+    private delayAcks: boolean
 
     constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
         this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
+
+        // TODO: remove after successful rollout
+        this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
-            let result: EventPipelineResult | null = null
+            let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
             if (eventWithTeam != null) {
                 result = await this.runEventPipelineSteps(eventWithTeam)
             } else {
                 result = this.registerLastStep('populateTeamDataStep', null, [event])
             }
-
             this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
             return result
         } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
+            if (error instanceof StepErrorNoRetry) {
+                // At the step level we have chosen to drop these events and send them to DLQ
+                return { lastStep: error.step, args: [], error: error.message }
+            } else {
+                // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
+                Sentry.captureException(error, {
+                    tags: { pipeline_step: 'outside' },
+                    extra: { originalEvent: this.originalEvent },
+                })
                 throw error
             }
-
-            return { lastStep: error.step, args: [], error: error.message }
         }
     }
 
@@ -94,8 +125,17 @@ export class EventPipelineRunner {
 
         const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent], event.team_id)
 
-        const rawClickhouseEvent = await this.runStep(createEventStep, [this, preparedEvent, person], event.team_id)
-        return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
+        const [rawClickhouseEvent, eventAck] = await this.runStep(
+            createEventStep,
+            [this, preparedEvent, person],
+            event.team_id
+        )
+        if (this.delayAcks) {
+            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
+        } else {
+            await eventAck
+            return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
+        }
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
@@ -112,16 +152,23 @@ export class EventPipelineRunner {
                 throw error
             }
 
+            silentFailuresAsyncHandlers.inc()
+
             return { lastStep: error.step, args: [], error: error.message }
         }
     }
 
-    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
+    registerLastStep(
+        stepName: string,
+        teamId: number | null,
+        args: any[],
+        promises?: Array<Promise<void>>
+    ): EventPipelineResult {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
             step: stepName,
             team_id: String(teamId), // NOTE: potentially high cardinality
         })
-        return { lastStep: stepName, args }
+        return { promises: promises, lastStep: stepName, args }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(
@@ -144,6 +191,7 @@ export class EventPipelineRunner {
                 })
                 try {
                     const result = await step(...args)
+                    pipelineStepCompletionCounter.labels(step.name).inc()
                     this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
                     this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
                     return result
@@ -156,26 +204,34 @@ export class EventPipelineRunner {
         )
     }
 
-    private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-        status.error('🔔', 'step_failed', { currentStepName, err })
-        Sentry.captureException(err, {
-            tags: { team_id: teamId },
-            extra: { currentStepName, currentArgs, originalEvent: this.originalEvent },
-        })
-
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
-
+    private shouldRetry(err: any): boolean {
         if (err instanceof DependencyUnavailableError) {
             // If this is an error with a dependency that we control, we want to
             // ensure that the caller knows that the event was not processed,
             // for a reason that we control and that is transient.
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error_dep_unavailable', {
-                step: currentStepName,
-            })
+            return true
+        }
+        // TODO: Blacklist via env of errors we're going to put into DLQ instead of taking Kafka lag
+        return false
+    }
+
+    private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
+        status.error('🔔', 'step_failed', { currentStepName, err })
+        Sentry.captureException(err, {
+            tags: { team_id: teamId, pipeline_step: currentStepName },
+            extra: { currentArgs, originalEvent: this.originalEvent },
+        })
+
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
+
+        // Should we throw or should we drop and send the event to DLQ.
+        if (this.shouldRetry(err)) {
+            pipelineStepThrowCounter.labels(currentStepName).inc()
             throw err
         }
 
         if (sentToDql) {
+            pipelineStepDLQCounter.labels(currentStepName).inc()
             try {
                 const message = generateEventDeadLetterQueueMessage(
                     this.originalEvent,
@@ -194,6 +250,7 @@ export class EventPipelineRunner {
             }
         }
 
-        throw new StepError(currentStepName, currentArgs, err.message)
+        // These errors are dropped rather than retried
+        throw new StepErrorNoRetry(currentStepName, currentArgs, err.message)
     }
 }

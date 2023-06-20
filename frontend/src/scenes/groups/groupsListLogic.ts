@@ -34,7 +34,7 @@ export const groupsListLogic = kea<groupsListLogicType>({
     },
     actions: () => ({
         loadGroups: (url?: string | null) => ({ url }),
-        setSearch: (search: string) => ({ search }),
+        setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
     }),
     loaders: ({ props, values }) => ({
         groups: [
@@ -78,8 +78,10 @@ export const groupsListLogic = kea<groupsListLogicType>({
         ],
     },
     listeners: ({ actions }) => ({
-        setSearch: async (_, breakpoint) => {
-            await breakpoint(300)
+        setSearch: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                await breakpoint(300)
+            }
             actions.loadGroups()
         },
     }),

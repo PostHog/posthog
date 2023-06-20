@@ -1024,7 +1024,7 @@
             "usage_key": null,
             "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
             "docs_url": "https://posthog.com/docs",
-            "subscribed": null,
+            "subscribed": true,
             "plans": [],
             "type": "platform_and_support",
             "free_allocation": 0,

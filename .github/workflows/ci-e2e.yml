@@ -18,10 +18,13 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run E2E checks
+        # Set job outputs to values from filter step
+        outputs:
+            shouldTriggerCypress: ${{ steps.changes.outputs.shouldTriggerCypress }}
         steps:
-            # For pull requests it's not necessary to checkout the code
+            # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@v2
-              id: filter
+              id: changes
               with:
                   filters: |
                       shouldTriggerCypress:
@@ -149,7 +152,7 @@ jobs:
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
                   REDIS_URL=redis://localhost
                   DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
-                  KAFKA_URL=kafka://kafka:9092
+                  KAFKA_HOSTS=kafka:9092
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
                   OPT_OUT_CAPTURE=1

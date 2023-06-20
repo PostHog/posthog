@@ -1,4 +1,6 @@
 import {
+    ActionType,
+    AnnotationType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
@@ -35,6 +37,10 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
+    copyAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
@@ -46,6 +52,9 @@ export const urls = {
     events: (): string => '/events',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+    exports: (): string => '/exports',
+    createExport: (): string => `/exports/new/`,
+    viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -92,6 +101,7 @@ export const urls = {
     surveys: (): string => '/surveys',
     survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
     annotations: (): string => '/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,

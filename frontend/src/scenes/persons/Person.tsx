@@ -33,7 +33,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 const { TabPane } = Tabs
@@ -87,6 +86,23 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             <div>
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
+            </div>
+            <div>
+                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <Link
+                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                {person.is_identified ? <strong>Cannot</strong> : 'Can'} be used as `alias_id` - click
+                                for more info.
+                            </>
+                        }
+                    >
+                        <IconInfo className="ml-1 text-base shrink-0" />
+                    </Tooltip>
+                </Link>
             </div>
         </div>
     )
@@ -209,11 +225,7 @@ export function Person(): JSX.Element | null {
                             </LemonBanner>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist
-                        personUUID={person.uuid}
-                        updateSearchParams
-                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
-                    />
+                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

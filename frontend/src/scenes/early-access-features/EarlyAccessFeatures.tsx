@@ -12,10 +12,12 @@ export const scene: SceneExport = {
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
-    concept: 0,
-    alpha: 1,
-    beta: 2,
-    'general-availability': 3,
+    draft: 0,
+    concept: 1,
+    alpha: 2,
+    beta: 3,
+    'general-availability': 4,
+    archived: 5,
 }
 
 export function EarlyAccessFeatures(): JSX.Element {

@@ -12,6 +12,8 @@ import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
 import { InsightLogicProps, ItemMode } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getCachedResults } from './utils'
+import { useState } from 'react'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
@@ -24,12 +26,15 @@ type InsightVizProps = {
     context?: QueryContext
 }
 
+let uniqueNode = 0
+
 export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const [key] = useState(() => `InsightViz.${uniqueNode++}`)
+    const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}` }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: insightVizDataNodeKey(insightProps),
-        cachedResults: insightProps.cachedInsight?.result != null ? insightProps.cachedInsight : undefined,
+        cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
     }
 
     const { insightMode } = useValues(insightSceneLogic)
@@ -40,19 +45,38 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
         setQuery?.({ ...query, source })
     }
 
-    return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div
-                className={clsx('insight-wrapper', {
-                    'insight-wrapper--singlecolumn': isFunnels,
-                })}
-            >
-                <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
+    const showIfFull = !!query.full
+    const disableHeader = query.showHeader ? !query.showHeader : !showIfFull
+    const disableTable = query.showTable ? !query.showTable : !showIfFull
+    const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
+    const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
 
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} context={context} />
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <div
+                    className={clsx('insight-wrapper', {
+                        'insight-wrapper--singlecolumn': isFunnels,
+                    })}
+                >
+                    <EditorFilters
+                        query={query.source}
+                        setQuery={setQuerySource}
+                        showing={insightMode === ItemMode.Edit}
+                    />
+
+                    <div className="insights-container" data-attr="insight-view">
+                        <InsightContainer
+                            insightMode={insightMode}
+                            context={context}
+                            disableHeader={disableHeader}
+                            disableTable={disableTable}
+                            disableCorrelationTable={disableCorrelationTable}
+                            disableLastComputation={disableLastComputation}
+                        />
+                    </div>
                 </div>
-            </div>
+            </BindLogic>
         </BindLogic>
     )
 }

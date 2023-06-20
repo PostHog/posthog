@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { DashboardType, InsightShortId, DashboardTile, InsightModel } from '~/types'
+import { DashboardType, InsightShortId, DashboardTile, InsightModel, DashboardBasicType } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -78,16 +78,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
     loaders: ({ values, actions }) => ({
         rawDashboards: [
-            {} as Record<string, DashboardType>,
+            {} as Record<string, DashboardBasicType>,
             {
-                loadDashboards: async (_, breakpoint) => {
+                loadDashboards: async () => {
                     // looking at a fully exported dashboard, return its contents
                     const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
                     if (exportedDashboard?.id && exportedDashboard?.tiles) {
                         return { [exportedDashboard.id]: exportedDashboard }
                     }
-
-                    await breakpoint(50)
 
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff

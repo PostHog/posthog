@@ -89,6 +89,18 @@ export type AvailableProductFeature = {
     unit?: string | null
 }
 
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
+    SURVEYS = 'surveys',
+}
+
 export enum LicensePlan {
     Scale = 'scale',
     Enterprise = 'enterprise',
@@ -153,6 +165,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
@@ -308,6 +321,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    autocapture_exceptions_opt_in: boolean
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -329,6 +343,7 @@ export interface TeamType extends TeamBasicType {
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
+    extra_settings?: Record<string, string | number | boolean | undefined>
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -470,7 +485,6 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
-    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -611,14 +625,6 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
-export interface SessionRecordingMeta {
-    pinnedCount: number
-    segments: RecordingSegment[]
-    recordingDurationMs: number
-    startTimestamp: Dayjs
-    endTimestamp: Dayjs
-}
-
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
@@ -679,6 +685,9 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
+
+export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
@@ -687,6 +696,8 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
+    duration_type_filter?: DurationTypeFilter
+    console_logs?: FilterableLogLevel[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -745,13 +756,11 @@ export interface PersonListParams {
     search?: string
     cohort?: number
     distinct_id?: string
+    include_total?: boolean // PostHog 3000-only
 }
 
 export interface MatchedRecordingEvent {
     uuid: string
-    session_id: string
-    window_id: string
-    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -965,13 +974,8 @@ export interface SessionRecordingType {
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
-    /** Where this recording information was loaded from (S3 or Clickhouse) */
-    storage?: string
-
-    // These values are only present when loaded as a full recording
-    segments?: SessionRecordingSegmentType[]
-    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+    /** Where this recording information was loaded from  */
+    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1269,17 +1273,15 @@ export interface InsightModel extends Cacheable {
     query?: Node | null
 }
 
-export interface DashboardType {
+export interface DashboardBasicType {
     id: number
     name: string
     description: string
     pinned: boolean
-    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
     deleted: boolean
-    filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
@@ -1287,6 +1289,17 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardTemplateListParams {
+    scope?: DashboardTemplateScope
+}
+
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
+    filters: Record<string, any>
 }
 
 export interface DashboardTemplateType {
@@ -1300,7 +1313,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
-    scope?: 'team' | 'global'
+    scope?: DashboardTemplateScope
 }
 
 export interface MonacoMarker {
@@ -1467,8 +1480,9 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
 }
 
-export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
     date_marker: dayjs.Dayjs | null
+    created_at: dayjs.Dayjs
 }
 
 export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
@@ -1597,7 +1611,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    formula?: any
+    formula?: string
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
@@ -1992,7 +2006,8 @@ export interface Survey {
     type: SurveyType
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
-    conditions: { url: string; selector: string } | null
+    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
     created_at: string
@@ -2083,6 +2098,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2098,10 +2114,17 @@ export interface CombinedFeatureFlagAndValueType {
 }
 
 export enum EarlyAccessFeatureStage {
+    Draft = 'draft',
     Concept = 'concept',
     Alpha = 'alpha',
     Beta = 'beta',
     GeneralAvailability = 'general-availability',
+    Archived = 'archived',
+}
+
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
 }
 
 export interface EarlyAccessFeatureType {
@@ -2233,6 +2256,7 @@ export type HotKey =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+    | 'forwardslash'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
@@ -2288,6 +2312,9 @@ export interface PropertyDefinition {
     last_seen_at?: string // TODO: Implement
     example?: string
     is_action?: boolean
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 export enum PropertyDefinitionState {
@@ -2889,6 +2916,7 @@ export type NotebookListItemType = {
     // id: string
     short_id: string
     title?: string
+    is_template?: boolean
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string
@@ -2903,6 +2931,16 @@ export type NotebookType = NotebookListItemType & {
 export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
+}
+
+export enum NotebookNodeType {
+    Insight = 'ph-insight',
+    Query = 'ph-query',
+    Recording = 'ph-recording',
+    RecordingPlaylist = 'ph-recording-playlist',
+    FeatureFlag = 'ph-feature-flag',
+    Person = 'ph-person',
+    Link = 'ph-link',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

@@ -1,14 +1,20 @@
-import { sessionRecordingsListLogic, RECORDINGS_LIMIT, DEFAULT_RECORDING_FILTERS } from './sessionRecordingsListLogic'
+import {
+    sessionRecordingsListLogic,
+    RECORDINGS_LIMIT,
+    DEFAULT_RECORDING_FILTERS,
+    defaultRecordingDurationFilter,
+} from './sessionRecordingsListLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsListLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsListLogic.build>
-    const listOfSessionRecordings = [{ id: 'abc', viewed: false, recording_duration: 10 }]
+    const aRecording = { id: 'abc', viewed: false, recording_duration: 10 }
+    const listOfSessionRecordings = [aRecording]
 
     beforeEach(() => {
         useMocks({
@@ -292,45 +298,40 @@ describe('sessionRecordingsListLogic', () => {
         })
 
         describe('sessionRecording.viewed', () => {
-            it('changes when setSelectedRecordingId is called', () => {
-                expectLogic(logic, () => {
-                    logic.actions.getSessionRecordingsSuccess({
-                        results: [
+            it('changes when setSelectedRecordingId is called', async () => {
+                await expectLogic(logic)
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        sessionRecordingsResponse: {
+                            results: [{ ...aRecording }],
+                        },
+                        sessionRecordings: [
                             {
-                                id: 'abc',
-                                viewed: false,
-                                recording_duration: 1,
-                                start_time: '',
-                                end_time: '',
+                                ...aRecording,
                             },
                         ],
-                        has_next: false,
                     })
-                }).toMatchValues({
-                    sessionRecordings: [
-                        {
-                            id: 'abc',
-                            viewed: false,
-                            recording_duration: 1,
-                            start_time: '',
-                            end_time: '',
-                        },
-                    ],
-                })
 
-                expectLogic(logic, () => {
+                await expectLogic(logic, () => {
                     logic.actions.setSelectedRecordingId('abc')
-                }).toMatchValues({
-                    sessionRecordings: [
-                        {
-                            id: 'abc',
-                            viewed: true,
-                            recording_duration: 1,
-                            start_time: '',
-                            end_time: '',
-                        },
-                    ],
                 })
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        sessionRecordingsResponse: {
+                            results: [
+                                {
+                                    ...aRecording,
+                                    viewed: true,
+                                },
+                            ],
+                        },
+                        sessionRecordings: [
+                            {
+                                ...aRecording,
+                                viewed: true,
+                            },
+                        ],
+                    })
             })
 
             it('is set by setFilters and loads filtered results', async () => {
@@ -381,7 +382,25 @@ describe('sessionRecordingsListLogic', () => {
                     },
                 })
         })
+
+        it('reads filters from the URL and defaults the duration filter', async () => {
+            router.actions.push('/replay', {
+                filters: {
+                    actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                },
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['replaceFilters'])
+                .toMatchValues({
+                    filters: {
+                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                        session_recording_duration: defaultRecordingDurationFilter,
+                    },
+                })
+        })
     })
+
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsListLogic({
@@ -403,6 +422,48 @@ describe('sessionRecordingsListLogic', () => {
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
             await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
+        })
+    })
+
+    describe('total filters count', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsListLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+        it('starts with a count of zero', async () => {
+            await expectLogic(logic).toMatchValues({ totalFiltersCount: 0 })
+        })
+
+        it('counts console log filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    console_logs: ['warn', 'error'],
+                } satisfies Partial<RecordingFilters>)
+            }).toMatchValues({ totalFiltersCount: 2 })
+        })
+    })
+
+    describe('resetting filters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsListLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('resets console log filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    console_logs: ['warn', 'error'],
+                } satisfies Partial<RecordingFilters>)
+                logic.actions.resetFilters()
+            }).toMatchValues({ totalFiltersCount: 0 })
         })
     })
 })

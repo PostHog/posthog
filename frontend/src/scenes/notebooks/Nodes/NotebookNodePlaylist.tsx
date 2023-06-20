@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
@@ -16,10 +16,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-const HEIGHT = 'calc(100vh - 10rem)'
+const HEIGHT = 'calc(100vh - 20rem)'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState(props, 'filters')
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
 
     const playerKey = useRef(`notebook-${uuid()}`).current
 
@@ -60,17 +60,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
         <NodeWrapper
             {...props}
             nodeType={NotebookNodeType.RecordingPlaylist}
-            title="Playlist"
+            title="Session Replays"
             href={urls.replay(undefined, filters)}
             heightEstimate={HEIGHT}
         >
-            <div
-                className="flex flex-row overflow-hidden gap-2 flex-1"
-                style={{ height: HEIGHT }}
-                contentEditable={false}
-            >
-                {content}
-            </div>
+            <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
         </NodeWrapper>
     )
 }
@@ -83,8 +77,11 @@ export const NotebookNodePlaylist = Node.create({
 
     addAttributes() {
         return {
+            height: {
+                default: HEIGHT,
+            },
             filters: {
-                default: '{}',
+                default: undefined,
             },
         }
     },

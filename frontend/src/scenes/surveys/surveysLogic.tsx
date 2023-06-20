@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -23,37 +24,9 @@ export const surveysLogic = kea<surveysLogicType>([
             __default: [] as Survey[],
             loadSurveys: async () => {
                 const response = await api.surveys.list()
-                return response || { results: [] }
-                // return response.results
-                // {
-                //     id: 1,
-                //     name: 'Early access beta feature survey',
-                //     responses: 33,
-                //     type: 'Feature survey',
-                //     created_by: 'Eric',
-                //     created_at: 'Today',
-                //     active: true,
-                // },
-                // {
-                //     id: 2,
-                //     name: 'PostHog 3000 beta survey',
-                //     responses: 85,
-                //     type: 'Feature survey',
-                //     created_by: 'Michael',
-                //     created_at: 'Yesterday',
-                //     active: false,
-                // },
-                // {
-                //     id: 3,
-                //     name: 'General app survey',
-                //     responses: 130,
-                //     type: 'Button',
-                //     created_by: 'Annika',
-                //     created_at: '10 days ago',
-                //     active: true,
-                // },
+                return response.results
             },
-            deleteSurvey: async ({ id }) => {
+            deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
                 return values.surveys.filter((survey) => survey.id !== id)
             },
@@ -62,6 +35,7 @@ export const surveysLogic = kea<surveysLogicType>([
     listeners(() => ({
         deleteSurveySuccess: () => {
             lemonToast.success('Survey deleted')
+            router.actions.replace(urls.surveys())
         },
     })),
     selectors({
@@ -73,6 +47,14 @@ export const surveysLogic = kea<surveysLogicType>([
                     path: urls.surveys(),
                 },
             ],
+        ],
+        nonArchivedSurveys: [
+            (s) => [s.surveys],
+            (surveys: Survey[]): Survey[] => surveys.filter((survey) => !survey.archived),
+        ],
+        archivedSurveys: [
+            (s) => [s.surveys],
+            (surveys: Survey[]): Survey[] => surveys.filter((survey) => survey.archived),
         ],
     }),
     afterMount(async ({ actions }) => {

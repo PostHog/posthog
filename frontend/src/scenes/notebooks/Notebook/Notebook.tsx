@@ -20,6 +20,9 @@ import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import posthog from 'posthog-js'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 
 export type NotebookProps = {
     shortId: string
@@ -34,12 +37,17 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading } = useValues(logic)
-    const { setEditorRef, onEditorUpdate } = useActions(logic)
-
+    const { notebook, content, notebookLoading, isEmpty } = useValues(logic)
+    const { setEditorRef, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
     const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
+
+    useEffect(() => {
+        if (!notebook && !notebookLoading) {
+            loadNotebook()
+        }
+    }, [])
 
     // Whenever our content changes, we want to ignore the next update (which is caused by the editor itself)
     const ignoreUpdateRef = useRef(true)
@@ -75,6 +83,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
+            SlashCommandsExtension,
 
             // Ensure this is last as a fallback for all PostHog links
             // LinkExtension.configure({}),
@@ -159,37 +168,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
-                {/* {editor && (
-                <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-query />').run()}
-                    >
-                        Query
-                    </LemonButton>
-
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-playlist />').run()}
-                    >
-                        Recordings
-                    </LemonButton>
-
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-embed />').run()}
-                    >
-                        Embed
-                    </LemonButton>
-                </FloatingMenu>
-            )} */}
-
+                <FloatingSlashCommands />
                 {!notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />
@@ -198,9 +177,42 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         <LemonSkeleton className="h-4" />
                     </div>
                 ) : !notebook ? (
-                    <NotFound object={'recording'} />
+                    <NotFound object={'notebook'} />
+                ) : isEmpty && !editable ? (
+                    <div className="NotebookEditor">
+                        <h1>
+                            <i>Untitled</i>
+                        </h1>
+                    </div>
                 ) : (
-                    <EditorContent editor={_editor} className="flex flex-col flex-1" />
+                    <>
+                        {notebook.is_template && (
+                            <LemonBanner
+                                type="info"
+                                className="my-4"
+                                action={{
+                                    onClick: duplicateNotebook,
+                                    children: 'Create notebook',
+                                }}
+                            >
+                                <b>This is a template.</b> You can create a copy of it to edit and use as your own.
+                            </LemonBanner>
+                        )}
+
+                        {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                            <LemonBanner
+                                type="info"
+                                action={{
+                                    children: 'Convert to Notebook',
+                                    onClick: duplicateNotebook,
+                                }}
+                            >
+                                This is your scratchpad. It is only visible to you and is persisted only in this
+                                browser. It's a great place to gather ideas before turning into a saved Notebook!
+                            </LemonBanner>
+                        ) : null}
+                        <EditorContent editor={_editor} className="flex flex-col flex-1" />
+                    </>
                 )}
             </div>
         </BindLogic>

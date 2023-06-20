@@ -106,7 +106,7 @@ describe('eachBatchX', () => {
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
-                runEventPipeline: jest.fn(),
+                runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
     })
@@ -170,6 +170,28 @@ describe('eachBatchX', () => {
             )
         })
 
+        it('fails the batch if runEventPipeline rejects', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            queue.workerMethods.runEventPipeline = jest.fn(() => Promise.reject('runEventPipeline nopes out'))
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'runEventPipeline nopes out'
+            )
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(1)
+        })
+
+        it('fails the batch if one deferred promise rejects', async () => {
+            const batch = createBatch(captureEndpointEvent)
+            queue.workerMethods.runEventPipeline = jest.fn(() =>
+                Promise.resolve({
+                    promises: [Promise.resolve(), Promise.reject('deferred nopes out')],
+                })
+            )
+            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
+                'deferred nopes out'
+            )
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(1)
+        })
+
         it('batches events by team or token and distinct_id', () => {
             const batch = createBatchWithMultipleEvents([
                 { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
@@ -187,8 +209,8 @@ describe('eachBatchX', () => {
             ])
             const stats = new Map()
             for (const group of splitIngestionBatch(batch.batch.messages, IngestionOverflowMode.Disabled).toProcess) {
-                const key = `${group[0].team_id}:${group[0].token}:${group[0].distinct_id}`
-                for (const event of group) {
+                const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
+                for (const { pluginEvent: event } of group) {
                     expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
                 }
                 stats.set(key, group.length)

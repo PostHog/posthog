@@ -3,7 +3,7 @@ import { HighLevelProducer, LibrdKafkaError } from 'node-rdkafka-acosom'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
-import { DependencyUnavailableError } from './error'
+import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
@@ -25,7 +25,7 @@ export class KafkaProducerWrapper {
         this.waitForAck = waitForAck
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean) {
+    async queueMessage(kafkaMessage: ProducerRecord, waitForAck?: boolean): Promise<void> {
         try {
             return await Promise.all(
                 kafkaMessage.messages.map((message) =>
@@ -47,7 +47,9 @@ export class KafkaProducerWrapper {
                         waitForAck: waitForAck === undefined ? this.waitForAck : waitForAck,
                     })
                 )
-            )
+            ).then((_) => {
+                return // Swallow the returned offsets, and return a void for easier typing
+            })
         } catch (error) {
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: kafkaMessage.topic })
 
@@ -55,6 +57,8 @@ export class KafkaProducerWrapper {
                 // If we get a retriable error, bubble that up so that the
                 // caller can retry.
                 throw new DependencyUnavailableError(error.message, 'Kafka', error)
+            } else if ((error as LibrdKafkaError).code === 10) {
+                throw new MessageSizeTooLarge(error.message, error)
             }
 
             throw error

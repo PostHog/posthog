@@ -45,6 +45,10 @@ export type LemonTableColumns<T extends Record<string, any>> =
 export interface ExpandableConfig<T extends Record<string, any>> {
     /** Row expansion render function. */
     expandedRowRender: (record: T, recordIndex: number) => any
+    /* className string, or function that generates one,
+     * which is applied to the TR that contains the expanded row
+     */
+    expandedRowClassName?: string | ((record: T, rowIndex: number) => string | null)
     /**
      * Function determining whether the row should be expandable:
      * A positive value (like true or 1) means that the row is expandable.

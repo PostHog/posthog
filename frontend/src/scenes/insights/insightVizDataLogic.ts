@@ -30,7 +30,14 @@ import {
     isTrendsQuery,
 } from '~/queries/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { getBreakdown, getCompare, getDisplay, getInterval, getSeries } from '~/queries/nodes/InsightViz/utils'
+import {
+    getBreakdown,
+    getCompare,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+} from '~/queries/nodes/InsightViz/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
@@ -58,7 +65,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['query'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response as insightData', 'dataLoading as insightDataLoading', 'responseErrorObject as insightDataError'],
+            [
+                'response as insightData',
+                'dataLoading as insightDataLoading',
+                'responseErrorObject as insightDataError',
+                'query as insightQuery',
+            ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
@@ -112,6 +124,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         breakdown: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
         display: [(s) => [s.querySource], (q) => (q ? getDisplay(q) : null)],
         compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
+        formula: [(s) => [s.querySource], (q) => (q ? getFormula(q) : null)],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
@@ -160,6 +173,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, display) =>
                 (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
         ],
+
+        hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
 
         erroredQueryId: [
             (s) => [s.insightDataError],

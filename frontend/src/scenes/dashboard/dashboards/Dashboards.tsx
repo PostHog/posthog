@@ -10,13 +10,14 @@ import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
-import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebooksTable } from 'scenes/notebooks/NotebooksList/NotebooksList'
 import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { LemonTag } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -35,7 +36,7 @@ export function Dashboards(): JSX.Element {
 
     const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS]
 
-    const enabledTabs = [
+    const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.Dashboards,
             label: 'Dashboards',
@@ -48,7 +49,14 @@ export function Dashboards(): JSX.Element {
     if (notebooksEnabled) {
         enabledTabs.splice(1, 0, {
             key: DashboardsTab.Notebooks,
-            label: 'Notebooks (beta)',
+            label: (
+                <>
+                    Notebooks
+                    <LemonTag type="warning" className="uppercase ml-2">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
         })
     }
 
@@ -64,7 +72,7 @@ export function Dashboards(): JSX.Element {
                         <LemonButton
                             data-attr={'new-notebook'}
                             onClick={() => {
-                                createNotebook(true)
+                                createNotebook()
                             }}
                             type="primary"
                             disabledReason={notebooksLoading ? 'Loading...' : undefined}
@@ -91,7 +99,7 @@ export function Dashboards(): JSX.Element {
             ) : currentTab === DashboardsTab.Notebooks ? (
                 <NotebooksTable />
             ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                <DashboardsTable />
+                <DashboardsTableContainer />
             ) : (
                 <NoDashboards />
             )}

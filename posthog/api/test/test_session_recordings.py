@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
 from posthog.api.test.test_team import create_team
 from posthog.models import Organization, Person, SessionRecording
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.test.test_factory import create_session_recording_events
@@ -65,7 +66,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             snapshots=[snapshot],
         )
 
-    def create_chunked_snapshots(
+    def create_snapshots(
         self, snapshot_count, distinct_id, session_id, timestamp, has_full_snapshot=True, window_id=""
     ):
         snapshots = []
@@ -103,7 +104,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             session_id=session_id,
             window_id=window_id,
             snapshots=snapshots,
-            chunk_size=15,
         )
 
     def test_get_session_recordings(self):
@@ -141,10 +141,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(second_session["viewed"], False)
         self.assertEqual(second_session["person"]["id"], p.pk)
 
+    @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
+    def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
+        self.client.get(f'/api/projects/{self.team.id}/session_recordings?version=3&console_logs=["warn", "error"]')
+        assert len(mock_summary_lister.call_args_list) == 1
+        filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
+        assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
+
     @snapshot_postgres_queries
     def test_listing_recordings_is_not_nplus1_for_persons(self):
-        # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
         with freeze_time("2022-06-03T12:00:00.000Z"):
+            # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -281,23 +288,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "created_at": "2023-01-01T12:00:00Z",
                 "uuid": ANY,
             },
-            "segments": [
-                {
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "window_id": "",
-                    "is_active": False,
-                }
-            ],
-            "start_and_end_times_by_window_id": {
-                "": {
-                    "window_id": "",
-                    "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "is_active": False,
-                }
-            },
-            "snapshot_data_by_window_id": None,
             "storage": "clickhouse",
         }
 
@@ -340,7 +330,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -388,7 +378,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -415,7 +405,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         with freeze_time("2020-09-13T12:26:40.000Z"):
             start_time = now()
             for index, s in enumerate(range(num_chunks)):
-                self.create_chunked_snapshots(
+                self.create_snapshots(
                     snapshots_per_chunk,
                     "user",
                     chunked_session_id,
@@ -486,50 +476,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @freeze_time("2020-09-13T12:26:40.000Z")
     def test_get_metadata_for_chunked_session_recording(self):
-
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-            )
-            chunked_session_id = "chunked_session_id"
-            num_chunks = 60
-            snapshots_per_chunk = 2
-            for index in range(num_chunks):
-                self.create_chunked_snapshots(
-                    snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index)
-                )
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
-            response_data = response.json()
-            self.assertEqual(response_data["person"]["id"], p.pk)
-            self.assertEqual(
-                response_data["start_and_end_times_by_window_id"],
-                {
-                    "": {
-                        "is_active": False,
-                        "window_id": "",
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                },
-            )
-            self.assertEqual(
-                response_data["segments"],
-                [
-                    {
-                        "start_time": now().replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end_time": (
-                            now() + relativedelta(minutes=num_chunks - 1, seconds=snapshots_per_chunk - 1)
-                        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "is_active": False,
-                        "window_id": "",
-                    }
-                ],
-            )
-            self.assertEqual(response_data["viewed"], False)
-            self.assertEqual(response_data["id"], chunked_session_id)
+        p = Person.objects.create(
+            team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        chunked_session_id = "chunked_session_id"
+        num_chunks = 60
+        snapshots_per_chunk = 2
+        for index in range(num_chunks):
+            self.create_snapshots(snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index))
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
+        response_data = response.json()
+        self.assertEqual(response_data["person"]["id"], p.pk)
+        self.assertEqual(response_data["viewed"], False)
+        self.assertEqual(response_data["id"], chunked_session_id)
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
