@@ -442,6 +442,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 return
             }
 
+            // We changed to have the sessionRecordingId in the query params, but it used to be in the hash so backwards compatibility
             const nulledSessionRecordingId = params.sessionRecordingId ?? hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
