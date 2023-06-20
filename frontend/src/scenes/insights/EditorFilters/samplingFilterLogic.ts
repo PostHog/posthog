@@ -54,8 +54,8 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     })),
     listeners(({ actions, values }) => ({
         setSamplingPercentage: () => {
-            actions.updateInsightFilters({
-                sampling_factor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
+            actions.updateQuerySource({
+                samplingFactor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
             })
         },
     })),
