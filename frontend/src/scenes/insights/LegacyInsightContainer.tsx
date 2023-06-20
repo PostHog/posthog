@@ -4,8 +4,6 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -34,11 +32,11 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
-    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
-    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
+    [`${InsightType.STICKINESS}`]: <>not supported for legacy component</>,
+    [`${InsightType.LIFECYCLE}`]: <>not supported for legacy component</>,
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
-    [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <Paths />,
+    [`${InsightType.RETENTION}`]: <>not supported for legacy component</>,
+    [`${InsightType.PATHS}`]: <>not supported for legacy component</>,
 }
 
 export function LegacyInsightContainer({

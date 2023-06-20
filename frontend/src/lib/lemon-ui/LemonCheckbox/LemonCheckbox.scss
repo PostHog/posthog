@@ -20,7 +20,7 @@
         gap: 0.5rem;
         min-height: 1.5rem;
 
-        svg {
+        > svg {
             width: 1rem;
             height: 1rem;
             transition: border 200ms ease, background 200ms ease;

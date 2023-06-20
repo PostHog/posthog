@@ -184,13 +184,11 @@ SessionRecordingKafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
 def sessionRecordingKafkaProducer() -> _KafkaProducer:
-    if not settings.SESSION_RECORDING_KAFKA_HOSTS:
-        raise Exception("Session recording kafka producer not available")
-
     return SessionRecordingKafkaProducer(
         kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
         kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
         max_message_bytes=settings.SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES,
+        compression_type=settings.SESSION_RECORDING_KAFKA_COMPRESSION,
     )
 
 

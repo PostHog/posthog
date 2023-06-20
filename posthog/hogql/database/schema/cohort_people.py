@@ -1,7 +1,21 @@
 from typing import Dict, Any, List
 
-from posthog.hogql.database.models import StringDatabaseField, IntegerDatabaseField, Table, LazyJoin, LazyTable
+from posthog.hogql.database.models import (
+    StringDatabaseField,
+    IntegerDatabaseField,
+    Table,
+    LazyJoin,
+    LazyTable,
+    FieldOrTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
+
+COHORT_PEOPLE_FIELDS = {
+    "person_id": StringDatabaseField(name="person_id"),
+    "cohort_id": IntegerDatabaseField(name="cohort_id"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "person": LazyJoin(from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table),
+}
 
 
 def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
@@ -28,15 +42,11 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str]]):
 
 
 class RawCohortPeople(Table):
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    sign: IntegerDatabaseField = IntegerDatabaseField(name="sign")
-    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
-
-    person: LazyJoin = LazyJoin(
-        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
-    )
+    fields: Dict[str, FieldOrTable] = {
+        **COHORT_PEOPLE_FIELDS,
+        "sign": IntegerDatabaseField(name="sign"),
+        "version": IntegerDatabaseField(name="version"),
+    }
 
     def to_printed_clickhouse(self, context):
         return "cohortpeople"
@@ -46,13 +56,7 @@ class RawCohortPeople(Table):
 
 
 class CohortPeople(LazyTable):
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-
-    person: LazyJoin = LazyJoin(
-        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
-    )
+    fields: Dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
     def lazy_select(self, requested_fields: Dict[str, Any]):
         return select_from_cohort_people_table(requested_fields)

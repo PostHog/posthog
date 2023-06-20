@@ -1070,3 +1070,39 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(SyntaxException) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
+
+    def test_time_window_functions(self):
+        query = """
+            SELECT
+                tumble(toDateTime('2020-01-01'), toIntervalDay('1')),
+                tumbleStart(toDateTime('2020-01-01'), toIntervalDay('1')),
+                tumbleEnd(toDateTime('2020-01-01'), toIntervalDay('1')),
+                hop(toDateTime('2020-01-01'), toIntervalDay('1'), toIntervalDay('2')),
+                hopStart(toDateTime('2020-01-01'), toIntervalDay('1'), toIntervalDay('2')),
+                hopEnd(toDateTime('2020-01-01'), toIntervalDay('1'), toIntervalDay('2'))
+        """
+
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+        )
+
+        self.assertEqual(
+            response.results,
+            [
+                (
+                    (
+                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    ),
+                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    (
+                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    ),
+                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                )
+            ],
+        )

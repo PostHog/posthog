@@ -189,11 +189,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: SettingsClause")
 
     def visitJoinExprOp(self, ctx: HogQLParser.JoinExprOpContext):
-        if ctx.GLOBAL():
-            raise NotImplementedException(f"Unsupported: GLOBAL JOIN")
-        if ctx.LOCAL():
-            raise NotImplementedException(f"Unsupported: LOCAL JOIN")
-
         join1: ast.JoinExpr = self.visit(ctx.joinExpr(0))
         join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
 
@@ -376,19 +371,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ColumnTypeExprParam")
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
-        return [self.visit(c) for c in ctx.columnsExpr()]
-
-    def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
-        if ctx.tableIdentifier():
-            table = self.visit(ctx.tableIdentifier())
-            return ast.Field(chain=table + ["*"])
-        return ast.Field(chain=["*"])
-
-    def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
-        return self.visit(ctx.selectUnionStmt())
-
-    def visitColumnsExprColumn(self, ctx: HogQLParser.ColumnsExprColumnContext):
-        return self.visit(ctx.columnExpr())
+        return [self.visit(c) for c in ctx.columnExpr()]
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(
@@ -473,6 +456,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedException(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
+        left = self.visit(ctx.left)
+        right = self.visit(ctx.right)
+
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():
             op = ast.CompareOperationOp.Eq
         elif ctx.NOT_EQ():
@@ -496,15 +482,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             else:
                 op = ast.CompareOperationOp.ILike
         elif ctx.IN():
-            if ctx.GLOBAL():
-                raise NotImplementedException(f"Unsupported node: IN GLOBAL")
+            if ctx.COHORT():
+                right = ast.Call(name="cohort", args=[right])
+
             if ctx.NOT():
                 op = ast.CompareOperationOp.NotIn
             else:
                 op = ast.CompareOperationOp.In
         else:
             raise NotImplementedException(f"Unsupported ColumnExprPrecedence3: {ctx.getText()}")
-        return ast.CompareOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
+
+        return ast.CompareOperation(left=left, right=right, op=op)
 
     def visitColumnExprInterval(self, ctx: HogQLParser.ColumnExprIntervalContext):
         if ctx.interval().SECOND():
