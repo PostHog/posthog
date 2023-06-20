@@ -2004,6 +2004,7 @@ export interface Survey {
     name: string
     description: string
     type: SurveyType
+    linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
