@@ -84,6 +84,7 @@ clickhouse-pool==0.5.3
 cryptography==37.0.2
     # via
     #   -r requirements.in
+    #   django-fernet-encrypted-fields
     #   kafka-helper
     #   pyopenssl
     #   snowflake-connector-python
@@ -107,6 +108,7 @@ django==3.2.18
     #   django-cors-headers
     #   django-deprecate-fields
     #   django-extensions
+    #   django-fernet-encrypted-fields
     #   django-filter
     #   django-formtools
     #   django-otp
@@ -125,6 +127,8 @@ django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
     # via -r requirements.in
 django-extensions==3.1.2
+    # via -r requirements.in
+django-fernet-encrypted-fields==0.1.2
     # via -r requirements.in
 django-filter==2.4.0
     # via -r requirements.in
