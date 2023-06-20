@@ -43,8 +43,13 @@ describe('session offset high-water mark', () => {
     })
 
     it('can remove all high-water marks based on a given offset', async () => {
-        await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
+        const inMemoryResults = await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
+        // the commit updates the in-memory cache
+        expect(inMemoryResults).toEqual({
+            'some-session': 123,
+        })
 
+        // the commit updates redis
         // removes all high-water marks that are <= 12
         expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toEqual({
             'some-session': 123,

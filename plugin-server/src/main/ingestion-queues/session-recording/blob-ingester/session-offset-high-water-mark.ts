@@ -134,7 +134,15 @@ export class SessionOffsetHighWaterMark {
                     ...tp,
                     offset,
                 })
-                return await this.getAll(tp)
+                const currentHighWaterMarks = this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`]
+                // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
+                Object.keys(currentHighWaterMarks).forEach((sessionId) => {
+                    if (currentHighWaterMarks[sessionId] <= offset) {
+                        delete currentHighWaterMarks[sessionId]
+                    }
+                })
+
+                return currentHighWaterMarks
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
