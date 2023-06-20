@@ -1,8 +1,9 @@
 import { EventType, RecordingEventType } from '~/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconFlag } from 'lib/lemon-ui/icons'
+import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import posthog from 'posthog-js'
+import { Link } from 'lib/lemon-ui/Link'
 
 interface StackFrame {
     filename: string
@@ -26,7 +27,6 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
                         return (
                             <TitledSnack
                                 key={index}
-                                fullWidth
                                 title={functionName}
                                 value={
                                     <>
@@ -51,10 +51,11 @@ function StackTrace({ rawTrace }: { rawTrace: string }): JSX.Element | null {
 function TitledSnack({
     title,
     value,
+    type = 'default',
 }: {
     title: string
     value: string | JSX.Element
-    fullWidth?: boolean
+    type?: 'default' | 'success'
 }): JSX.Element {
     return (
         <div className={'flex flex-row items-center'}>
@@ -63,7 +64,8 @@ function TitledSnack({
                     'pl-1.5 pr-1 py-1 max-w-full',
                     'border-r',
                     'rounded-l rounded-r-none',
-                    'text-primary-alt overflow-hidden text-ellipsis bg-primary-highlight'
+                    'text-primary-alt overflow-hidden text-ellipsis',
+                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight'
                 )}
             >
                 <strong>{title}:</strong>
@@ -72,7 +74,8 @@ function TitledSnack({
                 className={clsx(
                     'pr-1.5 pl-1 py-1 max-w-full',
                     'rounded-r rounded-l-none',
-                    'text-primary-alt overflow-hidden text-ellipsis bg-primary-highlight',
+                    'text-primary-alt overflow-hidden text-ellipsis',
+                    type === 'success' ? 'bg-success-highlight' : 'bg-primary-highlight',
                     'flex flex-1 items-center'
                 )}
             >
@@ -124,12 +127,32 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $os,
         $os_version,
         $active_feature_flags,
+        $sentry_url,
     } = event.properties
     return (
         <div className={'flex flex-col space-y-2 pr-4 pb-2'}>
             <h1 className={'mb-0 text-xl'}>{$exception_message}</h1>
             <div className={'flex flex-row gap-2 flex-wrap'}>
                 <LemonTag type={'caution'}>{$exception_type}</LemonTag>
+                <TitledSnack
+                    type={'success'}
+                    title={'captured by'}
+                    value={
+                        <>
+                            {$sentry_url ? (
+                                <Link
+                                    className={'text-primary-alt hover:underline decoration-primary-alt cursor-pointer'}
+                                    to={$sentry_url}
+                                    target={'_blank'}
+                                >
+                                    Sentry <IconOpenInNew />
+                                </Link>
+                            ) : (
+                                <>PostHog</>
+                            )}
+                        </>
+                    }
+                />
                 <TitledSnack title={'synthetic'} value={$exception_synthetic ? 'true' : 'false'} />
                 <TitledSnack title={'library'} value={`${$lib} ${$lib_version}`} />
                 <TitledSnack title={'browser'} value={`${$browser} ${$browser_version}`} />
