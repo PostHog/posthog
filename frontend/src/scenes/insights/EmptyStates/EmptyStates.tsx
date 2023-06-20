@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
@@ -21,6 +21,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -289,7 +290,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
         <div className="saved-insight-empty-state">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <IconTrendUp />
+                    <BuilderHog3 />
                 </div>
                 <h2 className="empty-state__title">
                     {usingFilters
