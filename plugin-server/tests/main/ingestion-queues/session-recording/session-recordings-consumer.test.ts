@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 import { Pool } from 'pg'
 
@@ -92,7 +93,7 @@ describe('session-recordings-consumer', () => {
                     team_id: teamId,
                     data: JSON.stringify({
                         event: '$snapshot',
-                        properties: { $snapshot_data: { events_summary: [{ timestamp: 12345 }] } },
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: DateTime.now().toMillis() }] } },
                     }),
                 }),
                 timestamp: 123,
@@ -100,5 +101,55 @@ describe('session-recordings-consumer', () => {
         ])
 
         expect(producer.produce).toHaveBeenCalledTimes(2)
+    })
+
+    test('eachBatch does not emit a replay record that is more than a month in the future', async () => {
+        const organizationId = await createOrganization(postgres)
+        const teamId = await createTeam(postgres, organizationId)
+
+        const eachBachWithDependencies: any = eachBatch({ producer, teamManager })
+
+        const aMonthInFuture = DateTime.now().plus({ months: 1 }).toMillis()
+
+        await eachBachWithDependencies([
+            {
+                key: 'test',
+                value: JSON.stringify({
+                    team_id: teamId,
+                    data: JSON.stringify({
+                        event: '$snapshot',
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: aMonthInFuture }] } },
+                    }),
+                }),
+                timestamp: 123,
+            },
+        ])
+
+        expect(producer.produce).toHaveBeenCalledTimes(1)
+    })
+
+    test('eachBatch does not emit a replay record that is more than a month in the past', async () => {
+        const organizationId = await createOrganization(postgres)
+        const teamId = await createTeam(postgres, organizationId)
+
+        const eachBachWithDependencies: any = eachBatch({ producer, teamManager })
+
+        const aMonthInFuture = DateTime.now().minus({ months: 1 }).toMillis()
+
+        await eachBachWithDependencies([
+            {
+                key: 'test',
+                value: JSON.stringify({
+                    team_id: teamId,
+                    data: JSON.stringify({
+                        event: '$snapshot',
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: aMonthInFuture }] } },
+                    }),
+                }),
+                timestamp: 123,
+            },
+        ])
+
+        expect(producer.produce).toHaveBeenCalledTimes(1)
     })
 })

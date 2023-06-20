@@ -52,6 +52,31 @@ EventsPremium.args = {
     taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
 }
 
+export const Actions: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
+    const { setIndex } = useActions(
+        infiniteListLogic({
+            ...args,
+            taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
+            listGroupType: TaxonomicFilterGroupType.Actions,
+        })
+    )
+    useEffect(() => {
+        // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
+        // - we do want to show the definition popover here too
+        setIndex(0)
+    }, [])
+    return (
+        <div className="w-fit border rounded p-2 bg-white">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+Actions.args = {
+    taxonomicFilterLogicKey: 'actions',
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.Actions],
+}
+
 export const Properties: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
     return (
         <div className="w-fit border rounded p-2 bg-white">

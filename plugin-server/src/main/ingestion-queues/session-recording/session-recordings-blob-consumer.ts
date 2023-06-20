@@ -6,12 +6,14 @@ import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkaf
 import path from 'path'
 import { Gauge } from 'prom-client'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
-import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
@@ -235,7 +237,12 @@ export class SessionRecordingBlobIngester {
             throw e
         }
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars({
+            ...this.serverConfig,
+            // We use the same kafka config overall but different hosts for the session recordings
+            KAFKA_HOSTS: this.serverConfig.SESSION_RECORDING_KAFKA_HOSTS,
+            KAFKA_SECURITY_PROTOCOL: this.serverConfig.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
+        })
         this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -243,7 +250,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
-            topic: KAFKA_SESSION_RECORDING_EVENTS,
+            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             sessionTimeout,
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,

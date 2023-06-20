@@ -4,7 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconTrendingFlat, IconTrendingFlatDown, IconSchedule } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 
-import { pathsLogicType } from './pathsLogicType'
+import { pathsDataLogicType } from './pathsDataLogicType'
 import { PATH_NODE_CARD_WIDTH } from './constants'
 
 type PathNodeCardMenuProps = {
@@ -15,7 +15,7 @@ type PathNodeCardMenuProps = {
     averageConversionTime: number | null
     isPathEnd: boolean
     isPathStart: boolean
-    openPersonsModal: pathsLogicType['actions']['openPersonsModal']
+    openPersonsModal: pathsDataLogicType['actions']['openPersonsModal']
 }
 
 export function PathNodeCardMenu({

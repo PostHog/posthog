@@ -295,11 +295,11 @@
               "type": "string"
           },
           {
-              "key": "start_time",
+              "key": "min_first_timestamp",
               "type": "datetime"
           },
           {
-              "key": "end_time",
+              "key": "max_last_timestamp",
               "type": "datetime"
           },
           {
@@ -354,6 +354,14 @@
                   "pdi",
                   "person_id"
               ]
+          },
+          {
+              "key": "start_time",
+              "type": "datetime"
+          },
+          {
+              "key": "end_time",
+              "type": "datetime"
           }
       ],
       "cohort_people": [
@@ -463,6 +471,11 @@
               "type": "string"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "is_deleted",
               "type": "boolean"
           },
@@ -529,17 +542,17 @@
               "type": "integer"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "sign",
               "type": "integer"
           },
           {
               "key": "version",
               "type": "integer"
-          },
-          {
-              "key": "person",
-              "type": "lazy_table",
-              "table": "persons"
           }
       ],
       "raw_person_overrides": [
@@ -863,11 +876,11 @@
               "type": "string"
           },
           {
-              "key": "start_time",
+              "key": "min_first_timestamp",
               "type": "datetime"
           },
           {
-              "key": "end_time",
+              "key": "max_last_timestamp",
               "type": "datetime"
           },
           {
@@ -922,6 +935,14 @@
                   "pdi",
                   "person_id"
               ]
+          },
+          {
+              "key": "start_time",
+              "type": "datetime"
+          },
+          {
+              "key": "end_time",
+              "type": "datetime"
           }
       ],
       "cohort_people": [
@@ -1031,6 +1052,11 @@
               "type": "string"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "is_deleted",
               "type": "boolean"
           },
@@ -1097,17 +1123,17 @@
               "type": "integer"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "sign",
               "type": "integer"
           },
           {
               "key": "version",
               "type": "integer"
-          },
-          {
-              "key": "person",
-              "type": "lazy_table",
-              "table": "persons"
           }
       ],
       "raw_person_overrides": [

@@ -40,8 +40,7 @@ export function Annotations(): JSX.Element {
         shouldShowEmptyState,
         shouldShowProductIntroduction,
     } = useValues(annotationModalLogic)
-    const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
-        useActions(annotationModalLogic)
+    const { loadAnnotationsNext, openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -126,7 +125,7 @@ export function Annotations(): JSX.Element {
                         size="small"
                         type="tertiary"
                         status="stealth"
-                        onClick={() => openModalToEditAnnotation(annotation)}
+                        to={urls.annotation(annotation.id)}
                     />
                 )
             },

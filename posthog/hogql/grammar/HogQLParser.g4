@@ -40,7 +40,7 @@ limitClause: LIMIT limitExpr ((WITH TIES) | BY columnExprList)?;
 settingsClause: SETTINGS settingExprList;
 
 joinExpr
-    : joinExpr (GLOBAL | LOCAL)? joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
+    : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
@@ -53,7 +53,7 @@ joinOp
     | ((ALL | ANY)? FULL OUTER? | FULL OUTER? (ALL | ANY)?)                         # JoinOpFull
     ;
 joinOpCross
-    : (GLOBAL|LOCAL)? CROSS JOIN
+    : CROSS JOIN
     | COMMA
     ;
 joinConstraintClause
@@ -92,13 +92,7 @@ columnTypeExpr
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnsExpr (COMMA columnsExpr)*;
-columnsExpr
-    : (tableIdentifier DOT)? ASTERISK  # ColumnsExprAsterisk
-    | LPAREN selectUnionStmt RPAREN    # ColumnsExprSubquery
-    // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
-    | columnExpr                       # ColumnsExprColumn
-    ;
+columnExprList: columnExpr (COMMA columnExpr)*;
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
@@ -118,22 +112,22 @@ columnExpr
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
-    | left=columnExpr ( operator=ASTERISK                                                               // multiply
+    | left=columnExpr ( operator=ASTERISK                                                          // multiply
                  | operator=SLASH                                                                  // divide
                  | operator=PERCENT                                                                // modulo
                  ) right=columnExpr                                                             # ColumnExprPrecedence1
-    | left=columnExpr ( operator=PLUS                                                                   // plus
+    | left=columnExpr ( operator=PLUS                                                              // plus
                  | operator=DASH                                                                   // minus
                  | operator=CONCAT                                                                 // concat
                  ) right=columnExpr                                                             # ColumnExprPrecedence2
-    | left=columnExpr ( operator=EQ_DOUBLE                                                              // equals
+    | left=columnExpr ( operator=EQ_DOUBLE                                                         // equals
                  | operator=EQ_SINGLE                                                              // equals
                  | operator=NOT_EQ                                                                 // notEquals
                  | operator=LE                                                                     // lessOrEquals
                  | operator=GE                                                                     // greaterOrEquals
                  | operator=LT                                                                     // less
                  | operator=GT                                                                     // greater
-                 | operator=GLOBAL? NOT? IN                                                        // in, notIn, globalIn, globalNotIn
+                 | operator=NOT? IN COHORT?                                                        // in, notIn; cohort()
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
@@ -143,7 +137,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
-    // Note: difference with Clickhouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
+    // Note: difference with ClickHouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
     | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only

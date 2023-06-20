@@ -193,7 +193,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     else:
         snapshot_data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
 
-        # 2. Otherwise try and group all the events if they are small enough
+        # 2. Otherwise, try and group all the events if they are small enough
         if byte_size_dict(snapshot_data_list) < max_size_bytes:
             event = new_event(snapshot_data_list)
             yield event

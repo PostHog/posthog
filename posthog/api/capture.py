@@ -28,7 +28,7 @@ from posthog.kafka_client.client import (
     KafkaProducer,
     sessionRecordingKafkaProducer,
 )
-from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
@@ -153,14 +153,21 @@ def build_kafka_event_data(
     }
 
 
-def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
+def _kafka_topic(event_name: str) -> str:
     # To allow for different quality of service on session recordings
     # and other events, we push to a different topic.
-    kafka_topic = (
-        KAFKA_SESSION_RECORDING_EVENTS
-        if event_name in SESSION_RECORDING_EVENT_NAMES
-        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-    )
+
+    match event_name:
+        case "$snapshot":
+            return KAFKA_SESSION_RECORDING_EVENTS
+        case "$snapshot_items":
+            return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case _:
+            return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+
+
+def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
+    kafka_topic = _kafka_topic(event_name)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
@@ -379,10 +386,7 @@ def get_event(request):
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
-                if (
-                    random() <= settings.REPLAY_ALTERNATIVE_COMPRESSION_TRAFFIC_RATIO
-                    and settings.SESSION_RECORDING_KAFKA_HOSTS
-                ):
+                if random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
                     # The new flow we only enable if the dedicated kafka is enabled
                     processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
 

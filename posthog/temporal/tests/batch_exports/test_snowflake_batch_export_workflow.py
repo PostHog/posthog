@@ -302,7 +302,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                         "uuid": event["uuid"],
                         "event": event["event"],
                         "timestamp": event["timestamp"],
-                        "properties": event["properties"],
+                        "properties": json.dumps(event["properties"]),
                         "person_id": event["person_id"],
                     }
                     for event in json_data
@@ -313,6 +313,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                     {key: value for key, value in event.items() if key not in ("team_id", "_timestamp")}
                     for event in events
                 ]
+                assert json_data[0] == events[0]
                 assert json_data == events
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)

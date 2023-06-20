@@ -396,6 +396,7 @@ export const routes: Record<string, Scene> = {
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
+    [urls.annotation(':id')]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
