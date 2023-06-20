@@ -132,40 +132,44 @@ def serialize_database(database: Database) -> dict:
             for field in table.__fields__.keys():
                 field_input[field] = getattr(table, field, None)
 
-        field_output: List[Dict[str, Any]] = []
-        for field_key, field in field_input.items():
-            if field_key == "team_id":
-                pass
-            elif isinstance(field, DatabaseField):
-                if isinstance(field, IntegerDatabaseField):
-                    field_output.append({"key": field_key, "type": "integer"})
-                elif isinstance(field, FloatDatabaseField):
-                    field_output.append({"key": field_key, "type": "float"})
-                elif isinstance(field, StringDatabaseField):
-                    field_output.append({"key": field_key, "type": "string"})
-                elif isinstance(field, DateTimeDatabaseField):
-                    field_output.append({"key": field_key, "type": "datetime"})
-                elif isinstance(field, DateDatabaseField):
-                    field_output.append({"key": field_key, "type": "date"})
-                elif isinstance(field, BooleanDatabaseField):
-                    field_output.append({"key": field_key, "type": "boolean"})
-                elif isinstance(field, StringJSONDatabaseField):
-                    field_output.append({"key": field_key, "type": "json"})
-            elif isinstance(field, LazyJoin):
-                field_output.append(
-                    {"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()}
-                )
-            elif isinstance(field, VirtualTable):
-                field_output.append(
-                    {
-                        "key": field_key,
-                        "type": "virtual_table",
-                        "table": field.to_printed_hogql(),
-                        "fields": list(field.__fields__.keys()),
-                    }
-                )
-            elif isinstance(field, FieldTraverser):
-                field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        field_output: List[Dict[str, Any]] = serialize_fields(field_input)
         tables[table_key] = field_output
 
     return tables
+
+
+def serialize_fields(field_input) -> List[Dict[str, Any]]:
+    field_output: List[Dict[str, Any]] = []
+    for field_key, field in field_input.items():
+        if field_key == "team_id":
+            pass
+        elif isinstance(field, DatabaseField):
+            if isinstance(field, IntegerDatabaseField):
+                field_output.append({"key": field_key, "type": "integer"})
+            elif isinstance(field, FloatDatabaseField):
+                field_output.append({"key": field_key, "type": "float"})
+            elif isinstance(field, StringDatabaseField):
+                field_output.append({"key": field_key, "type": "string"})
+            elif isinstance(field, DateTimeDatabaseField):
+                field_output.append({"key": field_key, "type": "datetime"})
+            elif isinstance(field, DateDatabaseField):
+                field_output.append({"key": field_key, "type": "date"})
+            elif isinstance(field, BooleanDatabaseField):
+                field_output.append({"key": field_key, "type": "boolean"})
+            elif isinstance(field, StringJSONDatabaseField):
+                field_output.append({"key": field_key, "type": "json"})
+        elif isinstance(field, LazyJoin):
+            field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
+        elif isinstance(field, VirtualTable):
+            field_output.append(
+                {
+                    "key": field_key,
+                    "type": "virtual_table",
+                    "table": field.to_printed_hogql(),
+                    "fields": list(field.__fields__.keys()),
+                }
+            )
+        elif isinstance(field, FieldTraverser):
+            field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+
+    return field_output

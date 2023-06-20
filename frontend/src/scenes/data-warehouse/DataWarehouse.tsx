@@ -5,10 +5,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductKey } from '~/types'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { DataWarehouseTablesContainer } from './DataWarehouseTables'
 
 export const scene: SceneExport = {
     component: DataWarehouse,
@@ -60,7 +60,7 @@ export function DataWarehouse(): JSX.Element {
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}
-            <DatabaseTables />
+            <DataWarehouseTablesContainer />
         </div>
     )
 }

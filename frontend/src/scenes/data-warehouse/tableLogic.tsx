@@ -69,12 +69,12 @@ export const tableLogic = kea<tableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            router.actions.replace(urls.dataWarehouseTable(table.id))
+            router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
-            router.actions.replace(urls.dataWarehouseTable(table.id))
+            router.actions.replace(urls.dataWarehouse())
         },
     })),
     reducers({

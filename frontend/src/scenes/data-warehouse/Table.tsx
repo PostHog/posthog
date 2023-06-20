@@ -98,6 +98,31 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                         ]}
                     />
                 </Field>
+                <Field name="access_key" label="Access Key">
+                    <LemonInput
+                        data-attr="access-key"
+                        className="ph-ignore-input"
+                        autoFocus
+                        placeholder="eg: AKIAIOSFODNN7EXAMPLE"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                    />
+                </Field>
+                <Field name="access_secret" label="Access Secret">
+                    <LemonInput
+                        data-attr="access-key"
+                        className="ph-ignore-input"
+                        autoFocus
+                        type="password"
+                        placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                    />
+                </Field>
             </div>
         </Form>
     )
