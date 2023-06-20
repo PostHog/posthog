@@ -79,12 +79,12 @@ export const createExportServiceHandlers = (
 
                 return res(ctx.delay(1000), ctx.json(run))
             },
-            delete: {
-                '/api/projects/:team_id/batch_exports/:export_id': (req: any, res: any, ctx: any) => {
-                    const id = req.params.export_id as string
-                    delete exports[id]
-                    return res(ctx.delay(1000))
-                },
+        },
+        delete: {
+            '/api/projects/:team_id/batch_exports/:export_id/': (req: any, res: any, ctx: any) => {
+                const id = req.params.export_id as string
+                delete exports[id]
+                return res(ctx.delay(1000))
             },
         },
     }
