@@ -36,16 +36,18 @@ const BUFFER_MS = 60000 // +- before and after start and end of a recording to q
 
 const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): RecordingSnapshot[] => {
     const snapshots: RecordingSnapshot[] = items.flatMap((l) => {
-        const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
-        const snapshotData =
-            typeof snapshotLine['data'] === 'string'
-                ? (JSON.parse(snapshotLine['data']) as eventWithTime[])
-                : snapshotLine['data']
+        try {
+            const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
+            const snapshotData = snapshotLine['data']
 
-        return snapshotData.map((d: any) => ({
-            windowId: snapshotLine['window_id'],
-            ...d,
-        }))
+            return snapshotData.map((d: any) => ({
+                windowId: snapshotLine['window_id'],
+                ...d,
+            }))
+        } catch (e) {
+            captureException(e)
+            return []
+        }
     })
 
     return snapshots
@@ -277,7 +279,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             )
         },
     })),
-    loaders(({ values, props, cache, actions }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 cache.metaStartTime = performance.now()
@@ -290,14 +292,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
                 const response = await api.recordings.get(props.sessionRecordingId, params)
                 breakpoint()
-
-                if (response.snapshot_data_by_window_id) {
-                    const snapshots = convertSnapshotsResponse(response.snapshot_data_by_window_id)
-                    // When loaded from S3 the snapshots are already present
-                    actions.loadRecordingSnapshotsV2Success({
-                        snapshots,
-                    })
-                }
 
                 return response
             },
@@ -485,7 +479,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { person } = values.sessionPlayerData
 
-                    // TODO: Move this to an optimised HoqQL query when available...
+                    // TODO: Move this to an optimised HogQL query when available...
                     try {
                         const res: any = await api.query({
                             kind: 'EventsQuery',

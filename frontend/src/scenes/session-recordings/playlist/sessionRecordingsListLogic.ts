@@ -5,6 +5,7 @@ import {
     AnyPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    RecordingDurationFilter,
     RecordingFilters,
     SessionRecordingId,
     SessionRecordingsResponse,
@@ -32,18 +33,21 @@ interface HashParams {
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
+export const defaultRecordingDurationFilter: RecordingDurationFilter = {
+    type: PropertyFilterType.Recording,
+    key: 'duration',
+    value: 60,
+    operator: PropertyOperator.GreaterThan,
+}
+
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
-    session_recording_duration: {
-        type: PropertyFilterType.Recording,
-        key: 'duration',
-        value: 60,
-        operator: PropertyOperator.GreaterThan,
-    },
+    session_recording_duration: defaultRecordingDurationFilter,
     properties: [],
     events: [],
     actions: [],
     date_from: '-7d',
     date_to: null,
+    console_logs: [],
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
@@ -277,7 +281,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         filters: [
             props.filters || getDefaultFilters(props.personUUID),
             {
-                replaceFilters: (_, { filters }) => filters,
+                replaceFilters: (_, { filters }) => {
+                    return {
+                        ...filters,
+                        session_recording_duration:
+                            filters.session_recording_duration || defaultRecordingDurationFilter,
+                    }
+                },
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
@@ -444,7 +454,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     (equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
-                        : 1)
+                        : 1) +
+                    (filters.console_logs?.length || 0)
                 )
             },
         ],

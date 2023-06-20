@@ -75,9 +75,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "matching_events",
             "person",
-            "segments",
-            "start_and_end_times_by_window_id",
-            "snapshot_data_by_window_id",
             "storage",
             "pinned_count",
         ]
@@ -93,7 +90,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "keypress_count",
             "start_url",
             "matching_events",
-            "snapshot_data_by_window_id",
             "storage",
             "pinned_count",
         ]
@@ -330,7 +326,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         else:
             next_url = None
 
-        res = {"next": next_url, "snapshot_data_by_window_id": recording.snapshot_data_by_window_id}
+        res = {
+            "storage": recording.storage,
+            "next": next_url,
+            "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+        }
 
         return snapshots_response(res)
 

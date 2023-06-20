@@ -5,6 +5,7 @@ import {
     BreakdownType,
     CohortType,
     EntityFilter,
+    EntityTypes,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -14,7 +15,7 @@ import {
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -27,6 +28,10 @@ import { isEventsNode } from '~/queries/utils'
 import { urls } from 'scenes/urls'
 import { examples } from '~/queries/examples'
 
+export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
+    return filter !== null && filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name
+}
+
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
     isCustom = true
@@ -34,10 +39,10 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
     }
-    if (filter?.type === 'events' && filter.id === null) {
+    if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
     }
 
@@ -49,8 +54,8 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'

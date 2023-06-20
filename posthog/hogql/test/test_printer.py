@@ -158,16 +158,14 @@ class TestPrinter(BaseTest):
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(
-            self._expr("properties.0", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.0",
+            self._expr("properties.1", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.1",
         )
         self.assertEqual(
-            self._expr("properties.`0`", HogQLContext(team_id=self.team.pk), "hogql"),
-            "properties.`0`",
+            self._expr("properties.`1`", HogQLContext(team_id=self.team.pk), "hogql"),
+            "properties.`1`",
         )
-        self._assert_expr_error(
-            "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
-        )
+        self._assert_expr_error("properties.'no strings'", "no viable alternative at input '.'no strings'", "hogql")
 
     def test_hogql_properties_json(self):
         context = HogQLContext(team_id=self.team.pk)
@@ -251,6 +249,8 @@ class TestPrinter(BaseTest):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
+        self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+        self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):
@@ -619,4 +619,26 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("'a' || 'b' || 3 || timestamp"),
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
+        )
+
+    def test_functions_expecting_datetime_arg(self):
+        self.assertEqual(
+            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(now(), toIntervalDay('1'))"),
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )

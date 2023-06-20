@@ -5,6 +5,7 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     overflow: hidden;
+    flex: 1;
     --row-base-height: 3rem;
     &--xs {
         --row-base-height: 2rem;
@@ -38,10 +39,8 @@
     }
     .PaginationControl {
         height: var(--row-base-height);
-        margin: 0;
-        border-left: none;
-        border-right: none;
-        border-bottom: none;
+        padding: 0.5rem;
+        border-top: 1px solid var(--border);
     }
     .row-name {
         display: flex;
@@ -108,9 +107,6 @@
             &:not(:first-child) {
                 border-top: 1px solid var(--border);
             }
-            &:not(:first-child).row-type-\$exception {
-                border-top: 1px solid var(--danger-dark);
-            }
             > th,
             > td {
                 padding-left: 1rem;
@@ -156,6 +152,7 @@
     background: rgba(255, 255, 255, 0.5);
     opacity: 0;
     pointer-events: none;
+    z-index: 1;
     .LemonTable--loading & {
         opacity: 1;
         pointer-events: auto;
@@ -174,4 +171,9 @@
     align-items: center;
     justify-content: space-between;
     line-height: 1.5;
+}
+
+.LemonTable__footer {
+    border-top: 1px solid var(--border);
+    cursor: default;
 }

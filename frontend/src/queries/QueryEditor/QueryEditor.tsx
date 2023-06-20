@@ -77,6 +77,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                     disabled={!props.setQuery || !!error || !inputChanged}
                     fullWidth
                     center
+                    data-attr="query-editor-save"
                 >
                     {!props.setQuery ? 'No permission to update' : 'Update'}
                 </LemonButton>

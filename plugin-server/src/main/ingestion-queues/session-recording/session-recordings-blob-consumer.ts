@@ -11,7 +11,6 @@ import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, Team } from '../../../types'
-import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
@@ -156,7 +155,7 @@ export class SessionRecordingBlobIngester {
             return statusWarn('invalid_json', { error })
         }
 
-        if (event.event !== '$snapshot') {
+        if (event.event !== '$snapshot_items' || !event.properties?.$snapshot_items?.length) {
             status.debug('🙈', 'Received non-snapshot message, ignoring')
             return
         }
@@ -184,11 +183,6 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
-            // NOTE: due to the high volume of hits here we don't log this
-            return
-        }
-
         if (!team.session_recording_opt_in) {
             eventDroppedCounter
                 .labels({
@@ -198,8 +192,6 @@ export class SessionRecordingBlobIngester {
                 .inc()
             return
         }
-
-        const $snapshot_data = event.properties?.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
@@ -213,15 +205,7 @@ export class SessionRecordingBlobIngester {
             distinct_id: event.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
-
-            // Properties data
-            chunk_id: $snapshot_data.chunk_id,
-            chunk_index: $snapshot_data.chunk_index,
-            chunk_count: $snapshot_data.chunk_count,
-            data: $snapshot_data.data,
-            compression: $snapshot_data.compression,
-            has_full_snapshot: $snapshot_data.has_full_snapshot,
-            events_summary: $snapshot_data.events_summary,
+            events: event.properties.$snapshot_items,
         }
 
         const consumeSpan = span?.startChild({
@@ -259,10 +243,14 @@ export class SessionRecordingBlobIngester {
             captureException(e)
             throw e
         }
-
         await this.realtimeManager.subscribe()
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars({
+            ...this.serverConfig,
+            // We use the same kafka config overall but different hosts for the session recordings
+            KAFKA_HOSTS: this.serverConfig.SESSION_RECORDING_KAFKA_HOSTS,
+            KAFKA_SECURITY_PROTOCOL: this.serverConfig.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
+        })
         this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
