@@ -52,7 +52,7 @@ export function MetricSelector({
     const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // insightVizDataLogic
-    const { series, isTrends, isFunnels, query } = useValues(insightVizDataLogic(insightProps))
+    const { series, isTrends, isFunnels, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     // set the initial query from filters
@@ -69,7 +69,7 @@ export function MetricSelector({
 
     // update filters when query changes
     useEffect(() => {
-        const filtersFromQuery = queryNodeToFilter(query.source)
+        const filtersFromQuery = querySource ? queryNodeToFilter(querySource) : filters
         if (!equal(filters, filtersFromQuery)) {
             console.group('SETFILTERS')
             console.debug('filtersFromQuery: ', filtersFromQuery)
@@ -77,7 +77,7 @@ export function MetricSelector({
             console.groupEnd()
             setFilters(filtersFromQuery)
         }
-    }, [query])
+    }, [querySource])
 
     // calculated properties
     const filterSteps = series || []
