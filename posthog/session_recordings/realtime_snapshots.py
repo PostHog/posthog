@@ -9,7 +9,7 @@ logger = structlog.get_logger(__name__)
 
 
 SUBSCRIPTION_CHANNEL = "@posthog/replay/realtime-subscriptions"
-ATTEMPT_MAX = 5
+ATTEMPT_MAX = 10
 ATTEMPT_TIMEOUT_SECONDS = 5
 
 
