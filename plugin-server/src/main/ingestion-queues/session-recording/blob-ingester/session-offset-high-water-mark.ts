@@ -97,9 +97,9 @@ export class SessionOffsetHighWaterMark {
                         },
                         {}
                     )
-                    if (highWaterMarks) {
-                        this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`] = highWaterMarks
-                    }
+
+                    this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`] = highWaterMarks
+
                     return highWaterMarks
                 })
             }
