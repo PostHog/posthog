@@ -21,7 +21,7 @@ selectStmt:
     havingClause?
     windowClause?
     orderByClause?
-    limitClause?
+    (limitAndOffsetClause | offsetOnlyClause)?
     settingsClause?
     ;
 
@@ -36,7 +36,12 @@ groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnEx
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
-limitClause: LIMIT limitExpr ((WITH TIES) | BY columnExprList)?;
+limitAndOffsetClause
+    : LIMIT columnExpr (COMMA columnExpr)? ((WITH TIES) | BY columnExprList)? // compact OFFSET-optional form
+    | LIMIT columnExpr (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
+    | LIMIT columnExpr OFFSET columnExpr (BY columnExprList)? // verbose OFFSET-included form with BY
+    ;
+offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
 
 joinExpr
@@ -63,7 +68,6 @@ joinConstraintClause
     ;
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
-limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
 ratioExpr: numberLiteral (SLASH numberLiteral)?;
