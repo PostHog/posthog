@@ -99,6 +99,7 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
+    SESSION_REPLAY = 'session_replay',
 }
 
 export enum LicensePlan {

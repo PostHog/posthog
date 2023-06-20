@@ -10,6 +10,7 @@ export const ProductIntroduction = ({
     productKey,
     thingName,
     description,
+    titleOverride,
     isEmpty,
     action,
     actionElementOverride,
@@ -22,6 +23,8 @@ export const ProductIntroduction = ({
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
+    /** If you want to override the title, defaults to "Create your first *thing*" */
+    titleOverride?: string
     /** If we should show the empty state */
     isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
@@ -66,7 +69,9 @@ export const ProductIntroduction = ({
                         {!isEmpty
                             ? `Welcome to ${productName}!`
                             : actionable
-                            ? `Create your first ${thingName}`
+                            ? titleOverride
+                                ? titleOverride
+                                : `Create your first ${thingName}`
                             : `No ${thingName}s yet`}
                     </h2>
                     <p className="ml-0">{description}</p>
