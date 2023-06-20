@@ -40,7 +40,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/DataWarehouse'),
-    [Scene.DataWarehouseTable]: () => import('./data-warehouse/Table'),
+    [Scene.DataWarehouseTable]: () => import('./data-warehouse/DataWarehouseTable'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),

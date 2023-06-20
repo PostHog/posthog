@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { tableLogic } from './tableLogic'
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -10,25 +10,25 @@ import { urls } from 'scenes/urls'
 import { Field } from 'lib/forms/Field'
 
 export const scene: SceneExport = {
-    component: Table,
-    logic: tableLogic,
-    paramsToProps: ({ params: { id } }): (typeof tableLogic)['props'] => ({
+    component: DataWarehousetTable,
+    logic: dataWarehouseTableLogic,
+    paramsToProps: ({ params: { id } }): (typeof dataWarehouseTableLogic)['props'] => ({
         id: id,
     }),
 }
 
-export function Table({ id }: { id?: string } = {}): JSX.Element {
-    const { isEditingTable } = useValues(tableLogic)
+export function DataWarehousetTable({ id }: { id?: string } = {}): JSX.Element {
+    const { isEditingTable } = useValues(dataWarehouseTableLogic)
     const showTableForm = id === 'new' || isEditingTable
     return <div>{!id ? <LemonSkeleton /> : <>{showTableForm ? <TableForm id={id} /> : <></>}</>}</div>
 }
 
 export function TableForm({ id }: { id: string }): JSX.Element {
-    const { table, tableLoading, isEditingTable } = useValues(tableLogic)
-    const { loadTable, editingTable } = useActions(tableLogic)
+    const { table, tableLoading, isEditingTable } = useValues(dataWarehouseTableLogic)
+    const { loadTable, editingTable } = useActions(dataWarehouseTableLogic)
 
     return (
-        <Form formKey="table" logic={tableLogic} className="space-y-4" enableFormOnSubmit>
+        <Form formKey="table" logic={dataWarehouseTableLogic} className="space-y-4" enableFormOnSubmit>
             <PageHeader
                 title={id === 'new' ? 'New table' : table.name}
                 buttons={
@@ -98,7 +98,7 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                         ]}
                     />
                 </Field>
-                <Field name="access_key" label="Access Key">
+                <Field name={['credential', 'access_key']} label="Access Key">
                     <LemonInput
                         data-attr="access-key"
                         className="ph-ignore-input"
@@ -110,9 +110,9 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                         spellCheck={false}
                     />
                 </Field>
-                <Field name="access_secret" label="Access Secret">
+                <Field name={['credential', 'access_secret']} label="Access Secret">
                     <LemonInput
-                        data-attr="access-key"
+                        data-attr="access-secret"
                         className="ph-ignore-input"
                         autoFocus
                         type="password"

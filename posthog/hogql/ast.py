@@ -124,7 +124,6 @@ class SelectQueryType(Type):
     parent: Optional[Union["SelectQueryType", "SelectUnionQueryType"]] = None
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
-
         for key, value in self.tables.items():
             if value == table_type:
                 return key

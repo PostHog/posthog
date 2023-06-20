@@ -8,8 +8,7 @@ import { urls } from 'scenes/urls'
 import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
 import { DataTableNode } from '~/queries/schema'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
-
-import type { tableLogicType } from './tableLogicType'
+import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
     id: string | 'new'
@@ -24,9 +23,10 @@ const NEW_TABLE: DataWarehouseTable = {
         access_key: '',
         access_secret: '',
     },
+    columns: [],
 }
 
-export const tableLogic = kea<tableLogicType>([
+export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     path(['scenes', 'data-warehouse', 'tableLogic']),
     props({} as TableLogicProps),
     key(({ id }) => id),
@@ -54,10 +54,6 @@ export const tableLogic = kea<tableLogicType>([
             createTable: async (tablePayload) => {
                 return await api.dataWarehouseTables.create({
                     ...tablePayload,
-                    credential: {
-                        access_key: tablePayload.access_key,
-                        access_secret: tablePayload.access_secret,
-                    },
                 })
             },
             updateTable: async (tablePayload) => {
@@ -106,13 +102,18 @@ export const tableLogic = kea<tableLogicType>([
     forms(({ actions, props }) => ({
         table: {
             defaults: { ...NEW_TABLE } as DataWarehouseTable,
-            errors: ({ name, url_pattern, access_key, access_secret, format }) => ({
-                name: !name && 'Please enter a name.',
-                url_pattern: !url_pattern && 'Please enter a url pattern.',
-                access_secret: !access_secret && 'Please enter an access secret.',
-                access_key: !access_key && 'Please enter an access key.',
-                format: !format && 'Please enter the format of your files.',
-            }),
+            errors: ({ name, url_pattern, credential, format }) => {
+                console.log(credential.access_secret.length == 0)
+                return {
+                    name: !name && 'Please enter a name.',
+                    url_pattern: !url_pattern && 'Please enter a url pattern.',
+                    credential: {
+                        access_secret: !credential.access_secret && 'Please enter an access secret.',
+                        access_key: !credential.access_key && 'Please enter an access key.',
+                    },
+                    format: !format && 'Please enter the format of your files.',
+                }
+            },
             submit: async (tablePayload) => {
                 if (props.id && props.id !== 'new') {
                     actions.updateTable(tablePayload)
