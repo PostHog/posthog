@@ -14,7 +14,7 @@ export interface TableLogicProps {
     id: string | 'new'
 }
 
-const NEW_TABLE: DataWarehouseTable = {
+const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     id: '',
     name: '',
     url_pattern: '',
@@ -49,7 +49,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                 if (props.id && props.id !== 'new') {
                     return await api.dataWarehouseTables.get(props.id)
                 }
-                return { ...NEW_TABLE }
+                return { ...NEW_WAREHOUSE_TABLE }
             },
             createTable: async (tablePayload) => {
                 return await api.dataWarehouseTables.create({
@@ -101,7 +101,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     }),
     forms(({ actions, props }) => ({
         table: {
-            defaults: { ...NEW_TABLE } as DataWarehouseTable,
+            defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
                 console.log(credential.access_secret.length == 0)
                 return {
