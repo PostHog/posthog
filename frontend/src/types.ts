@@ -485,7 +485,6 @@ export enum ProgressStatus {
     Draft = 'draft',
     Running = 'running',
     Complete = 'complete',
-    All = 'all',
 }
 
 export enum PropertyFilterType {
@@ -695,7 +694,6 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
     console_logs?: FilterableLogLevel[]
@@ -1481,8 +1479,9 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
 }
 
-export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
     date_marker: dayjs.Dayjs | null
+    created_at: dayjs.Dayjs
 }
 
 export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
@@ -2122,6 +2121,11 @@ export enum EarlyAccessFeatureStage {
     Archived = 'archived',
 }
 
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
@@ -2251,6 +2255,7 @@ export type HotKey =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+    | 'forwardslash'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
@@ -2910,6 +2915,7 @@ export type NotebookListItemType = {
     // id: string
     short_id: string
     title?: string
+    is_template?: boolean
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string
@@ -2917,7 +2923,6 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    is_template?: boolean
     content: JSONContent // TODO: Type this better
     version: number
 }

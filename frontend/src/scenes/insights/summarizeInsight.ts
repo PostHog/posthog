@@ -1,6 +1,6 @@
 import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 import { BreakdownFilter, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
     isFunnelsFilter,
@@ -61,7 +61,7 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                     ? breakdown_type
                     : context.aggregationLabel(breakdown_group_type_index, true).singular
             return `${noun}'s ${
-                (breakdown as string) in keyMapping.event ? keyMapping.event[breakdown as string].label : breakdown
+                (breakdown as string) in KEY_MAPPING.event ? KEY_MAPPING.event[breakdown as string].label : breakdown
             }`
         }
     }
@@ -140,7 +140,7 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                     series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
-                        keyMapping.event[localFilter.math_property as string]?.label || localFilter.math_property
+                        KEY_MAPPING.event[localFilter.math_property as string]?.label || localFilter.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName
@@ -189,7 +189,7 @@ function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext)
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityNode(s)}'s ${
-                        keyMapping.event[s.math_property as string]?.label || s.math_property
+                        KEY_MAPPING.event[s.math_property as string]?.label || s.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName

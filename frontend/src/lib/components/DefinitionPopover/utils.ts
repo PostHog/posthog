@@ -1,12 +1,7 @@
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-
-export function eventToHumanName(event?: string): string {
-    return event && event[0] == '$' ? event[1].toUpperCase() + event.slice(2) : event ?? 'Event'
-}
 
 export function operatorToHumanName(operator?: string): string {
     if (operator === 'gte') {
@@ -33,20 +28,8 @@ export function allOperatorsToHumanName(operator?: PropertyOperator | null): str
 }
 
 export function propertyValueToHumanName(value?: PropertyFilterValue): string {
-    if (value?.[0]) {
-        return value[0]
-    }
-    if (value === '') {
-        return '(empty string)'
-    }
-    if (!value) {
-        return String(value)
-    }
-    return ''
-}
-
-export function formatTimeFromNow(day?: string): string {
-    return day ? dayjs.utc(day).fromNow() : '-'
+    const values = Array.isArray(value) ? value : [value]
+    return values.map((value) => (value === '' ? '(empty string)' : String(value))).join(' or ')
 }
 
 export function getSingularType(type: TaxonomicFilterGroupType): string {

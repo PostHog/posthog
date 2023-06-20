@@ -66,7 +66,6 @@ describe('PersonState.update()', () => {
             timestamp,
             customHub ? customHub.db : hub.db,
             customHub ? customHub.statsd : hub.statsd,
-            customHub ? customHub.personManager : hub.personManager,
             poEEmbraceJoin,
             uuid,
             maxMergeAttempts ?? 3 // the default

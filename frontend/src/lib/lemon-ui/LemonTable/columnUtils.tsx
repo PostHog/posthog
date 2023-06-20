@@ -1,10 +1,11 @@
-import { TZLabel } from 'lib/components/TZLabel' // TODO: Bring this into Lemon UI
+import { TZLabel } from 'lib/components/TZLabel'
 import { Row } from 'antd'
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonTableColumn } from './types'
 import { UserBasicType } from '~/types'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
-export function createdAtColumn<T extends { created_at?: string | null }>(): LemonTableColumn<T, 'created_at'> {
+export function createdAtColumn<T extends { created_at?: string | Dayjs | null }>(): LemonTableColumn<T, 'created_at'> {
     return {
         title: 'Created',
         dataIndex: 'created_at',
@@ -18,7 +19,7 @@ export function createdAtColumn<T extends { created_at?: string | null }>(): Lem
             )
         },
         align: 'right',
-        sorter: (a, b) => (new Date(a.created_at || 0) > new Date(b.created_at || 0) ? 1 : -1),
+        sorter: (a, b) => dayjs(a.created_at || 0).diff(b.created_at || 0),
     }
 }
 

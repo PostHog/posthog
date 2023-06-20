@@ -5,6 +5,7 @@ from typing import Any, Callable, List, Optional, cast
 import structlog
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
@@ -12,22 +13,23 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware, Metrics
+from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+from rest_framework import status
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.rate_limit import DecideRateThrottle
+from posthog.settings import SITE_URL
 from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
 from posthog.utils import cors_response
-from rest_framework import status
-
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -42,6 +44,17 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
 ]
+
+default_cookie_options = {
+    "max_age": 365 * 24 * 60 * 60,  # one year
+    "expires": None,
+    "path": "/",
+    "domain": "posthog.com",
+    "secure": True,
+    "samesite": "Strict",
+}
+
+cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
 
 
 class AllowIPMiddleware:
@@ -478,3 +491,61 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
             new_labels = {LABEL_TEAM_ID: team_id}
             new_labels.update(labels)
         return super().label_metric(metric, request, response=response, **new_labels)
+
+
+class PostHogTokenCookieMiddleware(SessionMiddleware):
+    """
+    Adds two secure cookies to enable auto-filling the current project token on the docs.
+    """
+
+    def process_response(self, request, response):
+        response = super().process_response(request, response)
+
+        if not is_cloud():
+            return response
+
+        # skip adding the cookie on API requests
+        split_request_path = request.path.split("/")
+        if len(split_request_path) and split_request_path[1] in cookie_api_paths_to_ignore:
+            return response
+
+        if request.path.startswith("/logout"):
+            # clears the cookies that were previously set
+            response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
+            response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
+            response.delete_cookie("ph_current_instance", domain=default_cookie_options["domain"])
+        if request.user and request.user.is_authenticated and request.user.team:
+            response.set_cookie(
+                key="ph_current_project_token",
+                value=request.user.team.api_token,
+                max_age=365 * 24 * 60 * 60,
+                expires=default_cookie_options["expires"],
+                path=default_cookie_options["path"],
+                domain=default_cookie_options["domain"],
+                secure=default_cookie_options["secure"],
+                samesite=default_cookie_options["samesite"],
+            )
+
+            response.set_cookie(
+                key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
+                value=request.user.team.name.encode("utf-8").decode("latin-1"),
+                max_age=365 * 24 * 60 * 60,
+                expires=default_cookie_options["expires"],
+                path=default_cookie_options["path"],
+                domain=default_cookie_options["domain"],
+                secure=default_cookie_options["secure"],
+                samesite=default_cookie_options["samesite"],
+            )
+
+            response.set_cookie(
+                key="ph_current_instance",  # clarify which project is active (orgs can have multiple projects)
+                value=SITE_URL,
+                max_age=365 * 24 * 60 * 60,
+                expires=default_cookie_options["expires"],
+                path=default_cookie_options["path"],
+                domain=default_cookie_options["domain"],
+                secure=default_cookie_options["secure"],
+                samesite=default_cookie_options["samesite"],
+            )
+
+        return response

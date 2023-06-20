@@ -7,7 +7,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { useEffect } from 'react'
-import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, KEY_MAPPING, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconInfo, IconLock, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -15,14 +15,14 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
-import { Button, Checkbox } from 'antd'
-import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { hide } from '@floating-ui/react'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { TZLabel } from '../TZLabel'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -107,22 +107,25 @@ export function VerifiedDefinitionCheckbox({
 
     return (
         <div className="border p-2 rounded">
-            <Checkbox
+            <LemonCheckbox
                 checked={verified}
                 onChange={() => {
                     onChange(!verified)
                 }}
-            >
-                <span className="font-semibold">
-                    Verified {isProperty ? 'property' : 'event'}
-                    {compact && (
-                        <Tooltip title={copy}>
-                            <IconInfo className="ml-1 text-muted text-xl shrink-0" />
-                        </Tooltip>
-                    )}
-                </span>
-                {!compact && <div className="text-muted mt-1">{copy}</div>}
-            </Checkbox>
+                label={
+                    <>
+                        <span className="flex items-center font-semibold">
+                            Verified {isProperty ? 'property' : 'event'}
+                            {compact && (
+                                <Tooltip title={copy}>
+                                    <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                                </Tooltip>
+                            )}
+                        </span>
+                        {!compact && <div className="text-muted mt-1">{copy}</div>}
+                    </>
+                }
+            />
         </div>
     )
 }
@@ -138,7 +141,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     const description: string | JSX.Element | undefined | null =
         (definition && 'description' in definition && definition?.description) ||
         (definition?.name &&
-            (keyMapping.element[definition.name]?.description || keyMapping.event[definition.name]?.description))
+            (KEY_MAPPING.element[definition.name]?.description || KEY_MAPPING.event[definition.name]?.description))
 
     const sharedComponents = (
         <>
@@ -174,8 +177,14 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 {sharedComponents}
                 {hasTaxonomyFeatures ? (
                     <DefinitionPopover.Grid cols={2}>
-                        <DefinitionPopover.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
-                        <DefinitionPopover.Card title="Last seen" value={formatTimeFromNow(_definition.last_seen_at)} />
+                        <DefinitionPopover.Card
+                            title="First seen"
+                            value={_definition.created_at && <TZLabel time={_definition.created_at} />}
+                        />
+                        <DefinitionPopover.Card
+                            title="Last seen"
+                            value={_definition.last_seen_at && <TZLabel time={_definition.last_seen_at} />}
+                        />
                         <DefinitionPopover.Card
                             title={<ThirtyDayVolumeTitle />}
                             value={
@@ -212,7 +221,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <ActionPopoverInfo entity={_definition} />
                 {(_definition?.steps?.length || 0) > 0 && <DefinitionPopover.HorizontalLine />}
                 <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card title="First seen" value={formatTimeFromNow(_definition.created_at)} />
+                    <DefinitionPopover.Card
+                        title="First seen"
+                        value={_definition.created_at && <TZLabel time={_definition.created_at} />}
+                    />
                 </DefinitionPopover.Grid>
             </>
         )
@@ -257,7 +269,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopover.Card title="Persons" value={_definition.count ?? 0} />
                         <DefinitionPopover.Card
                             title="Last calculated"
-                            value={formatTimeFromNow(_definition.last_calculation)}
+                            value={_definition.last_calculation && <TZLabel time={_definition.last_calculation} />}
                         />
                     </DefinitionPopover.Grid>
                 </>
@@ -271,7 +283,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopover.Card title="Persons" value={_definition.count ?? 0} />
                         <DefinitionPopover.Card
                             title="Last calculated"
-                            value={formatTimeFromNow(_definition.last_calculation)}
+                            value={_definition.last_calculation && <TZLabel time={_definition.last_calculation} />}
                         />
                     </DefinitionPopover.Grid>
                     <CohortPopoverInfo cohort={_definition} />
@@ -285,7 +297,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <DefinitionPopover.Card title="Persons" value={_definition.count ?? 0} />
                     <DefinitionPopover.Card
                         title="Last calculated"
-                        value={formatTimeFromNow(_definition.last_calculation)}
+                        value={_definition.last_calculation && <TZLabel time={_definition.last_calculation} />}
                     />
                 </DefinitionPopover.Grid>
             </>
@@ -378,38 +390,40 @@ function DefinitionEdit(): JSX.Element {
                     />
                 )}
                 <DefinitionPopover.HorizontalLine style={{ marginTop: 0 }} />
-                <div className="definition-popover-edit-form-buttons click-outside-block">
+                <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <Link target="_blank" to={viewFullDetailUrl}>
-                            <Button
-                                className="definition-popover-edit-form-buttons-secondary"
-                                style={{ color: 'var(--primary)', display: 'flex', alignItems: 'center' }}
-                                disabled={definitionLoading}
+                            <LemonButton
+                                sideIcon={<IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />}
+                                disabledReason={definitionLoading ? 'Loading…' : undefined}
+                                type="secondary"
+                                size="small"
                             >
                                 More options
-                                <IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />
-                            </Button>
+                            </LemonButton>
                         </Link>
                     ) : (
                         <div className="flex-1" />
                     )}
-                    <div>
-                        <Button
+                    <div className="flex items-center">
+                        <LemonButton
                             onClick={handleCancel}
-                            className="definition-popover-edit-form-buttons-secondary"
-                            style={{ color: 'var(--primary)', marginRight: 8 }}
-                            disabled={definitionLoading}
+                            className=" mr-2"
+                            disabledReason={definitionLoading ? 'Loading…' : undefined}
+                            type="secondary"
+                            size="small"
                         >
                             Cancel
-                        </Button>
-                        <Button
+                        </LemonButton>
+                        <LemonButton
                             type="primary"
                             onClick={handleSave}
-                            className="definition-popover-edit-form-buttons-primary"
-                            disabled={definitionLoading || !dirty}
+                            disabledReason={!dirty ? 'No changes to save' : undefined}
+                            loading={definitionLoading}
+                            size="small"
                         >
                             Save
-                        </Button>
+                        </LemonButton>
                     </div>
                 </div>
             </form>

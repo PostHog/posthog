@@ -271,7 +271,6 @@ class User(AbstractUser, UUIDClassicModel):
                 completed_snippet_onboarding=True, ingested_event=True
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
-            "billing_plan": self.organization.billing_plan if self.organization else None,
             "organization_id": str(self.organization.id) if self.organization else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
