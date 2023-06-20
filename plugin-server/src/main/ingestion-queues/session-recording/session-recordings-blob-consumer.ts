@@ -415,6 +415,8 @@ export class SessionRecordingBlobIngester {
             clearInterval(this.flushInterval)
         }
 
+        await this.realtimeManager.unsubscribe()
+
         if (this.producer && this.producer.isConnected()) {
             status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)

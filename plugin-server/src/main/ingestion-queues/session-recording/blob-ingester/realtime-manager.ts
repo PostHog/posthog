@@ -59,6 +59,10 @@ export class RealtimeManager extends EventEmitter {
         })
     }
 
+    public async unsubscribe(): Promise<void> {
+        await this.pubsubRedis?.unsubscribe(Keys.realtimeSubscriptions())
+    }
+
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
         const client = await this.redisPool.acquire()
         const timeout = timeoutGuard(`${description} delayed. Waiting over 30 seconds.`)
