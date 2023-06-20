@@ -51,7 +51,7 @@ export const ProductIntroduction = ({
             )}
             <div className="flex items-center gap-x-8 w-full justify-center">
                 <div>
-                    <div className="w-40 mx-auto mb-4">
+                    <div className="w-50 mx-auto mb-4">
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (

@@ -22,7 +22,7 @@ import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { AnnotationsHog } from 'lib/components/hedgehogs'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -166,7 +166,7 @@ export function Annotations(): JSX.Element {
                             docsURL="https://posthog.com/docs/data/annotations"
                             action={() => openModalToCreateAnnotation()}
                             isEmpty={annotations.length === 0}
-                            customHog={AnnotationsHog}
+                            customHog={MicrophoneHog}
                         />
                     </div>
                 )}
