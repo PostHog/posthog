@@ -12,8 +12,6 @@ import {
 } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 import { dayjs } from 'lib/dayjs'
@@ -54,9 +52,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         }),
         closeModal: true,
         addNewMetric: (metric: SecondaryExperimentMetric) => ({ metric }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setPreviewInsightId: (shortId: InsightShortId) => ({ shortId }),
-        createPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
         deleteMetric: (metricId: number) => ({ metricId }),
         updateMetric: (metric: SecondaryExperimentMetric, metricId: number) => ({ metric, metricId }),
         setMetricId: (metricId: number) => ({ metricId }),
@@ -128,12 +123,12 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     listeners(({ props, actions, values }) => ({
         openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricId }) => {
             actions.setSecondaryMetricModalValue('name', name)
-            actions.createPreviewInsight(filters)
+            // actions.createPreviewInsight(filters)
             actions.setMetricId(metricId)
         },
         openModalToCreateSecondaryMetric: () => {
             actions.resetSecondaryMetricModal()
-            actions.createPreviewInsight(defaultFormValues.filters)
+            // actions.createPreviewInsight(defaultFormValues.filters)
         },
         createPreviewInsight: async ({ filters }) => {
             let newInsightFilters
@@ -166,16 +161,9 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 `api/projects/${teamLogic.values.currentTeamId}/insights`,
                 newInsight
             )
-            actions.setPreviewInsightId(createdInsight.short_id)
+            // actions.setPreviewInsightId(createdInsight.short_id)
             actions.setSecondaryMetricModalValue('filters', newInsight.filters)
         },
-        // setFilters: ({ filters }) => {
-        //     if (filters.insight === InsightType.FUNNELS) {
-        //         // funnelLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
-        //     } else {
-        //         // trendsLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
-        //     }
-        // },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {
                 actions.updateMetric(values.secondaryMetricModal, values.metricId)
@@ -191,7 +179,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.createPreviewInsight()
+            // actions.createPreviewInsight()
         },
     })),
 ])

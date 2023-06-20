@@ -30,23 +30,15 @@ export function SecondaryMetrics({
     experimentId,
 }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
-    const {
-        previewInsightId,
-        metrics,
-        isModalOpen,
-        isSecondaryMetricModalSubmitting,
-        existingModalSecondaryMetric,
-        metricId,
-    } = useValues(logic)
+    const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricId } =
+        useValues(logic)
 
     const {
-        setFilters,
         deleteMetric,
         openModalToCreateSecondaryMetric,
         openModalToEditSecondaryMetric,
         closeModal,
         saveSecondaryMetric,
-        createPreviewInsight,
     } = useActions(logic)
 
     const {
@@ -169,13 +161,8 @@ export function SecondaryMetrics({
                         {({ value, onChange }) => (
                             <MetricSelector
                                 insightId={keyForSecondaryMetric(metricId, existingModalSecondaryMetric)}
-                                createPreviewInsight={createPreviewInsight}
-                                setFilters={(payload) => {
-                                    // setFilters(payload)
-                                    onChange(payload)
-                                }}
-                                previewInsightId={previewInsightId}
                                 filters={value}
+                                setFilters={onChange}
                             />
                         )}
                     </Field>

@@ -1,49 +1,39 @@
+import { useEffect } from 'react'
+import equal from 'fast-deep-equal'
 import { BindLogic, useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+
+import { DEFAULT_DURATION } from './secondaryMetricsLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+
+import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
-import './Experiment.scss'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { Query } from '~/queries/Query/Query'
-import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema'
-import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { useEffect } from 'react'
-import { secondaryMetricsFilterLogic } from './secondaryMetricsFiltersLogic'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import equal from 'fast-deep-equal'
+import { FunnelsQuery, InsightVizNode, NodeKind } from '~/queries/schema'
 import { FunnelLayout } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { DEFAULT_DURATION } from './secondaryMetricsLogic'
+
+import './Experiment.scss'
 
 export interface MetricSelectorProps {
     insightId: string
-    createPreviewInsight: (filters?: Partial<FilterType>) => void
     setFilters: (filters: Partial<FilterType>) => void
-    previewInsightId: InsightShortId | null
     filters: Partial<FilterType>
 }
 
-export function MetricSelector({
-    insightId,
-    createPreviewInsight,
-    previewInsightId,
-    filters,
-    setFilters,
-}: MetricSelectorProps): JSX.Element {
+export function MetricSelector({ insightId, filters, setFilters }: MetricSelectorProps): JSX.Element {
     // insightLogic
-    const logic = insightLogic({
-        dashboardItemId: insightId as InsightShortId,
-        syncWithUrl: false,
-        // disableDataExploration: true,
-    })
+    const logic = insightLogic({ dashboardItemId: insightId as InsightShortId, syncWithUrl: false })
     const { insightProps } = useValues(logic)
 
     // insightDataLogic
@@ -57,7 +47,6 @@ export function MetricSelector({
     // set the initial query from filters
     useEffect(() => {
         if (internalQuery === null) {
-            console.debug('SETQUERY')
             const query: InsightVizNode = {
                 kind: NodeKind.InsightVizNode,
                 source: filtersToQueryNode(filters),
@@ -70,10 +59,6 @@ export function MetricSelector({
     useEffect(() => {
         const filtersFromQuery = querySource ? queryNodeToFilter(querySource) : filters
         if (!equal(filters, filtersFromQuery)) {
-            console.group('SETFILTERS')
-            console.debug('filtersFromQuery: ', filtersFromQuery)
-            console.debug('filters: ', filters)
-            console.groupEnd()
             setFilters(filtersFromQuery)
         }
     }, [querySource])
@@ -82,9 +67,6 @@ export function MetricSelector({
     const filterSteps = series || []
     const isStepsEmpty = filterSteps.length === 0
 
-    // console.debug('isTrends: ', isTrends)
-    // console.debug('isFunnels: ', isFunnels)
-
     return (
         <>
             <div className="flex items-center w-full gap-2 mb-4">
@@ -92,28 +74,22 @@ export function MetricSelector({
                 <LemonSelect
                     value={isTrends ? InsightType.TRENDS : InsightType.FUNNELS}
                     onChange={(val) => {
-                        console.debug('VAL', val, val === InsightType.FUNNELS)
                         let newInsightFilters
                         if (val === InsightType.FUNNELS) {
-                            console.debug('A')
                             newInsightFilters = cleanFilters({
                                 insight: InsightType.FUNNELS,
                                 funnel_viz_type: FunnelVizType.Steps,
                                 date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                                 layout: FunnelLayout.horizontal,
-                                // ...filters,
                             })
                         } else {
-                            console.debug('B')
                             newInsightFilters = cleanFilters({
                                 insight: InsightType.TRENDS,
                                 date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                                 date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                                // ...filters,
                             })
                         }
-                        console.debug('setting new insight filters', newInsightFilters)
                         updateQuerySource(filtersToQueryNode(newInsightFilters))
                     }}
                     options={[
@@ -157,7 +133,20 @@ export function MetricSelector({
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <BindLogic logic={trendsLogic} props={insightProps}>
-                        <Query query={{ ...query, showLastComputation: true }} context={{ insightProps }} readOnly />
+                        <Query
+                            query={
+                                {
+                                    ...query,
+                                    full: false,
+                                    showLastComputation: true,
+                                    showHeader: false,
+                                    showTable: false,
+                                    showCorrelationTable: false,
+                                } as InsightVizNode
+                            }
+                            context={{ insightProps }}
+                            readOnly
+                        />
                     </BindLogic>
                 </BindLogic>
                 <pre>{JSON.stringify(query, null, 2)}</pre>
