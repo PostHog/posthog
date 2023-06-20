@@ -62,7 +62,13 @@ class PropertyFinder(TraversingVisitor):
                 if table == "persons" or table == "raw_persons":
                     self.person_properties.add(node.chain[0])
                 if table == "events":
-                    self.event_properties.add(node.chain[0])
+                    if (
+                        isinstance(node.field_type.table_type, ast.VirtualTableType)
+                        and node.field_type.table_type.field == "poe"
+                    ):
+                        self.person_properties.add(node.chain[0])
+                    else:
+                        self.event_properties.add(node.chain[0])
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -86,7 +92,13 @@ class PropertySwapper(CloningVisitor):
 
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
-            if isinstance(type.field_type.table_type, ast.BaseTableType):
+            if (
+                isinstance(type.field_type.table_type, ast.VirtualTableType)
+                and type.field_type.table_type.field == "poe"
+            ):
+                if type.chain[0] in self.person_properties:
+                    return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])
+            elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
                 if table == "persons" or table == "raw_persons":
                     if type.chain[0] in self.person_properties:
@@ -94,6 +106,12 @@ class PropertySwapper(CloningVisitor):
                 if table == "events":
                     if type.chain[0] in self.event_properties:
                         return self._add_type_to_string_field(node, self.event_properties[type.chain[0]])
+        if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
+            if isinstance(type.field_type.table_type, ast.BaseTableType):
+                table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
+                if table == "events":
+                    if type.chain[0] in self.person_properties:
+                        return self._add_type_to_string_field(node, self.person_properties[type.chain[0]])
 
         return node
 

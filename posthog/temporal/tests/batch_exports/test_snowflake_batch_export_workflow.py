@@ -282,8 +282,6 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
 
                 assert contains_queries_in_order(
                     queries,
-                    'CREATE DATABASE IF NOT EXISTS "PostHog"',
-                    'CREATE SCHEMA IF NOT EXISTS "PostHog"."test"',
                     'USE DATABASE "PostHog"',
                     'USE SCHEMA "test"',
                     'CREATE TABLE IF NOT EXISTS "PostHog"."test"."events"',

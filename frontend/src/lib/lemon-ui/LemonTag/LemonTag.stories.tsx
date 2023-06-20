@@ -13,7 +13,7 @@ const ALL_COLORS: LemonTagType[] = [
     'danger',
     'success',
     'default',
-    'purple',
+    'completion',
     'caution',
     'none',
 ]
