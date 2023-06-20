@@ -1,18 +1,31 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { FilterType, InsightShortId, InsightType } from '~/types'
+import { FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 import './Experiment.scss'
-import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { samplingFilterLogic } from 'scenes/insights/EditorFilters/samplingFilterLogic'
+import { Query } from '~/queries/Query/Query'
+import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { useEffect } from 'react'
+import { secondaryMetricsFilterLogic } from './secondaryMetricsFiltersLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import equal from 'fast-deep-equal'
+import { FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { DEFAULT_DURATION } from './secondaryMetricsLogic'
 
 export interface MetricSelectorProps {
+    insightId: string
     createPreviewInsight: (filters?: Partial<FilterType>) => void
     setFilters: (filters: Partial<FilterType>) => void
     previewInsightId: InsightShortId | null
@@ -20,33 +33,91 @@ export interface MetricSelectorProps {
 }
 
 export function MetricSelector({
+    insightId,
     createPreviewInsight,
     previewInsightId,
     filters,
     setFilters,
 }: MetricSelectorProps): JSX.Element {
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: previewInsightId as InsightShortId,
-            syncWithUrl: false,
-            disableDataExploration: true,
-        })
-    )
-    const { isStepsEmpty, filterSteps, filters: funnelsFilters } = useValues(funnelLogic(insightProps))
-    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
+    // insightLogic
+    const logic = insightLogic({
+        dashboardItemId: insightId as InsightShortId,
+        syncWithUrl: false,
+        // disableDataExploration: true,
+    })
+    const { insightProps } = useValues(logic)
 
-    const experimentInsightType = filters.insight
+    // insightDataLogic
+    const { internalQuery } = useValues(insightDataLogic(insightProps))
+    const { setQuery } = useActions(insightDataLogic(insightProps))
 
-    const { samplingAvailable } = useValues(samplingFilterLogic({ insightType: experimentInsightType, insightProps }))
+    // insightVizDataLogic
+    const { series, isTrends, isFunnels, query } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    // set the initial query from filters
+    useEffect(() => {
+        if (internalQuery === null) {
+            console.debug('SETQUERY')
+            const query: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: filtersToQueryNode(filters),
+            }
+            setQuery(query)
+        }
+    }, [filters])
+
+    // update filters when query changes
+    useEffect(() => {
+        const filtersFromQuery = queryNodeToFilter(query.source)
+        if (!equal(filters, filtersFromQuery)) {
+            console.group('SETFILTERS')
+            console.debug('filtersFromQuery: ', filtersFromQuery)
+            console.debug('filters: ', filters)
+            console.groupEnd()
+            setFilters(filtersFromQuery)
+        }
+    }, [query])
+
+    // calculated properties
+    const filterSteps = series || []
+    const isStepsEmpty = filterSteps.length === 0
+
+    // const { samplingAvailable } = useValues(samplingFilterLogic({ insightType: experimentInsightType, insightProps }))
+
+    // console.debug('isTrends: ', isTrends)
+    // console.debug('isFunnels: ', isFunnels)
 
     return (
         <>
             <div className="flex items-center w-full gap-2 mb-4">
                 <span>Insight Type</span>
                 <LemonSelect
-                    value={experimentInsightType}
+                    value={isTrends ? InsightType.TRENDS : InsightType.FUNNELS}
                     onChange={(val) => {
-                        val && createPreviewInsight({ insight: val })
+                        console.debug('VAL', val, val === InsightType.FUNNELS)
+                        let newInsightFilters
+                        if (val === InsightType.FUNNELS) {
+                            console.debug('A')
+                            newInsightFilters = cleanFilters({
+                                insight: InsightType.FUNNELS,
+                                funnel_viz_type: FunnelVizType.Steps,
+                                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
+                                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                                layout: FunnelLayout.horizontal,
+                                // ...filters,
+                            })
+                        } else {
+                            console.debug('B')
+                            newInsightFilters = cleanFilters({
+                                insight: InsightType.TRENDS,
+                                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
+                                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                                // ...filters,
+                            })
+                        }
+                        console.debug('setting new insight filters', newInsightFilters)
+                        updateQuerySource(filtersToQueryNode(newInsightFilters))
                     }}
                     options={[
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
@@ -54,7 +125,7 @@ export function MetricSelector({
                     ]}
                 />
             </div>
-            {samplingAvailable ? (
+            {/* {samplingAvailable ? (
                 <div>
                     <SamplingFilter
                         insightProps={insightProps}
@@ -71,65 +142,38 @@ export function MetricSelector({
                     />
                     <br />
                 </div>
-            ) : null}
+            ) : null} */}
 
-            {experimentInsightType === InsightType.FUNNELS && (
-                <ActionFilter
-                    bordered
-                    filters={funnelsFilters}
-                    setFilters={(payload) => {
-                        setFilters({
-                            ...filters,
-                            insight: InsightType.FUNNELS,
-                            ...payload,
-                        })
-                    }}
-                    typeKey={`experiment-funnel-goal-${JSON.stringify(filters)}`}
-                    mathAvailability={MathAvailability.None}
-                    hideDeleteBtn={filterSteps.length === 1}
-                    buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty}
-                    seriesIndicatorType="numeric"
-                    sortable
-                    showNestedArrow={true}
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                />
-            )}
-            {experimentInsightType === InsightType.TRENDS && (
-                <ActionFilter
-                    bordered
-                    filters={trendsFilters}
-                    setFilters={(payload: Partial<FilterType>) => {
-                        setFilters({
-                            ...filters,
-                            insight: InsightType.TRENDS,
-                            ...payload,
-                        })
-                    }}
-                    typeKey={`experiment-trends-goal-${JSON.stringify(filters)}`}
-                    buttonCopy="Add graph series"
-                    showSeriesIndicator
-                    entitiesLimit={1}
-                    hideDeleteBtn
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                />
-            )}
+            <ActionFilter
+                bordered
+                filters={filters}
+                setFilters={(payload: Partial<FilterType>): void => {
+                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as FunnelsQuery)
+                }}
+                typeKey={`experiment-funnel-goal-${JSON.stringify(filters)}`}
+                mathAvailability={isFunnels ? MathAvailability.None : undefined}
+                hideDeleteBtn={isTrends || filterSteps.length === 1}
+                buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
+                showSeriesIndicator={isTrends || !isStepsEmpty}
+                seriesIndicatorType="numeric"
+                sortable={isFunnels}
+                showNestedArrow={true}
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ]}
+                entitiesLimit={isTrends ? 1 : undefined}
+            />
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <LegacyInsightContainer disableHeader={true} disableTable={true} />
+                    <BindLogic logic={trendsLogic} props={insightProps}>
+                        <Query query={{ ...query, showLastComputation: true }} context={{ insightProps }} readOnly />
+                    </BindLogic>
                 </BindLogic>
+                <pre>{JSON.stringify(query, null, 2)}</pre>
             </div>
         </>
     )

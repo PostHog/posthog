@@ -20,7 +20,7 @@ import { dayjs } from 'lib/dayjs'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-const DEFAULT_DURATION = 14
+export const DEFAULT_DURATION = 14
 
 export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void
@@ -169,13 +169,13 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             actions.setPreviewInsightId(createdInsight.short_id)
             actions.setSecondaryMetricModalValue('filters', newInsight.filters)
         },
-        setFilters: ({ filters }) => {
-            if (filters.insight === InsightType.FUNNELS) {
-                funnelLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
-            } else {
-                trendsLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
-            }
-        },
+        // setFilters: ({ filters }) => {
+        //     if (filters.insight === InsightType.FUNNELS) {
+        //         // funnelLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
+        //     } else {
+        //         // trendsLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
+        //     }
+        // },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {
                 actions.updateMetric(values.secondaryMetricModal, values.metricId)

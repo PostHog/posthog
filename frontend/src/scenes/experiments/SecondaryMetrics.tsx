@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Form } from 'kea-forms'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { InsightType } from '~/types'
+import { InsightType, SecondaryExperimentMetric } from '~/types'
 import './Experiment.scss'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,6 +16,13 @@ import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogi
 import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+
+export const keyForSecondaryMetric = (
+    metricId: number,
+    existingModalSecondaryMetric: SecondaryExperimentMetric | null
+): string => {
+    return existingModalSecondaryMetric === null ? 'secondary-metric-new' : `secondary-metric-${metricId}`
+}
 
 export function SecondaryMetrics({
     onMetricsChange,
@@ -161,9 +168,10 @@ export function SecondaryMetrics({
                     <Field name="filters" label="Query">
                         {({ value, onChange }) => (
                             <MetricSelector
+                                insightId={keyForSecondaryMetric(metricId, existingModalSecondaryMetric)}
                                 createPreviewInsight={createPreviewInsight}
                                 setFilters={(payload) => {
-                                    setFilters(payload)
+                                    // setFilters(payload)
                                     onChange(payload)
                                 }}
                                 previewInsightId={previewInsightId}
