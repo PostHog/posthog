@@ -7,7 +7,6 @@ async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
     const keys = await redisClient.keys(`${keyPrefix}*`)
     const pipeline = redisClient.pipeline()
     keys.forEach(function (key) {
-        console.log('deleting key', key)
         pipeline.del(key)
     })
     await pipeline.exec()

@@ -22,7 +22,7 @@ const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
  */
 export class SessionOffsetHighWaterMark {
     private topicPartitionWaterMarks: Record<string, Record<string, number>> = {}
-
+    private getAllPromise: Promise<Record<string, number> | null> | null = null
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
@@ -82,24 +82,28 @@ export class SessionOffsetHighWaterMark {
     public async getAll(tp: TopicPartition): Promise<Record<string, number> | null> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
         try {
-            return await this.run(`read all offset high-water mark for ${key} `, async (client) => {
-                const redisValue = await client.zrange(key, 0, -1, 'WITHSCORES')
-                // redisValue is an array of [sessionId, offset, sessionId, offset, ...]
-                // we want to convert it to an object of { sessionId: offset, sessionId: offset, ... }
-                const highWaterMarks = redisValue.reduce(
-                    (acc: Record<string, number>, value: string, index: number) => {
-                        if (index % 2 === 0) {
-                            acc[value] = parseInt(redisValue[index + 1])
-                        }
-                        return acc
-                    },
-                    {}
-                )
-                if (highWaterMarks) {
-                    this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`] = highWaterMarks
-                }
-                return highWaterMarks
-            })
+            // this might be called multiple times, particularly around rebalances, so, hold one promise for the getAll which multiple callers can await
+            if (this.getAllPromise === null) {
+                this.getAllPromise = this.run(`read all offset high-water mark for ${key} `, async (client) => {
+                    const redisValue = await client.zrange(key, 0, -1, 'WITHSCORES')
+                    // redisValue is an array of [sessionId, offset, sessionId, offset, ...]
+                    // we want to convert it to an object of { sessionId: offset, sessionId: offset, ... }
+                    const highWaterMarks = redisValue.reduce(
+                        (acc: Record<string, number>, value: string, index: number) => {
+                            if (index % 2 === 0) {
+                                acc[value] = parseInt(redisValue[index + 1])
+                            }
+                            return acc
+                        },
+                        {}
+                    )
+                    if (highWaterMarks) {
+                        this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`] = highWaterMarks
+                    }
+                    return highWaterMarks
+                })
+            }
+            return await this.getAllPromise
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to read high-water marks for partition', {
                 error: error.message,
@@ -115,6 +119,8 @@ export class SessionOffsetHighWaterMark {
                 },
             })
             return null
+        } finally {
+            this.getAllPromise = null
         }
     }
 
