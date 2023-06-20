@@ -20,7 +20,7 @@ class TestTable(BaseTest):
     #     table.get_columns()
 
     def test_hogql_definition(self):
-        credential = DataWarehouseCredential.objects.create(access_key="", access_secret="", team=self.team)
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",
             url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
