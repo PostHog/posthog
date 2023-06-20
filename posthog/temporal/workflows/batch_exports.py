@@ -1,3 +1,4 @@
+import json
 from string import Template
 
 from aiochclient import ChClient
@@ -41,25 +42,25 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     return row["count"]
 
 
-def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
-    return client.iterate(
+    async for row in client.iterate(
         SELECT_QUERY_TEMPLATE.safe_substitute(
             fields="""
-                uuid,
-                timestamp,
-                created_at,
-                event,
-                properties,
-                -- Point in time identity fields
-                distinct_id,
-                person_id,
-                person_properties,
-                -- Autocapture fields
-                elements_chain
-            """
+                    uuid,
+                    timestamp,
+                    created_at,
+                    event,
+                    properties,
+                    -- Point in time identity fields
+                    distinct_id,
+                    person_id,
+                    person_properties,
+                    -- Autocapture fields
+                    elements_chain
+                """
         ),
         json=True,
         params={
@@ -67,4 +68,13 @@ def get_results_iterator(client: ChClient, team_id: int, interval_start: str, in
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
         },
-    )
+    ):
+        # Make sure to parse `elements_chain`, `properties` and
+        # `person_properties` are parsed as JSON to `dict`s. In ClickHouse they
+        # are stored as `String`s.
+        yield {
+            **row,
+            "elements_chain": json.loads(row["elements_chain"]),
+            "properties": json.loads(row["properties"]),
+            "person_properties": json.loads(row["person_properties"]),
+        }
