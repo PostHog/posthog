@@ -21,6 +21,7 @@ import { IconInfo, IconPlayCircle, IconPlus } from 'lib/lemon-ui/icons'
 import { tagsModel } from '~/models/tagsModel'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTextArea } from '@posthog/lemon-ui'
+import { isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -36,7 +37,9 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
 
-    const slackEnabled = currentTeam?.slack_incoming_webhook
+    const actionWithHogQL = action.steps?.find((s) => s.properties?.find((p) => isHogQLPropertyFilter(p)))
+
+    const slackEnabled = !!currentTeam?.slack_incoming_webhook && !actionWithHogQL
 
     const deleteButton = (): JSX.Element => (
         <LemonButton
@@ -266,20 +269,27 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             <>
                                 <LemonCheckbox
                                     id="webhook-checkbox"
-                                    checked={!!value}
+                                    checked={!!value && slackEnabled}
                                     onChange={onChange}
                                     disabled={!slackEnabled}
                                     label={<>Post to webhook when this action is triggered.</>}
                                 />
                                 <p className="pl-7">
-                                    <Link to="/project/settings#webhook">
-                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Project Settings.
-                                    </Link>
+                                    {actionWithHogQL ? (
+                                        <span className="text-warning">
+                                            Webhooks are disabled when using HogQL filters
+                                        </span>
+                                    ) : (
+                                        <Link to="/project/settings#webhook">
+                                            {slackEnabled ? 'Configure' : 'Enable'} this integration in Project
+                                            Settings.
+                                        </Link>
+                                    )}
                                 </p>
                             </>
                         )}
                     </Field>
-                    {action.post_to_slack && (
+                    {action.post_to_slack && slackEnabled && (
                         <>
                             <Field name="slack_message_format">
                                 {({ value, onChange }) => (
