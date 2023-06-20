@@ -223,6 +223,9 @@ export class SessionManager {
             counterS3FilesWritten.labels(reason).inc(1)
             gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             gaugeS3LinesWritten.set(this.flushBuffer.count)
+
+            const offsets = this.flushBuffer.offsets
+            await this.onFinish(offsets)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
@@ -240,11 +243,7 @@ export class SessionManager {
             this.inProgressUpload = null
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
-            const offsets = this.flushBuffer.offsets
             this.flushBuffer = undefined
-
-            // TODO: we shouldn't call this if the S3 file write failed?
-            await this.onFinish(offsets)
         }
     }
 
