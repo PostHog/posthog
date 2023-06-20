@@ -233,6 +233,7 @@ export class SessionManager {
             }
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
+                errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
                 error,
                 ...this.logContext(),
                 reason,

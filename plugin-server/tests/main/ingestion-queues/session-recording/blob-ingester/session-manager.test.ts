@@ -13,7 +13,7 @@ jest.mock('fs', () => {
         writeFileSync: jest.fn(),
         createReadStream: jest.fn().mockImplementation(() => {
             return {
-                pipe: jest.fn(),
+                pipe: () => ({ close: jest.fn() }),
             }
         }),
     }

@@ -26,7 +26,5 @@ export function createIncomingRecordingMessage(
         },
     }
 
-    console.log(message)
-
     return message
 }
