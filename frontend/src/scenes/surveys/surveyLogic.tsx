@@ -82,8 +82,28 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     return surveyDataQuery
 }
 
+export const getSurveyMetricsQueries = (survey: Survey): SurveyMetricsQueries => {
+    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == '${survey.name} survey shown' and properties.$survey_id == '${survey.id}'`
+    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == '${survey.name} survey dismissed' and properties.$survey_id == '${survey.id}'`
+    return {
+        surveysShown: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
+        },
+        surveysDismissed: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
+        },
+    }
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
+}
+
+export interface SurveyMetricsQueries {
+    surveysShown: DataTableNode
+    surveysDismissed: DataTableNode
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -116,6 +136,7 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurvey: true,
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
+        setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -146,6 +167,7 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
                 actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey))
             }
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
@@ -221,6 +243,12 @@ export const surveyLogic = kea<surveyLogicType>([
             null as DataTableNode | null,
             {
                 setDataTableQuery: (_, { query }) => query,
+            },
+        ],
+        surveyMetricsQueries: [
+            null as SurveyMetricsQueries | null,
+            {
+                setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
             },
         ],
     }),
