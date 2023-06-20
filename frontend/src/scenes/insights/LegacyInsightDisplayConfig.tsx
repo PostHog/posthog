@@ -8,7 +8,6 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, Tre
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
-import { PathStepPicker } from './views/Paths/PathStepPicker'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
@@ -99,10 +98,8 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
     }
 
     const isFunnels = isFunnelsFilter(filters)
-    const isPaths = isPathsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { insightProps } = useValues(insightLogic)
     const { setFilters, setFiltersMerge } = useActions(insightLogic)
 
     return (
@@ -129,12 +126,6 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
                         <SmoothingFilter />
                     </ConfigFilter>
                 ) : null}
-
-                {isPaths && (
-                    <ConfigFilter>
-                        <PathStepPicker insightProps={insightProps} />
-                    </ConfigFilter>
-                )}
 
                 {showCompareFilter(filters) && (
                     <ConfigFilter>

@@ -16,7 +16,6 @@ import {
 } from 'scenes/data-management/definition/definitionLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
-import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 import {
     ThirtyDayQueryCountTitle,
@@ -36,6 +35,7 @@ import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { TZLabel } from '@posthog/apps-common'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -121,7 +121,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     }
                                 />
                                 <div className="definition-sent-as">
-                                    Raw {singular} name: <pre>{definition.name}</pre>
+                                    Raw {singular} name: <code>{definition.name}</code>
                                 </div>
                             </>
                         }
@@ -208,11 +208,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             <>
                                 <DefinitionPopover.Card
                                     title="First seen"
-                                    value={formatTimeFromNow(definition.created_at)}
+                                    value={definition.created_at && <TZLabel time={definition.created_at} />}
                                 />
                                 <DefinitionPopover.Card
                                     title="Last seen"
-                                    value={formatTimeFromNow(definition.last_seen_at)}
+                                    value={definition.last_seen_at && <TZLabel time={definition.last_seen_at} />}
                                 />
                                 <DefinitionPopover.Card
                                     title={<ThirtyDayVolumeTitle />}

@@ -18,7 +18,7 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { FunnelCanvasLabelDataExploration } from 'scenes/funnels/FunnelCanvasLabel'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { PathsDataExploration } from 'scenes/paths/Paths'
+import { Paths } from 'scenes/paths/Paths'
 import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import {
     FunnelInvalidExclusionState,
@@ -43,7 +43,7 @@ const VIEW_MAP = {
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
     [`${InsightType.FUNNELS}`]: <FunnelInsightDataExploration />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <PathsDataExploration />,
+    [`${InsightType.PATHS}`]: <Paths />,
 }
 
 export function InsightContainer({
