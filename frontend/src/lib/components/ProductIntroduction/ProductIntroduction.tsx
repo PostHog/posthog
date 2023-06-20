@@ -14,6 +14,7 @@ export const ProductIntroduction = ({
     action,
     actionElementOverride,
     docsURL,
+    customHog: CustomHog,
 }: {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
@@ -28,6 +29,7 @@ export const ProductIntroduction = ({
     /** If you want to provide a custom action button instead of using the default one */
     actionElementOverride?: JSX.Element
     docsURL?: string
+    customHog?: React.ComponentType<{ className?: string }>
 }): JSX.Element => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
@@ -50,7 +52,9 @@ export const ProductIntroduction = ({
             <div className="flex items-center gap-x-8 w-full justify-center">
                 <div>
                     <div className="w-40 mx-auto mb-4">
-                        {actionable ? (
+                        {CustomHog ? (
+                            <CustomHog className="w-full h-full" />
+                        ) : actionable ? (
                             <BuilderHog3 className="w-full h-full" />
                         ) : (
                             <DetectiveHog className="w-full h-full" />
