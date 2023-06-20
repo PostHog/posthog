@@ -74,7 +74,7 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
         # are stored as `String`s.
         yield {
             **row,
-            "elements_chain": json.loads(row["elements_chain"]),
-            "properties": json.loads(row["properties"]),
-            "person_properties": json.loads(row["person_properties"]),
+            "elements_chain": json.loads(row.get("elements_chain") or "[]"),
+            "properties": json.loads(row.get("properties", "{}")),
+            "person_properties": json.loads(row.get("person_properties") or "{}"),
         }
