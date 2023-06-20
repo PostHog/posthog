@@ -156,6 +156,6 @@ class FunnelEventQuery(EventQuery):
             elif entity.id is not None:
                 events.add(entity.id)
 
-        if has_all_events_entity and len(events) == 0:
+        if has_all_events_entity:
             return "AND 1 = 1", {}
         return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}
