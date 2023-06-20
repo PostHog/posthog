@@ -6,7 +6,10 @@ import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkaf
 import path from 'path'
 import { Gauge } from 'prom-client'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
@@ -247,7 +250,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
-            topic: KAFKA_SESSION_RECORDING_EVENTS,
+            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             sessionTimeout,
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
