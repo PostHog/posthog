@@ -7,33 +7,21 @@ import { insightLogic } from './../insightLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
 import { FEATURE_FLAGS } from './../../../lib/constants'
-import { FilterType } from './../../../types'
 import { InsightLogicProps } from '~/types'
 
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
-export interface SamplingFilterLogicProps {
-    insightProps: InsightLogicProps
-    setFilters?: (filters: Partial<FilterType>) => void
-    initialSamplingPercentage?: number | null
-}
-
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
     path(['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic']),
-    props({} as SamplingFilterLogicProps),
-    connect((props: SamplingFilterLogicProps) => ({
-        values: [
-            insightVizDataLogic(props.insightProps),
-            ['querySource'],
-            insightLogic(props.insightProps),
-            ['filters'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+    props({} as InsightLogicProps),
+    connect((props: InsightLogicProps) => ({
+        values: [insightVizDataLogic(props), ['querySource'], featureFlagLogic, ['featureFlags']],
         actions: [
-            insightLogic(props.insightProps),
+            insightVizDataLogic(props),
+            ['updateQuerySource'],
+            insightLogic(props),
             ['setFiltersMerge as updateInsightFilters'],
             globalInsightLogic,
             ['setGlobalInsightFilters'],
@@ -42,9 +30,9 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
-    reducers(({ props }) => ({
+    reducers({
         samplingPercentage: [
-            props.initialSamplingPercentage || (null as number | null),
+            null as number | null,
             {
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
@@ -54,7 +42,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 },
             },
         ],
-    })),
+    }),
     selectors(() => ({
         suggestedSamplingPercentage: [
             (s) => [s.samplingPercentage],

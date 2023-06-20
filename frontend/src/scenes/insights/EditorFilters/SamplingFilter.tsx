@@ -1,35 +1,22 @@
-import { InsightLogicProps, EditorFilterProps } from '~/types'
-import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import posthog from 'posthog-js'
-import { insightVizDataLogic } from '../insightVizDataLogic'
+
+import { samplingFilterLogic, AVAILABLE_SAMPLING_PERCENTAGES } from './samplingFilterLogic'
+
+import { InsightLogicProps } from '~/types'
+import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
     'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
 
-interface SamplingFilterProps extends Pick<EditorFilterProps, 'insightProps'> {
+interface SamplingFilterProps {
     insightProps: InsightLogicProps
-    initialSamplingPercentage?: number | null
     infoTooltipContent?: string
 }
 
-export function SamplingFilter({
-    insightProps,
-    infoTooltipContent,
-    initialSamplingPercentage,
-}: SamplingFilterProps): JSX.Element | null {
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const setFilters = (filters) => updateQuerySource({ samplingFactor: filters?.sampling_factor })
-    const logic = samplingFilterLogic({
-        insightProps,
-        setFilters,
-        initialSamplingPercentage,
-    })
-
-    const { setSamplingPercentage } = useActions(logic)
-
-    const { samplingPercentage, samplingAvailable } = useValues(logic)
+export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element | null {
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { samplingPercentage, samplingAvailable } = useValues(samplingFilterLogic(insightProps))
 
     if (samplingAvailable) {
         return (
