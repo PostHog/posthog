@@ -14,59 +14,56 @@ interface SamplingFilterProps {
     infoTooltipContent?: string
 }
 
-export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element | null {
+export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
-    const { samplingPercentage, samplingAvailable } = useValues(samplingFilterLogic(insightProps))
+    const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
 
-    if (samplingAvailable) {
-        return (
-            <>
-                <div className="flex items-center gap-1">
-                    <LemonLabel
-                        info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
-                        infoLink="https://posthog.com/manual/sampling"
-                    >
-                        Sampling<LemonTag type="warning">BETA</LemonTag>
-                    </LemonLabel>
-                    <LemonSwitch
-                        className="m-2"
-                        onChange={(checked) => {
-                            if (checked) {
-                                setSamplingPercentage(10)
-                                posthog.capture('sampling_enabled_on_insight')
-                                return
-                            }
-                            setSamplingPercentage(null)
-                            posthog.capture('sampling_disabled_on_insight')
-                        }}
-                        checked={!!samplingPercentage}
-                    />
-                </div>
-                {!!samplingPercentage ? (
-                    <div className="SamplingFilter">
-                        <div className="flex items-center gap-2">
-                            {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
-                                <LemonButton
-                                    key={key}
-                                    type="secondary"
-                                    size="small"
-                                    active={samplingPercentage === percentage}
-                                    onClick={() => {
-                                        setSamplingPercentage(percentage)
+    return (
+        <>
+            <div className="flex items-center gap-1">
+                <LemonLabel
+                    info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
+                    infoLink="https://posthog.com/manual/sampling"
+                >
+                    Sampling<LemonTag type="warning">BETA</LemonTag>
+                </LemonLabel>
+                <LemonSwitch
+                    className="m-2"
+                    onChange={(checked) => {
+                        if (checked) {
+                            setSamplingPercentage(10)
+                            posthog.capture('sampling_enabled_on_insight')
+                            return
+                        }
+                        setSamplingPercentage(null)
+                        posthog.capture('sampling_disabled_on_insight')
+                    }}
+                    checked={!!samplingPercentage}
+                />
+            </div>
+            {!!samplingPercentage ? (
+                <div className="SamplingFilter">
+                    <div className="flex items-center gap-2">
+                        {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
+                            <LemonButton
+                                key={key}
+                                type="secondary"
+                                size="small"
+                                active={samplingPercentage === percentage}
+                                onClick={() => {
+                                    setSamplingPercentage(percentage)
 
-                                        if (samplingPercentage === percentage) {
-                                            posthog.capture('sampling_disabled_on_insight')
-                                        } else {
-                                            posthog.capture('sampling_percentage_updated', { samplingPercentage })
-                                        }
-                                    }}
-                                >{`${percentage}%`}</LemonButton>
-                            ))}
-                        </div>
+                                    if (samplingPercentage === percentage) {
+                                        posthog.capture('sampling_disabled_on_insight')
+                                    } else {
+                                        posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                    }
+                                }}
+                            >{`${percentage}%`}</LemonButton>
+                        ))}
                     </div>
-                ) : null}
-            </>
-        )
-    }
-    return null
+                </div>
+            ) : null}
+        </>
+    )
 }
