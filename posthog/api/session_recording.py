@@ -146,7 +146,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         else:
             return SessionRecordingSerializer
 
-    def get_object(self):
+    def get_object(self) -> SessionRecording:
         team = self.team
         session_id = self.kwargs["pk"]
         obj = SessionRecording.get_or_build(session_id=session_id, team=team)
