@@ -100,6 +100,7 @@ export enum ProductKey {
     PERSONS = 'persons',
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
 export enum LicensePlan {
