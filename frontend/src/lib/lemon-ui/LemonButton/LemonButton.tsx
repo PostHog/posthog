@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import React, { useContext } from 'react'
-import { IconArrowDropDown, IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from '../Link'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -27,7 +27,7 @@ export interface LemonButtonPropsBase
         | 'aria-haspopup'
     > {
     children?: React.ReactNode
-    type?: 'primary' | 'secondary' | 'tertiary' | 'link'
+    type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
     status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'default-dark'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
@@ -120,9 +120,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             if (loading) {
                 icon = <Spinner monocolor />
             }
-            if (targetBlank && !sideIcon) {
-                sideIcon = <IconOpenInNew />
-            }
 
             let tooltipContent: TooltipProps['title']
             if (disabledReason) {
@@ -142,8 +139,13 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
 
             const ButtonComponent = to ? Link : 'button'
-
-            const linkOnlyProps = to ? { disableClientSideRouting } : {}
+            const linkDependentProps = to
+                ? {
+                      disableClientSideRouting,
+                      target: targetBlank ? '_blank' : undefined,
+                      to: !disabled ? to : undefined,
+                  }
+                : { type: htmlType }
 
             if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
                 buttonProps['aria-label'] = tooltip
@@ -151,7 +153,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             let workingButton = (
                 <ButtonComponent
-                    type={htmlType}
                     ref={ref as any}
                     className={clsx(
                         'LemonButton',
@@ -169,9 +170,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         className
                     )}
                     disabled={disabled || loading}
-                    to={disabled ? undefined : to}
-                    target={targetBlank ? '_blank' : undefined}
-                    {...linkOnlyProps}
+                    {...linkDependentProps}
                     {...buttonProps}
                 >
                     {icon ? <span className="LemonButton__icon">{icon}</span> : null}

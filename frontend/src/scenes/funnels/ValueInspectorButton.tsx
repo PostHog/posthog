@@ -1,8 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import React from 'react'
 
 interface ValueInspectorButtonProps {
-    icon?: JSX.Element
     onClick: (e?: React.MouseEvent) => void
     onMouseEnter?: (e?: React.MouseEvent) => void
     onMouseLeave?: (e?: React.MouseEvent) => void
@@ -12,12 +11,10 @@ interface ValueInspectorButtonProps {
 }
 
 export const ValueInspectorButton = React.forwardRef<HTMLAnchorElement, ValueInspectorButtonProps>(
-    ({ icon, onClick, onMouseEnter, onMouseLeave, children, disabled, title }, ref) => {
+    ({ onClick, onMouseEnter, onMouseLeave, children, disabled, title }, ref) => {
         return (
-            <LemonButton
+            <Link
                 ref={ref}
-                type="link"
-                icon={icon}
                 onClick={onClick}
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
@@ -26,7 +23,7 @@ export const ValueInspectorButton = React.forwardRef<HTMLAnchorElement, ValueIns
                 title={title}
             >
                 <span className="funnel-inspect-label">{children}</span>
-            </LemonButton>
+            </Link>
         )
     }
 )
