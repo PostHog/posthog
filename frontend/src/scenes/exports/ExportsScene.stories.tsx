@@ -57,3 +57,10 @@ export const CreateExport: Story = () => {
     })
     return <App />
 }
+
+export const ViewExport: Story = () => {
+    useEffect(() => {
+        router.actions.push('/exports/1')
+    })
+    return <App />
+}

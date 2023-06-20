@@ -312,12 +312,13 @@ type BatchExportRunStatus =
     | 'Running'
     | 'Starting'
 
-type BatchExportRun = {
+export type BatchExportRun = {
     id: string
+    batch_export_id: string
     team_id: number
     status: BatchExportRunStatus
     opened_at: string
-    closed_at: string
+    closed_at: string | null
     data_interval_start: string
     data_interval_end: string
     created_at: string
@@ -326,4 +327,39 @@ type BatchExportRun = {
 
 type BatchExportRunsResponse = {
     results: BatchExportRun[]
+}
+
+export const useTriggerHistoricalExport = (): {
+    triggerHistoricalExport: (exportId: string, startDate: string, endDate: string) => Promise<void>
+    loading: boolean
+    error: Error | undefined
+} => {
+    const { currentTeamId } = useCurrentTeamId()
+    const [{ loading, error }, setState] = useState<{ loading: boolean; error: Error | undefined }>({
+        loading: false,
+        error: undefined,
+    })
+    const triggerHistoricalExport = useCallback(
+        async (exportId: string, startDate: string, endDate: string) => {
+            setState({ loading: true, error: undefined })
+            try {
+                await api.create(`api/projects/${currentTeamId}/batch_exports/${exportId}/backfill`, {
+                    export_id: exportId,
+                    start_date: startDate,
+                    end_date: endDate,
+                })
+            } catch (err) {
+                if (err instanceof Error) {
+                    setState({ loading: false, error: err })
+                } else {
+                    setState({ loading: false, error: new Error('Unknown error') })
+                }
+                throw err
+            }
+
+            setState({ loading: false, error: undefined })
+        },
+        [currentTeamId]
+    )
+    return { triggerHistoricalExport, loading, error }
 }

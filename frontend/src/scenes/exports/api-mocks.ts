@@ -1,8 +1,9 @@
-import { BatchExport, BatchExportData, BatchExportsResponse } from './api'
+import { BatchExport, BatchExportData, BatchExportsResponse, BatchExportRun } from './api'
 
 export const createExportServiceHandlers = (
-    exports: { [id: number]: BatchExport } = {}
-): { exports: { [id: number]: BatchExport }; handlers: any } => {
+    exports: { [id: number]: BatchExport } = {},
+    runs: BatchExportRun[] = []
+): { exports: { [id: number]: BatchExport }; runs: BatchExportRun[]; handlers: any } => {
     const handlers = {
         get: {
             '/api/projects/:team_id/batch_exports/': (_req: any, res: any, ctx: any) => {
@@ -22,15 +23,7 @@ export const createExportServiceHandlers = (
                 return res(
                     ctx.delay(1000),
                     ctx.json({
-                        results: [
-                            {
-                                export_id: id,
-                                run_id: 1,
-                                status: 'RUNNING',
-                                created_at: '2021-09-01T00:00:00.000000Z',
-                                last_updated_at: '2021-09-01T00:00:00.000000Z',
-                            },
-                        ],
+                        results: runs.filter((run) => run.batch_export_id === id),
                     })
                 )
             },
@@ -60,15 +53,41 @@ export const createExportServiceHandlers = (
                 exports[id].paused = false
                 return res(ctx.delay(1000), ctx.json(exports[id]))
             },
-        },
-        delete: {
-            '/api/projects/:team_id/batch_exports/:export_id': (req: any, res: any, ctx: any) => {
+            '/api/projects/:team_id/batch_exports/:export_id/backfill': (req: any, res: any, ctx: any) => {
+                // Create a run for the export with the specified ID, the
+                // start_date and end_date are in the request body.
                 const id = req.params.export_id as string
-                delete exports[id]
-                return res(ctx.delay(1000))
+
+                const { start_date, end_date } = req.body as { start_date: string; end_date: string }
+
+                const run_id = (Object.keys(runs).length + 1).toString()
+
+                const run: BatchExportRun = {
+                    id: run_id,
+                    team_id: 1,
+                    batch_export_id: id,
+                    data_interval_start: start_date,
+                    data_interval_end: end_date,
+                    status: 'Running',
+                    opened_at: new Date().toISOString(),
+                    closed_at: null,
+                    created_at: new Date().toISOString(),
+                    last_updated_at: new Date().toISOString(),
+                }
+
+                runs.push(run)
+
+                return res(ctx.delay(1000), ctx.json(run))
+            },
+            delete: {
+                '/api/projects/:team_id/batch_exports/:export_id': (req: any, res: any, ctx: any) => {
+                    const id = req.params.export_id as string
+                    delete exports[id]
+                    return res(ctx.delay(1000))
+                },
             },
         },
     }
 
-    return { exports, handlers }
+    return { exports, runs, handlers }
 }

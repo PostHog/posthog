@@ -1,24 +1,26 @@
 import { useValues } from 'kea'
-import { useCurrentTeamId, useExport, useExportRuns, BatchExport } from './api'
+import { useCurrentTeamId, useExport, useExportRuns, BatchExport, useTriggerHistoricalExport } from './api'
 import { dayjs } from 'lib/dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+import { IconPlay, IconRefresh } from 'lib/lemon-ui/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ExportActionButtons } from './ExportsList'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { PureField } from '../../lib/forms/Field'
+import { LemonModal } from '../../lib/lemon-ui/LemonModal'
 
-export const Export = (): JSX.Element => {
+export const Export = ({ exportId }: { exportId?: string }): JSX.Element => {
     // Displays a single export. We use the useCurrentTeamId hook to get the
     // current team ID, and then use the useExport hook to fetch the export
     // details for that team. We pull out the export_id from the URL.
     const { currentLocation } = useValues(router)
-    const exportId = currentLocation.pathname.split('/').pop()
+    exportId = exportId ?? currentLocation.pathname.split('/').pop()
 
     if (exportId === undefined) {
         throw Error('exportId is undefined')
@@ -176,6 +178,8 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                 >
                     Refresh
                 </LemonButton>
+
+                <HistoricalExportsButton exportId={exportId} onSuccess={updateCallback} />
             </div>
 
             <LemonTable
@@ -234,5 +238,71 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                 ]}
             />
         </>
+    )
+}
+
+const HistoricalExportsButton = function HistoricalExportsButton({
+    exportId,
+    onSuccess,
+}: {
+    exportId: string
+    onSuccess: any
+}): JSX.Element {
+    // A button when clicked displays a dialog box that allows starting an
+    // historical export.
+    const { triggerHistoricalExport, loading, error } = useTriggerHistoricalExport()
+    const startDateRef = useRef<HTMLInputElement>(null)
+    const endDateRef = useRef<HTMLInputElement>(null)
+    const [isOpen, setOpen] = useState<boolean>(false)
+    return (
+        <LemonButton
+            type="primary"
+            icon={<IconPlay />}
+            onClick={() => setOpen(true)}
+            className="flex items-center gap-1"
+        >
+            Historical Export
+            <LemonModal isOpen={isOpen} title="Trigger Historical Export" closable onClose={() => setOpen(false)}>
+                <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1">
+                        <PureField label="Start Date">
+                            <input
+                                ref={startDateRef}
+                                type="datetime-local"
+                                className="form-control"
+                                defaultValue={dayjs().subtract(1, 'day').format('YYYY-MM-DDTHH:mm')}
+                            />
+                        </PureField>
+                        <PureField label="End Date">
+                            <input
+                                ref={endDateRef}
+                                type="datetime-local"
+                                className="form-control"
+                                defaultValue={dayjs().format('YYYY-MM-DDTHH:mm')}
+                            />
+                        </PureField>
+                    </div>
+                    {error && <p className="text-red-500">Error: {error.message}</p>}
+                    <LemonButton
+                        type="primary"
+                        loading={loading}
+                        onClick={() => {
+                            if (startDateRef.current && endDateRef.current) {
+                                triggerHistoricalExport(
+                                    exportId,
+                                    startDateRef.current.value,
+                                    endDateRef.current.value
+                                ).then(() => {
+                                    setOpen(false)
+                                    onSuccess()
+                                })
+                            }
+                        }}
+                    >
+                        Trigger Export
+                    </LemonButton>
+                </div>
+            </LemonModal>
+        </LemonButton>
     )
 }
