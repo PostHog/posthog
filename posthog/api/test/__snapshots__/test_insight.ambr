@@ -442,7 +442,7 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND ((and(greater(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
-               AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')))
+               AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -510,7 +510,7 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND ((and(greater(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), notEquals('bla', 'a%sd')))
-               AND (like(nullIf(nullIf(pmat_fish, ''), 'null'), '%fish%')))
+               AND (like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -552,7 +552,7 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND (and(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), notEquals('bla', 'a%sd'))
-               AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'))
+               AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -594,7 +594,7 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND (and(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), notEquals('bla', 'a%sd'))
-               AND like(nullIf(nullIf(pmat_fish, ''), 'null'), '%fish%'))
+               AND like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%'))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
