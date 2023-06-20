@@ -12,12 +12,10 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
@@ -45,7 +43,6 @@ export function RecordingsLists({
     const {
         filters,
         hasNext,
-        hasPrev,
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
@@ -55,23 +52,11 @@ export function RecordingsLists({
         totalFiltersCount,
         listingVersion,
     } = useValues(logic)
-    const {
-        setSelectedRecordingId,
-        loadNext,
-        loadPrev,
-        setFilters,
-        maybeLoadSessionRecordings,
-        setShowFilters,
-        resetFilters,
-    } = useActions(logic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
+        useActions(logic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
-
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
-    const offset = filters.offset ?? 0
-    const nextLength = offset + (sessionRecordingsResponseLoading ? RECORDINGS_LIMIT : sessionRecordings.length)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
@@ -80,26 +65,6 @@ export function RecordingsLists({
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
-
-    const paginationControls = nextLength ? (
-        <div className="flex items-center gap-1 mx-2">
-            <span>{`${offset + 1} - ${nextLength}`}</span>
-            <LemonButton
-                icon={<IconChevronLeft />}
-                status="stealth"
-                size="small"
-                disabled={!hasPrev}
-                onClick={() => loadPrev()}
-            />
-            <LemonButton
-                icon={<IconChevronRight />}
-                status="stealth"
-                disabled={!hasNext}
-                size="small"
-                onClick={() => loadNext()}
-            />
-        </div>
-    ) : null
 
     return (
         <>
@@ -144,27 +109,23 @@ export function RecordingsLists({
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
                         <>
-                            {infiniteScrollerEnabled ? (
-                                sessionRecordings.length ? (
-                                    <Tooltip
-                                        placement="bottom"
-                                        title={
-                                            <>
-                                                Showing {sessionRecordings.length} results.
-                                                <br />
-                                                Scrolling to the bottom or the top of the list will load older or newer
-                                                recordings respectively.
-                                            </>
-                                        }
-                                    >
-                                        <span>
-                                            <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
-                                        </span>
-                                    </Tooltip>
-                                ) : null
-                            ) : (
-                                paginationControls
-                            )}
+                            {sessionRecordings.length ? (
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Showing {sessionRecordings.length} results.
+                                            <br />
+                                            Scrolling to the bottom or the top of the list will load older or newer
+                                            recordings respectively.
+                                        </>
+                                    }
+                                >
+                                    <span>
+                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                    </span>
+                                </Tooltip>
+                            ) : null}
 
                             <LemonButton
                                 noPadding
@@ -249,30 +210,25 @@ export function RecordingsLists({
                         </div>
                     }
                     activeRecordingId={activeSessionRecording?.id}
-                    onScrollToEnd={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('older') : undefined}
-                    onScrollToStart={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('newer') : undefined}
+                    onScrollToEnd={() => maybeLoadSessionRecordings('older')}
+                    onScrollToStart={() => maybeLoadSessionRecordings('newer')}
                     footer={
-                        infiniteScrollerEnabled ? (
-                            <>
-                                <LemonDivider />
-                                <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                                    {sessionRecordingsResponseLoading ? (
-                                        <>
-                                            <Spinner monocolor /> Loading older recordings
-                                        </>
-                                    ) : hasNext ? (
-                                        <LemonButton
-                                            status="primary"
-                                            onClick={() => maybeLoadSessionRecordings('older')}
-                                        >
-                                            Load more
-                                        </LemonButton>
-                                    ) : (
-                                        'No more results'
-                                    )}
-                                </div>
-                            </>
-                        ) : null
+                        <>
+                            <LemonDivider />
+                            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                                {sessionRecordingsResponseLoading ? (
+                                    <>
+                                        <Spinner monocolor /> Loading older recordings
+                                    </>
+                                ) : hasNext ? (
+                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                        Load more
+                                    </LemonButton>
+                                ) : (
+                                    'No more results'
+                                )}
+                            </div>
+                        </>
                     }
                     draggableHref={urls.replay(ReplayTabs.Recent, filters)}
                 />
