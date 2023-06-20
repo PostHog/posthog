@@ -5,6 +5,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.schema import HogQLNotice
 
 
 def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.Expr:
@@ -43,7 +44,7 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext = None) -> ast.
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     property_swapper = PropertySwapper(
-        timezone=timezone, event_properties=event_properties, person_properties=person_properties
+        timezone=timezone, event_properties=event_properties, person_properties=person_properties, context=context
     )
     return property_swapper.visit(node)
 
@@ -79,11 +80,14 @@ class PropertyFinder(TraversingVisitor):
 
 
 class PropertySwapper(CloningVisitor):
-    def __init__(self, timezone: str, event_properties: Dict[str, str], person_properties: Dict[str, str]):
+    def __init__(
+        self, timezone: str, event_properties: Dict[str, str], person_properties: Dict[str, str], context: HogQLContext
+    ):
         super().__init__(clear_types=False)
         self.timezone = timezone
         self.event_properties = event_properties
         self.person_properties = person_properties
+        self.context = context
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
@@ -115,11 +119,24 @@ class PropertySwapper(CloningVisitor):
 
         return node
 
+    def _add_notice(self, node: ast.Field, message: str):
+        self.context.notices.append(
+            HogQLNotice(
+                start=node.start,
+                end=node.end,
+                message=message,
+            )
+        )
+
     def _add_type_to_string_field(self, node: ast.Field, type: str):
         if type == "DateTime":
+            self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type DateTime.")
             return ast.Call(name="toDateTime", args=[node])
         if type == "Numeric":
+            self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type Float.")
             return ast.Call(name="toFloat", args=[node])
         if type == "Boolean":
+            self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type Boolean.")
             return parse_expr("{node} = 'true'", {"node": node})
+        self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type String.")
         return node
