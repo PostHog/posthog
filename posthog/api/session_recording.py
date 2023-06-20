@@ -127,7 +127,7 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
     snapshots = serializers.ListField(required=False)
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
