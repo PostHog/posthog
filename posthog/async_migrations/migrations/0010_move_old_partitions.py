@@ -70,7 +70,7 @@ class Migration(AsyncMigrationDefinition):
                 SAMPLE BY cityHash64(distinct_id)
                 SETTINGS index_granularity = 8192
                 """,
-                rollback="DROP TABLE IF EXISTS events_backup_0010_move_old_partitions",
+                rollback=None,
                 per_shard=False,
             ),
         ]
