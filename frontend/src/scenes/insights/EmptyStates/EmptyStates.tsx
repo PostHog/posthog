@@ -289,8 +289,8 @@ export function SavedInsightsEmptyState(): JSX.Element {
     return (
         <div className="saved-insight-empty-state">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <BuilderHog3 />
+                <div className="illustration-main w-40 m-auto">
+                    <BuilderHog3 className="w-full h-full" />
                 </div>
                 <h2 className="empty-state__title">
                     {usingFilters
