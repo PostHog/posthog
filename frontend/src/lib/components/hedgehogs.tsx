@@ -25,6 +25,9 @@ import laptopHog4 from 'public/hedgehog/laptop-hog-04.png'
 import laptopHogEU from 'public/hedgehog/laptop-hog-eu.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
 import mailHog from 'public/hedgehog/mail-hog.png'
+import featureFlagHog from 'public/hedgehog/feature-flag-hog.png'
+import experimentsHog from 'public/hedgehog/experiments-hog.png'
+import annotationsHog from 'public/hedgehog/annotations-hog.png'
 
 type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
 
@@ -111,4 +114,13 @@ export const DetectiveHog = (props: HedgehogProps): JSX.Element => {
 }
 export const MailHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={mailHog} {...props} />
+}
+export const FeatureFlagHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={featureFlagHog} {...props} />
+}
+export const ExperimentsHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={experimentsHog} {...props} />
+}
+export const AnnotationsHog = (props: HedgehogProps): JSX.Element => {
+    return <SquaredHedgehog src={annotationsHog} {...props} />
 }
