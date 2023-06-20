@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { objectClean, toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
     PropertyFilterType,
@@ -22,11 +22,9 @@ import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPro
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export type PersonUUID = string
+
 interface Params {
     filters?: RecordingFilters
-}
-
-interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
@@ -255,14 +253,14 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        filters: [
-            props.filters || getDefaultFilters(props.personUUID),
+        customFilters: [
+            (props.filters ?? null) as RecordingFilters | null,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
                     ...filters,
-                    session_recording_duration: filters.session_recording_duration || defaultRecordingDurationFilter,
                 }),
+                resetFilters: () => null,
             },
         ],
         showFilters: [
@@ -306,9 +304,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
         },
-        resetFilters: () => {
-            actions.setFilters(getDefaultFilters(props.personUUID))
-        },
 
         maybeLoadSessionRecordings: ({ direction }) => {
             if (direction === 'older' && !values.hasNext) {
@@ -333,6 +328,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
     })),
     selectors({
+        filters: [
+            (s) => [s.customFilters, (_, props) => props.personUUID],
+            (customFilters, personUUID): RecordingFilters => {
+                const defaultFilters = getDefaultFilters(personUUID)
+                return {
+                    ...defaultFilters,
+                    ...customFilters,
+                }
+            },
+        ],
+
         listingVersion: [
             (s) => [s.featureFlags],
             (featureFlags): '1' | '2' | '3' => {
@@ -381,6 +387,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             (s) => [s.filters, (_, props) => props.personUUID],
             (filters, personUUID) => {
                 const defaultFilters = getDefaultFilters(personUUID)
+
                 return (
                     (filters?.actions?.length || 0) +
                     (filters?.events?.length || 0) +
@@ -409,45 +416,39 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 replace: boolean
             }
         ] => {
-            const params: Params = {
-                filters: values.filters,
-            }
-            const hashParams: HashParams = {
-                ...router.values.hashParams,
-            }
-            if (!values.selectedRecordingId) {
-                delete hashParams.sessionRecordingId
-            } else {
-                hashParams.sessionRecordingId = values.selectedRecordingId
+            const params: Params = objectClean({
+                filters: values.customFilters ?? undefined,
+                sessionRecordingId: values.selectedRecordingId ?? undefined,
+            })
+
+            // We used to have sessionRecordingId in the hash, so we keep it there for backwards compatibility
+            if (router.values.hashParams.sessionRecordingId) {
+                delete router.values.hashParams.sessionRecordingId
             }
 
-            console.log('actionToUrl', router.values.location.pathname, params, hashParams, { replace })
-
-            return [router.values.location.pathname, params, hashParams, { replace }]
+            return [router.values.location.pathname, params, router.values.hashParams, { replace }]
         }
 
         return {
             setSelectedRecordingId: () => buildURL(false),
             setFilters: () => buildURL(true),
+            resetFilters: () => buildURL(true),
         }
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
-            console.log('urlToAction', props, params, hashParams)
+        const urlToAction = (_: any, params: Params, hashParams: Params): void => {
             if (!props.updateSearchParams) {
                 return
             }
 
-            const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
+            const nulledSessionRecordingId = params.sessionRecordingId ?? hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
-                console.log('setting id', props)
             }
 
             if (params.filters) {
-                console.log('something filters', props)
-                if (!equal(params.filters, values.filters)) {
+                if (!equal(params.filters, values.customFilters)) {
                     actions.setFilters(params.filters)
                 }
             }
