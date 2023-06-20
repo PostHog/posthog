@@ -48,7 +48,7 @@ export function MetricSelector({
     const { insightProps } = useValues(logic)
 
     // insightDataLogic
-    const { internalQuery } = useValues(insightDataLogic(insightProps))
+    const { query, internalQuery } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
 
     // insightVizDataLogic
