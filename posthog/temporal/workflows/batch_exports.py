@@ -72,9 +72,12 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
         # Make sure to parse `elements_chain`, `properties` and
         # `person_properties` are parsed as JSON to `dict`s. In ClickHouse they
         # are stored as `String`s.
+        elements_chain = row.get("elements_chain")
+        properties = row.get("properties")
+        person_properties = row.get("person_properties")
         yield {
             **row,
-            "elements_chain": json.loads(row.get("elements_chain") or "[]"),
-            "properties": json.loads(row.get("properties", "{}")),
-            "person_properties": json.loads(row.get("person_properties") or "{}"),
+            "elements_chain": json.loads(elements_chain) if elements_chain else None,
+            "properties": json.loads(properties) if properties else None,
+            "person_properties": json.loads(person_properties) if person_properties else None,
         }
