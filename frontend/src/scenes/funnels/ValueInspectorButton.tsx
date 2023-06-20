@@ -22,7 +22,7 @@ export const ValueInspectorButton = React.forwardRef<HTMLAnchorElement, ValueIns
                 disabled={disabled}
                 title={title}
             >
-                <span className="funnel-inspect-label">{children}</span>
+                {children}
             </Link>
         )
     }
