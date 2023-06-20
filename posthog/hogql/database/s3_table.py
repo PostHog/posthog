@@ -1,23 +1,14 @@
-from typing import Dict, Optional
+from typing import Optional
 
-from posthog.hogql.database.models import FunctionCallTable, DatabaseField
+from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
 class S3Table(FunctionCallTable):
     url: str
-    fields: Dict[str, DatabaseField]
     format: str = "CSVWithNames"
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
-
-    def has_field(self, name: str) -> bool:
-        return name in self.fields
-
-    def get_field(self, name: str) -> DatabaseField:
-        if self.has_field(name):
-            return self.fields[name]
-        raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

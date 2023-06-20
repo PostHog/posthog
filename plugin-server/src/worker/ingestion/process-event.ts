@@ -205,14 +205,11 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        const ack = this.kafkaProducer.queueMessage({
+        const ack = this.kafkaProducer.produce({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            messages: [
-                {
-                    key: uuid,
-                    value: JSON.stringify(rawEvent),
-                },
-            ],
+            key: uuid,
+            value: Buffer.from(JSON.stringify(rawEvent)),
+            waitForAck: true,
         })
 
         return [rawEvent, ack]

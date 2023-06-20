@@ -21,7 +21,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
-from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdTable, RawPersonDistinctIdTable
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
@@ -39,7 +39,7 @@ class Database(BaseModel):
     events: EventsTable = EventsTable()
     groups: GroupsTable = GroupsTable()
     persons: PersonsTable = PersonsTable()
-    person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
+    person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_overrides: PersonOverridesTable = PersonOverridesTable()
 
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
@@ -48,7 +48,7 @@ class Database(BaseModel):
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
-    raw_person_distinct_ids: RawPersonDistinctIdTable = RawPersonDistinctIdTable()
+    raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
     raw_persons: RawPersonsTable = RawPersonsTable()
     raw_groups: RawGroupsTable = RawGroupsTable()
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
@@ -109,8 +109,8 @@ def create_hogql_database(team_id: int) -> Database:
     database = Database(timezone=team.timezone)
     if team.person_on_events_mode != PersonOnEventsMode.DISABLED:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
-        database.events.person = FieldTraverser(chain=["poe"])
-        database.events.person_id = StringDatabaseField(name="person_id")
+        database.events.fields["person"] = FieldTraverser(chain=["poe"])
+        database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
     tables = {}
     for table in DataWarehouseTable.objects.filter(team=team):
@@ -127,10 +127,9 @@ def serialize_database(database: Database) -> dict:
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):
-            field_input.update(table.get_asterisk())
+            field_input = table.get_asterisk()
         elif isinstance(table, Table):
-            for field in table.__fields__.keys():
-                field_input[field] = getattr(table, field, None)
+            field_input = table.fields
 
         field_output: List[Dict[str, Any]] = serialize_fields(field_input)
         tables[table_key] = field_output
@@ -166,10 +165,9 @@ def serialize_fields(field_input) -> List[Dict[str, Any]]:
                     "key": field_key,
                     "type": "virtual_table",
                     "table": field.to_printed_hogql(),
-                    "fields": list(field.__fields__.keys()),
+                    "fields": list(field.fields.keys()),
                 }
             )
         elif isinstance(field, FieldTraverser):
             field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
-
     return field_output

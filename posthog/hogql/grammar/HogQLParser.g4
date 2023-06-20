@@ -40,7 +40,7 @@ limitClause: LIMIT limitExpr ((WITH TIES) | BY columnExprList)?;
 settingsClause: SETTINGS settingExprList;
 
 joinExpr
-    : joinExpr (GLOBAL | LOCAL)? joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
+    : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
@@ -53,7 +53,7 @@ joinOp
     | ((ALL | ANY)? FULL OUTER? | FULL OUTER? (ALL | ANY)?)                         # JoinOpFull
     ;
 joinOpCross
-    : (GLOBAL|LOCAL)? CROSS JOIN
+    : CROSS JOIN
     | COMMA
     ;
 joinConstraintClause
@@ -112,22 +112,22 @@ columnExpr
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
-    | left=columnExpr ( operator=ASTERISK                                                               // multiply
+    | left=columnExpr ( operator=ASTERISK                                                          // multiply
                  | operator=SLASH                                                                  // divide
                  | operator=PERCENT                                                                // modulo
                  ) right=columnExpr                                                             # ColumnExprPrecedence1
-    | left=columnExpr ( operator=PLUS                                                                   // plus
+    | left=columnExpr ( operator=PLUS                                                              // plus
                  | operator=DASH                                                                   // minus
                  | operator=CONCAT                                                                 // concat
                  ) right=columnExpr                                                             # ColumnExprPrecedence2
-    | left=columnExpr ( operator=EQ_DOUBLE                                                              // equals
+    | left=columnExpr ( operator=EQ_DOUBLE                                                         // equals
                  | operator=EQ_SINGLE                                                              // equals
                  | operator=NOT_EQ                                                                 // notEquals
                  | operator=LE                                                                     // lessOrEquals
                  | operator=GE                                                                     // greaterOrEquals
                  | operator=LT                                                                     // less
                  | operator=GT                                                                     // greater
-                 | operator=GLOBAL? NOT? IN                                                        // in, notIn, globalIn, globalNotIn
+                 | operator=NOT? IN COHORT?                                                        // in, notIn; cohort()
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
