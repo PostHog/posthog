@@ -110,7 +110,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude = [
-    "posthog/hogql/grammar",
+    '.*/hogql/grammar/.*',
     'bin/migrate_kafka_data\.py',
     'gunicorn.config\.py',
 ]
@@ -119,6 +119,11 @@ exclude = [
 module = "posthog.tasks.*"
 disallow_untyped_defs = true
 check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# we don't want to type check things in hogql.grammar even where they are imported
+module = "posthog.hogql.grammar.*"
+follow_imports = "skip"
 
 [tool.django-stubs]
 django_settings_module = "posthog.settings"
