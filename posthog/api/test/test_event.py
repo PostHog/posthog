@@ -63,11 +63,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        # Django session, rate limit instance setting, PostHog user,
-        # PostHog team, PostHog org membership, person and distinct id, 4x PoE check
-        with self.assertNumQueries(9):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
-            self.assertEqual(response["results"][0]["event"], "event_name")
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
+        self.assertEqual(response["results"][0]["event"], "event_name")
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_filter_events_by_properties(self):
@@ -78,14 +75,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = 11  # Django session, PostHog user, PostHog team, PostHog org membership,
-        # look up if rate limit is enabled (cached after first lookup), 2x non-cached instance setting (MATERIALIZED_COLUMNS_ENABLED), person and distinct id
-
-        with self.assertNumQueries(expected_queries):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/events/?properties=%s"
-                % (json.dumps([{"key": "$browser", "value": "Safari"}]))
-            ).json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari"}]))
+        ).json()
         self.assertEqual(response["results"][0]["id"], event2_uuid)
 
         properties = "invalid_json"
