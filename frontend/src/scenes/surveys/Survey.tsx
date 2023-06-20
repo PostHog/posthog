@@ -282,13 +282,20 @@ export function SurveyReleaseSummary({
     return (
         <div className="flex flex-col mt-2 gap-2">
             <div>
-                {survey.linked_flag_id || survey.conditions?.url || survey.conditions?.selector || targetingFlagFilters
-                    ? 'This survey will be released to users who match all of the following:'
-                    : 'This survey will be released to everyone'}
+                {survey.linked_flag_id ||
+                survey.conditions?.url ||
+                survey.conditions?.selector ||
+                targetingFlagFilters ? (
+                    <>
+                        This survey will be released to users who match <b>all</b> of the following:
+                    </>
+                ) : (
+                    'This survey will be released to everyone'
+                )}
             </div>
             {survey.linked_flag_id && (
                 <div className="flex flex-row font-medium gap-1">
-                    <span>Are part of the feature flag:</span>{' '}
+                    <span>Feature flag enabled for:</span>{' '}
                     {id !== 'new' ? (
                         survey.linked_flag?.id ? (
                             <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
@@ -300,19 +307,19 @@ export function SurveyReleaseSummary({
             )}
             {survey.conditions?.url && (
                 <div className="flex flex-row font-medium gap-1">
-                    <span>Are on a page with a url that contains:</span>{' '}
+                    <span>Url contains:</span>{' '}
                     <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                 </div>
             )}
             {survey.conditions?.selector && (
                 <div className="flex flex-row font-medium gap-1">
-                    <span>Are on a page with a selector that matches:</span>{' '}
+                    <span>Selector matches:</span>{' '}
                     <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
                 </div>
             )}
             {(targetingFlagFilters?.groups?.[0].properties?.length || 0) > 0 && (
                 <div className="flex flex-row font-medium gap-1">
-                    <span>Belong to the following user properties:</span>{' '}
+                    <span>User conditions:</span>{' '}
                 </div>
             )}
             {targetingFlagFilters?.groups?.map((group, index) => (
