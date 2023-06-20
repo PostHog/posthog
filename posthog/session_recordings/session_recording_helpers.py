@@ -139,7 +139,7 @@ def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_by
     return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
 
 
-def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) -> List[Event]:
+def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) -> Generator[Event, None, None]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
     1. Since posthog-js {version} we are grouping events on the frontend in a batch and passing their size in $snapshot_bytes
@@ -156,7 +156,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
 
-    def new_event(items: List[dict] = None) -> Event:
+    def new_event(items: List[dict] | None = None) -> Event:
         return {
             **events[0],
             "event": "$snapshot_items",  # New event name to avoid confusion with the old $snapshot event
@@ -178,10 +178,11 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
             additional_bytes = event["properties"]["$snapshot_bytes"]
             additional_data = flatten([event["properties"]["$snapshot_data"]], max_depth=1)
 
-            if not current_event or current_event_size + additional_bytes > max_size_bytes:
+            # mypy thinks current event is always None here, but it's not
+            if not current_event or current_event_size + additional_bytes > max_size_bytes:  # type: ignore
                 # If adding the new data would put us over the max size, yield the current event and start a new one
                 if current_event:
-                    yield current_event
+                    yield current_event  # type: ignore
                 current_event = new_event()
                 current_event_size = 0
 
@@ -189,12 +190,13 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
             current_event["properties"]["$snapshot_items"].extend(additional_data)
             current_event_size += additional_bytes
 
-        yield current_event
+        if current_event:
+            yield current_event
     else:
         snapshot_data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
 
         # 2. Otherwise, try and group all the events if they are small enough
-        if byte_size_dict(snapshot_data_list) < max_size_bytes:
+        if byte_size(snapshot_data_list) < max_size_bytes:
             event = new_event(snapshot_data_list)
             yield event
         else:
@@ -214,7 +216,7 @@ def preprocess_replay_events(events: List[Event], max_size_bytes=1024 * 1024) ->
                 yield event
 
             # Try and group the rest
-            if byte_size_dict(other_snapshots) < max_size_bytes:
+            if byte_size(other_snapshots) < max_size_bytes:
                 event = new_event(other_snapshots)
                 yield event
             else:
@@ -443,5 +445,5 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     return events_summary
 
 
-def byte_size_dict(d: Dict) -> int:
+def byte_size(d: Dict | List) -> int:
     return len(json.dumps(d))

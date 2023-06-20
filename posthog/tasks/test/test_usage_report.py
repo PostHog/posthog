@@ -546,7 +546,8 @@ class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTables
         from posthog.models.event.events_query import run_events_query
 
         execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
-        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        # mypy wants all the named arguments, but we don't really need them
+        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)  # type: ignore
         sync_execute("SYSTEM FLUSH LOGS")
 
         all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))

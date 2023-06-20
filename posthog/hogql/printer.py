@@ -44,7 +44,8 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
         right=ast.Constant(value=context.team_id),
-        type=ast.BooleanType(),
+        # mypy wants all the named arguments, but we don't really need them
+        type=ast.BooleanType(),  # type: ignore
     )
 
 
@@ -67,7 +68,14 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
 
     context.database = context.database or create_hogql_database(context.team_id)
-    node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+    scopes = [node.type for node in stack] if stack else None
+    node = resolve_types(
+        node,
+        context,
+        # node.type can be None so this is Optional[List[SelectQueryType|None]]
+        # but scopes is exepcted to be List[SelectQueryType] | None
+        scopes=scopes,  # type: ignore
+    )
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
@@ -169,9 +177,11 @@ class _Printer(Visitor):
                 if where is None:
                     where = extra_where
                 elif isinstance(where, ast.And):
-                    where = ast.And(exprs=[extra_where] + where.exprs)
+                    # mypy wants all the named arguments, but we don't really need them
+                    where = ast.And(exprs=[extra_where] + where.exprs)  # type: ignore
                 else:
-                    where = ast.And(exprs=[extra_where, where])
+                    # mypy wants all the named arguments, but we don't really need them
+                    where = ast.And(exprs=[extra_where, where])  # type: ignore
             else:
                 raise HogQLException(f"Invalid where of type {type(extra_where).__name__} returned by join_expr")
 
@@ -261,13 +271,13 @@ class _Printer(Visitor):
                 join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.SelectQueryType):
-            join_strings.append(self.visit(node.table))
+            join_strings.append(self.visit(node.table))  # type: ignore
 
         elif isinstance(node.type, ast.SelectUnionQueryType):
-            join_strings.append(self.visit(node.table))
+            join_strings.append(self.visit(node.table))  # type: ignore
 
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
-            join_strings.append(self.visit(node.table))
+            join_strings.append(self.visit(node.table))  # type: ignore
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.LazyTableType):
@@ -406,7 +416,9 @@ class _Printer(Visitor):
 
         if node.type is not None:
             if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
-                raise HogQLException(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+                raise HogQLException(
+                    f"Can't select a table when a column is expected: {'.'.join([str(x) for x in node.chain])}"
+                )
 
             return self.visit(node.type)
         else:
@@ -466,8 +478,8 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                args: List[str] = []
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: List[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
@@ -477,7 +489,6 @@ class _Printer(Visitor):
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
-                    args: List[str] = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
@@ -558,8 +569,9 @@ class _Printer(Visitor):
             resolved_field = type.resolve_database_field()
             if resolved_field is None:
                 raise HogQLException(f'Can\'t resolve field "{type.name}" on table.')
-            if isinstance(resolved_field, Table):
-                if isinstance(type.table_type, ast.VirtualTableType):
+            # mypy thinks resolved_field is never a table
+            if isinstance(resolved_field, Table):  # type: ignore
+                if isinstance(type.table_type, ast.VirtualTableType):  # type: ignore
                     return self.visit(ast.AsteriskType(table_type=ast.TableType(table=resolved_field)))
                 else:
                     return self.visit(
@@ -629,7 +641,7 @@ class _Printer(Visitor):
                 raise HogQLException(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
+            materialized_column = self._get_materialized_column(table_name, str(type.chain[0]), field_name)
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
                 property_sql = f"{self.visit(field_type.table_type)}.{property_sql}"
@@ -641,9 +653,9 @@ class _Printer(Visitor):
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.person_on_events_mode != PersonOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", type.chain[0], "person_properties")
+                materialized_column = self._get_materialized_column("events", str(type.chain[0]), "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", type.chain[0], "properties")
+                materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
             if materialized_column:
                 materialized_property_sql = self._print_identifier(materialized_column)
 
@@ -741,7 +753,9 @@ class _Printer(Visitor):
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
-        over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        over = (
+            f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(str(node.over_identifier))
+        )
         return f"{self._print_identifier(node.name)}({', '.join(self.visit(expr) for expr in node.args or [])}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
@@ -770,7 +784,7 @@ class _Printer(Visitor):
         # Regular identifiers can't start with a number. Print digit strings as-is for unesacped tuple access.
         if isinstance(name, int) and str(name).isdigit():
             return str(name)
-        return escape_hogql_identifier(name)
+        return escape_hogql_identifier(str(name))
 
     def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
         if self.dialect == "clickhouse":

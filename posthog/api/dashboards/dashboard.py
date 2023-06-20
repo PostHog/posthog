@@ -352,7 +352,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
         serialized_tiles = []
 
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(  # type: ignore
             Prefetch(
                 "insight__tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
             )
@@ -408,7 +408,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         else:
             queryset = super().get_queryset()
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(  # type: ignore
             "team__organization",
             "created_by",
         )
@@ -433,7 +433,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 # in case there are endpoints that hit this branch but don't have a pk
                 pass
 
-            queryset = queryset.prefetch_related(
+            queryset = queryset.prefetch_related(  # type: ignore
                 # prefetching tiles saves 25 queries per tile on the dashboard
                 Prefetch(
                     "tiles",
@@ -441,7 +441,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 ),
             )
 
-        return queryset
+        return queryset  # type: ignore
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         pk = kwargs["pk"]

@@ -158,7 +158,8 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
     # Add a materialized column such that we can verify that it is NOT included
     # in the export.
-    await amaterialize("events", "$browser")
+    # mypy can't cope with the await typehint
+    await amaterialize("events", "$browser")  # type: ignore
 
     # Create enough events to ensure we span more than 5MB, the smallest
     # multipart chunk size for multipart uploads to S3.

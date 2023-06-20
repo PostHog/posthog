@@ -1084,6 +1084,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             columns = ",".join(alternatives)
             query = f"SELECT {columns} FROM events WHERE properties.string = '{random_uuid}'"
             response = execute_hogql_query(query, team=self.team)
+            assert response.results is not None
             self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
 
     def test_property_access_with_arrays_zero_index_error(self):

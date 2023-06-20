@@ -179,12 +179,12 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         batch_export = self.get_object()
         runs = BatchExportRun.objects.filter(batch_export=batch_export).order_by("-created_at")
 
-        limit = self.request.query_params.get("limit", None)
-        if limit is not None:
+        limit_param = self.request.query_params.get("limit", None)
+        if limit_param is not None:
             try:
-                limit = int(limit)
+                limit = int(limit_param)
             except (TypeError, ValueError):
-                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
+                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit_param}'")
 
             runs = runs[:limit]
 

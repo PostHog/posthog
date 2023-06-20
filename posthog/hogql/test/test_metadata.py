@@ -5,10 +5,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     def _expr(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(expr=query), team=self.team)
+        # mypy wants all the named arguments, but we don't really need them
+        return get_hogql_metadata(query=HogQLMetadata(expr=query), team=self.team)  # type: ignore
 
     def _select(self, query: str) -> HogQLMetadataResponse:
-        return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)
+        # mypy wants all the named arguments, but we don't really need them
+        return get_hogql_metadata(query=HogQLMetadata(select=query), team=self.team)  # type: ignore
 
     def test_metadata_valid_expr_select(self):
         metadata = self._expr("select 1")

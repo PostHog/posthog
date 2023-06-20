@@ -697,7 +697,10 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                 # We don't want to return an error response for `/decide` just because of this.
                 # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
                 # but we don't care about that case because first override wins.
-                cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
+                cursor.execute(
+                    query,
+                    {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override},
+                )
 
             break
 

@@ -50,7 +50,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"])
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(select=["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"])  # type: ignore
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
@@ -122,7 +123,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(  # type: ignore
                 select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
             )
 
@@ -163,7 +165,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(  # type: ignore
                 select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
             )
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
@@ -201,7 +204,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(  # type: ignore
                 select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"],
                 properties=[
                     PersonPropertyFilter(
@@ -302,7 +306,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["properties.key", "count()"])
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(select=["properties.key", "count()"])  # type: ignore
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
 
@@ -331,7 +336,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["event", "person", "person -- P"])
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(select=["event", "person", "person -- P"])  # type: ignore
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
             self.assertEqual(response["results"][0][1], {"distinct_id": "4"})
@@ -368,15 +374,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2023-01-12 12:14:00"):
-            query = EventsQuery(select=["event"], after="all")
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(select=["event"], after="all")  # type: ignore
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
-            query = EventsQuery(select=["event"], before="-1y", after="all")
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(select=["event"], before="-1y", after="all")  # type: ignore
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
 
-            query = EventsQuery(select=["event"], before="2022-01-01", after="-4y")
+            # mypy wants all the named arguments, but we don't really need them
+            query = EventsQuery(select=["event"], before="2022-01-01", after="-4y")  # type: ignore
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
@@ -402,7 +411,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+            # mypy wants all of the named arguments but we don't really need them
+            query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")  # type: ignore
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             query.response = HogQLQueryResponse.parse_obj(api_response)
 

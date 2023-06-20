@@ -61,13 +61,12 @@ class PropertyDefinition(UUIDModel):
     class Meta:
         indexes = [
             # This indexes the query in api/property_definition.py
-            # :KLUDGE: django ORM typing is off here
-            models.Index(  # type: ignore
-                F("team_id"),  # type: ignore
-                F("type"),  # type: ignore
-                Coalesce(F("group_type_index"), -1),  # type: ignore
-                F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
-                F("name").asc(),  # type: ignore
+            models.Index(
+                F("team_id"),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("query_usage_30_day").desc(nulls_last=True),
+                F("name").asc(),
                 name="index_property_def_query",
             )
         ] + [

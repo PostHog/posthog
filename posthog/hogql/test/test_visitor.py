@@ -35,11 +35,11 @@ class TestVisitor(BaseTest):
         self.assertEqual(visitor.constants, ["asd", 1, 3, "asd2"])
 
     def test_everything_visitor(self):
-        node = ast.Or(
+        node = ast.Or(  # type: ignore
             exprs=[
-                ast.And(
+                ast.And(  # type: ignore
                     exprs=[
-                        ast.CompareOperation(
+                        ast.CompareOperation(  # type: ignore
                             op=ast.CompareOperationOp.Eq,
                             left=ast.Field(chain=["a"]),
                             right=ast.Constant(value=1),
@@ -51,7 +51,7 @@ class TestVisitor(BaseTest):
                         ),
                     ]
                 ),
-                ast.Not(
+                ast.Not(  # type: ignore
                     expr=ast.Call(
                         name="c",
                         args=[
@@ -69,14 +69,14 @@ class TestVisitor(BaseTest):
                 ast.Alias(expr=ast.SelectQuery(select=[ast.Field(chain=["timestamp"])]), alias="f"),
                 ast.SelectQuery(
                     select=[ast.Field(chain=["a"])],
-                    select_from=ast.JoinExpr(
+                    select_from=ast.JoinExpr(  # type: ignore
                         table=ast.Field(chain=["b"]),
                         table_final=True,
                         alias="c",
-                        next_join=ast.JoinExpr(
+                        next_join=ast.JoinExpr(  # type: ignore
                             join_type="INNER",
                             table=ast.Field(chain=["f"]),
-                            constraint=ast.CompareOperation(
+                            constraint=ast.CompareOperation(  # type: ignore
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["d"]),
                                 right=ast.Field(chain=["e"]),
@@ -95,7 +95,7 @@ class TestVisitor(BaseTest):
                     limit=ast.Constant(value=1),
                     limit_by=[ast.Constant(value=True)],
                     limit_with_ties=True,
-                    offset=ast.Or(exprs=[ast.Constant(value=1)]),
+                    offset=ast.Or(exprs=[ast.Constant(value=1)]),  # type: ignore
                     distinct=True,
                 ),
             ]

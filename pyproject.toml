@@ -125,5 +125,11 @@ check_untyped_defs = true
 module = "posthog.hogql.grammar.*"
 follow_imports = "skip"
 
+[[tool.mypy.overrides]]
+# we don't want to type check things in schema.py even where they are imported
+module = "posthog.schema.*"
+follow_imports = "skip"
+
 [tool.django-stubs]
 django_settings_module = "posthog.settings"
+

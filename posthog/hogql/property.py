@@ -54,7 +54,8 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         properties = [property_to_expr(p, team) for p in property]
         if len(properties) == 1:
             return properties[0]
-        return ast.And(exprs=properties)
+        # mypy wants all the named arguments, but we don't really need them
+        return ast.And(exprs=properties)  # type: ignore
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
@@ -67,9 +68,11 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             return property_to_expr(property.values[0], team)
 
         if property.type == PropertyOperatorType.AND:
-            return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
+            # mypy wants all the named arguments, but we don't really need them
+            return ast.And(exprs=[property_to_expr(p, team) for p in property.values])  # type: ignore
         else:
-            return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
+            # mypy wants all the named arguments, but we don't really need them
+            return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])  # type: ignore
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
@@ -99,24 +102,29 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
                     or operator == PropertyOperator.not_icontains
                     or operator == PropertyOperator.not_regex
                 ):
-                    return ast.And(exprs=exprs)
-                return ast.Or(exprs=exprs)
+                    # mypy wants all the named arguments, but we don't really need them
+                    return ast.And(exprs=exprs)  # type: ignore
+                return ast.Or(exprs=exprs)  # type: ignore
 
         chain = ["person", "properties"] if property.type == "person" else ["properties"]
-        field = ast.Field(chain=chain + [property.key])
+        field = ast.Field(chain=chain + [property.key])  # type: ignore
 
         if operator == PropertyOperator.is_set:
-            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
+            # mypy wants all the named arguments, but we don't really need them
+            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))  # type: ignore
         elif operator == PropertyOperator.is_not_set:
-            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
+            # mypy wants all the named arguments, but we don't really need them
+            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))  # type: ignore
         elif operator == PropertyOperator.icontains:
-            return ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            return ast.CompareOperation(  # type: ignore
                 op=ast.CompareOperationOp.ILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
         elif operator == PropertyOperator.not_icontains:
-            return ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            return ast.CompareOperation(  # type: ignore
                 op=ast.CompareOperationOp.NotILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
@@ -160,7 +168,8 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
                 if value == "false":
                     value = False
 
-        return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
+        # mypy wants all the named arguments, but we don't really need them
+        return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))  # type: ignore
 
     elif property.type == "element":
         value = property.value
@@ -180,8 +189,9 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
                     or operator == PropertyOperator.not_icontains
                     or operator == PropertyOperator.not_regex
                 ):
-                    return ast.And(exprs=exprs)
-                return ast.Or(exprs=exprs)
+                    # mypy wants all the named arguments, but we don't really need them
+                    return ast.And(exprs=exprs)  # type: ignore
+                return ast.Or(exprs=exprs)  # type: ignore
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:
@@ -205,7 +215,8 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             raise Exception("Can not convert cohort property to expression without team")
 
         cohort = Cohort.objects.get(team=team, id=property.value)
-        return ast.CompareOperation(
+        # mypy wants all the named arguments, but we don't really need them
+        return ast.CompareOperation(  # type: ignore
             left=ast.Field(chain=["person_id"]),
             op=ast.CompareOperationOp.In,
             right=cohort_subquery(cohort.pk, cohort.is_static),
@@ -273,12 +284,14 @@ def action_to_expr(action: Action) -> ast.Expr:
         if len(exprs) == 1:
             or_queries.append(exprs[0])
         elif len(exprs) > 1:
-            or_queries.append(ast.And(exprs=exprs))
+            # mypy wants all the named arguments, but we don't really need them
+            or_queries.append(ast.And(exprs=exprs))  # type: ignore
 
     if len(or_queries) == 1:
         return or_queries[0]
     else:
-        return ast.Or(exprs=or_queries)
+        # mypy wants all the named arguments, but we don't really need them
+        return ast.Or(exprs=or_queries)  # type: ignore
 
 
 def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):

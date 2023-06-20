@@ -310,12 +310,12 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 ]
                 json_data.sort(key=lambda x: x["timestamp"])
                 # Drop _timestamp and team_id from events
-                events = [
+                filtered_events = [
                     {key: value for key, value in event.items() if key not in ("team_id", "_timestamp")}
                     for event in events
                 ]
-                assert json_data[0] == events[0]
-                assert json_data == events
+                assert json_data[0] == filtered_events[0]
+                assert json_data == filtered_events
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
         assert len(runs) == 1

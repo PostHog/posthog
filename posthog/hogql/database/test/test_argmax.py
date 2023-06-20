@@ -25,7 +25,8 @@ class TestArgmax(BaseTest):
                 ),
                 ast.Alias(alias="id", expr=ast.Field(chain=["raw_persons", "id"])),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
+            # mypy wants all the named arguments, but we don't really need them
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),  # type: ignore
             group_by=[ast.Field(chain=["raw_persons", "id"])],
         )
         self.assertEqual(response, expected)
@@ -52,9 +53,11 @@ class TestArgmax(BaseTest):
                 ),
                 ast.Alias(alias="id", expr=ast.Field(chain=["raw_persons", "id"])),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
+            # mypy wants all the named arguments, but we don't really need them
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),  # type: ignore
             group_by=[ast.Field(chain=["raw_persons", "id"])],
-            having=ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            having=ast.CompareOperation(  # type: ignore
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Call(
                     name="argMax",

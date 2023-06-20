@@ -46,7 +46,8 @@ class TestParser(BaseTest):
             ast.Call(
                 name="if",
                 args=[
-                    ast.CompareOperation(
+                    # mypy wants all the named arguments, but we don't really need them
+                    ast.CompareOperation(  # type: ignore
                         op=ast.CompareOperationOp.Gt, left=ast.Constant(value=1), right=ast.Constant(value=2)
                     ),
                     ast.Constant(value=1),
@@ -213,35 +214,50 @@ class TestParser(BaseTest):
     def test_math_comparison_operations(self):
         self.assertEqual(
             self._expr("1 = 2"),
-            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq
+            ),
         )
         self.assertEqual(
             self._expr("1 == 2"),
-            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Eq
+            ),
         )
         self.assertEqual(
             self._expr("1 != 2"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.NotEq
             ),
         )
         self.assertEqual(
             self._expr("1 < 2"),
-            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Lt),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Lt
+            ),
         )
         self.assertEqual(
             self._expr("1 <= 2"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtE
             ),
         )
         self.assertEqual(
             self._expr("1 > 2"),
-            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt
+            ),
         )
         self.assertEqual(
             self._expr("1 >= 2"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtE
             ),
         )
@@ -249,13 +265,15 @@ class TestParser(BaseTest):
     def test_null_comparison_operations(self):
         self.assertEqual(
             self._expr("1 is null"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.Eq
             ),
         )
         self.assertEqual(
             self._expr("1 is not null"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationOp.NotEq
             ),
         )
@@ -263,25 +281,32 @@ class TestParser(BaseTest):
     def test_like_comparison_operations(self):
         self.assertEqual(
             self._expr("1 like 'a%sd'"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.Like
             ),
         )
         self.assertEqual(
             self._expr("1 not like 'a%sd'"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotLike
             ),
         )
         self.assertEqual(
             self._expr("1 ilike 'a%sd'"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.ILike
             ),
         )
         self.assertEqual(
             self._expr("1 not ilike 'a%sd'"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationOp.NotILike
             ),
         )
@@ -289,25 +314,30 @@ class TestParser(BaseTest):
     def test_and_or(self):
         self.assertEqual(
             self._expr("true or false"),
-            ast.Or(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.Or(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),  # type: ignore
         )
         self.assertEqual(
             self._expr("true and false"),
-            ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),  # type: ignore
         )
         self.assertEqual(
             self._expr("true and not false"),
-            ast.And(
-                exprs=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],
+            # mypy wants all the named arguments, but we don't really need them
+            ast.And(  # type: ignore
+                exprs=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],  # type: ignore
             ),
         )
         self.assertEqual(
             self._expr("true or false or not true or 2"),
-            ast.Or(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.Or(  # type: ignore
                 exprs=[
                     ast.Constant(value=True),
                     ast.Constant(value=False),
-                    ast.Not(expr=ast.Constant(value=True)),
+                    # mypy wants all the named arguments, but we don't really need them
+                    ast.Not(expr=ast.Constant(value=True)),  # type: ignore
                     ast.Constant(value=2),
                 ],
             ),
@@ -317,8 +347,12 @@ class TestParser(BaseTest):
             ast.Or(
                 exprs=[
                     ast.Constant(value=True),
-                    ast.And(
-                        exprs=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))],
+                    # mypy wants all the named arguments, but we don't really need them
+                    ast.And(  # type: ignore
+                        exprs=[
+                            ast.Constant(value=False),
+                            ast.Not(expr=ast.Constant(value=True)),  # type: ignore
+                        ],
                     ),
                     ast.Constant(value=2),
                 ],
@@ -328,7 +362,8 @@ class TestParser(BaseTest):
     def test_unary_operations(self):
         self.assertEqual(
             self._expr("not true"),
-            ast.Not(expr=ast.Constant(value=True)),
+            # mypy wants all the named arguments, but we don't really need them
+            ast.Not(expr=ast.Constant(value=True)),  # type: ignore
         )
 
     def test_parens(self):
@@ -358,7 +393,9 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             self._expr("event like '$%'"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationOp.Like
             ),
         )
@@ -366,7 +403,9 @@ class TestParser(BaseTest):
     def test_property_access(self):
         self.assertEqual(
             self._expr("properties.something == 1"),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Field(chain=["properties", "something"]),
                 right=ast.Constant(value=1),
                 op=ast.CompareOperationOp.Eq,
@@ -442,7 +481,9 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             self._expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}),
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore #type: ignore
                 op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=123),
@@ -488,7 +529,9 @@ class TestParser(BaseTest):
             self._select("select 1 where 1 == 2"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                where=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                # mypy wants all the named arguments, but we don't really need them
+                where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             ),
@@ -503,7 +546,9 @@ class TestParser(BaseTest):
             self._select("select 1 prewhere 1 == 2"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                prewhere=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                # mypy wants all the named arguments, but we don't really need them
+                prewhere=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             ),
@@ -518,7 +563,9 @@ class TestParser(BaseTest):
             self._select("select 1 having 1 == 2"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                having=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                # mypy wants all the named arguments, but we don't really need them
+                having=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
             ),
@@ -529,13 +576,17 @@ class TestParser(BaseTest):
             self._select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                where=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                # mypy wants all the named arguments, but we don't really need them
+                where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
-                prewhere=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                prewhere=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
                 ),
-                having=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                having=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
                 ),
             ),
@@ -545,42 +596,49 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._select("select 1 from events"),
             ast.SelectQuery(
-                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                select=[ast.Constant(value=1)],
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
             ),
         )
         self.assertEqual(
             self._select("select 1 from events as e"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),  # type: ignore
             ),
         )
         self.assertEqual(
             self._select("select 1 from events e"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),  # type: ignore
             ),
         )
         self.assertEqual(
             self._select("select 1 from complex.table"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"])),  # type: ignore
             ),
         )
         self.assertEqual(
             self._select("select 1 from complex.table as a"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),  # type: ignore
             ),
         )
         self.assertEqual(
             self._select("select 1 from complex.table a"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),  # type: ignore
             ),
         )
         self.assertEqual(
@@ -589,7 +647,9 @@ class TestParser(BaseTest):
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.SelectQuery(
-                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                        # mypy wants all the named arguments, but we don't really need them
+                        select=[ast.Constant(value=1)],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                     )
                 ),
             ),
@@ -599,8 +659,10 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
-                    table=ast.SelectQuery(
-                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                    # mypy wants all the named arguments, but we don't really need them
+                    table=ast.SelectQuery(  # type: ignore
+                        select=[ast.Constant(value=1)],
+                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                     ),
                     alias="sq",
                 ),
@@ -612,9 +674,11 @@ class TestParser(BaseTest):
             self._select("select 1 from events JOIN events2 ON 1"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
-                    next_join=ast.JoinExpr(
+                    # mypy wants all the named arguments, but we don't really need them
+                    next_join=ast.JoinExpr(  # type: ignore
                         join_type="JOIN",
                         table=ast.Field(chain=["events2"]),
                         constraint=ast.Constant(value=1),
@@ -626,9 +690,11 @@ class TestParser(BaseTest):
             self._select("select * from events LEFT OUTER JOIN events2 ON 1"),
             ast.SelectQuery(
                 select=[ast.Field(chain=["*"])],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
-                    next_join=ast.JoinExpr(
+                    # mypy wants all the named arguments, but we don't really need them
+                    next_join=ast.JoinExpr(  # type: ignore
                         join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
                         constraint=ast.Constant(value=1),
@@ -640,13 +706,16 @@ class TestParser(BaseTest):
             self._select("select 1 from events LEFT OUTER JOIN events2 ON 1 ANY RIGHT JOIN events3 ON 2"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
-                    next_join=ast.JoinExpr(
+                    # mypy wants all the named arguments, but we don't really need them
+                    next_join=ast.JoinExpr(  # type: ignore
                         join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
                         constraint=ast.Constant(value=1),
-                        next_join=ast.JoinExpr(
+                        # mypy wants all the named arguments, but we don't really need them
+                        next_join=ast.JoinExpr(  # type: ignore
                             join_type="RIGHT ANY JOIN",
                             table=ast.Field(chain=["events3"]),
                             constraint=ast.Constant(value=2),
@@ -677,23 +746,30 @@ class TestParser(BaseTest):
                     ast.Field(chain=["p", "id"]),
                     ast.Field(chain=["p", "properties", "email"]),
                 ],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
                     alias="e",
-                    next_join=ast.JoinExpr(
+                    # mypy wants all the named arguments, but we don't really need them
+                    next_join=ast.JoinExpr(  # type: ignore
                         join_type="LEFT JOIN",
                         table=ast.Field(chain=["person_distinct_id"]),
                         alias="pdi",
-                        constraint=ast.CompareOperation(
+                        # mypy wants all the named arguments, but we don't really need them
+                        # mypy wants all the named arguments, but we don't really need them
+                        constraint=ast.CompareOperation(  # type: ignore #type: ignore
                             op=ast.CompareOperationOp.Eq,
                             left=ast.Field(chain=["pdi", "distinct_id"]),
                             right=ast.Field(chain=["e", "distinct_id"]),
                         ),
-                        next_join=ast.JoinExpr(
+                        # mypy wants all the named arguments, but we don't really need them
+                        next_join=ast.JoinExpr(  # type: ignore
                             join_type="LEFT JOIN",
                             table=ast.Field(chain=["persons"]),
                             alias="p",
-                            constraint=ast.CompareOperation(
+                            # mypy wants all the named arguments, but we don't really need them
+                            # mypy wants all the named arguments, but we don't really need them
+                            constraint=ast.CompareOperation(  # type: ignore #type: ignore
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["p", "id"]),
                                 right=ast.Field(chain=["pdi", "person_id"]),
@@ -709,7 +785,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events GROUP BY 1, event"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                 group_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
             ),
         )
@@ -733,7 +810,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                 order_by=[
                     ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
                     ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
@@ -747,7 +825,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events LIMIT 1"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                 limit=ast.Constant(value=1),
             ),
         )
@@ -755,7 +834,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events LIMIT 1 OFFSET 3"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                 limit=ast.Constant(value=1),
                 offset=ast.Constant(value=3),
             ),
@@ -764,7 +844,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events LIMIT 1 OFFSET 3 WITH TIES"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                 limit=ast.Constant(value=1),
                 limit_with_ties=True,
                 offset=ast.Constant(value=3),
@@ -774,7 +855,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events LIMIT 1 OFFSET 3 BY 1, event"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                 limit=ast.Constant(value=1),
                 offset=ast.Constant(value=3),
                 limit_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
@@ -786,7 +868,9 @@ class TestParser(BaseTest):
             self._select("select 1 where 1 == {hogql_val_1}"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                where=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                # mypy wants all the named arguments, but we don't really need them
+                where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Constant(value=1),
                     right=ast.Placeholder(field="hogql_val_1"),
@@ -797,7 +881,9 @@ class TestParser(BaseTest):
             self._select("select 1 where 1 == {hogql_val_1}", {"hogql_val_1": ast.Constant(value="bar")}),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                where=ast.CompareOperation(
+                # mypy wants all the named arguments, but we don't really need them
+                # mypy wants all the named arguments, but we don't really need them
+                where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Constant(value=1),
                     right=ast.Constant(value="bar"),
@@ -822,7 +908,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events sample 1/10 offset 999"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
                         offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
@@ -836,7 +923,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events sample 0.1 offset 999"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
                         offset_value=ast.RatioExpr(left=ast.Constant(value=999)),
@@ -852,7 +940,8 @@ class TestParser(BaseTest):
             self._select("select 1 from events sample 10 offset 1/2"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
                     sample=ast.SampleExpr(
                         offset_value=ast.RatioExpr(left=ast.Constant(value=1), right=ast.Constant(value=2)),
@@ -868,9 +957,11 @@ class TestParser(BaseTest):
             self._select("select 1 from events sample 10"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(  # type: ignore
                     table=ast.Field(chain=["events"]),
-                    sample=ast.SampleExpr(
+                    # mypy wants all the named arguments, but we don't really need them
+                    sample=ast.SampleExpr(  # type: ignore
                         sample_value=ast.RatioExpr(
                             left=ast.Constant(value=10),
                         ),
@@ -885,7 +976,8 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 ctes={"boo": ast.CTE(name="boo", expr=ast.Field(chain=["event"]), cte_type="column")},
                 select=[ast.Field(chain=["boo"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
             ),
         )
         self.assertEqual(
@@ -893,7 +985,8 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 ctes={"kokku": ast.CTE(name="kokku", expr=ast.Call(name="count", args=[]), cte_type="column")},
                 select=[ast.Field(chain=["kokku"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
             ),
         )
 
@@ -906,13 +999,15 @@ class TestParser(BaseTest):
                         name="customers",
                         expr=ast.SelectQuery(
                             select=[ast.Constant(value="yes")],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                            # mypy wants all the named arguments, but we don't really need them
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                         ),
                         cte_type="subquery",
                     )
                 },
                 select=[ast.Field(chain=["*"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),  # type: ignore
             ),
         )
 
@@ -925,14 +1020,16 @@ class TestParser(BaseTest):
                         name="happy",
                         expr=ast.SelectQuery(
                             select=[ast.Constant(value="yes")],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                            # mypy wants all the named arguments, but we don't really need them
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                         ),
                         cte_type="subquery",
                     ),
                     "sad": ast.CTE(name="sad", expr=ast.Constant(value=":("), cte_type="column"),
                 },
                 select=[ast.Field(chain=["sad"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),  # type: ignore
             ),
         )
 
@@ -949,7 +1046,8 @@ class TestParser(BaseTest):
                                 ast.Field(chain=["event"]),
                                 ast.Alias(alias="tt", expr=ast.Field(chain=["timestamp"])),
                             ],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                            # mypy wants all the named arguments, but we don't really need them
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
                         ),
                         cte_type="subquery",
                     ),
@@ -957,13 +1055,15 @@ class TestParser(BaseTest):
                         name="final",
                         expr=ast.SelectQuery(
                             select=[ast.Field(chain=["tt"])],
-                            select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),
+                            # mypy wants all the named arguments, but we don't really need them
+                            select_from=ast.JoinExpr(table=ast.Field(chain=["users"])),  # type: ignore
                         ),
                         cte_type="subquery",
                     ),
                 },
                 select=[ast.Field(chain=["*"])],
-                select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),
+                # mypy wants all the named arguments, but we don't really need them
+                select_from=ast.JoinExpr(table=ast.Field(chain=["final"])),  # type: ignore
             ),
         )
 
@@ -1023,7 +1123,8 @@ class TestParser(BaseTest):
                     ),
                 ),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            # mypy wants all the named arguments, but we don't really need them
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
         )
         self.assertEqual(expr, expected)
 
@@ -1042,7 +1143,8 @@ class TestParser(BaseTest):
                     ),
                 ),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            # mypy wants all the named arguments, but we don't really need them
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
             window_exprs={
                 "win1": ast.WindowExpr(
                     partition_by=[ast.Field(chain=["person", "id"])],

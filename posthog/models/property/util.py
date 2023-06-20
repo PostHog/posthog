@@ -784,10 +784,10 @@ class HogQLPropertyChecker(TraversingVisitor):
 
     def visit_field(self, node: ast.Field):
         if len(node.chain) > 1 and node.chain[0] == "properties":
-            self.event_properties.append(node.chain[1])
+            self.event_properties.append(str(node.chain[1]))
 
         if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
-            self.person_properties.append(node.chain[2])
+            self.person_properties.append(str(node.chain[2]))
 
         if (
             len(node.chain) > 3
@@ -795,7 +795,7 @@ class HogQLPropertyChecker(TraversingVisitor):
             and node.chain[1] == "person"
             and node.chain[2] == "properties"
         ):
-            self.person_properties.append(node.chain[3])
+            self.person_properties.append(str(node.chain[3]))
 
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:

@@ -1161,7 +1161,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
+        with connection.execute_wrapper(QueryTimeoutWrapper()):  # type: ignore
             response = self._post_decide(api_version=3, distinct_id="example_id")
             self.assertTrue("beta-feature" not in response.json()["featureFlags"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1186,7 +1186,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
+        with connection.execute_wrapper(QueryTimeoutWrapper()):  # type: ignore
             response = self._post_decide(api_version=3, distinct_id="example_id")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
@@ -1256,7 +1256,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
+        with connection.execute_wrapper(QueryTimeoutWrapper()):  # type: ignore
             response = self._post_decide(api_version=3, distinct_id="example_id", ip=australia_ip)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1324,7 +1324,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         person.add_distinct_id("other_id")
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
+        with connection.execute_wrapper(QueryTimeoutWrapper()):  # type: ignore
             response = self._post_decide(
                 api_version=3,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -1590,7 +1590,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["autocaptureExceptions"], True)
 
         # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
+        with connection.execute_wrapper(QueryTimeoutWrapper()):  # type: ignore
             response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
             self.assertEqual(
@@ -2036,7 +2036,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         # remove database check cache values
         is_postgres_connected_cached_check.cache_clear()
 
-        with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
+        with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(  # type: ignore
             self
         ), self.assertNumQueries(4):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()

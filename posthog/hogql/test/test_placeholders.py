@@ -33,7 +33,8 @@ class TestParser(BaseTest):
         expr = parse_expr("timestamp < {timestamp}")
         self.assertEqual(
             expr,
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 start=0,
                 end=23,
                 op=ast.CompareOperationOp.Lt,
@@ -44,7 +45,8 @@ class TestParser(BaseTest):
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
         self.assertEqual(
             expr2,
-            ast.CompareOperation(
+            # mypy wants all the named arguments, but we don't really need them
+            ast.CompareOperation(  # type: ignore
                 start=0,
                 end=23,
                 op=ast.CompareOperationOp.Lt,

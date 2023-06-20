@@ -112,9 +112,9 @@ def run_events_query(
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
-    where = ast.And(exprs=where_list) if len(where_list) > 0 else None
+    where = ast.And(exprs=where_list) if len(where_list) > 0 else None  # type: ignore
     having_list = [expr for expr in where_exprs if has_aggregation(expr)]
-    having = ast.And(exprs=having_list) if len(having_list) > 0 else None
+    having = ast.And(exprs=having_list) if len(having_list) > 0 else None  # type: ignore
 
     # order by
     if query.orderBy is not None:
@@ -132,11 +132,11 @@ def run_events_query(
 
     stmt = ast.SelectQuery(
         select=select,
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
         where=where,
         having=having,
         group_by=group_by if has_any_aggregation else None,
-        order_by=order_by,
+        order_by=order_by,  # type: ignore
         limit=ast.Constant(value=limit),
         offset=ast.Constant(value=offset),
     )

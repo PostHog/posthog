@@ -96,7 +96,7 @@ class EventDefinitionViewSet(
         if is_enterprise:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            event_definition_object_manager = EnterpriseEventDefinition.objects.prefetch_related(
+            event_definition_object_manager = EnterpriseEventDefinition.objects.prefetch_related(  # type: ignore
                 Prefetch(
                     "tagged_items",
                     queryset=TaggedItem.objects.select_related("tag"),

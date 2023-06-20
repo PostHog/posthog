@@ -400,7 +400,7 @@ class PropertyDefinitionViewSet(
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects.prefetch_related(
+                queryset = EnterprisePropertyDefinition.objects.prefetch_related(  # type: ignore
                     Prefetch(
                         "tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
                     )

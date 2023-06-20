@@ -244,7 +244,8 @@ class LazyTableResolver(TraversingVisitor):
 
             if isinstance(field_or_property, ast.FieldType):
                 field_or_property.table_type = table_type
-            elif isinstance(field_or_property, ast.PropertyType):
+            # mypy thinks that field_or_property is ast.FieldType here
+            elif isinstance(field_or_property, ast.PropertyType):  # type: ignore
                 field_or_property.field_type.table_type = table_type
                 field_or_property.joined_subquery = table_type
 

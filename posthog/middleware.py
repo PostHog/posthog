@@ -257,7 +257,7 @@ class QueryTimeCountingMiddleware:
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
         start_time = time.perf_counter()
-        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):  # type: ignore
             response: HttpResponse = self.get_response(request)
 
         response.headers["Server-Timing"] = self._construct_header(

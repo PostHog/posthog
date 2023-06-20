@@ -13,7 +13,7 @@ class TestS3Table(BaseTest):
         self.context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=self.database)
 
     def _select(self, query: str, dialect: str = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect=dialect)
+        return print_ast(parse_select(query), self.context, dialect=dialect)  # type: ignore
 
     def test_s3_table_select(self):
         self._init_database()

@@ -286,12 +286,13 @@ class Resolver(CloningVisitor):
 
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
+        # mypy wants all the named arguments, but we don't really need them
         for arg in node.args:
             if arg.type:
-                arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
+                arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())  # type: ignore
             else:
-                arg_types.append(ast.UnknownType())
-        node.type = ast.CallType(name=node.name, arg_types=arg_types, return_type=ast.UnknownType())
+                arg_types.append(ast.UnknownType())  # type: ignore
+        node.type = ast.CallType(name=node.name, arg_types=arg_types, return_type=ast.UnknownType())  # type: ignore
         return node
 
     def visit_lambda(self, node: ast.Lambda):
@@ -329,7 +330,7 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         type: Optional[ast.Type] = None
-        name = node.chain[0]
+        name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
@@ -379,7 +380,7 @@ class Resolver(CloningVisitor):
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
-            loop_type = loop_type.get_child(next_chain)
+            loop_type = loop_type.get_child(str(next_chain))
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
@@ -429,27 +430,34 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType()
+        # mypy wants all the named arguments, but we don't really need them
+        node.type = ast.BooleanType()  # type: ignore
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType()
+        # mypy wants all the named arguments, but we don't really need them
+        node.type = ast.BooleanType()  # type: ignore
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
-        node.type = ast.BooleanType()
+        # mypy wants all the named arguments, but we don't really need them
+        node.type = ast.BooleanType()  # type: ignore
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         node = super().visit_compare_operation(node)
-        node.type = ast.BooleanType()
+        # mypy wants all the named arguments, but we don't really need them
+        node.type = ast.BooleanType()  # type: ignore
         return node
 
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.Type]:
+def lookup_field_by_name(scope: ast.SelectQueryType | None, name: str) -> Optional[ast.Type]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
+    if not scope:
+        return None
+
     if name in scope.aliases:
         return scope.aliases[name]
     else:

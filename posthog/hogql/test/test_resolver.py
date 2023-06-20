@@ -31,7 +31,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_events_table(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         event_field_type = ast.FieldType(name="event", table_type=events_table_type)
@@ -53,31 +53,31 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"], type=event_field_type),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType()),  # type: ignore
+                type=ast.BooleanType(),  # type: ignore
             ),
             type=select_query_type,
         )
 
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_will_not_run_twice(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         with self.assertRaises(ResolverException) as context:
-            expr = resolve_types(expr, self.context)
+            expr = resolve_types(expr, self.context)  # type: ignore
         self.assertEqual(
             str(context.exception), "Type already resolved for SelectQuery (SelectQueryType). Can't run again."
         )
 
     def test_resolve_events_table_alias(self):
         expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(alias="e", table_type=events_table_type)
@@ -101,22 +101,22 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType()),  # type: ignore
+                type=ast.BooleanType(),  # type: ignore
             ),
             type=select_query_type,
         )
 
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_column_alias(self):
         expr = self._select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(alias="e", table_type=events_table_type)
@@ -159,21 +159,21 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], type=event_field_type),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType()),  # type: ignore
+                type=ast.BooleanType(),  # type: ignore
             ),
             type=select_query_type,
         )
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = self._select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         inner_events_table_type = ast.TableType(table=self.database.events)
         inner_event_field_type = ast.FieldAliasType(
             alias="b", type=ast.FieldType(name="event", table_type=inner_events_table_type)
@@ -233,8 +233,8 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(name="b", table_type=select_alias_type),
                 ),
                 op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="test", type=ast.StringType()),
-                type=ast.BooleanType(),
+                right=ast.Constant(value="test", type=ast.StringType()),  # type: ignore
+                type=ast.BooleanType(),  # type: ignore
             ),
             type=ast.SelectQueryType(
                 aliases={},
@@ -243,9 +243,9 @@ class TestResolver(BaseTest):
             ),
         )
         # asserting individually to help debug if something is off
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
@@ -255,7 +255,7 @@ class TestResolver(BaseTest):
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
         with self.assertRaises(ResolverException) as e:
-            expr = resolve_types(expr, self.context)
+            expr = resolve_types(expr, self.context)  # type: ignore
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
     def test_resolve_constant_type(self):
@@ -271,22 +271,22 @@ class TestResolver(BaseTest):
                     "tuple": ast.Constant(value=(1, 2, 3)),
                 },
             )
-            expr = resolve_types(expr, self.context)
+            expr = resolve_types(expr, self.context)  # type: ignore
             expected = ast.SelectQuery(
                 select=[
-                    ast.Constant(value=1, type=ast.IntegerType()),
-                    ast.Constant(value="boo", type=ast.StringType()),
-                    ast.Constant(value=True, type=ast.BooleanType()),
-                    ast.Constant(value=1.1232, type=ast.FloatType()),
-                    ast.Constant(value=None, type=ast.UnknownType()),
-                    ast.Constant(value=date(2020, 1, 10), type=ast.DateType()),
-                    ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc), type=ast.DateTimeType()),
-                    ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.UUIDType()),
-                    ast.Constant(value=[], type=ast.ArrayType(item_type=ast.UnknownType())),
-                    ast.Constant(value=[1, 2], type=ast.ArrayType(item_type=ast.IntegerType())),
+                    ast.Constant(value=1, type=ast.IntegerType()),  # type: ignore
+                    ast.Constant(value="boo", type=ast.StringType()),  # type: ignore
+                    ast.Constant(value=True, type=ast.BooleanType()),  # type: ignore
+                    ast.Constant(value=1.1232, type=ast.FloatType()),  # type: ignore
+                    ast.Constant(value=None, type=ast.UnknownType()),  # type: ignore
+                    ast.Constant(value=date(2020, 1, 10), type=ast.DateType()),  # type: ignore
+                    ast.Constant(value=datetime(2020, 1, 10, 0, 0, 0, tzinfo=timezone.utc), type=ast.DateTimeType()),  # type: ignore
+                    ast.Constant(value=UUID("00000000-0000-4000-8000-000000000000"), type=ast.UUIDType()),  # type: ignore
+                    ast.Constant(value=[], type=ast.ArrayType(item_type=ast.UnknownType())),  # type: ignore
+                    ast.Constant(value=[1, 2], type=ast.ArrayType(item_type=ast.IntegerType())),  # type: ignore
                     ast.Constant(
                         value=(1, 2, 3),
-                        type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType(), ast.IntegerType()]),
+                        type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType(), ast.IntegerType()]),  # type: ignore
                     ),
                 ],
                 type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
@@ -295,26 +295,27 @@ class TestResolver(BaseTest):
 
     def test_resolve_boolean_operation_types(self):
         expr = self._select("SELECT 1 and 1, 1 or 1, not true")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         expected = ast.SelectQuery(
             select=[
                 ast.And(
                     exprs=[
-                        ast.Constant(value=1, type=ast.IntegerType()),
-                        ast.Constant(value=1, type=ast.IntegerType()),
+                        ast.Constant(value=1, type=ast.IntegerType()),  # type: ignore
+                        ast.Constant(value=1, type=ast.IntegerType()),  # type: ignore
                     ],
-                    type=ast.BooleanType(),
+                    type=ast.BooleanType(),  # type: ignore
                 ),
                 ast.Or(
                     exprs=[
-                        ast.Constant(value=1, type=ast.IntegerType()),
-                        ast.Constant(value=1, type=ast.IntegerType()),
+                        ast.Constant(value=1, type=ast.IntegerType()),  # type: ignore
+                        ast.Constant(value=1, type=ast.IntegerType()),  # type: ignore
                     ],
-                    type=ast.BooleanType(),
+                    type=ast.BooleanType(),  # type: ignore
                 ),
+                # mypy wants all the named arguments, but we don't really need them
                 ast.Not(
-                    expr=ast.Constant(value=True, type=ast.BooleanType()),
-                    type=ast.BooleanType(),
+                    expr=ast.Constant(value=True, type=ast.BooleanType()),  # type: ignore
+                    type=ast.BooleanType(),  # type: ignore
                 ),
             ],
             type=ast.SelectQueryType(aliases={}, columns={}, tables={}),
@@ -336,7 +337,7 @@ class TestResolver(BaseTest):
 
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         pdi_table_type = ast.TableType(table=self.database.person_distinct_ids)
         expected = ast.SelectQuery(
             select=[
@@ -351,7 +352,7 @@ class TestResolver(BaseTest):
                         table_type=ast.LazyJoinType(
                             table_type=pdi_table_type,
                             field="person",
-                            lazy_join=self.database.person_distinct_ids.fields.get("person"),
+                            lazy_join=self.database.person_distinct_ids.fields.get("person"),  # type: ignore
                         ),
                     ),
                 ),
@@ -369,7 +370,7 @@ class TestResolver(BaseTest):
                         name="id",
                         table_type=ast.LazyJoinType(
                             table_type=pdi_table_type,
-                            lazy_join=self.database.person_distinct_ids.fields.get("person"),
+                            lazy_join=self.database.person_distinct_ids.fields.get("person"),  # type: ignore
                             field="person",
                         ),
                     ),
@@ -377,15 +378,15 @@ class TestResolver(BaseTest):
                 tables={"person_distinct_ids": pdi_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_table(self):
         expr = self._select("select event, pdi.person_id from events")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
@@ -426,15 +427,15 @@ class TestResolver(BaseTest):
                 tables={"events": events_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_table_aliased(self):
         expr = self._select("select event, e.pdi.person_id from events e")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         expected = ast.SelectQuery(
@@ -477,15 +478,15 @@ class TestResolver(BaseTest):
                 tables={"e": events_table_alias_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_person_table(self):
         expr = self._select("select event, pdi.person.id from events")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
@@ -540,15 +541,15 @@ class TestResolver(BaseTest):
                 tables={"events": events_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_person_table_aliased(self):
         expr = self._select("select event, e.pdi.person.id from events e")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         expected = ast.SelectQuery(
@@ -605,15 +606,15 @@ class TestResolver(BaseTest):
                 tables={"e": events_table_alias_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_virtual_events_poe(self):
         expr = self._select("select event, poe.id from events")
-        expr = resolve_types(expr, self.context)
+        expr = resolve_types(expr, self.context)  # type: ignore
         events_table_type = ast.TableType(table=self.database.events)
         expected = ast.SelectQuery(
             select=[
@@ -626,7 +627,9 @@ class TestResolver(BaseTest):
                     type=ast.FieldType(
                         name="id",
                         table_type=ast.VirtualTableType(
-                            table_type=events_table_type, field="poe", virtual_table=self.database.events.fields["poe"]
+                            table_type=events_table_type,
+                            field="poe",
+                            virtual_table=self.database.events.fields["poe"],  # type: ignore
                         ),
                     ),
                 ),
@@ -645,22 +648,22 @@ class TestResolver(BaseTest):
                         table_type=ast.VirtualTableType(
                             table_type=events_table_type,
                             field="poe",
-                            virtual_table=self.database.events.fields.get("poe"),
+                            virtual_table=self.database.events.fields.get("poe"),  # type: ignore
                         ),
                     ),
                 },
                 tables={"events": events_table_type},
             ),
         )
-        self.assertEqual(expr.select, expected.select)  # type: ignore
-        self.assertEqual(expr.select_from, expected.select_from)  # type: ignore
-        self.assertEqual(expr.where, expected.where)  # type: ignore
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.type, expected.type)
         self.assertEqual(expr, expected)
 
     def test_resolve_union_all(self):
         node = self._select("select event, timestamp from events union all select event, timestamp from events")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
@@ -680,12 +683,15 @@ class TestResolver(BaseTest):
 
     def test_call_type(self):
         node = self._select("select max(timestamp) from events")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
         expected = [
             ast.Call(
                 name="max",
                 # NB! timestamp was resolved to a DateTimeType for the Call's arg type.
-                type=ast.CallType(name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()),
+                # mypy wants all the named arguments, but we don't really need them
+                type=ast.CallType(
+                    name="max", arg_types=[ast.DateTimeType()], return_type=ast.UnknownType()  # type: ignore
+                ),
                 args=[
                     ast.Field(
                         chain=["timestamp"],
@@ -694,7 +700,7 @@ class TestResolver(BaseTest):
                 ],
             ),
         ]
-        self.assertEqual(node.select, expected)  # type: ignore
+        self.assertEqual(node.select, expected)
 
     def test_ctes_loop(self):
         with self.assertRaises(ResolverException) as e:
@@ -762,11 +768,11 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from events")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         self.assertEqual(
-            node.select,  # type: ignore
+            node.select,
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_type)),
@@ -784,12 +790,12 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_table_alias(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from events e")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         events_table_alias_type = ast.TableAliasType(table_type=events_table_type, alias="e")
         self.assertEqual(
-            node.select,  # type: ignore
+            node.select,
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=events_table_alias_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=events_table_alias_type)),
@@ -814,7 +820,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_subquery(self):
         node = self._select("select * from (select 1 as a, 2 as b)")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
         select_subquery_type = ast.SelectQueryType(
             aliases={
                 "a": ast.FieldAliasType(alias="a", type=ast.ConstantType(data_type="int")),
@@ -828,7 +834,7 @@ class TestResolver(BaseTest):
             anonymous_tables=[],
         )
         self.assertEqual(
-            node.select,  # type: ignore
+            node.select,
             [
                 ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
                 ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
@@ -837,7 +843,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_subquery_alias(self):
         node = self._select("select x.* from (select 1 as a, 2 as b) x")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
         select_subquery_type = ast.SelectQueryAliasType(
             alias="x",
             select_query_type=ast.SelectQueryType(
@@ -854,7 +860,7 @@ class TestResolver(BaseTest):
             ),
         )
         self.assertEqual(
-            node.select,  # type: ignore
+            node.select,
             [
                 ast.Field(chain=["a"], type=ast.FieldType(name="a", table_type=select_subquery_type)),
                 ast.Field(chain=["b"], type=ast.FieldType(name="b", table_type=select_subquery_type)),
@@ -865,7 +871,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_from_subquery_table(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events)")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         inner_select_type = ast.SelectQueryType(
@@ -884,7 +890,7 @@ class TestResolver(BaseTest):
         )
 
         self.assertEqual(
-            node.select,  # type: ignore
+            node.select,
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
@@ -911,7 +917,7 @@ class TestResolver(BaseTest):
     def test_asterisk_expander_select_union(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events union all select * from events)")
-        node = resolve_types(node, self.context)
+        node = resolve_types(node, self.context)  # type: ignore
 
         events_table_type = ast.TableType(table=self.database.events)
         inner_select_type = ast.SelectUnionQueryType(
@@ -935,7 +941,7 @@ class TestResolver(BaseTest):
         )
 
         self.assertEqual(
-            node.select,  # type: ignore
+            node.select,
             [
                 ast.Field(chain=["uuid"], type=ast.FieldType(name="uuid", table_type=inner_select_type)),
                 ast.Field(chain=["event"], type=ast.FieldType(name="event", table_type=inner_select_type)),
@@ -959,4 +965,4 @@ class TestResolver(BaseTest):
         lambda_type: ast.SelectQueryType = cast(ast.SelectQueryType, cast(ast.Call, node.select[1]).args[0].type)
         self.assertEqual(lambda_type.parent, node.type)
         self.assertEqual(list(lambda_type.aliases.keys()), ["x"])
-        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])
+        self.assertEqual(list(lambda_type.parent.columns.keys()), ["timestamp"])  # type: ignore
