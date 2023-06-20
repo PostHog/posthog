@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { status } from '../../../utils/status'
-import { IngestionConsumer } from '../kafka-queue'
+import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -15,8 +15,8 @@ export async function eachBatch(
      * Events within a single micro-batch are processed in parallel.
      */
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
-    queue: IngestionConsumer,
-    eachMessage: (message: KafkaMessage, queue: IngestionConsumer) => Promise<void>,
+    queue: KafkaJSIngestionConsumer,
+    eachMessage: (message: KafkaMessage, queue: KafkaJSIngestionConsumer) => Promise<void>,
     groupIntoBatches: (messages: KafkaMessage[], batchSize: number) => KafkaMessage[][],
     key: string
 ): Promise<void> {
