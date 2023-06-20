@@ -103,7 +103,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
-                console.log(credential.access_secret.length == 0)
                 return {
                     name: !name && 'Please enter a name.',
                     url_pattern: !url_pattern && 'Please enter a url pattern.',
