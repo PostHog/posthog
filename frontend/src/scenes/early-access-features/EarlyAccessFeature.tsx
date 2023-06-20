@@ -46,7 +46,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
-
     return (
         <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
