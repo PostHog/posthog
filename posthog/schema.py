@@ -247,6 +247,7 @@ class HogQLNotice(BaseModel):
         extra = Extra.forbid
 
     end: Optional[float] = None
+    fix: Optional[str] = None
     message: str
     start: Optional[float] = None
 
@@ -547,6 +548,7 @@ class HogQLMetadataResponse(BaseModel):
     inputExpr: Optional[str] = None
     inputSelect: Optional[str] = None
     isValid: Optional[bool] = None
+    notices: List[HogQLNotice]
     warnings: List[HogQLNotice]
 
 

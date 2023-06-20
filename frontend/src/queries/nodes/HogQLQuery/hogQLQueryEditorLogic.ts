@@ -6,8 +6,9 @@ import { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import { Monaco } from '@monaco-editor/react'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface ModelMarker extends editor.IMarkerData {}
+export interface ModelMarker extends editor.IMarkerData {
+    hogQLFix?: string
+}
 
 export interface HogQLQueryEditorLogicProps {
     key: number
@@ -22,7 +23,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     props({} as HogQLQueryEditorLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.query.query !== oldProps.query.query) {
+        if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
             actions.setQueryInput(props.query.query)
         }
     }),
@@ -86,13 +87,16 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                     endColumn: end.column,
                     message: error.message ?? 'Unknown error',
                     severity: severity,
+                    hogQLFix: error.fix,
                 })
             }
             for (const notice of response?.errors ?? []) {
                 noticeToMarker(notice, MarkerSeverity.Error)
             }
-
             for (const notice of response?.warnings ?? []) {
+                noticeToMarker(notice, MarkerSeverity.Warning)
+            }
+            for (const notice of response?.notices ?? []) {
                 noticeToMarker(notice, MarkerSeverity.Hint)
             }
 

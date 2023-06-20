@@ -17,6 +17,7 @@ def get_hogql_metadata(
         inputSelect=query.select,
         errors=[],
         warnings=[],
+        notices=[],
     )
 
     try:
@@ -29,6 +30,7 @@ def get_hogql_metadata(
         else:
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings
+        response.notices = context.notices
     except Exception as e:
         response.isValid = False
         if isinstance(e, ValueError):

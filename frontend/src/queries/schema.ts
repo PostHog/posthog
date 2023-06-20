@@ -138,6 +138,7 @@ export interface HogQLNotice {
     start?: number
     end?: number
     message: string
+    fix?: string
 }
 
 export interface HogQLMetadataResponse {
@@ -146,6 +147,7 @@ export interface HogQLMetadataResponse {
     isValid?: boolean
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
+    notices: HogQLNotice[]
 }
 
 export interface HogQLMetadata extends DataNode {

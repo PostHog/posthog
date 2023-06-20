@@ -1129,6 +1129,12 @@
                 "isValid": {
                     "type": "boolean"
                 },
+                "notices": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -1136,7 +1142,7 @@
                     "type": "array"
                 }
             },
-            "required": ["errors", "warnings"],
+            "required": ["errors", "warnings", "notices"],
             "type": "object"
         },
         "HogQLNotice": {
@@ -1144,6 +1150,9 @@
             "properties": {
                 "end": {
                     "type": "number"
+                },
+                "fix": {
+                    "type": "string"
                 },
                 "message": {
                     "type": "string"
