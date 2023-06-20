@@ -2,7 +2,6 @@ import { kea, path, connect, actions, reducers, props, selectors, listeners } fr
 import { subscriptions } from 'kea-subscriptions'
 
 import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
-import { insightLogic } from './../insightLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'
@@ -16,14 +15,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     props({} as InsightLogicProps),
     connect((props: InsightLogicProps) => ({
         values: [insightVizDataLogic(props), ['querySource']],
-        actions: [
-            insightVizDataLogic(props),
-            ['updateQuerySource'],
-            insightLogic(props),
-            ['setFiltersMerge as updateInsightFilters'],
-            globalInsightLogic,
-            ['setGlobalInsightFilters'],
-        ],
+        actions: [insightVizDataLogic(props), ['updateQuerySource'], globalInsightLogic, ['setGlobalInsightFilters']],
     })),
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
@@ -60,18 +52,11 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             },
         ],
     })),
-    listeners(({ props, actions, values }) => ({
+    listeners(({ actions, values }) => ({
         setSamplingPercentage: () => {
-            const mergeFilters = {
+            actions.updateInsightFilters({
                 sampling_factor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
-            }
-
-            if (props.setFilters) {
-                // Experiments and data exploration
-                props.setFilters(mergeFilters)
-            } else {
-                actions.updateInsightFilters(mergeFilters)
-            }
+            })
         },
     })),
     subscriptions(({ values, actions }) => ({

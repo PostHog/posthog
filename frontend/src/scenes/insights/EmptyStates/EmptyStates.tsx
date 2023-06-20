@@ -46,20 +46,16 @@ export function InsightTimeoutState({
     isLoading,
     queryId,
     insightProps,
-    insightType,
 }: {
     isLoading: boolean
     queryId?: string | null
     insightProps: InsightLogicProps
     insightType?: InsightType
 }): JSX.Element {
-    const _samplingFilterLogic = samplingFilterLogic({ insightType, insightProps })
-
-    const { setSamplingPercentage } = useActions(_samplingFilterLogic)
-    const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { openSupportForm } = useActions(supportLogic)
 
-    const speedUpBySamplingAvailable = samplingAvailable && suggestedSamplingPercentage
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
@@ -70,13 +66,13 @@ export function InsightTimeoutState({
                     <div className="m-auto text-center">
                         Your query is taking a long time to complete. <b>We're still working on it.</b>
                         <br />
-                        {speedUpBySamplingAvailable ? 'See below some options to speed things up.' : ''}
+                        {suggestedSamplingPercentage ? 'See below some options to speed things up.' : ''}
                         <br />
                     </div>
                 ) : (
                     <h2>Your query took too long to complete</h2>
                 )}
-                {isLoading && speedUpBySamplingAvailable ? (
+                {isLoading && suggestedSamplingPercentage ? (
                     <div>
                         <LemonButton
                             className="mx-auto mt-4"
@@ -94,8 +90,9 @@ export function InsightTimeoutState({
                     </div>
                 ) : null}
                 <p className="m-auto text-center">
-                    In order to improve the performance of the query, you can {speedUpBySamplingAvailable ? 'also' : ''}{' '}
-                    try to reduce the date range of your query, remove breakdowns, or get in touch with us by{' '}
+                    In order to improve the performance of the query, you can{' '}
+                    {suggestedSamplingPercentage ? 'also' : ''} try to reduce the date range of your query, remove
+                    breakdowns, or get in touch with us by{' '}
                     <Link
                         data-attr="insight-timeout-bug-report"
                         onClick={() => {
