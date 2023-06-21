@@ -24,7 +24,7 @@ class TestS3Table(BaseTest):
         clickhouse = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="clickhouse")
         self.assertEqual(
             clickhouse,
-            "SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3(%(hogql_val_0)s, %(hogql_val_1)s) AS aapl_stock LIMIT 10",
+            "SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_1)s) AS aapl_stock LIMIT 10",
         )
 
     def test_s3_table_select_with_alias(self):
@@ -36,5 +36,5 @@ class TestS3Table(BaseTest):
         clickhouse = self._select(query="SELECT High, Low FROM aapl_stock AS a LIMIT 10", dialect="clickhouse")
         self.assertEqual(
             clickhouse,
-            "SELECT a.High, a.Low FROM s3(%(hogql_val_0)s, %(hogql_val_1)s) AS a LIMIT 10",
+            "SELECT a.High, a.Low FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_1)s) AS a LIMIT 10",
         )

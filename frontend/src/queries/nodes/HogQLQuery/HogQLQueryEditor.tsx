@@ -55,7 +55,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             HogQL
                                         </a>
                                         , our wrapper around ClickHouse SQL. Explore the{' '}
-                                        <Link to={urls.database()}>database schema</Link> available to you.
+                                        <Link to={urls.dataWarehouse()}>database schema</Link> available to you.
                                     </div>
                                 ),
                                 placement: 'right-start',

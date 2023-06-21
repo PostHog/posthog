@@ -265,6 +265,7 @@ class TestPrinter(BaseTest):
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "no viable alternative at input '('")
         self._assert_expr_error("())", "no viable alternative at input '()'")
+        self._assert_expr_error("(3 57", "no viable alternative at input '(3 57'")
         self._assert_expr_error("select query from events", "mismatched input 'from' expecting <EOF>")
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
         self._assert_expr_error("1;2", "mismatched input ';' expecting <EOF>")
@@ -417,6 +418,11 @@ class TestPrinter(BaseTest):
         )
 
     def test_select_offset(self):
+        # Only the default limit if OFFSET is specified alone
+        self.assertEqual(
+            self._select("select event from events offset 10"),
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 OFFSET 10",
+        )
         self.assertEqual(
             self._select("select event from events limit 10 offset 10"),
             f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 10",
@@ -426,8 +432,8 @@ class TestPrinter(BaseTest):
             f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0",
         )
         self.assertEqual(
-            self._select("select event from events limit 10 offset 0 with ties"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 WITH TIES",
+            self._select("select event from events limit 10 with ties offset 0"),
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0",
         )
 
     def test_select_limit_by(self):
@@ -619,4 +625,26 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("'a' || 'b' || 3 || timestamp"),
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
+        )
+
+    def test_functions_expecting_datetime_arg(self):
+        self.assertEqual(
+            self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(now(), toIntervalDay('1'))"),
+            f"tumble(toDateTime(now64(6, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTime('2021-01-04+23:00:00', '%Y-%m-%d+%H:%i:%s'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTimeOrNull(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s))), toIntervalDay(%(hogql_val_3)s))",
+        )
+        self.assertEqual(
+            self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1'))"),
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+        )
+        self.assertEqual(
+            self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),
+            f"SELECT tumble(toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s)), toIntervalDay(%(hogql_val_1)s)) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )

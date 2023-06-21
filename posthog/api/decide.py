@@ -185,7 +185,11 @@ def get_decide(request: HttpRequest):
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
-            response["autocaptureExceptions"] = True if team.autocapture_exceptions_opt_in else False
+            response["autocaptureExceptions"] = (
+                {"endpoint": "/e/", "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or []}
+                if team.autocapture_exceptions_opt_in
+                else False
+            )
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains

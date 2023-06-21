@@ -36,7 +36,7 @@ class EventValues(TypedDict):
     _timestamp: str
     person_id: str
     team_id: int
-    properties: str
+    properties: dict
 
 
 async def insert_events(client: ChClient, events: list[EventValues]):
@@ -62,7 +62,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["_timestamp"],
                 event["person_id"],
                 event["team_id"],
-                event["properties"],
+                json.dumps(event["properties"]),
             )
             for event in events
         ],
@@ -201,7 +201,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             "_timestamp": "2023-04-20 14:30:00",
             "person_id": str(uuid4()),
             "team_id": team.pk,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
@@ -229,7 +229,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "_timestamp": "2023-04-20 13:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
-                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             },
             {
                 "uuid": str(uuid4()),
@@ -238,7 +238,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "_timestamp": "2023-04-20 15:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
-                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             },
             {
                 "uuid": str(uuid4()),
@@ -247,7 +247,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "_timestamp": "2023-04-20 14:30:00",
                 "person_id": str(uuid4()),
                 "team_id": other_team.pk,
-                "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             },
         ],
     )
@@ -313,6 +313,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                     {key: value for key, value in event.items() if key not in ("team_id", "_timestamp")}
                     for event in events
                 ]
+                assert json_data[0] == events[0]
                 assert json_data == events
 
         runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)

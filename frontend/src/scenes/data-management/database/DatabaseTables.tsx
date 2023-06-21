@@ -7,14 +7,22 @@ import { urls } from 'scenes/urls'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { DatabaseTable } from './DatabaseTable'
 
-export function DatabaseTables(): JSX.Element {
+export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
+    return <DatabaseTables tables={filteredTables} loading={databaseLoading} />
+}
 
+interface DatabaseTablesProps {
+    tables: DatabaseSceneRow[]
+    loading: boolean
+}
+
+export function DatabaseTables({ tables, loading }: DatabaseTablesProps): JSX.Element {
     return (
         <>
             <LemonTable
-                loading={databaseLoading}
-                dataSource={filteredTables}
+                loading={loading}
+                dataSource={tables}
                 columns={[
                     {
                         title: 'Table',
@@ -58,7 +66,7 @@ export function DatabaseTables(): JSX.Element {
                     expandedRowRender: function renderExpand(row) {
                         return (
                             <div className="px-4 py-3">
-                                <DatabaseTable table={row.name} />
+                                <DatabaseTable table={row.name} tables={tables} />
                             </div>
                         )
                     },

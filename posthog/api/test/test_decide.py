@@ -179,7 +179,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["autocaptureExceptions"], True)
+        self.assertEqual(response["autocaptureExceptions"], {"errors_to_ignore": [], "endpoint": "/e/"})
+
+    def test_exception_autocapture_errors_to_ignore(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], False)
+
+        self._update_team({"autocapture_exceptions_opt_in": True})
+        self._update_team(
+            {"autocapture_exceptions_errors_to_ignore": ["ResizeObserver loop limit exceeded", ".* bot .*"]}
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["autocaptureExceptions"],
+            {"errors_to_ignore": ["ResizeObserver loop limit exceeded", ".* bot .*"], "endpoint": "/e/"},
+        )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
         # :TRICKY: Test for regression around caching
@@ -1587,7 +1603,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
         self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(response["autocaptureExceptions"], True)
+        self.assertEqual(response["autocaptureExceptions"], {"errors_to_ignore": [], "endpoint": "/e/"})
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -1600,7 +1616,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
-            self.assertEqual(response["autocaptureExceptions"], True)
+            self.assertEqual(response["autocaptureExceptions"], {"errors_to_ignore": [], "endpoint": "/e/"})
             self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):

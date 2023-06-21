@@ -22,6 +22,7 @@ import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -40,8 +41,7 @@ export function Annotations(): JSX.Element {
         shouldShowEmptyState,
         shouldShowProductIntroduction,
     } = useValues(annotationModalLogic)
-    const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
-        useActions(annotationModalLogic)
+    const { loadAnnotationsNext, openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -126,7 +126,7 @@ export function Annotations(): JSX.Element {
                         size="small"
                         type="tertiary"
                         status="stealth"
-                        onClick={() => openModalToEditAnnotation(annotation)}
+                        to={urls.annotation(annotation.id)}
                     />
                 )
             },
@@ -138,11 +138,12 @@ export function Annotations(): JSX.Element {
             <PageHeader
                 title="Annotations"
                 caption={
-                    <>
-                        Annotations add time-specific context to insights and dashboards.
-                        <br />
-                        Manage all of this project's annotations from this page.
-                    </>
+                    !shouldShowEmptyState && !shouldShowProductIntroduction ? (
+                        <>
+                            Annotations allow you to mark when certain changes happened so you can easily see how they
+                            impacted your metrics.
+                        </>
+                    ) : null
                 }
                 buttons={
                     <LemonButton
@@ -156,15 +157,18 @@ export function Annotations(): JSX.Element {
             />
             <div data-attr={'annotations-content'}>
                 {(shouldShowEmptyState || shouldShowProductIntroduction) && (
-                    <ProductIntroduction
-                        productName="Annotations"
-                        productKey={ProductKey.ANNOTATIONS}
-                        thingName="annotation"
-                        description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
-                        docsURL="https://posthog.com/docs/data/annotations"
-                        action={() => openModalToCreateAnnotation()}
-                        isEmpty={annotations.length === 0}
-                    />
+                    <div className="mt-4">
+                        <ProductIntroduction
+                            productName="Annotations"
+                            productKey={ProductKey.ANNOTATIONS}
+                            thingName="annotation"
+                            description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                            docsURL="https://posthog.com/docs/data/annotations"
+                            action={() => openModalToCreateAnnotation()}
+                            isEmpty={annotations.length === 0}
+                            customHog={MicrophoneHog}
+                        />
+                    </div>
                 )}
                 {!shouldShowEmptyState && (
                     <>

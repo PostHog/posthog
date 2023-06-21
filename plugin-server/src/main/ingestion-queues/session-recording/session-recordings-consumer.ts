@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
@@ -285,6 +286,27 @@ const eachMessage =
                             event.ip,
                             event.properties || {}
                         )
+                        // the replay record timestamp has to be valid and be within a reasonable diff from now
+                        if (replayRecord !== null) {
+                            const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
+                            if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
+                                captureMessage(
+                                    `Invalid replay record timestamp: ${replayRecord.first_timestamp} for event ${messagePayload.uuid}`,
+                                    {
+                                        extra: {
+                                            replayRecord,
+                                            uuid: clickHouseRecord.uuid,
+                                            timestamp: clickHouseRecord.timestamp,
+                                        },
+                                        tags: {
+                                            team: team.id,
+                                            session_id: clickHouseRecord.session_id,
+                                        },
+                                    }
+                                )
+                                replayRecord = null
+                            }
+                        }
                     } catch (e) {
                         status.warn('??', 'session_replay_summarizer_error', { error: e })
                         captureException(e, {
