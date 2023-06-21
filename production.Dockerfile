@@ -43,6 +43,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \

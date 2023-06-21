@@ -10,6 +10,8 @@ from posthog.test.base import BaseTest
 
 
 class TestParser(BaseTest):
+    maxDiff = None
+
     def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
@@ -762,10 +764,31 @@ class TestParser(BaseTest):
             ),
         )
         self.assertEqual(
-            self._select("select 1 from events LIMIT 1 OFFSET 3 WITH TIES"),
+            self._select("select 1 from events OFFSET 3"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=None,
+                offset=ast.Constant(value=3),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events ORDER BY 1 LIMIT 1 WITH TIES"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                limit=ast.Constant(value=1),
+                limit_with_ties=True,
+                offset=None,
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events ORDER BY 1 LIMIT 1, 3 WITH TIES"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
                 limit=ast.Constant(value=1),
                 limit_with_ties=True,
                 offset=ast.Constant(value=3),

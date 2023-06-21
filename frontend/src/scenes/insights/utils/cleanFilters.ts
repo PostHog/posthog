@@ -19,7 +19,7 @@ import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndef
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { BIN_COUNT_AUTO, NON_VALUES_ON_SERIES_DISPLAY_TYPES, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 import {

@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Noun } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -72,17 +73,13 @@ export function StepLegendComponent({
     const convertedCountPresentationWithPercentage = (
         <>
             {convertedCountPresentation}{' '}
-            <span title="Rate of conversion from initial step" className="text-muted">
-                ({percentage(step.conversionRates.fromBasisStep, 2)})
-            </span>
+            <span className="text-muted">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
         </>
     )
     const droppedOffCountPresentationWithPercentage = (
         <>
             {droppedOffCountPresentation}{' '}
-            <span title="Rate of drop-off from previous step" className="text-muted">
-                ({percentage(1 - step.conversionRates.fromPrevious, 2)})
-            </span>
+            <span className="text-muted">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
         </>
     )
 
@@ -108,18 +105,27 @@ export function StepLegendComponent({
                 icon={<IconTrendingFlat />}
                 status="success"
                 style={{ color: 'unset' }} // Prevent status color from affecting text
-                title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step`}
             >
-                {showPersonsModal ? (
-                    <ValueInspectorButton
-                        onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
-                        style={{ padding: 0 }}
-                    >
-                        {convertedCountPresentationWithPercentage}
-                    </ValueInspectorButton>
-                ) : (
-                    <span>{convertedCountPresentationWithPercentage}</span>
-                )}
+                <Tooltip
+                    title={
+                        <>
+                            {capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step,
+                            <br />
+                            with conversion rate relative to the first step
+                        </>
+                    }
+                    placement="right"
+                >
+                    {showPersonsModal ? (
+                        <ValueInspectorButton
+                            onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
+                        >
+                            {convertedCountPresentationWithPercentage}
+                        </ValueInspectorButton>
+                    ) : (
+                        <span>{convertedCountPresentationWithPercentage}</span>
+                    )}
+                </Tooltip>
             </LemonRow>
             {stepIndex > 0 && (
                 <>
@@ -127,18 +133,28 @@ export function StepLegendComponent({
                         icon={<IconTrendingFlatDown />}
                         status="danger"
                         style={{ color: 'unset' }} // Prevent status color from affecting text
-                        title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this step`}
                     >
-                        {showPersonsModal && stepIndex ? (
-                            <ValueInspectorButton
-                                onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
-                                style={{ padding: 0 }}
-                            >
-                                {droppedOffCountPresentationWithPercentage}
-                            </ValueInspectorButton>
-                        ) : (
-                            <span>{droppedOffCountPresentationWithPercentage}</span>
-                        )}
+                        <Tooltip
+                            title={
+                                <>
+                                    {capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this
+                                    step,
+                                    <br />
+                                    with drop-off rate relative to the previous step
+                                </>
+                            }
+                            placement="right"
+                        >
+                            {showPersonsModal && stepIndex ? (
+                                <ValueInspectorButton
+                                    onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
+                                >
+                                    {droppedOffCountPresentationWithPercentage}
+                                </ValueInspectorButton>
+                            ) : (
+                                <span>{droppedOffCountPresentationWithPercentage}</span>
+                            )}
+                        </Tooltip>
                     </LemonRow>
                     {showTime && (
                         <LemonRow icon={<IconSchedule />} title="Median time of conversion from previous step">

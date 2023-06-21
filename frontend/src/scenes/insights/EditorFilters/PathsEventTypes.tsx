@@ -7,10 +7,10 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Element {
-    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    const includeEventTypes = (insightFilter as PathsFilterType)?.include_event_types
+    const includeEventTypes = pathsFilter?.include_event_types
     const setIncludeEventTypes = (includeEventTypes: PathsFilterType['include_event_types']): void => {
         updateInsightFilter({ include_event_types: includeEventTypes })
     }

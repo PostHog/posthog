@@ -1,42 +1,30 @@
-import React, { ForwardRefRenderFunction } from 'react'
-import { Button, ButtonProps } from 'antd'
+import { Link } from '@posthog/lemon-ui'
+import React from 'react'
 
 interface ValueInspectorButtonProps {
-    icon?: JSX.Element
     onClick: (e?: React.MouseEvent) => void
+    onMouseEnter?: (e?: React.MouseEvent) => void
+    onMouseLeave?: (e?: React.MouseEvent) => void
     children: React.ReactNode
     disabled?: boolean
-    style?: React.CSSProperties
     title?: string | undefined
-    innerRef?: React.MutableRefObject<HTMLElement | null>
 }
 
-export function ValueInspectorButton({
-    icon,
-    onClick,
-    children,
-    disabled = false,
-    style,
-    title,
-    innerRef: refProp,
-}: ValueInspectorButtonProps): JSX.Element {
-    const props = {
-        type: 'link' as const,
-        icon,
-        onClick,
-        className: 'funnel-inspect-button',
-        disabled,
-        style,
-        title,
-        children: <span className="funnel-inspect-label">{children}</span>,
-    }
-    if (refProp) {
-        const InnerComponent: ForwardRefRenderFunction<HTMLElement | null, ButtonProps> = (_, ref) => (
-            <Button ref={ref} {...props} />
+export const ValueInspectorButton = React.forwardRef<HTMLAnchorElement, ValueInspectorButtonProps>(
+    ({ onClick, onMouseEnter, onMouseLeave, children, disabled, title }, ref) => {
+        return (
+            <Link
+                ref={ref}
+                onClick={onClick}
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
+                className="funnel-inspect-button"
+                disabled={disabled}
+                title={title}
+            >
+                {children}
+            </Link>
         )
-        const RefComponent = React.forwardRef(InnerComponent)
-        return <RefComponent ref={refProp} />
-    } else {
-        return <Button {...props} />
     }
-}
+)
+ValueInspectorButton.displayName = 'ValueInspectorButton'

@@ -55,6 +55,7 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
+        setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
@@ -94,6 +95,7 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
         splitMergeModalShown: [
@@ -305,11 +307,7 @@ export const personsLogic = kea<personsLogicType>({
         },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = { ...router.values.searchParams }
-
-                if (values.activeTab !== PersonsTabType.HISTORY) {
-                    delete searchParams['page']
-                }
+                const searchParams = {}
 
                 return [
                     router.values.location.pathname,
@@ -333,16 +331,14 @@ export const personsLogic = kea<personsLogicType>({
                 }
             }
         },
-        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: rawPersonDistinctId }, {}, { activeTab }) => {
             if (props.syncWithUrl) {
-                if (sessionRecordingId) {
-                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else if (activeTab && values.activeTab !== activeTab) {
-                    actions.navigateToTab(activeTab as PersonsTabType)
+                if (activeTab && values.activeTab !== activeTab) {
+                    actions.setActiveTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
-                    actions.navigateToTab(PersonsTabType.PROPERTIES)
+                if (!activeTab) {
+                    actions.setActiveTab(PersonsTabType.PROPERTIES)
                 }
 
                 if (rawPersonDistinctId) {

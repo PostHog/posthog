@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -99,6 +99,9 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
+    SESSION_REPLAY = 'session_replay',
+    DATA_WAREHOUSE = 'data_warehouse',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
 export enum LicensePlan {
@@ -322,6 +325,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
+    autocapture_exceptions_errors_to_ignore: string[]
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -694,7 +698,6 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
     console_logs?: FilterableLogLevel[]
@@ -2004,6 +2007,7 @@ export interface Survey {
     name: string
     description: string
     type: SurveyType
+    linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
@@ -2944,3 +2948,19 @@ export enum NotebookNodeType {
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export interface DataWarehouseCredential {
+    access_key: string
+    access_secret: string
+}
+export interface DataWarehouseTable {
+    /** UUID */
+    id: string
+    name: string
+    format: string
+    url_pattern: string
+    credential: DataWarehouseCredential
+    columns: DatabaseSchemaQueryResponseField[]
+}
+
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
