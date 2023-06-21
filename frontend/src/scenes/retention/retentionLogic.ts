@@ -18,7 +18,6 @@ export const retentionLogic = kea<retentionLogicType>({
     }),
     selectors: {
         results: [
-            // Take the insight result, and cast it to `RetentionTablePayload[]`
             (s) => [s.insightQuery, s.insightData],
             (insightQuery, insightData): RetentionTablePayload[] => {
                 return isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []

@@ -13,12 +13,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 function getSessionReplayLink(): string {
-    const LOOK_BACK = 30
-    const recordingStartTime = Math.max(
-        Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
-        0
-    )
-    const link = `http://go/session/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
+    const link = posthog
+        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+        .replace(window.location.origin + '/replay/', 'http://go/session/')
+
     return `Session: ${link} (at ${window.location.href.replace(/&supportModal=.+($|&)?/, '$1')})`
 }
 
