@@ -47,7 +47,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
 
     if (!preflightLogic.values.preflight?.cloud) {
         if (isSupportFormOpen) {
-            lemonToast.error(`Support via modal isn't provided for self-hosted instances.`)
+            lemonToast.error(`In-app support isn't provided for self-hosted instances.`)
         }
         return null
     }
