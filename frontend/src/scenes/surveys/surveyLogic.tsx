@@ -84,9 +84,9 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     return surveyDataQuery
 }
 
-export const getSurveyMetricsQueries = (surveyId: string, surveyName: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == '${surveyName} survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == '${surveyName} survey dismissed' and properties.$survey_id == '${surveyId}'`
+export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
+    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event like '%shown%' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event like '%dismissed%' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,
@@ -169,7 +169,7 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
                 actions.setDataTableQuery(getSurveyDataQuery(survey.name))
-                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id, survey.name))
+                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
