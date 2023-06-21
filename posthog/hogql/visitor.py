@@ -92,6 +92,9 @@ class TraversingVisitor(Visitor):
     def visit_call(self, node: ast.Call):
         for expr in node.args:
             self.visit(expr)
+        if node.params:
+            for expr in node.params:
+                self.visit(expr)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
         self.visit(node.sample_value)
@@ -178,6 +181,9 @@ class TraversingVisitor(Visitor):
     def visit_call_type(self, node: ast.CallType):
         for expr in node.arg_types:
             self.visit(expr)
+        if node.param_types:
+            for expr in node.param_types:
+                self.visit(expr)
 
     def visit_integer_type(self, node: ast.IntegerType):
         pass
@@ -389,6 +395,7 @@ class CloningVisitor(Visitor):
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
+            params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
         )
 
