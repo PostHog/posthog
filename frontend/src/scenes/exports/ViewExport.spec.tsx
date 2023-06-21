@@ -1,23 +1,3 @@
-// Here we test the S3 and Snowflake export creation forms. We use MSW to mock
-// out the batch export API calls, and we use the userEvent library to simulate
-// user interactions with the form.
-//
-// We use the screen object from the testing-library/react library to render the
-// form and get references to the form elements. We use the waitFor function to
-// wait for the form to be rendered before we start interacting with it.
-//
-// We use the waitFor function again to wait for the form to be submitted before
-// we start asserting on the results.
-//
-// We use the expect function from the jest-dom library to assert on the form
-// elements. We use the toBeInTheDocument matcher to assert that the form is
-// rendered, and we use the toHaveTextContent matcher to assert that the form
-// contains the expected text.
-//
-// We use ARIA roles, semantics, and labels to make our forms accessible. We use
-// these for selection of elements within tests, and we use them to make our
-// forms accessible to users with disabilities.
-
 import { fireEvent, getByLabelText, getByRole, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
