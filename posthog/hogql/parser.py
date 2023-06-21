@@ -122,23 +122,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
         )
 
-        if ctx.windowClause():
+        if window_clause := ctx.windowClause():
             select_query.window_exprs = {}
-            for index, window_expr in enumerate(ctx.windowClause().windowExpr()):
-                name = self.visit(ctx.windowClause().identifier()[index])
+            for index, window_expr in enumerate(window_clause.windowExpr()):
+                name = self.visit(window_clause.identifier()[index])
                 select_query.window_exprs[name] = self.visit(window_expr)
 
-        if ctx.limitClause():
-            limit_clause = ctx.limitClause()
-            limit_expr = limit_clause.limitExpr()
-            if limit_expr.columnExpr(0):
-                select_query.limit = self.visit(limit_expr.columnExpr(0))
-            if limit_expr.columnExpr(1):
-                select_query.offset = self.visit(limit_expr.columnExpr(1))
-            if limit_clause.columnExprList():
-                select_query.limit_by = self.visit(limit_clause.columnExprList())
-            if limit_clause.WITH() and limit_clause.TIES():
+        if limit_and_offset_clause := ctx.limitAndOffsetClause():
+            select_query.limit = self.visit(limit_and_offset_clause.columnExpr(0))
+            if offset := limit_and_offset_clause.columnExpr(1):
+                select_query.offset = self.visit(offset)
+            if limit_by_exprs := limit_and_offset_clause.columnExprList():
+                select_query.limit_by = self.visit(limit_by_exprs)
+            if limit_and_offset_clause.WITH() and limit_and_offset_clause.TIES():
                 select_query.limit_with_ties = True
+        elif offset_only_clause := ctx.offsetOnlyClause():
+            select_query.offset = self.visit(offset_only_clause.columnExpr())
 
         if ctx.topClause():
             raise NotImplementedException(f"Unsupported: SelectStmt.topClause()")
@@ -182,7 +181,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitProjectionOrderByClause(self, ctx: HogQLParser.ProjectionOrderByClauseContext):
         raise NotImplementedException(f"Unsupported node: ProjectionOrderByClause")
 
-    def visitLimitClause(self, ctx: HogQLParser.LimitClauseContext):
+    def visitLimitAndOffsetClauseClause(self, ctx: HogQLParser.LimitAndOffsetClauseContext):
         raise Exception(f"Parsed as part of SelectStmt, can't parse directly.")
 
     def visitSettingsClause(self, ctx: HogQLParser.SettingsClauseContext):
@@ -285,9 +284,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         offset_ratio_expr = self.visit(ratio_expressions[1]) if len(ratio_expressions) > 1 and ctx.OFFSET() else None
 
         return ast.SampleExpr(sample_value=sample_ratio_expr, offset_value=offset_ratio_expr)
-
-    def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):
-        raise NotImplementedException(f"Unsupported node: LimitExpr")
 
     def visitOrderExprList(self, ctx: HogQLParser.OrderExprListContext):
         return [self.visit(expr) for expr in ctx.orderExpr()]
