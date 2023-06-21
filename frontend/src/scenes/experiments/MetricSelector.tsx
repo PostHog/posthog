@@ -10,7 +10,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { LemonSelect } from '@posthog/lemon-ui'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
-import { PREVIEW_INSIGHT_ID } from './secondaryMetricsLogic'
+import { PREVIEW_INSIGHT_ID } from './constants'
 
 export interface MetricSelectorProps {
     setPreviewInsight: (filters?: Partial<FilterType>) => void

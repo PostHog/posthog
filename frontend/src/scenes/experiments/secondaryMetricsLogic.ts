@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, props, key, reducers } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, FilterType, FunnelVizType, InsightShortId, InsightType, SecondaryExperimentMetric } from '~/types'
+import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -10,9 +10,9 @@ import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 import { dayjs } from 'lib/dayjs'
 import { forms } from 'kea-forms'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { PREVIEW_INSIGHT_ID } from './constants'
 
 const DEFAULT_DURATION = 14
-export const PREVIEW_INSIGHT_ID = 'new-preview' as InsightShortId
 
 export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void

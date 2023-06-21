@@ -36,7 +36,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { PREVIEW_INSIGHT_ID } from './secondaryMetricsLogic'
+import { PREVIEW_INSIGHT_ID } from './constants'
 
 const DEFAULT_DURATION = 14 // days
 

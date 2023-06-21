@@ -40,7 +40,7 @@ import { Field } from 'lib/forms/Field'
 import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { PREVIEW_INSIGHT_ID } from './secondaryMetricsLogic'
+import { PREVIEW_INSIGHT_ID } from './constants'
 
 export const scene: SceneExport = {
     component: Experiment,
