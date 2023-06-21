@@ -28,14 +28,14 @@ import { SurveyView } from './SurveyView'
 import { cohortsModel } from '~/models/cohortsModel'
 
 export const scene: SceneExport = {
-    component: Survey,
+    component: SurveyComponent,
     logic: surveyLogic,
     paramsToProps: ({ params: { id } }): (typeof surveyLogic)['props'] => ({
         id: id,
     }),
 }
 
-export function Survey({ id }: { id?: string } = {}): JSX.Element {
+export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
     const { isEditingSurvey } = useValues(surveyLogic)
     const showSurveyForm = id === 'new' || isEditingSurvey
     return (
