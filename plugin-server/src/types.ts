@@ -73,16 +73,7 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
-export interface RedisConfig {
-    REDIS_URL: string
-    POSTHOG_REDIS_PASSWORD: string
-    POSTHOG_REDIS_HOST: string
-    POSTHOG_REDIS_PORT: number
-    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
-    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
-}
-
-export interface PluginsServerConfig extends RedisConfig {
+export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
@@ -104,6 +95,12 @@ export interface PluginsServerConfig extends RedisConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    REDIS_URL: string
+    POSTHOG_REDIS_PASSWORD: string
+    POSTHOG_REDIS_HOST: string
+    POSTHOG_REDIS_PORT: number
+    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
+    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
