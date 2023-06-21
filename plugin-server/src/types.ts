@@ -193,8 +193,6 @@ export interface PluginsServerConfig extends RedisConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
-    SESSION_RECORDING_KAFKA_HOSTS: string
-    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -202,6 +200,11 @@ export interface PluginsServerConfig extends RedisConfig {
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    // Dedicated infra values
+    SESSION_RECORDING_KAFKA_HOSTS: string | undefined
+    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
 
 export interface Hub extends PluginsServerConfig {

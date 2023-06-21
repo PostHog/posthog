@@ -7,7 +7,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
@@ -373,15 +373,16 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
-            const redisPool = hub?.db.redisPool ?? createRedisPool(serverConfig)
+            const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, blobServerConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
+            const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3, redisPool)
+            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {

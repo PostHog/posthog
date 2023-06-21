@@ -265,12 +265,7 @@ export class SessionRecordingBlobIngester {
             throw e
         }
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars({
-            ...this.serverConfig,
-            // We use the same kafka config overall but different hosts for the session recordings
-            KAFKA_HOSTS: this.serverConfig.SESSION_RECORDING_KAFKA_HOSTS,
-            KAFKA_SECURITY_PROTOCOL: this.serverConfig.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
-        })
+        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
         this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
