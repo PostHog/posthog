@@ -225,6 +225,7 @@ export function Experiment(): JSX.Element {
 
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <>
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
                                 <div className="flex flex-col gap-2" style={{ maxWidth: '50%' }}>
                                     <Field name="name" label="Name">
                                         <LemonInput data-attr="experiment-name" />
@@ -995,14 +996,14 @@ export function Experiment(): JSX.Element {
                                                     </div>
                                                     {experimentInsightType === InsightType.TRENDS ? (
                                                         <Row>
-                                                            <b style={{ paddingRight: 4 }}>
+                                                            <b className="pr-1">
                                                                 <Row>
                                                                     {'action' in experimentResults.insight[0] && (
                                                                         <EntityFilterInfo
                                                                             filter={experimentResults.insight[0].action}
                                                                         />
                                                                     )}
-                                                                    <span style={{ paddingLeft: 4 }}>count:</span>
+                                                                    <span className="pl-1">count:</span>
                                                                 </Row>
                                                             </b>{' '}
                                                             {countDataForVariant(variant)}{' '}
@@ -1011,15 +1012,13 @@ export function Experiment(): JSX.Element {
                                                                     placement="right"
                                                                     title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
                                                                 >
-                                                                    <InfoCircleOutlined
-                                                                        style={{ padding: '4px 2px' }}
-                                                                    />
+                                                                    <InfoCircleOutlined className="py-1 px-0.5" />
                                                                 </Tooltip>
                                                             )}
                                                         </Row>
                                                     ) : (
                                                         <Row>
-                                                            <b style={{ paddingRight: 4 }}>Conversion rate:</b>{' '}
+                                                            <b className="pr-1">Conversion rate:</b>{' '}
                                                             {conversionRateForVariant(variant)}%
                                                         </Row>
                                                     )}
