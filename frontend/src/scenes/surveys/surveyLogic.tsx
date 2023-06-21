@@ -20,7 +20,6 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginInstallationType } from 'scenes/plugins/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface NewSurvey
@@ -95,8 +94,6 @@ export const surveyLogic = kea<surveyLogicType>([
         actions: [
             surveysLogic,
             ['loadSurveys'],
-            pluginsLogic,
-            ['installPlugin'],
             eventUsageLogic,
             [
                 'reportSurveyCreated',
@@ -115,9 +112,7 @@ export const surveyLogic = kea<surveyLogicType>([
         updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
-        setInstallingPlugin: (installing: boolean) => ({ installing }),
         launchSurvey: true,
-        installSurveyPlugin: true,
         stopSurvey: true,
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
@@ -174,12 +169,6 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },
-        installSurveyPlugin: async (_, breakpoint) => {
-            actions.setInstallingPlugin(true)
-            actions.installPlugin('https://github.com/PostHog/feature-surveys', PluginInstallationType.Repository)
-            await breakpoint(600)
-            actions.setInstallingPlugin(false)
-        },
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
             actions.reportSurveyStopped(survey)
@@ -232,12 +221,6 @@ export const surveyLogic = kea<surveyLogicType>([
             null as DataTableNode | null,
             {
                 setDataTableQuery: (_, { query }) => query,
-            },
-        ],
-        installingPlugin: [
-            false,
-            {
-                setInstallingPlugin: (_, { installing }) => installing,
             },
         ],
     }),
