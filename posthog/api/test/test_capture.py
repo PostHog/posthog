@@ -1255,7 +1255,7 @@ class TestCapture(BaseTest):
     def test_recording_ingestion_can_write_to_blob_ingestion_topic_with_usual_size_limit(self, kafka_produce) -> None:
         with self.settings(
             REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
-            SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES="512",
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=512,
         ):
             self._send_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
@@ -1269,7 +1269,7 @@ class TestCapture(BaseTest):
     def test_recording_ingestion_can_write_to_blob_ingestion_topic(self, kafka_produce) -> None:
         with self.settings(
             REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
-            SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES="20480",
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
             self._send_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
@@ -1289,9 +1289,8 @@ class TestCapture(BaseTest):
             SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
             SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL="SSL",
             REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
-            SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES="1234",
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=1234,
         ):
-
             # avoid logs from being printed because the mock is None
             session_recording_producer_singleton_mock.return_value = KafkaProducer()
 
@@ -1305,7 +1304,7 @@ class TestCapture(BaseTest):
                     "a-fourth.server:9092",
                 ],
                 kafka_security_protocol="SSL",
-                max_message_bytes="1234",
+                max_request_size=1234,
             )
 
     @patch("posthog.api.capture.sessionRecordingKafkaProducer")

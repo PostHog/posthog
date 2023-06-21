@@ -180,7 +180,9 @@ SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_
 # Useful if clickhouse is hosted outside the cluster.
 KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
 
-# can set ('gzip', 'snappy', 'lz4', None)
+# can set ('gzip', 'snappy', 'lz4', 'zstd' None)
+# NB if you want to set a compression you need to install it... the producer compresses not kafka
+# so, at time of writing only 'gzip' and None/'uncompressed' are available
 SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
 
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
@@ -191,8 +193,10 @@ KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
 
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
-SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES = get_from_env(
-    "SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES", None, type_cast=int, optional=True
+SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
+    "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
+    1024 * 1024 * 0.95,  # a little less than 1MB to account for overhead
+    type_cast=int,
 )
 
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
