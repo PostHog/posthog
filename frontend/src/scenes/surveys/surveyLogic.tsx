@@ -25,6 +25,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 export interface NewSurvey
     extends Pick<
         Survey,
+        | 'id'
         | 'name'
         | 'description'
         | 'type'
@@ -41,6 +42,7 @@ export interface NewSurvey
 }
 
 const NEW_SURVEY: NewSurvey = {
+    id: 'new',
     name: '',
     description: '',
     questions: [{ type: SurveyQuestionType.Open, question: '' }],
@@ -82,9 +84,9 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     return surveyDataQuery
 }
 
-export const getSurveyMetricsQueries = (survey: Survey): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == '${survey.name} survey shown' and properties.$survey_id == '${survey.id}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == '${survey.name} survey dismissed' and properties.$survey_id == '${survey.id}'`
+export const getSurveyMetricsQueries = (surveyId: string, surveyName: string): SurveyMetricsQueries => {
+    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == '${surveyName} survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == '${surveyName} survey dismissed' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,
@@ -167,7 +169,7 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
                 actions.setDataTableQuery(getSurveyDataQuery(survey.name))
-                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey))
+                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id, survey.name))
             }
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
