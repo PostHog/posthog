@@ -214,12 +214,12 @@ class _Printer(Visitor):
 
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
+            if node.limit_with_ties:
+                clauses.append("WITH TIES")
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
             if node.limit_by is not None:
                 clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
-            if node.limit_with_ties:
-                clauses.append("WITH TIES")
 
         response = " ".join([clause for clause in clauses if clause])
 

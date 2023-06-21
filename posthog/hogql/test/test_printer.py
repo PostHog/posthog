@@ -418,6 +418,11 @@ class TestPrinter(BaseTest):
         )
 
     def test_select_offset(self):
+        # Only the default limit if OFFSET is specified alone
+        self.assertEqual(
+            self._select("select event from events offset 10"),
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 OFFSET 10",
+        )
         self.assertEqual(
             self._select("select event from events limit 10 offset 10"),
             f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 10",
@@ -427,8 +432,8 @@ class TestPrinter(BaseTest):
             f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0",
         )
         self.assertEqual(
-            self._select("select event from events limit 10 offset 0 with ties"),
-            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 WITH TIES",
+            self._select("select event from events limit 10 with ties offset 0"),
+            f"SELECT events.event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 WITH TIES OFFSET 0",
         )
 
     def test_select_limit_by(self):
