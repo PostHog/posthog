@@ -6,6 +6,7 @@ on:
             - 'frontend/**'
             - '.storybook/**'
             - 'package.json'
+            - '.github/workflows/storybook-chromatic.yml'
 
 jobs:
     storybook-chromatic:
