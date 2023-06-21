@@ -9,6 +9,7 @@ from django.contrib.postgres.operations import AddIndexConcurrently  # type: ign
 
 
 class Migration(migrations.Migration):
+    atomic = False
 
     dependencies = [
         ("posthog", "0330_add_autocapture_exceptions_events_to_ignore"),
