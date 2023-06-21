@@ -64,7 +64,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     def update(self, instance: EarlyAccessFeature, validated_data: Any) -> EarlyAccessFeature:
         stage = validated_data.get("stage", None)
 
-        if stage == EarlyAccessFeature.Stage.BETA:
+        if instance.stage != EarlyAccessFeature.Stage.BETA and stage == EarlyAccessFeature.Stage.BETA:
 
             super_conditions = lambda feature_flag_key: [
                 {
