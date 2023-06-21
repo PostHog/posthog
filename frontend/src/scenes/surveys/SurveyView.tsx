@@ -207,8 +207,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                           <div>
                                               {surveyMetricsQueries && (
                                                   <div className="flex flex-row gap-4 mb-4">
-                                                      <Query query={surveyMetricsQueries.surveysShown} />
-                                                      <Query query={surveyMetricsQueries.surveysDismissed} />
+                                                      <div className="flex-1">
+                                                          <Query query={surveyMetricsQueries.surveysShown} />
+                                                      </div>
+                                                      <div className="flex-1">
+                                                          <Query query={surveyMetricsQueries.surveysDismissed} />
+                                                      </div>
                                                   </div>
                                               )}
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
