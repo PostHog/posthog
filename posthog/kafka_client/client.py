@@ -119,7 +119,7 @@ class _KafkaProducer:
                 bootstrap_servers=kafka_hosts,
                 security_protocol=kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
                 compression_type=compression_type,
-                **{"max.request.size": max_request_size} if max_request_size else {},
+                **{"max_request_size": max_request_size} if max_request_size else {},
                 **_sasl_params(),
             )
 
@@ -187,7 +187,7 @@ def sessionRecordingKafkaProducer() -> _KafkaProducer:
     return SessionRecordingKafkaProducer(
         kafka_hosts=settings.SESSION_RECORDING_KAFKA_HOSTS,
         kafka_security_protocol=settings.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
-        max_message_bytes=settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES,
+        max_request_size=settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES,
         compression_type=settings.SESSION_RECORDING_KAFKA_COMPRESSION,
     )
 
