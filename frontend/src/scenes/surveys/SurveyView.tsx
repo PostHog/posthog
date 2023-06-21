@@ -18,7 +18,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyPlugin } = useValues(surveyLogic)
+    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries } = useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey } = useActions(surveyLogic)
@@ -205,20 +205,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 ? {
                                       content: (
                                           <div>
-                                              <div className="flex flex-row gap-4">
-                                                  {/* <div className="border rounded p-4">
-                                              <span>Impressions</span>
-                                              <h2>{surveyImpressionsCount}</h2>
-                                          </div>
-                                          <div className="border rounded p-4">
-                                              <span>Started</span>
-                                              <h2>{surveyStartedCount}</h2>
-                                          </div>
-                                          <div className="border rounded p-4">
-                                              <span>Completed</span>
-                                              <h2>{surveyCompletedCount}</h2>
-                                          </div> */}
-                                              </div>
+                                              {surveyMetricsQueries && (
+                                                  <div className="flex flex-row gap-4 mb-4">
+                                                      <Query query={surveyMetricsQueries.surveysShown} />
+                                                      <Query query={surveyMetricsQueries.surveysDismissed} />
+                                                  </div>
+                                              )}
                                               {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
                                           </div>
                                       ),
