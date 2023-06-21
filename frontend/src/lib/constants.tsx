@@ -151,6 +151,7 @@ export const FEATURE_FLAGS = {
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
+    DATA_WAREHOUSE: 'data-warehouse', // owner: @timgl
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER: 'session-recording-show-console-logs-filter', // owner: #team-monitoring

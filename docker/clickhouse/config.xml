@@ -677,8 +677,7 @@
             Regexps are not aligned: don't forget to add ^ and $. Also don't forget to escape dot (.) metacharacter
             (forgetting to do so is a common source of error).
         -->
-            <host_regexp>^s3.*\.amazonaws\.com$</host_regexp>
-            <host_regexp>^.*\.googleapis\.com$</host_regexp>
+        <host_regexp>.*</host_regexp>
     </remote_url_allow_hosts>
 
     <!-- If element has 'incl' attribute, then for it's value will be used corresponding substitution from another file.

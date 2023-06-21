@@ -40,6 +40,8 @@ export enum Scene {
     EarlyAccessFeature = 'EarlyAccessFeature',
     Surveys = 'Surveys',
     Survey = 'Survey',
+    DataWarehouse = 'DataWarehouse',
+    DataWarehouseTable = 'DataWarehouseTable',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',

@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
+from pydantic.fields import ModelField
 
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -17,7 +18,6 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FunctionCallTable,
 )
-from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -27,7 +27,6 @@ from posthog.hogql.database.schema.person_overrides import PersonOverridesTable,
 from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import HogQLException
 from posthog.utils import PersonOnEventsMode
 
@@ -55,9 +54,6 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
-    # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
-    aapl_stock: S3Table = create_aapl_stock_s3_table()
-
     def __init__(self, timezone: Optional[str]):
         super().__init__()
         try:
@@ -76,9 +72,38 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
+    @classmethod
+    def add_warehouse_tables(cls, **field_definitions: Any):
+        new_fields: Dict[str, ModelField] = {}
+        new_annotations: Dict[str, Optional[type]] = {}
+
+        for f_name, f_def in field_definitions.items():
+            if isinstance(f_def, tuple):
+                try:
+                    f_annotation, f_value = f_def
+                except ValueError as e:
+                    raise Exception(
+                        "field definitions should either be a tuple of (<type>, <default>) or just a "
+                        "default value, unfortunately this means tuples as "
+                        "default values are not allowed"
+                    ) from e
+            else:
+                f_annotation, f_value = None, f_def
+
+            if f_annotation:
+                new_annotations[f_name] = f_annotation
+
+            new_fields[f_name] = ModelField.infer(
+                name=f_name, value=f_value, annotation=f_annotation, class_validators=None, config=cls.__config__
+            )
+
+        cls.__fields__.update(new_fields)
+        cls.__annotations__.update(new_annotations)
+
 
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
+    from posthog.warehouse.models import DataWarehouseTable
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
@@ -86,6 +111,12 @@ def create_hogql_database(team_id: int) -> Database:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+
+    tables = {}
+    for table in DataWarehouseTable.objects.filter(team=team):
+        tables[table.name] = table.hogql_definition()
+    database.add_warehouse_tables(**tables)
+
     return database
 
 
@@ -93,10 +124,6 @@ def serialize_database(database: Database) -> dict:
     tables: Dict[str, List[Dict[str, Any]]] = {}
 
     for table_key in database.__fields__.keys():
-        # TODO: This table was made to test reads from s3. Remove it once data warehouse launches!
-        if table_key == "aapl_stock":
-            continue
-
         field_input: Dict[str, Any] = {}
         table = getattr(database, table_key, None)
         if isinstance(table, FunctionCallTable):
@@ -104,40 +131,43 @@ def serialize_database(database: Database) -> dict:
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[Dict[str, Any]] = []
-        for field_key, field in field_input.items():
-            if field_key == "team_id":
-                pass
-            elif isinstance(field, DatabaseField):
-                if isinstance(field, IntegerDatabaseField):
-                    field_output.append({"key": field_key, "type": "integer"})
-                elif isinstance(field, FloatDatabaseField):
-                    field_output.append({"key": field_key, "type": "float"})
-                elif isinstance(field, StringDatabaseField):
-                    field_output.append({"key": field_key, "type": "string"})
-                elif isinstance(field, DateTimeDatabaseField):
-                    field_output.append({"key": field_key, "type": "datetime"})
-                elif isinstance(field, DateDatabaseField):
-                    field_output.append({"key": field_key, "type": "date"})
-                elif isinstance(field, BooleanDatabaseField):
-                    field_output.append({"key": field_key, "type": "boolean"})
-                elif isinstance(field, StringJSONDatabaseField):
-                    field_output.append({"key": field_key, "type": "json"})
-            elif isinstance(field, LazyJoin):
-                field_output.append(
-                    {"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()}
-                )
-            elif isinstance(field, VirtualTable):
-                field_output.append(
-                    {
-                        "key": field_key,
-                        "type": "virtual_table",
-                        "table": field.to_printed_hogql(),
-                        "fields": list(field.fields.keys()),
-                    }
-                )
-            elif isinstance(field, FieldTraverser):
-                field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+        field_output: List[Dict[str, Any]] = serialize_fields(field_input)
         tables[table_key] = field_output
 
     return tables
+
+
+def serialize_fields(field_input) -> List[Dict[str, Any]]:
+    field_output: List[Dict[str, Any]] = []
+    for field_key, field in field_input.items():
+        if field_key == "team_id":
+            pass
+        elif isinstance(field, DatabaseField):
+            if isinstance(field, IntegerDatabaseField):
+                field_output.append({"key": field_key, "type": "integer"})
+            elif isinstance(field, FloatDatabaseField):
+                field_output.append({"key": field_key, "type": "float"})
+            elif isinstance(field, StringDatabaseField):
+                field_output.append({"key": field_key, "type": "string"})
+            elif isinstance(field, DateTimeDatabaseField):
+                field_output.append({"key": field_key, "type": "datetime"})
+            elif isinstance(field, DateDatabaseField):
+                field_output.append({"key": field_key, "type": "date"})
+            elif isinstance(field, BooleanDatabaseField):
+                field_output.append({"key": field_key, "type": "boolean"})
+            elif isinstance(field, StringJSONDatabaseField):
+                field_output.append({"key": field_key, "type": "json"})
+        elif isinstance(field, LazyJoin):
+            field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
+        elif isinstance(field, VirtualTable):
+            field_output.append(
+                {
+                    "key": field_key,
+                    "type": "virtual_table",
+                    "table": field.to_printed_hogql(),
+                    "fields": list(field.fields.keys()),
+                }
+            )
+        elif isinstance(field, FieldTraverser):
+            field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+    return field_output
