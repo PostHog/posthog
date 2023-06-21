@@ -43,6 +43,7 @@ import {
     NotebookType,
     DashboardTemplateListParams,
     PropertyDefinitionType,
+    DataWarehouseTable,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -415,6 +416,14 @@ class ApiRequest {
 
     public survey(id: Survey['id'], teamId?: TeamType['id']): ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse
+    public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+    }
+    public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseTables(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1222,6 +1231,27 @@ const api = {
         },
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
+        },
+    },
+
+    dataWarehouseTables: {
+        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest().dataWarehouseTables().get()
+        },
+        async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).get()
+        },
+        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().create({ data })
+        },
+        async delete(tableId: DataWarehouseTable['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).delete()
+        },
+        async update(
+            tableId: DataWarehouseTable['id'],
+            data: Pick<DataWarehouseTable, 'name'>
+        ): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
         },
     },
 
