@@ -24,6 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ExperimentsHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -211,6 +212,7 @@ export function Experiments(): JSX.Element {
                                 docsURL="https://posthog.com/docs/experiments"
                                 action={() => router.actions.push(urls.experiment('new'))}
                                 isEmpty={shouldShowEmptyState}
+                                customHog={ExperimentsHog}
                             />
                         ))}
                     {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (

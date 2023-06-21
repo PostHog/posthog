@@ -99,6 +99,7 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
+    SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
