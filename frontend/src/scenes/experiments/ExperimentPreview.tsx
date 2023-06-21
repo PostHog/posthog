@@ -356,7 +356,7 @@ export function ExperimentPreview({
                     <Field name="filters">
                         {({ value, onChange }) => (
                             <MetricSelector
-                                createPreviewInsight={createNewExperimentInsight}
+                                setPreviewInsight={createNewExperimentInsight}
                                 setFilters={(payload) => {
                                     setFilters(payload)
                                     onChange(payload)

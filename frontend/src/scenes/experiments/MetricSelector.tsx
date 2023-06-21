@@ -3,30 +3,25 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { FilterType, InsightShortId, InsightType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import './Experiment.scss'
 import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { PREVIEW_INSIGHT_ID } from './secondaryMetricsLogic'
 
 export interface MetricSelectorProps {
-    createPreviewInsight: (filters?: Partial<FilterType>) => void
+    setPreviewInsight: (filters?: Partial<FilterType>) => void
     setFilters: (filters: Partial<FilterType>) => void
-    previewInsightId: InsightShortId | null
     filters: Partial<FilterType>
 }
 
-export function MetricSelector({
-    createPreviewInsight,
-    previewInsightId,
-    filters,
-    setFilters,
-}: MetricSelectorProps): JSX.Element {
+export function MetricSelector({ setPreviewInsight, filters, setFilters }: MetricSelectorProps): JSX.Element {
     const { insightProps } = useValues(
         insightLogic({
-            dashboardItemId: previewInsightId as InsightShortId,
+            dashboardItemId: PREVIEW_INSIGHT_ID,
             syncWithUrl: false,
             disableDataExploration: true,
         })
@@ -43,7 +38,7 @@ export function MetricSelector({
                 <LemonSelect
                     value={experimentInsightType}
                     onChange={(val) => {
-                        val && createPreviewInsight({ insight: val })
+                        val && setPreviewInsight({ insight: val })
                     }}
                     options={[
                         { value: InsightType.TRENDS, label: <b>Trends</b> },
