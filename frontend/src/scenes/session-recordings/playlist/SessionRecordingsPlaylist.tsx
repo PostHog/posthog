@@ -273,7 +273,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, sessionRecordings, customFilters } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
@@ -281,7 +281,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     const shouldShowProductIntroduction =
         !user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-    const shouldShowEmptyState = sessionRecordings?.length == 0 && !customFilters
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',

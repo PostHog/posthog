@@ -328,6 +328,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
     })),
     selectors({
+        shouldShowEmptyState: [
+            (s) => [s.sessionRecordings, s.customFilters, s.sessionRecordingsResponseLoading],
+            (sessionRecordings, customFilters, sessionRecordingsResponseLoading): boolean => {
+                return !sessionRecordingsResponseLoading && sessionRecordings.length === 0 && !customFilters
+            },
+        ],
+
         filters: [
             (s) => [s.customFilters, (_, props) => props.personUUID],
             (customFilters, personUUID): RecordingFilters => {
