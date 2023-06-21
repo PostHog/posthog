@@ -1,6 +1,8 @@
 import { expect, Locator, Page } from '@playwright/test'
 
-const STORYBOOK_URL: string = process.env.STORYBOOK_URL || 'http://localhost:6006'
+const STORYBOOK_URL: string = process.env.STORYBOOK_URL?.endsWith('/')
+    ? process.env.STORYBOOK_URL.slice(0, -1)
+    : process.env.STORYBOOK_URL || 'http://localhost:6006'
 
 const PSEUDO_STATES = {
     hover: 'hover',
