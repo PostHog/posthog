@@ -39,7 +39,6 @@ export function ExperimentPreview({
         experiment,
         isExperimentGoalModalOpen,
         experimentLoading,
-        experimentInsightId,
     } = useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
@@ -47,7 +46,7 @@ export function ExperimentPreview({
         closeExperimentGoalModal,
         updateExperimentGoal,
         setFilters,
-        createNewExperimentInsight,
+        setNewExperimentInsight,
     } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
@@ -356,12 +355,11 @@ export function ExperimentPreview({
                     <Field name="filters">
                         {({ value, onChange }) => (
                             <MetricSelector
-                                setPreviewInsight={createNewExperimentInsight}
+                                setPreviewInsight={setNewExperimentInsight}
                                 setFilters={(payload) => {
                                     setFilters(payload)
                                     onChange(payload)
                                 }}
-                                previewInsightId={experimentInsightId}
                                 filters={value}
                             />
                         )}

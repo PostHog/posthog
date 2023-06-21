@@ -11,9 +11,7 @@ import {
     ExperimentResults,
     FilterType,
     FunnelVizType,
-    InsightModel,
     InsightType,
-    InsightShortId,
     MultivariateFlagVariant,
     TrendResult,
     FunnelStep,
@@ -38,6 +36,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
+import { PREVIEW_INSIGHT_ID } from './secondaryMetricsLogic'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -99,8 +98,7 @@ export const experimentLogic = kea<experimentLogicType>([
             runningTime,
             sampleSize,
         }),
-        setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
-        createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -186,12 +184,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 },
-            },
-        ],
-        experimentInsightId: [
-            null as InsightShortId | null,
-            {
-                setExperimentInsightId: (_, { shortId }) => shortId,
             },
         ],
         editingExistingExperiment: [
@@ -301,7 +293,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        createNewExperimentInsight: async ({ filters }) => {
+        setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
             if (filters?.insight === InsightType.FUNNELS) {
                 newInsightFilters = cleanFilters({
@@ -321,34 +313,21 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
 
-            const newInsight = {
-                name: ``,
-                description: '',
-                tags: [],
-                filters: newInsightFilters,
-                result: null,
-            }
-
-            const createdInsight: InsightModel = await api.create(
-                `api/projects/${values.currentTeamId}/insights`,
-                newInsight
-            )
-            actions.setExperimentInsightId(createdInsight.short_id)
-
-            actions.setExperiment({ filters: { ...newInsight.filters } })
+            actions.setExperiment({ filters: newInsightFilters })
+            actions.setFilters(newInsightFilters)
         },
         setFilters: ({ filters }) => {
             if (values.experimentInsightType === InsightType.FUNNELS) {
-                funnelLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
+                funnelLogic.findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })?.actions.setFilters(filters)
             } else {
-                trendsLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
+                trendsLogic.findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })?.actions.setFilters(filters)
             }
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
             if (!experiment?.start_date) {
                 // loading a draft experiment
-                actions.createNewExperimentInsight(experiment?.filters)
+                actions.setNewExperimentInsight(experiment?.filters)
             } else {
                 actions.loadExperimentResults()
                 actions.loadSecondaryMetricResults()
@@ -494,7 +473,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         openExperimentGoalModal: async () => {
-            actions.createNewExperimentInsight(values.experiment?.filters)
+            actions.setNewExperimentInsight(values.experiment?.filters)
         },
     })),
     loaders(({ actions, props, values }) => ({
@@ -900,7 +879,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.createNewExperimentInsight()
+                    actions.setNewExperimentInsight()
                     actions.resetExperiment()
                 }
 

@@ -40,6 +40,7 @@ import { Field } from 'lib/forms/Field'
 import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { PREVIEW_INSIGHT_ID } from './secondaryMetricsLogic'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -53,7 +54,6 @@ export function Experiment(): JSX.Element {
     const {
         experimentId,
         experiment,
-        experimentInsightId,
         minimumSampleSizePerVariant,
         recommendedExposureForCountData,
         variants,
@@ -86,7 +86,7 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperiment,
         removeExperimentGroup,
-        createNewExperimentInsight,
+        setNewExperimentInsight,
         archiveExperiment,
         resetRunningExperiment,
         loadExperiment,
@@ -100,7 +100,7 @@ export function Experiment(): JSX.Element {
 
     const { insightProps } = useValues(
         insightLogic({
-            dashboardItemId: experimentInsightId,
+            dashboardItemId: PREVIEW_INSIGHT_ID,
             disableDataExploration: true,
         })
     )
@@ -461,7 +461,7 @@ export function Experiment(): JSX.Element {
                                             value={experimentInsightType}
                                             onChange={(val) => {
                                                 val &&
-                                                    createNewExperimentInsight({
+                                                    setNewExperimentInsight({
                                                         insight: val,
                                                         properties: experiment?.filters?.properties,
                                                     })
