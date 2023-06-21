@@ -64,6 +64,8 @@ class BatchExportRun(UUIDModel):
     batch_export = models.ForeignKey(
         "BatchExport", on_delete=models.CASCADE, help_text="The BatchExport this run belongs to."
     )
+    workflow_id = models.TextField(null=True, help_text="The Workflow id as set by Temporal.")
+    run_id = models.UUIDField(null=True, help_text="The Run id of this BatchExportRun set by Temporal.")
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this run."
     )

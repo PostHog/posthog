@@ -1,15 +1,15 @@
 import datetime as dt
 import json
+import tempfile
 from dataclasses import dataclass
 from string import Template
-import tempfile
 
-from django.conf import settings
 import snowflake.connector
+from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import SnowflakeBatchExportInputs
 
+from posthog.batch_exports.service import SnowflakeBatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -17,9 +17,11 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
+)
 from posthog.temporal.workflows.clickhouse import get_client
-
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -219,6 +221,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
+            run_id=workflow.info().run_id,
+            workflow_id=workflow.info().workflow_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
