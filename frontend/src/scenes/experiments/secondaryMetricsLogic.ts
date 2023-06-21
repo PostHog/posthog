@@ -18,7 +18,6 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 import { dayjs } from 'lib/dayjs'
 import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
 
 const DEFAULT_DURATION = 14
 
@@ -62,17 +61,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         setMetricId: (metricId: number) => ({ metricId }),
         saveSecondaryMetric: true,
     }),
-    loaders(({ values }) => ({
-        experiments: [
-            [] as Experiment[],
-            {
-                loadExperiments: async () => {
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
-                    return response.results as Experiment[]
-                },
-            },
-        ],
-    })),
     reducers(({ props }) => ({
         isModalOpen: [
             false,
