@@ -80,9 +80,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["person_id"],
                 event["team_id"],
                 json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
-                json.dumps(event["elements_chain"])
-                if isinstance(event["elements_chain"], list)
-                else event["elements_chain"],
+                event["elements_chain"],
                 event["distinct_id"],
                 event["created_at"],
                 json.dumps(event["person_properties"])
