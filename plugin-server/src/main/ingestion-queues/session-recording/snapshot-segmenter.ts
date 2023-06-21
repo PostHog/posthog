@@ -14,6 +14,7 @@ export interface RRWebEventSummaryData {
     href?: string
     source?: number
     payload?: Record<string, any>
+    plugin?: string
 }
 
 export interface RRWebEventSummary {

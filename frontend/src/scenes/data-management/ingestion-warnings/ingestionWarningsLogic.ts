@@ -6,6 +6,8 @@ import api from 'lib/api'
 
 import type { ingestionWarningsLogicType } from './ingestionWarningsLogicType'
 import { teamLogic } from '../../teamLogic'
+import { range } from 'lib/utils'
+import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 
 export interface IngestionWarningSummary {
     type: string
@@ -24,7 +26,7 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
 
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId', 'timezone']],
     }),
 
     loaders(({ values }) => ({
@@ -53,6 +55,30 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                         path: urls.ingestionWarnings(),
                     },
                 ]
+            },
+        ],
+        dates: [
+            () => [],
+            () => {
+                return range(0, 30)
+                    .map((i) => dayjs().subtract(i, 'days').format('D MMM YYYY'))
+                    .reverse()
+            },
+        ],
+        summaryDatasets: [
+            (s) => [s.data, s.timezone],
+            (data: IngestionWarningSummary[], timezone: string): Record<string, number[]> => {
+                const summaryDatasets: Record<string, number[]> = {}
+                data.forEach((summary) => {
+                    const result = new Array(30).fill(0)
+                    for (const warning of summary.warnings) {
+                        const date = dayjsUtcToTimezone(warning.timestamp, timezone)
+                        const dayIndex = dayjs().diff(date, 'days')
+                        result[dayIndex] += 1
+                    }
+                    summaryDatasets[summary.type] = result.reverse()
+                })
+                return summaryDatasets
             },
         ],
     }),

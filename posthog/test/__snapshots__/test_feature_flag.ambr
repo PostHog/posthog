@@ -13,6 +13,8 @@
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -30,6 +32,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -303,7 +306,8 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE EXISTS
+  WHERE
+    EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -352,7 +356,8 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE EXISTS
+  WHERE
+    EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -445,7 +450,8 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE EXISTS
+  WHERE
+    EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -494,7 +500,8 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE EXISTS
+  WHERE
+    EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id

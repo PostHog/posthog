@@ -1,10 +1,21 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
+import { decideResponse } from '../fixtures/api/decide'
 import { savedInsights, createInsight, insight } from '../productAnalytics'
 
 // For tests related to trends please check trendsElements.js
+// insight tests were split up because Cypress was struggling with this many tests in one file🙈
 describe('Insights', () => {
     beforeEach(() => {
+        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+            req.reply(
+                decideResponse({
+                    hogql: true,
+                    'data-exploration-insights': true,
+                })
+            )
+        )
+
         cy.visit(urls.insightNew())
     })
 
@@ -78,53 +89,6 @@ describe('Insights', () => {
         savedInsights.checkInsightIsInListView(insightName)
     })
 
-    describe('unsaved insights confirmation', () => {
-        it('can move away from an unchanged new insight without confirm()', () => {
-            insight.newInsight()
-            cy.log('Navigate away')
-            cy.get('[data-attr="menu-item-featureflags"]').click()
-            cy.log('We should be on the Feature Flags page now')
-            cy.url().should('include', '/feature_flags')
-        })
-
-        it('Can navigate away from unchanged saved insight without confirm()', () => {
-            const insightName = randomString('to save and then navigate away from')
-            insight.create(insightName)
-
-            cy.get('[data-attr="menu-item-annotations"]').click()
-
-            // the annotations API call is made before the annotations page loads, so we can't wait for it
-            cy.get('[data-attr="annotations-table"]').should('exist')
-            cy.url().should('include', '/annotations')
-        })
-
-        it('Can keep editing changed new insight after navigating away with confirm() rejection (case 1)', () => {
-            cy.on('window:confirm', () => {
-                return false
-            })
-
-            insight.newInsight()
-            cy.log('Add series')
-            cy.get('[data-attr=add-action-event-button]').click()
-            cy.log('Navigate away')
-            cy.get('[data-attr="menu-item-featureflags"]').click()
-            cy.log('Save button should still be here because case 1 rejects confirm()')
-            cy.get('[data-attr="insight-save-button"]').should('exist')
-        })
-
-        it('Can navigate away from changed new insight with confirm() acceptance (case 2)', () => {
-            cy.on('window:confirm', () => {
-                return true
-            })
-            insight.newInsight()
-            cy.log('Add series')
-            cy.get('[data-attr=add-action-event-button]').click()
-            cy.log('Navigate away')
-            cy.get('[data-attr="menu-item-featureflags"]').click()
-            cy.url().should('include', '/feature_flags')
-        })
-    })
-
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
         cy.location('pathname').should('eq', '/insights/i_dont_exist')
@@ -186,49 +150,11 @@ describe('Insights', () => {
         })
     })
 
-    describe('duplicating insights', () => {
-        let insightName
-        beforeEach(() => {
-            cy.visit(urls.savedInsights()) // make sure turbo mode has cached this page
-            insightName = randomString('insight-name-')
-            createInsight(insightName)
-        })
-        it('can duplicate insights from the insights list view', () => {
-            cy.visit(urls.savedInsights())
-            cy.contains('.saved-insights table tr', insightName).within(() => {
-                cy.get('[data-attr="more-button"]').click()
-            })
-            cy.get('[data-attr="duplicate-insight-from-list-view"]').click()
-            cy.contains('.saved-insights table tr', `${insightName} (copy)`).should('exist')
-        })
-
-        it('can duplicate insights from the insights card view', () => {
-            cy.visit(urls.savedInsights())
-            cy.contains('.saved-insights .LemonSegmentedButton', 'Cards').click()
-            cy.contains('.CardMeta', insightName).within(() => {
-                cy.get('[data-attr="more-button"]').click()
-            })
-            cy.get('[data-attr="duplicate-insight-from-card-list-view"]').click()
-            cy.contains('.CardMeta', `${insightName} (copy)`).should('exist')
-        })
-
-        it('can duplicate from insight view', () => {
-            cy.get('.page-buttons [data-attr="more-button"]').click()
-            cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
-            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
-
-            savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
-        })
-
-        it('can save insight as a copy', () => {
-            cy.get('[data-attr="insight-edit-button"]').click()
-
-            cy.get('[data-attr="insight-save-dropdown"]').click()
-            cy.get('[data-attr="insight-save-as-new-insight"]').click()
-            cy.get('.ant-modal-content .ant-btn-primary').click()
-            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
-
-            savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
+    describe('view source', () => {
+        it('can open the query editor', () => {
+            insight.newInsight('TRENDS')
+            cy.get('[aria-label="View source (BETA)"]').click()
+            cy.get('[data-attr="query-editor"]').should('exist')
         })
     })
 })

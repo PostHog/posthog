@@ -172,7 +172,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -234,7 +234,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.delete(f"/api/person/{person.uuid}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
@@ -284,7 +284,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
         response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
@@ -363,7 +363,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response.json()["success"])
 
     @mock.patch("posthog.api.person.capture_internal")
-    def test_update_person_properties(self, mock_capture) -> None:
+    def test_update_multiple_person_properties(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar", "bar": "baz"}})
+
+        mock_capture.assert_called_once_with(
+            distinct_id="some_distinct_id",
+            ip=None,
+            site_url=None,
+            token=self.team.api_token,
+            now=mock.ANY,
+            sent_at=None,
+            event={
+                "event": "$set",
+                "properties": {"$set": {"foo": "bar", "bar": "baz"}},
+                "distinct_id": "some_distinct_id",
+                "timestamp": mock.ANY,
+            },
+        )
+
+    def test_update_multiple_person_properties_validation(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        response = self.client.patch(f"/api/person/{person.uuid}", {"foo": "bar", "bar": "baz"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(), self.validation_error_response("required", "This field is required.", "properties")
+        )
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_update_single_person_property(self, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -562,7 +603,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_person = self.client.get("/api/person/%s/" % person.uuid).json()
         created_person["properties"]["a"] = "b"
         response = self.client.patch("/api/person/%s/" % person.uuid, created_person)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
         self.client.get("/api/person/%s/" % person.uuid)
 
@@ -626,16 +667,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
-        response = self.client.get(response["next"]).json()
-        returned_ids += [x["distinct_ids"][0] for x in response["results"]]
-        self.assertEqual(len(response["results"]), 10)
+        response_next = self.client.get(response["next"]).json()
+        returned_ids += [x["distinct_ids"][0] for x in response_next["results"]]
+        self.assertEqual(len(response_next["results"]), 10)
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
+
+        with self.assertNumQueries(9):
+            response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
+        self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
         person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering

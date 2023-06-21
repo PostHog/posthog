@@ -1,5 +1,4 @@
 import { funnelLogic } from './funnelLogic'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -12,7 +11,6 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
-import api from 'lib/api'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 jest.mock('scenes/trends/persons-modal/PersonsModal')
@@ -103,53 +101,6 @@ describe('funnelLogic', () => {
             ])
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
         })
-
-        it('sets filters after load if valid', async () => {
-            await expectLogic(logic)
-                .toDispatchActions(['loadResults'])
-                .toMatchValues({
-                    insight: expect.objectContaining({
-                        short_id: undefined,
-                        filters: {
-                            insight: InsightType.FUNNELS,
-                            actions: [
-                                { id: '$pageview', order: 0 },
-                                { id: '$pageview', order: 1 },
-                            ],
-                        },
-                        result: null,
-                    }),
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                        actions: [
-                            { id: '$pageview', order: 0 },
-                            { id: '$pageview', order: 1 },
-                        ],
-                    },
-                    isFunnelWithEnoughSteps: true,
-                })
-                .toDispatchActions(['loadResultsSuccess'])
-                .toMatchValues({
-                    insight: expect.objectContaining({
-                        filters: {
-                            insight: InsightType.FUNNELS,
-                            actions: [
-                                { id: '$pageview', order: 0 },
-                                { id: '$pageview', order: 1 },
-                            ],
-                        },
-                        result: expect.arrayContaining([expect.objectContaining({ count: 19 })]),
-                    }),
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                        actions: [
-                            { id: '$pageview', order: 0 },
-                            { id: '$pageview', order: 1 },
-                        ],
-                    },
-                    isFunnelWithEnoughSteps: true,
-                })
-        })
     })
 
     describe('isFunnelWithEnoughSteps', () => {
@@ -178,56 +129,6 @@ describe('funnelLogic', () => {
                 logic.actions.setFilters({ events: [{}], actions: [{ from: 'previous isFunnelWithEnoughSteps test' }] })
             }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
-    })
-
-    it("load results, don't send breakdown if old visualisation is shown", async () => {
-        jest.spyOn(api, 'createResponse')
-        await initFunnelLogic()
-
-        // wait for clickhouse features to be enabled, otherwise this won't call "loadResults"
-        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-
-        await expectLogic(logic, () => {
-            logic.actions.setFilters({
-                actions: [],
-                events: [
-                    { id: '$pageview', order: 0 },
-                    { id: '$pageview', order: 1 },
-                    { id: '$pageview', order: 2 },
-                ],
-                breakdown: '$active_feature_flags',
-            })
-        })
-            .toDispatchActions(['setFilters', 'loadResults', 'loadResultsSuccess'])
-            .toMatchValues({
-                apiParams: expect.objectContaining({
-                    actions: [],
-                    events: [
-                        { id: '$pageview', order: 0 },
-                        { id: '$pageview', order: 1 },
-                        { id: '$pageview', order: 2 },
-                    ],
-                    breakdown: undefined,
-                    breakdown_type: undefined,
-                }),
-            })
-
-        expect(api.createResponse).toHaveBeenNthCalledWith(
-            2,
-            `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
-            expect.objectContaining({
-                actions: [],
-                events: [
-                    { id: '$pageview', order: 0 },
-                    { id: '$pageview', order: 1 },
-                    { id: '$pageview', order: 2 },
-                ],
-                breakdown: undefined,
-                breakdown_type: undefined,
-                insight: 'FUNNELS',
-            }),
-            expect.anything()
-        )
     })
 
     describe('syncs with insightLogic', () => {

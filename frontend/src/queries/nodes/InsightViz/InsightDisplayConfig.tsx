@@ -7,9 +7,9 @@ import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { RetentionDatePickerDataExploration } from 'scenes/insights/RetentionDatePicker'
-import { RetentionReferencePickerDataExploration } from 'scenes/insights/filters/RetentionReferencePicker'
-import { PathStepPickerDataExploration } from 'scenes/insights/views/Paths/PathStepPicker'
+import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
+import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
+import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
@@ -62,14 +62,14 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showRetention && (
                     <ConfigFilter>
-                        <RetentionDatePickerDataExploration />
-                        <RetentionReferencePickerDataExploration />
+                        <RetentionDatePicker />
+                        <RetentionReferencePicker />
                     </ConfigFilter>
                 )}
 
                 {showPaths && (
                     <ConfigFilter>
-                        <PathStepPickerDataExploration />
+                        <PathStepPicker />
                     </ConfigFilter>
                 )}
 

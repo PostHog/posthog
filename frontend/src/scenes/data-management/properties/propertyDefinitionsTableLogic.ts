@@ -17,7 +17,7 @@ import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export interface Filters {
     property: string
-    type: 'event' | 'person' | 'group'
+    type: string
     group_type_index: number | null
 }
 
@@ -208,7 +208,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         setPropertyType: ({ propertyType }) => {
             const [type, index] = propertyType.split('::')
             actions.setFilters({
-                type: type as 'event' | 'person' | 'group',
+                type: type as string,
                 group_type_index: index ? +index : null,
             })
         },

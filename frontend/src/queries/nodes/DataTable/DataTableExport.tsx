@@ -8,13 +8,12 @@ import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
-const EXPORT_LIMIT_PERSONS = 10000
-const EXPORT_LIMIT_HOGQL = 100000
+const EXPORT_MAX_LIMIT = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
     const exportContext = isPersonsNode(query.source)
-        ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_LIMIT_PERSONS }
-        : { source: query.source, max_limit: EXPORT_LIMIT_HOGQL }
+        ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_MAX_LIMIT }
+        : { source: query.source, max_limit: EXPORT_MAX_LIMIT }
     if (!exportContext) {
         throw new Error('Unsupported node type')
     }
@@ -66,7 +65,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             startDownload(query, true)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
-                        limit={isPersonsNode(query.source) ? EXPORT_LIMIT_PERSONS : EXPORT_LIMIT_HOGQL}
+                        limit={EXPORT_MAX_LIMIT}
                     >
                         <LemonButton fullWidth status="stealth">
                             Export current columns
@@ -80,7 +79,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   placement={'bottomRight'}
                                   onConfirm={() => startDownload(query, false)}
                                   actor={isPersonsNode(query.source) ? 'persons' : 'events'}
-                                  limit={isPersonsNode(query.source) ? EXPORT_LIMIT_PERSONS : EXPORT_LIMIT_HOGQL}
+                                  limit={EXPORT_MAX_LIMIT}
                               >
                                   <LemonButton fullWidth status="stealth">
                                       Export all columns

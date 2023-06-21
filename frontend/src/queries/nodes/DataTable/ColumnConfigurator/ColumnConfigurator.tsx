@@ -18,11 +18,14 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
+import { isEventsQuery, taxonomicFilterToHogQl, trimQuotes } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyFilterType } from '~/types'
+import { TeamMembershipLevel } from 'lib/constants'
+import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 let uniqueNode = 0
 
@@ -88,8 +91,8 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const rowContainerHeight = 36
     const rowItemHeight = 32
 
-    const { modalVisible, columns } = useValues(columnConfiguratorLogic)
-    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save } =
+    const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
+    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
 
     const DragHandle = sortableHandle(() => (
@@ -109,9 +112,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             columnKey = column.substring(11)
         }
 
-        if (columnKey.includes('#')) {
-            columnKey = extractExpressionComment(columnKey)
-        }
+        columnKey = trimQuotes(extractExpressionComment(columnKey))
 
         return (
             <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
@@ -185,7 +186,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => setColumns(defaultDataTableColumns(NodeKind.EventsNode))}
+                            onClick={() => setColumns(defaultDataTableColumns(NodeKind.EventsQuery))}
                         >
                             Reset to defaults
                         </LemonButton>
@@ -244,6 +245,27 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </div>
                     </div>
                 </div>
+                {isEventsQuery(query.source) ? (
+                    <RestrictedArea
+                        Component={function SaveColumnsAsDefault({
+                            isRestricted,
+                        }: RestrictedComponentProps): JSX.Element {
+                            return (
+                                <LemonCheckbox
+                                    label="Save as default for all project members"
+                                    className="mt-2"
+                                    data-attr="events-table-save-columns-as-default-toggle"
+                                    bordered
+                                    checked={saveAsDefault}
+                                    onChange={toggleSaveAsDefault}
+                                    disabled={isRestricted}
+                                />
+                            )
+                        }}
+                        minimumAccessLevel={TeamMembershipLevel.Admin}
+                        scope={RestrictionScope.Project}
+                    />
+                ) : null}
             </div>
         </LemonModal>
     )

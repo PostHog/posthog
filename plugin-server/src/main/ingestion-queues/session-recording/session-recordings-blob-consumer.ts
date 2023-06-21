@@ -6,12 +6,14 @@ import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkaf
 import path from 'path'
 import { Gauge } from 'prom-client'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
+import {
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
-import { KafkaConfig } from '../../../utils/db/hub'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
@@ -26,6 +28,7 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+const hoursInMillis = (hours: number) => hours * 60 * 60 * 1000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
@@ -55,10 +58,12 @@ export class SessionRecordingBlobIngester {
     offsetManager?: OffsetManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
-    lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
     enabledTeams: number[] | null
-    latestKafkaMessageTimestamp: Record<number, number | null> = {}
+    // the time at the most recent message of a particular partition
+    partitionNow: Record<number, number | null> = {}
+    // the most recent message timestamp seen across all partitions
+    consumerNow: number | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -79,12 +84,13 @@ export class SessionRecordingBlobIngester {
 
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[partition] = timestamp
+        this.partitionNow[partition] = timestamp
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
             })
             .set(DateTime.now().toMillis() - timestamp)
+        this.consumerNow = Math.max(timestamp, this.consumerNow ?? -Infinity)
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -142,7 +148,7 @@ export class SessionRecordingBlobIngester {
             return statusWarn('invalid_json', { error })
         }
 
-        if (event.event !== '$snapshot') {
+        if (event.event !== '$snapshot_items' || !event.properties?.$snapshot_items?.length) {
             status.debug('🙈', 'Received non-snapshot message, ignoring')
             return
         }
@@ -170,11 +176,6 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
-            // NOTE: due to the high volume of hits here we don't log this
-            return
-        }
-
         if (!team.session_recording_opt_in) {
             eventDroppedCounter
                 .labels({
@@ -184,8 +185,6 @@ export class SessionRecordingBlobIngester {
                 .inc()
             return
         }
-
-        const $snapshot_data = event.properties?.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
@@ -199,15 +198,7 @@ export class SessionRecordingBlobIngester {
             distinct_id: event.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
-
-            // Properties data
-            chunk_id: $snapshot_data.chunk_id,
-            chunk_index: $snapshot_data.chunk_index,
-            chunk_count: $snapshot_data.chunk_count,
-            data: $snapshot_data.data,
-            compresssion: $snapshot_data.compression,
-            has_full_snapshot: $snapshot_data.has_full_snapshot,
-            events_summary: $snapshot_data.events_summary,
+            events: event.properties.$snapshot_items,
         }
 
         const consumeSpan = span?.startChild({
@@ -246,7 +237,12 @@ export class SessionRecordingBlobIngester {
             throw e
         }
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars({
+            ...this.serverConfig,
+            // We use the same kafka config overall but different hosts for the session recordings
+            KAFKA_HOSTS: this.serverConfig.SESSION_RECORDING_KAFKA_HOSTS,
+            KAFKA_SECURITY_PROTOCOL: this.serverConfig.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
+        })
         this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -254,7 +250,7 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
-            topic: KAFKA_SESSION_RECORDING_EVENTS,
+            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             sessionTimeout,
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
@@ -339,23 +335,36 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            // It's unclear what happens if an exception occurs here so, we try catch it just in case
             let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
                 sessionManagerBufferSizes += sessionManager.buffer.size
 
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
-                // but in case we get here before the first message, we use now
-                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
-
-                if (!kafkaNow) {
+                let referenceTime = this.partitionNow[sessionManager.partition]
+                if (!referenceTime) {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                }
+
+                // it is possible for a session to need an idle flush to continue
+                // but for the head of that partition to be within the idle timeout threshold.
+                // for e.g. when no new message is received on the partition
+                // and so, it will never flush on idle.
+                // in that circumstance, we still need to flush the session.
+                // the aim is for no partition to lag more than ten minutes behind "now"
+                // but as traffic isn't distributed evenly between partitions.
+                // if "partition now" is lagging behind "consumer now" then we use "consumer now"
+                // and if there is no "consumer now" then we use "server now"
+                // that way so long as the consumer is running and receiving messages
+                // we will be more likely to flush "stuck" partitions
+                if (DateTime.now().toMillis() - referenceTime >= hoursInMillis(2)) {
+                    referenceTime = this.consumerNow ?? DateTime.now().toMillis()
                 }
 
                 void sessionManager
                     .flushIfSessionBufferIsOld(
-                        kafkaNow,
+                        referenceTime,
                         this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                     )
                     .catch((err) => {

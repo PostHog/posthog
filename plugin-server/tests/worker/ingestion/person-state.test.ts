@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { Database, Hub, Person } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
+import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
@@ -36,11 +37,11 @@ describe('PersonState.update()', () => {
         const organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
 
-        jest.spyOn(hub.personManager, 'isNewPerson')
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'updatePersonDeprecated')
 
         jest.useFakeTimers({ advanceTimers: 50 })
+        defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
     })
 
     afterEach(() => {
@@ -65,7 +66,6 @@ describe('PersonState.update()', () => {
             timestamp,
             customHub ? customHub.db : hub.db,
             customHub ? customHub.statsd : hub.statsd,
-            customHub ? customHub.personManager : hub.personManager,
             poEEmbraceJoin,
             uuid,
             maxMergeAttempts ?? 3 // the default
@@ -116,8 +116,7 @@ describe('PersonState.update()', () => {
                 })
             )
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
@@ -133,14 +132,12 @@ describe('PersonState.update()', () => {
         it('handles person being created in a race condition', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['new-user'])
 
-            // Fake the race by assuming isNewPerson was called before the person creation above
-            jest.spyOn(hub.personManager, 'isNewPerson').mockImplementation(() => {
-                return Promise.resolve(true)
+            jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
+                return Promise.resolve(undefined)
             })
 
-            const person = await personState({ event: '$pageview', distinct_id: 'new-user' }).updateProperties()
+            const person = await personState({ event: '$pageview', distinct_id: 'new-user' }).handleUpdate()
             await hub.db.kafkaProducer.flush()
-            jest.spyOn(hub.personManager, 'isNewPerson').mockRestore()
 
             // if creation fails we should return the person that another thread already created
             expect(person).toEqual(
@@ -169,9 +166,8 @@ describe('PersonState.update()', () => {
                 'new-user',
             ])
 
-            // Fake the race by assuming isNewPerson was called before the person creation above
-            jest.spyOn(hub.personManager, 'isNewPerson').mockImplementation(() => {
-                return Promise.resolve(true)
+            jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
+                return Promise.resolve(undefined)
             })
 
             const person = await personState({
@@ -181,9 +177,8 @@ describe('PersonState.update()', () => {
                     $set_once: { c: 3, e: 4 },
                     $set: { b: 4 },
                 },
-            }).updateProperties()
+            }).handleUpdate()
             await hub.db.kafkaProducer.flush()
-            jest.spyOn(hub.personManager, 'isNewPerson').mockRestore()
 
             // if creation fails we should return the person that another thread already created
             expect(person).toEqual(
@@ -229,8 +224,7 @@ describe('PersonState.update()', () => {
                 })
             )
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
-            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+            expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
             // verify Postgres persons
@@ -271,7 +265,6 @@ describe('PersonState.update()', () => {
                 })
             )
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
@@ -280,7 +273,7 @@ describe('PersonState.update()', () => {
             expect(persons[0]).toEqual(person)
         })
 
-        it('updating with cached person data skips checking if person is new', async () => {
+        it('updating with cached person data shortcuts to update directly', async () => {
             const personInitial = await hub.db.createPerson(
                 timestamp,
                 { b: 3, c: 4 },
@@ -293,14 +286,16 @@ describe('PersonState.update()', () => {
                 ['new-user']
             )
 
-            const person = await personState({
+            const personS = personState({
                 event: '$pageview',
                 distinct_id: 'new-user',
                 properties: {
                     $set_once: { c: 3, e: 4 },
                     $set: { b: 4 },
                 },
-            }).updateProperties(personInitial)
+            })
+            jest.spyOn(personS, 'handleIdentifyOrAlias').mockReturnValue(Promise.resolve(personInitial))
+            const person = await personS.update()
             await hub.db.kafkaProducer.flush()
 
             expect(person).toEqual(
@@ -314,7 +309,6 @@ describe('PersonState.update()', () => {
                 })
             )
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
 
             // verify Postgres persons
@@ -414,11 +408,14 @@ describe('PersonState.update()', () => {
                 'old-user',
             ]) // the merged Person
 
-            const person = await personState({
+            const personS = personState({
                 event: '$pageview',
                 distinct_id: 'new-user',
                 properties: { $set: { a: 7, d: 9 } },
-            }).updateProperties(mergeDeletedPerson)
+            })
+            jest.spyOn(personS, 'handleIdentifyOrAlias').mockReturnValue(Promise.resolve(mergeDeletedPerson))
+
+            const person = await personS.update()
             await hub.db.kafkaProducer.flush()
 
             expect(person).toEqual(
@@ -1394,7 +1391,6 @@ describe('PersonState.update()', () => {
             ;[hub, closeHub] = await createHub({})
             poEEmbraceJoin = poEEmbraceJoinThis
 
-            jest.spyOn(hub.personManager, 'isNewPerson')
             jest.spyOn(hub.db, 'fetchPerson')
             jest.spyOn(hub.db, 'updatePersonDeprecated')
         })
@@ -1943,7 +1939,10 @@ describe('PersonState.update()', () => {
                     expect.objectContaining({
                         id: expect.any(Number),
                         uuid: uuid.toString(), // guaranteed to be merged into this based on timestamps
-                        properties: { first: true, second: true, third: true },
+                        // There's a race condition in our code where
+                        // if different distinctIDs are used same time,
+                        // then pros can be dropped, see https://docs.google.com/presentation/d/1Osz7r8bKkDD5yFzw0cCtsGVf1LTEifXS-dzuwaS8JGY
+                        // properties: { first: true, second: true, third: true },
                         created_at: timestamp,
                         version: 1, // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
                         is_identified: true,

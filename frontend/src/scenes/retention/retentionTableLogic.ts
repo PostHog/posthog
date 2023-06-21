@@ -4,20 +4,49 @@ import { range } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightLogicProps } from '~/types'
 
-import { abstractRetentionLogic } from './abstractRetentionLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { retentionLogic } from './retentionLogic'
 
 import type { retentionTableLogicType } from './retentionTableLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
+
+const periodIsLatest = (date_to: string | null, period: string | null): boolean => {
+    if (!date_to || !period) {
+        return true
+    }
+
+    const curr = dayjs(date_to)
+    if (
+        (period == 'Hour' && curr.isSame(dayjs(), 'hour')) ||
+        (period == 'Day' && curr.isSame(dayjs(), 'day')) ||
+        (period == 'Week' && curr.isSame(dayjs(), 'week')) ||
+        (period == 'Month' && curr.isSame(dayjs(), 'month'))
+    ) {
+        return true
+    } else {
+        return false
+    }
+}
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [abstractRetentionLogic(props), ['retentionFilter', 'breakdown', 'results']],
+        values: [
+            insightVizDataLogic(props),
+            ['dateRange', 'retentionFilter', 'breakdown'],
+            retentionLogic(props),
+            ['results'],
+        ],
     }),
     selectors: {
+        isLatestPeriod: [
+            (s) => [s.dateRange, s.retentionFilter],
+            (dateRange, retentionFilter) => periodIsLatest(dateRange?.date_to || null, retentionFilter?.period || null),
+        ],
+
         maxIntervalsCount: [
             (s) => [s.results],
             (results) => {
@@ -34,7 +63,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
 
         tableRows: [
             (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown],
-            (results, maxIntervalsCount, { period }, { breakdowns }) => {
+            (results, maxIntervalsCount, retentionFilter, breakdown) => {
+                const { period } = retentionFilter || {}
+                const { breakdowns } = breakdown || {}
+
                 return range(maxIntervalsCount).map((rowIndex: number) => [
                     // First column is the cohort label
                     breakdowns?.length

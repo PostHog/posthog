@@ -11,7 +11,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,7 +33,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 const { TabPane } = Tabs
@@ -88,6 +87,23 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
             </div>
+            <div>
+                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <Link
+                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                {person.is_identified ? <strong>Cannot</strong> : 'Can'} be used as `alias_id` - click
+                                for more info.
+                            </>
+                        }
+                    >
+                        <IconInfo className="ml-1 text-base shrink-0" />
+                    </Tooltip>
+                </Link>
+            </div>
         </div>
     )
 }
@@ -107,11 +123,20 @@ export function Person(): JSX.Element | null {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
     }
 
+    const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))
+
     return (
         <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
+                notebookProps={
+                    url
+                        ? {
+                              href: url,
+                          }
+                        : undefined
+                }
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
@@ -153,6 +178,7 @@ export function Person(): JSX.Element | null {
                     key={PersonsTabType.PROPERTIES}
                 >
                     <PropertiesTable
+                        type={PropertyDefinitionType.Person}
                         properties={person.properties || {}}
                         searchable
                         onEdit={editProperty}
@@ -182,7 +208,7 @@ export function Person(): JSX.Element | null {
                             pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                             fixedFilters={{ person_id: person.id }}
                             showPersonColumn={false}
-                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                            sceneUrl={url}
                         />
                     )}
                 </TabPane>
@@ -199,11 +225,7 @@ export function Person(): JSX.Element | null {
                             </LemonBanner>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist
-                        personUUID={person.uuid}
-                        updateSearchParams
-                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
-                    />
+                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

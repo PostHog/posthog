@@ -3,7 +3,7 @@ import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageV
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
-import { DependencyUnavailableError } from './error'
+import { DependencyUnavailableError, MessageSizeTooLarge } from './error'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
  * It used to be a wrapper around KafkaJS, but we switched to rdkafka because of
@@ -37,7 +37,7 @@ export class KafkaProducerWrapper {
         topic: string
         headers?: MessageHeader[]
         waitForAck?: boolean
-    }) {
+    }): Promise<void> {
         try {
             return await produce({
                 producer: this.producer,
@@ -46,6 +46,8 @@ export class KafkaProducerWrapper {
                 value: value,
                 headers: headers,
                 waitForAck: waitForAck,
+            }).then((_) => {
+                return // Swallow the returned offsets, and return a void for easier typing
             })
         } catch (error) {
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: topic })
@@ -54,6 +56,8 @@ export class KafkaProducerWrapper {
                 // If we get a retriable error, bubble that up so that the
                 // caller can retry.
                 throw new DependencyUnavailableError(error.message, 'Kafka', error)
+            } else if ((error as LibrdKafkaError).code === 10) {
+                throw new MessageSizeTooLarge(error.message, error)
             }
 
             throw error

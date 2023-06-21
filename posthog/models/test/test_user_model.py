@@ -28,7 +28,6 @@ class TestUser(BaseTest):
                     "project_count": 1,
                     "team_member_count_all": 1,
                     "completed_onboarding_once": False,
-                    "billing_plan": None,
                     "organization_id": str(organization.id),
                     "project_id": str(team.uuid),
                     "project_setup_complete": False,
@@ -39,6 +38,7 @@ class TestUser(BaseTest):
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
                     "is_email_verified": None,
+                    "has_seen_product_intro_for": None,
                 },
             )
 
@@ -63,7 +63,6 @@ class TestUser(BaseTest):
                     "project_count": 2,
                     "team_member_count_all": 2,
                     "completed_onboarding_once": True,
-                    "billing_plan": None,
                     "organization_id": str(self.organization.id),
                     "project_id": str(self.team.uuid),
                     "project_setup_complete": True,
@@ -74,5 +73,6 @@ class TestUser(BaseTest):
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
                     "is_email_verified": None,
+                    "has_seen_product_intro_for": None,
                 },
             )

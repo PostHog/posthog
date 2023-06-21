@@ -1,45 +1,84 @@
 .Notebook {
-    height: 100%;
-    flex: 1;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-}
-.NotebookEditor {
     flex: 1;
-    padding: 1rem 2rem;
 
-    > :not(.react-renderer) {
+    .NotebookEditor {
+        flex: 1;
+
+        > h1,
+        > h2,
+        > h3,
+        > h4,
+        > h5 {
+            margin-top: 0.5rem;
+        }
+
+        > p {
+            margin-bottom: 0.2rem;
+        }
+
+        > &.ProseMirror-focused {
+            outline: none;
+        }
+
+        > .is-empty::before {
+            content: attr(data-placeholder);
+            float: left;
+            color: rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+            height: 0;
+        }
+
+        > ul,
+        ol {
+            padding-left: 1rem;
+
+            li {
+                p {
+                    margin-bottom: 0.2rem;
+                }
+            }
+        }
+
+        > ul {
+            list-style: initial;
+        }
+
+        > pre {
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: var(--radius);
+            overflow-x: auto;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+        }
+
+        > code,
+        > p code {
+            background-color: rgba(0, 0, 0, 0.05);
+            border-radius: var(--radius);
+            padding: 0.2rem;
+        }
+    }
+
+    &--compact {
         max-width: 1000px;
-        margin: 0 auto;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
     }
 
-    .react-renderer {
-        max-width: 1000px;
-        margin: 0 auto;
+    .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
     }
+}
 
-    h1,
-    h2,
-    h3,
-    h4,
-    h5 {
-        margin-top: 0.5rem;
-    }
-
-    p {
-        margin-bottom: 0.2rem;
-    }
-
-    &.ProseMirror-focused {
-        outline: none;
-    }
-
-    .is-empty::before {
-        content: attr(data-placeholder);
-        float: left;
-        color: rgba(0, 0, 0, 0.2);
-        pointer-events: none;
-        height: 0;
+.NotebookFloatingButton {
+    .LemonButton {
+        border-radius: 1rem;
+        min-height: 0.25rem;
+        padding: 0.25rem !important; // NOTE - yuck
     }
 }

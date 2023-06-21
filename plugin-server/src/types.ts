@@ -27,9 +27,9 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { PersonManager } from './worker/ingestion/person-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -97,13 +97,15 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
-    KAFKA_CLIENT_CERT_B64: string | null
-    KAFKA_CLIENT_CERT_KEY_B64: string | null
-    KAFKA_TRUSTED_CERT_B64: string | null
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | null
-    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
-    KAFKA_SASL_USER: string | null
-    KAFKA_SASL_PASSWORD: string | null
+    KAFKA_CLIENT_CERT_B64: string | undefined
+    KAFKA_CLIENT_CERT_KEY_B64: string | undefined
+    KAFKA_TRUSTED_CERT_B64: string | undefined
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
+    KAFKA_SASL_USER: string | undefined
+    KAFKA_SASL_PASSWORD: string | undefined
+    KAFKA_CLIENT_RACK: string | undefined
+    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -111,6 +113,7 @@ export interface PluginsServerConfig {
     KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_TOPIC: string | null
     KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
+    KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_PRODUCER_WAIT_FOR_ACK: boolean
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
@@ -125,6 +128,7 @@ export interface PluginsServerConfig {
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
+    SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -187,6 +191,8 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
+    SESSION_RECORDING_KAFKA_HOSTS: string
+    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -228,7 +234,6 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
-    personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
     // geoip database, setup in workers
@@ -434,7 +439,7 @@ export interface PluginTask {
 
 export type WorkerMethods = {
     runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
-    runEventPipeline: (event: PipelineEvent) => Promise<void>
+    runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
 export type VMMethods = {
@@ -512,9 +517,10 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    slack_incoming_webhook: string
+    slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     ingested_event: boolean
+    person_display_name_properties: string[] | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

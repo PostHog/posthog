@@ -375,7 +375,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             )
         },
     })),
-    loaders(({ values, props, cache, actions }) => ({
+    loaders(({ values, props, cache }) => ({
         sessionPlayerMetaData: {
             loadRecordingMeta: async (_, breakpoint) => {
                 cache.metaStartTime = performance.now()
@@ -388,14 +388,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
                 const response = await api.recordings.get(props.sessionRecordingId, params)
                 breakpoint()
-
-                if (response.snapshot_data_by_window_id) {
-                    const snapshots = convertSnapshotsResponse(response.snapshot_data_by_window_id)
-                    // When loaded from S3 the snapshots are already present
-                    actions.loadRecordingSnapshotsSuccess({
-                        snapshots,
-                    })
-                }
 
                 return response
             },
@@ -430,21 +422,43 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     )
                     breakpoint()
 
-                    const contentBuffer = new Uint8Array(await response.arrayBuffer())
-                    const jsonLines = strFromU8(decompressSync(contentBuffer)).trim().split('\n')
-                    const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
-                        const snapshotLine = JSON.parse(l)
-                        const snapshotData = JSON.parse(snapshotLine['data'])
+                    try {
+                        const contentBuffer = new Uint8Array(await response.arrayBuffer())
+                        const decompressedBytes = decompressSync(contentBuffer)
+                        const decompressedBlobs = strFromU8(decompressedBytes)
+                        const jsonLines = decompressedBlobs.trim().split('\n')
+                        const snapshots: RecordingSnapshot[] = jsonLines.flatMap((l) => {
+                            try {
+                                const snapshotLine = JSON.parse(l)
+                                const snapshotData = snapshotLine['data']
 
-                        return snapshotData.map((d: any) => ({
-                            windowId: snapshotLine['window_id'],
-                            ...d,
-                        }))
-                    })
-
-                    return {
-                        blob_keys: snapshotDataClone.blob_keys,
-                        snapshots: prepareRecordingSnapshots(snapshots, snapshotDataClone.snapshots),
+                                return snapshotData.map((d: any) => ({
+                                    windowId: snapshotLine['window_id'],
+                                    ...d,
+                                }))
+                            } catch (e) {
+                                captureException(e, {
+                                    tags: {
+                                        blob_key,
+                                        sessionRecordingId: props.sessionRecordingId,
+                                        jsonLine: l,
+                                    },
+                                })
+                                return []
+                            }
+                        })
+                        return {
+                            blob_keys: snapshotDataClone.blob_keys,
+                            snapshots: prepareRecordingSnapshots(snapshots, snapshotDataClone.snapshots),
+                        }
+                    } catch (e) {
+                        captureException(e, {
+                            tags: {
+                                blob_key,
+                                sessionRecordingId: props.sessionRecordingId,
+                            },
+                        })
+                        throw e
                     }
                 },
                 loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
@@ -551,7 +565,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const { person } = values.sessionPlayerData
 
-                    // TODO: Move this to an optimised HoqQL query when available...
+                    // TODO: Move this to an optimised HogQL query when available...
                     try {
                         const res: any = await api.query({
                             kind: 'EventsQuery',

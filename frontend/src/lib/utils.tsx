@@ -810,7 +810,7 @@ export const dateMapping: DateMappingOption[] = [
     },
     {
         key: 'Yesterday',
-        values: ['-1dStart', 'dStart'],
+        values: ['-1dStart', '-1dEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
@@ -1009,14 +1009,14 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     return response
 }
 
-export function copyToClipboard(value: string, description: string = 'text'): boolean {
+export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
     if (!navigator.clipboard) {
         lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
         return false
     }
 
     try {
-        navigator.clipboard.writeText(value)
+        await navigator.clipboard.writeText(value)
         lemonToast.info(`Copied ${description} to clipboard`, {
             icon: <IconCopy />,
         })

@@ -43,7 +43,11 @@ export class KafkaJSIngestionConsumer {
         this.kafka = pluginsServer.kafka!
         this.topic = topic
         this.consumerGroupId = consumerGroupId
-        this.consumer = KafkaJSIngestionConsumer.buildConsumer(this.kafka, consumerGroupId)
+        this.consumer = KafkaJSIngestionConsumer.buildConsumer(
+            this.kafka,
+            consumerGroupId,
+            this.pluginsServer.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS
+        )
         this.wasConsumerRan = false
 
         // TODO: remove `this.workerMethods` and just rely on
@@ -97,6 +101,7 @@ export class KafkaJSIngestionConsumer {
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
                 eachBatchAutoResolve: false,
+
                 autoCommitInterval: 1000, // autocommit every 1000 ms…
                 autoCommitThreshold: 1000, // …or every 1000 messages, whichever is sooner
                 partitionsConsumedConcurrently: this.pluginsServer.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
@@ -172,11 +177,12 @@ export class KafkaJSIngestionConsumer {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
+    private static buildConsumer(kafka: Kafka, groupId: string, rebalanceTimeout: number | null): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
             readUncommitted: false,
+            rebalanceTimeout: rebalanceTimeout ?? undefined,
         })
         setupEventHandlers(consumer)
         return consumer
@@ -228,6 +234,8 @@ export class IngestionConsumer {
 
     async start(): Promise<BatchConsumer> {
         this.consumer = await startBatchConsumer({
+            batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
             topic: this.topic,
             groupId: this.consumerGroupId,
@@ -235,9 +243,7 @@ export class IngestionConsumer {
             consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.pluginsServer.INGESTION_BATCH_SIZE,
-            batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            fetchBatchSize: 500,
             eachBatch: (payload) => this.eachBatchConsumer(payload),
         })
         this.consumerReady = true

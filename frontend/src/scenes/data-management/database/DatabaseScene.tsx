@@ -4,7 +4,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { databaseSceneLogic } from './databaseSceneLogic'
 import { useActions, useValues } from 'kea'
 import { LemonInput } from '@posthog/lemon-ui'
-import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
+import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
 
 export function DatabaseScene(): JSX.Element {
     const { searchTerm } = useValues(databaseSceneLogic)
@@ -30,7 +30,7 @@ export function DatabaseScene(): JSX.Element {
                     .
                 </div>
             </div>
-            <DatabaseTables />
+            <DatabaseTablesContainer />
         </div>
     )
 }

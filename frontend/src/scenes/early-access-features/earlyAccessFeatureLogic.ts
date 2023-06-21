@@ -4,7 +4,13 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccessFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import {
+    Breadcrumb,
+    EarlyAccessFeatureStage,
+    EarlyAccessFeatureTabs,
+    EarlyAccessFeatureType,
+    NewEarlyAccessFeatureType,
+} from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,7 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
-    stage: EarlyAccessFeatureStage.Beta,
+    stage: EarlyAccessFeatureStage.Draft,
     documentation_url: '',
     feature_flag_id: undefined,
 }
@@ -35,8 +41,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         toggleImplementOptInInstructionsModal: true,
         cancel: true,
         editFeature: (editing: boolean) => ({ editing }),
-        promote: true,
+        updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
+        setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -53,7 +60,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
-                    router.actions.push(urls.earlyAccessFeature(result.id))
+                    router.actions.replace(urls.earlyAccessFeature(result.id))
                 } else {
                     result = await api.earlyAccessFeatures.update(
                         props.id,
@@ -88,6 +95,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 toggleImplementOptInInstructionsModal: (state) => !state,
             },
         ],
+        activeTab: [
+            EarlyAccessFeatureTabs.OptedIn as EarlyAccessFeatureTabs,
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
     }),
     selectors({
         mode: [(_, p) => [p.id], (id): 'view' | 'edit' => (id === 'new' ? 'edit' : 'view')],
@@ -102,7 +115,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         cancel: () => {
             if (!('id' in values.earlyAccessFeature)) {
                 actions.resetEarlyAccessFeature()
@@ -110,8 +123,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
             actions.editFeature(false)
         },
-        promote: async () => {
-            'id' in values.earlyAccessFeature && (await api.earlyAccessFeatures.promote(values.earlyAccessFeature.id))
+        updateStage: async ({ stage }) => {
+            'id' in values.earlyAccessFeature &&
+                (await api.earlyAccessFeatures.update(props.id, {
+                    ...values.earlyAccessFeature,
+                    stage: stage,
+                }))
             actions.loadEarlyAccessFeature()
             actions.loadEarlyAccessFeatures()
         },

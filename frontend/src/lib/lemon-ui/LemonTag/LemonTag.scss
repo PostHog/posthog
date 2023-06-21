@@ -33,9 +33,9 @@
         color: var(--inverse);
     }
 
-    &.purple {
-        background-color: #ebe3ed;
-        color: var(--purple);
+    &.completion {
+        background-color: var(--purple-light);
+        color: var(--purple-dark);
     }
 
     &.caution {

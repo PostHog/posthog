@@ -1,70 +1,24 @@
 import { useValues, useActions } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { EditorFilterProps, QueryEditorFilterProps, FunnelsFilterType } from '~/types'
-import { FunnelStepOrderPicker, FunnelStepOrderPickerDataExploration } from '../views/Funnels/FunnelStepOrderPicker'
-import {
-    FunnelExclusionsFilter,
-    FunnelExclusionsFilterDataExploration,
-} from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
-import {
-    FunnelStepReferencePicker,
-    FunnelStepReferencePickerDataExploration,
-} from '../filters/FunnelStepReferencePicker'
+import { EditorFilterProps } from '~/types'
+import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
+import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
+import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
 import { Noun } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-export function FunnelsAdvancedDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { insightFilter, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
+export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
+    const { querySource, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     return (
-        <FunnelsAdvancedComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            advancedOptionsUsedCount={advancedOptionsUsedCount}
-            setFilters={updateInsightFilter}
-            {...insightFilter}
-            isDataExploration
-        />
-    )
-}
-
-export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filters, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelsAdvancedComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            advancedOptionsUsedCount={advancedOptionsUsedCount}
-            setFilters={setFilters}
-            {...filters}
-        />
-    )
-}
-
-type FunnelsAdvancedComponentProps = {
-    aggregationTargetLabel: Noun
-    advancedOptionsUsedCount: number
-    setFilters: (filters: Partial<FunnelsFilterType>) => void
-    isDataExploration?: boolean
-} & FunnelsFilterType
-
-export function FunnelsAdvancedComponent({
-    aggregationTargetLabel,
-    advancedOptionsUsedCount,
-    aggregation_group_type_index,
-    setFilters,
-    isDataExploration,
-}: FunnelsAdvancedComponentProps): JSX.Element {
-    return (
         <div className="space-y-4">
             <PureField label="Step order" info={<StepOrderInfo />}>
-                {isDataExploration ? <FunnelStepOrderPickerDataExploration /> : <FunnelStepOrderPicker />}
+                <FunnelStepOrderPicker />
             </PureField>
             <PureField label="Conversion rate calculation">
-                {isDataExploration ? <FunnelStepReferencePickerDataExploration /> : <FunnelStepReferencePicker />}
+                <FunnelStepReferencePicker />
             </PureField>
 
             <PureField
@@ -72,11 +26,11 @@ export function FunnelsAdvancedComponent({
                 info={
                     <ExclusionStepsInfo
                         aggregationTargetLabel={aggregationTargetLabel}
-                        aggregation_group_type_index={aggregation_group_type_index}
+                        aggregation_group_type_index={querySource?.aggregation_group_type_index}
                     />
                 }
             >
-                {isDataExploration ? <FunnelExclusionsFilterDataExploration /> : <FunnelExclusionsFilter />}
+                <FunnelExclusionsFilter />
             </PureField>
 
             {!!advancedOptionsUsedCount && (
@@ -84,7 +38,7 @@ export function FunnelsAdvancedComponent({
                     <LemonButton
                         status="danger"
                         onClick={() => {
-                            setFilters({
+                            updateInsightFilter({
                                 funnel_order_type: undefined,
                                 funnel_step_reference: undefined,
                                 exclusions: undefined,

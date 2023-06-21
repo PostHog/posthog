@@ -1,4 +1,6 @@
 import os
+import json
+from typing import List
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -140,6 +142,11 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+try:
+    CLICKHOUSE_PER_TEAM_SETTINGS = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_SETTINGS = {}
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -148,13 +155,35 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
-# Kafka configs
+READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
+READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
-_parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
+
+def _parse_kafka_hosts(hosts_string: str) -> List[str]:
+    hosts = []
+    for host in hosts_string.split(","):
+        if "://" in host:
+            hosts.append(urlparse(host).netloc)
+        else:
+            hosts.append(host)
+
+    # We don't want empty strings
+    return [host for host in hosts if host]
+
 
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
-KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
+# We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
+KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
+# Dedicated kafka hosts for session recordings
+SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
+# Kafka broker host(s) that is used by clickhouse for ingesting messages.
+# Useful if clickhouse is hosted outside the cluster.
+KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
+
+# can set ('gzip', 'snappy', 'lz4', 'zstd' None)
+# NB if you want to set a compression you need to install it... the producer compresses not kafka
+# so, at time of writing only 'gzip' and None/'uncompressed' are available
+SESSION_RECORDING_KAFKA_COMPRESSION = os.getenv("SESSION_RECORDING_KAFKA_COMPRESSION", None)
 
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
 # Kafka Topics. See
@@ -162,12 +191,18 @@ KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 # for details.
 KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
 
-# Kafka broker host(s) that is used by clickhouse for ingesting messages. Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", KAFKA_URL))
-
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
+SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
+    "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
+    1024 * 1024 * 0.95,  # a little less than 1MB to account for overhead
+    type_cast=int,
+)
+
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
+SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL = os.getenv(
+    "SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL", KAFKA_SECURITY_PROTOCOL
+)
 KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
@@ -203,11 +238,30 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
+# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
+# can cope with compressed and uncompressed reading at the same time
+USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", False, type_cast=str_to_bool)
+
+# AWS ElastiCache supports "reader" endpoints.
+# See "Finding a Redis (Cluster Mode Disabled) Cluster's Endpoints (Console)"
+# on https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/Endpoints.html#Endpoints.Find.Redis
+# A reader endpoint distributes read-only connections across all replicas in the cluster.
+# ElastiCache manages updating which nodes are used if a replica is failed-over to primary
+# so that we don't have to worry about changing config.
+REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
+        # the django redis default client can be replica aware
+        # if location is an array then the first element is the primary
+        # and the rest are replicas
+        "LOCATION": REDIS_URL if not REDIS_READER_URL else [REDIS_URL, REDIS_READER_URL],
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+        },
         "KEY_PREFIX": "posthog",
     }
 }

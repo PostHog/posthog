@@ -41,6 +41,9 @@ import {
     NewEarlyAccessFeatureType,
     Survey,
     NotebookType,
+    DashboardTemplateListParams,
+    PropertyDefinitionType,
+    DataWarehouseTable,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -61,13 +64,16 @@ export const ACTIVITY_PAGE_SIZE = 20
 
 export interface PaginatedResponse<T> {
     results: T[]
-    next?: string
-    previous?: string
-    missing_persons?: number
+    next?: string | null
+    previous?: string | null
 }
 
 export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
-    total_count: number
+    count: number
+}
+
+export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
+    total_count: number // FIXME: This is non-standard naming, DRF uses `count` and we should use that consistently
 }
 
 export interface ApiMethodOptions {
@@ -131,8 +137,8 @@ class ApiRequest {
         return this
     }
 
-    public withQueryString(queryString?: string): ApiRequest {
-        this.queryString = queryString
+    public withQueryString(queryString?: string | Record<string, any>): ApiRequest {
+        this.queryString = typeof queryString === 'object' ? toParams(queryString) : queryString
         return this
     }
 
@@ -412,6 +418,14 @@ class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    // # Warehouse
+    public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_table')
+    }
+    public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseTables(teamId).addPathComponent(id)
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('subscriptions')
@@ -577,7 +591,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
+        ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
@@ -697,7 +711,8 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
-        }): Promise<PaginatedResponse<EventDefinition>> {
+            search?: string
+        }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
@@ -712,6 +727,7 @@ const api = {
             offset?: number
             teamId?: TeamType['id']
             event_type?: EventDefinitionType
+            search?: string
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -751,10 +767,12 @@ const api = {
             excluded_properties?: string[]
             properties?: string[]
             filter_by_event_names?: boolean
+            type?: PropertyDefinitionType
             limit?: number
             offset?: number
+            search?: string
             teamId?: TeamType['id']
-        }): Promise<PaginatedResponse<PropertyDefinition>> {
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
             return new ApiRequest()
                 .propertyDefinitions(teamId)
                 .withQueryString(
@@ -777,8 +795,9 @@ const api = {
             is_feature_flag?: boolean
             limit?: number
             offset?: number
+            search?: string
             teamId?: TeamType['id']
-            type?: 'event' | 'person' | 'group'
+            type?: PropertyDefinitionType
             group_type_index?: number
         }): string {
             return new ApiRequest()
@@ -846,8 +865,8 @@ const api = {
     },
 
     dashboardTemplates: {
-        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
-            return await new ApiRequest().dashboardTemplates().get()
+        async list(params: DashboardTemplateListParams = {}): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().withQueryString(toParams(params)).get()
         },
 
         async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
@@ -970,7 +989,7 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
             return await new ApiRequest().persons().withQueryString(toParams(params)).get()
         },
         determineListUrl(params: PersonListParams = {}): string {
@@ -1059,8 +1078,14 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<RawAnnotationType>> {
-            return await new ApiRequest().annotations().get()
+        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+            return await new ApiRequest()
+                .annotations()
+                .withQueryString({
+                    limit: params?.limit,
+                    offset: params?.offset,
+                })
+                .get()
         },
         async create(
             data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
@@ -1162,8 +1187,11 @@ const api = {
         async list(): Promise<PaginatedResponse<NotebookType>> {
             return await new ApiRequest().notebooks().get()
         },
-        async create(data?: Pick<NotebookType, 'content'>): Promise<NotebookType> {
+        async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
+        },
+        async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).delete()
         },
     },
 
@@ -1186,9 +1214,6 @@ const api = {
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
         },
-        async promote(featureId: EarlyAccessFeatureType['id']): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
-            return await new ApiRequest().earlyAccessFeature(featureId).withAction('promote').create()
-        },
     },
 
     surveys: {
@@ -1204,11 +1229,29 @@ const api = {
         async delete(surveyId: Survey['id']): Promise<void> {
             await new ApiRequest().survey(surveyId).delete()
         },
-        async update(
-            surveyId: Survey['id'],
-            data: Pick<Survey, 'name' | 'description' | 'linked_flag' | 'start_date' | 'end_date'>
-        ): Promise<Survey> {
+        async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
+        },
+    },
+
+    dataWarehouseTables: {
+        async list(): Promise<PaginatedResponse<DataWarehouseTable>> {
+            return await new ApiRequest().dataWarehouseTables().get()
+        },
+        async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).get()
+        },
+        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTables().create({ data })
+        },
+        async delete(tableId: DataWarehouseTable['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).delete()
+        },
+        async update(
+            tableId: DataWarehouseTable['id'],
+            data: Pick<DataWarehouseTable, 'name'>
+        ): Promise<DataWarehouseTable> {
+            return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
         },
     },
 

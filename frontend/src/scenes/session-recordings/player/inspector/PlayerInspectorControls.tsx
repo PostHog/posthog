@@ -120,7 +120,10 @@ export function PlayerInspectorControls(): JSX.Element {
             </div>
 
             <div className="flex items-center gap-2 justify-between">
-                <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt">
+                <div
+                    className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
+                    data-attr={'mini-filters'}
+                >
                     {miniFilters.map((filter) => (
                         <LemonButton
                             key={filter.key}

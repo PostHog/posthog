@@ -1,9 +1,17 @@
 # HogQL -> ClickHouse allowed transformations
-from typing import Optional, Dict, Tuple, Literal
+from datetime import date, datetime
+from typing import Optional, Dict, Tuple, Literal, TypeAlias
+from uuid import UUID
 
 from pydantic import BaseModel, Extra
 
-ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+ConstantDataType: TypeAlias = Literal[
+    "int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"
+]
+ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
+ConstantSupportedData: TypeAlias = (
+    ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
+)
 
 CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     # arithmetic
@@ -330,13 +338,13 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "mapFilter": ("mapFilter", 2, 2),
     "mapUpdate": ("mapUpdate", 2, 2),
     # splitting strings
-    "splitByChar": ("splitByChar", 3, 3),
-    "splitByString": ("splitByString", 3, 3),
-    "splitByRegexp": ("splitByRegexp", 3, 3),
-    "splitByWhitespace": ("splitByWhitespace", 2, 2),
-    "splitByNonAlpha": ("splitByNonAlpha", 2, 2),
+    "splitByChar": ("splitByChar", 2, 3),
+    "splitByString": ("splitByString", 2, 3),
+    "splitByRegexp": ("splitByRegexp", 2, 3),
+    "splitByWhitespace": ("splitByWhitespace", 1, 2),
+    "splitByNonAlpha": ("splitByNonAlpha", 1, 2),
     "arrayStringConcat": ("arrayStringConcat", 1, 2),
-    "alphaTokens": ("alphaTokens", 2, 2),
+    "alphaTokens": ("alphaTokens", 1, 2),
     "extractAllGroups": ("extractAllGroups", 2, 2),
     "ngrams": ("ngrams", 2, 2),
     "tokens": ("tokens", 1, 1),
@@ -484,6 +492,15 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "LinfNormalize": ("LinfNormalize", 1, 1),
     "LpNormalize": ("LpNormalize", 2, 2),
     "cosineDistance": ("cosineDistance", 2, 2),
+    # window functions
+    "rank": ("rank", 0, 0),
+    "dense_rank": ("dense_rank", 0, 0),
+    "row_number": ("row_number", 0, 0),
+    "first_value": ("first_value", 1, 1),
+    "last_value": ("last_value", 1, 1),
+    "nth_value": ("nth_value", 2, 2),
+    "lagInFrame": ("lagInFrame", 1, 1),
+    "leadInFrame": ("leadInFrame", 1, 1),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = {
@@ -521,6 +538,7 @@ HOGQL_AGGREGATIONS = {
     "argMinIf": 3,
     "argMax": 2,
     "argMaxIf": 3,
+    "argMinMerge": 1,
     "avgWeighted": 2,
     "avgWeightedIf": 3,
     # "topK": 1,
@@ -585,6 +603,29 @@ HOGQL_AGGREGATIONS = {
     "uniqHLL12If": (2, None),
     "uniqTheta": (1, None),
     "uniqThetaIf": (2, None),
+    "median": 1,
+    "medianIf": 2,
+    "medianExact": 1,
+    "medianExactIf": 2,
+    "medianExactLow": 1,
+    "medianExactLowIf": 2,
+    "medianExactHigh": 1,
+    "medianExactHighIf": 2,
+    "medianExactWeighted": 1,
+    "medianExactWeightedIf": 2,
+    "medianTiming": 1,
+    "medianTimingIf": 2,
+    "medianTimingWeighted": 1,
+    "medianTimingWeightedIf": 2,
+    "medianDeterministic": 1,
+    "medianDeterministicIf": 2,
+    "medianTDigest": 1,
+    "medianTDigestIf": 2,
+    "medianTDigestWeighted": 1,
+    "medianTDigestWeightedIf": 2,
+    "medianBFloat16": 1,
+    "medianBFloat16If": 2,
+    # TODO: quantile(0.5)(expr) is not supported
     # "quantile": 1,
     # "quantileIf": 2,
     # "quantiles": 1,
@@ -632,7 +673,16 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPosition": 2,
     "maxIntersectionsPositionIf": 3,
 }
+HOGQL_FUNCTIONS = {
+    "sparkline": 1,
+    "cohort": 1,
+}
+
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+# Functions where we use a -OrNull variant by default
+ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+# Functions where the first argument needs to be DateTime and not DateTime64
+FIRST_ARG_DATETIME_FUNCTIONS = ("tumble", "tumbleStart", "tumbleEnd", "hop", "hopStart", "hopEnd")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 
@@ -642,12 +692,12 @@ RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports.
-MAX_SELECT_RETURNED_ROWS = 100000
+MAX_SELECT_RETURNED_ROWS = 10000
 
 # Settings applied on top of all HogQL queries.
 class HogQLSettings(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    readonly: Optional[int] = 1
+    readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60

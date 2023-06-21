@@ -93,6 +93,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadRecording',
                 'loadRecordingSnapshotsSuccess',
                 'loadRecordingSnapshotsFailure',
+                'loadRecordingBlobSnapshotsFailure',
                 'loadRecordingMetaSuccess',
             ],
             playerSettingsLogic,
@@ -472,6 +473,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setErrorPlayerState(true)
             }
         },
+
+        loadRecordingBlobSnapshotsFailure: () => {
+            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
+                actions.setErrorPlayerState(true)
+            }
+        },
+
         setPlay: () => {
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
@@ -728,9 +737,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
 
-        setIsFullScreen: ({ isFullScreen }) => {
+        setIsFullScreen: async ({ isFullScreen }) => {
             if (isFullScreen) {
-                props.playerRef?.current?.requestFullscreen()
+                try {
+                    await props.playerRef?.current?.requestFullscreen()
+                } catch (e) {
+                    console.warn('Failed to enable native full-screen mode:', e)
+                }
             } else if (document.fullscreenElement === props.playerRef?.current) {
                 document.exitFullscreen()
             }

@@ -1,12 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import FuseClass from 'fuse.js'
+import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean } from 'lib/utils'
-import { DashboardType } from '~/types'
+import { DashboardBasicType } from '~/types'
 
 export enum DashboardsTab {
     Dashboards = 'dashboards',
@@ -28,9 +28,7 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     shared: false,
 }
 
-// Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface Fuse extends FuseClass<DashboardType> {}
+export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea-typegen
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
@@ -62,31 +60,40 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
 
     selectors({
+        isFiltering: [
+            (s) => [s.filters],
+            (filters) => {
+                return Object.keys(filters).some(
+                    (key) => filters[key as keyof DashboardsFilters] !== DEFAULT_FILTERS[key]
+                )
+            },
+        ],
         dashboards: [
             (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
             (dashboards, filters, fuse) => {
-                dashboards = dashboards
-                    .filter((d) => !d.deleted)
-                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
-                if (filters.pinned) {
-                    dashboards = dashboards.filter((d) => d.pinned)
-                } else if (filters.shared) {
-                    dashboards = dashboards.filter((d) => d.is_shared)
-                } else if (filters.createdBy !== 'All users') {
-                    dashboards = dashboards.filter((d) => d.created_by && filters.createdBy)
-                }
-                if (!filters.search) {
-                    return dashboards
+                let haystack = dashboards
+                if (filters.search) {
+                    haystack = fuse.search(filters.search).map((result) => result.item)
                 }
 
-                return fuse.search(filters.search).map((result: any) => result.item)
+                if (filters.pinned) {
+                    haystack = haystack.filter((d) => d.pinned)
+                }
+                if (filters.shared) {
+                    haystack = haystack.filter((d) => d.is_shared)
+                }
+                if (filters.createdBy !== 'All users') {
+                    haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
+                }
+
+                return haystack
             },
         ],
 
         fuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards): Fuse => {
-                return new FuseClass<DashboardType>(dashboards, {
+            (dashboards): DashboardFuse => {
+                return new Fuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
                 })
