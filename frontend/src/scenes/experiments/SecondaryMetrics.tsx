@@ -23,7 +23,7 @@ export function SecondaryMetrics({
     experimentId,
 }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
-    const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricId } =
+    const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricIdx } =
         useValues(logic)
 
     const {
@@ -120,7 +120,7 @@ export function SecondaryMetrics({
                                 form="secondary-metric-modal-form"
                                 type="secondary"
                                 status="danger"
-                                onClick={() => deleteMetric(metricId)}
+                                onClick={() => deleteMetric(metricIdx)}
                             >
                                 Delete
                             </LemonButton>

@@ -56,18 +56,18 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     actions({
         // modal
         openModalToCreateSecondaryMetric: true,
-        openModalToEditSecondaryMetric: (metric: SecondaryExperimentMetric, metricId: number) => ({
+        openModalToEditSecondaryMetric: (metric: SecondaryExperimentMetric, metricIdx: number) => ({
             metric,
-            metricId,
+            metricIdx,
         }),
         saveSecondaryMetric: true,
         closeModal: true,
 
         // metrics
-        setMetricId: (metricId: number) => ({ metricId }),
+        setMetricId: (metricIdx: number) => ({ metricIdx }),
         addNewMetric: (metric: SecondaryExperimentMetric) => ({ metric }),
-        updateMetric: (metric: SecondaryExperimentMetric, metricId: number) => ({ metric, metricId }),
-        deleteMetric: (metricId: number) => ({ metricId }),
+        updateMetric: (metric: SecondaryExperimentMetric, metricIdx: number) => ({ metric, metricIdx }),
+        deleteMetric: (metricIdx: number) => ({ metricIdx }),
 
         // preview insight
         setPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
@@ -95,18 +95,18 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 addNewMetric: (metrics, { metric }) => {
                     return [...metrics, { ...metric }]
                 },
-                updateMetric: (metrics, { metric, metricId }) => {
+                updateMetric: (metrics, { metric, metricIdx }) => {
                     const metricsCopy = [...metrics]
-                    metricsCopy[metricId] = metric
+                    metricsCopy[metricIdx] = metric
                     return metricsCopy
                 },
-                deleteMetric: (metrics, { metricId }) => metrics.filter((_, idx) => idx !== metricId),
+                deleteMetric: (metrics, { metricIdx }) => metrics.filter((_, idx) => idx !== metricIdx),
             },
         ],
-        metricId: [
+        metricIdx: [
             0 as number,
             {
-                setMetricId: (_, { metricId }) => metricId,
+                setMetricId: (_, { metricIdx }) => metricIdx,
             },
         ],
     })),
@@ -124,10 +124,10 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             actions.resetSecondaryMetricModal()
             actions.setPreviewInsight(defaultFormValues.filters)
         },
-        openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricId }) => {
+        openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricIdx }) => {
             actions.setSecondaryMetricModalValue('name', name)
             actions.setPreviewInsight(filters)
-            actions.setMetricId(metricId)
+            actions.setMetricId(metricIdx)
         },
         setPreviewInsight: async ({ filters }) => {
             let newInsightFilters
@@ -161,7 +161,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {
-                actions.updateMetric(values.secondaryMetricModal, values.metricId)
+                actions.updateMetric(values.secondaryMetricModal, values.metricIdx)
             } else {
                 actions.addNewMetric(values.secondaryMetricModal)
             }
