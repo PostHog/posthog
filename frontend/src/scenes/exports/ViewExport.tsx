@@ -15,12 +15,12 @@ import { useRef, useState } from 'react'
 import { PureField } from '../../lib/forms/Field'
 import { LemonModal } from '../../lib/lemon-ui/LemonModal'
 
-export const Export = ({ exportId }: { exportId?: string }): JSX.Element => {
+export const Export = (): JSX.Element => {
     // Displays a single export. We use the useCurrentTeamId hook to get the
     // current team ID, and then use the useExport hook to fetch the export
     // details for that team. We pull out the export_id from the URL.
     const { currentLocation } = useValues(router)
-    exportId = exportId ?? currentLocation.pathname.split('/').pop()
+    const exportId = currentLocation.pathname.split('/').pop()
 
     if (exportId === undefined) {
         throw Error('exportId is undefined')
@@ -263,19 +263,21 @@ const HistoricalExportsButton = function HistoricalExportsButton({
         >
             Historical Export
             <LemonModal isOpen={isOpen} title="Trigger Historical Export" closable onClose={() => setOpen(false)}>
-                <div className="flex flex-col gap-2">
+                <form aria-label="Create historical export" className="flex flex-col gap-2">
                     <div className="flex flex-col gap-1">
-                        <PureField label="Start Date">
+                        <PureField label="Start Date" htmlFor="historical-start-date">
                             <input
                                 ref={startDateRef}
+                                id="historical-start-date"
                                 type="datetime-local"
                                 className="form-control"
                                 defaultValue={dayjs().subtract(1, 'day').format('YYYY-MM-DDTHH:mm')}
                             />
                         </PureField>
-                        <PureField label="End Date">
+                        <PureField label="End Date" htmlFor="historical-end-date">
                             <input
                                 ref={endDateRef}
+                                id="historical-end-date"
                                 type="datetime-local"
                                 className="form-control"
                                 defaultValue={dayjs().format('YYYY-MM-DDTHH:mm')}
@@ -301,7 +303,7 @@ const HistoricalExportsButton = function HistoricalExportsButton({
                     >
                         Trigger Export
                     </LemonButton>
-                </div>
+                </form>
             </LemonModal>
         </LemonButton>
     )
