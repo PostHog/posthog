@@ -4,9 +4,8 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("posthog", "0328_add_starter_feature_flag_template"),
+        ("posthog", "0330_add_autocapture_exceptions_events_to_ignore"),
     ]
 
     operations = [
