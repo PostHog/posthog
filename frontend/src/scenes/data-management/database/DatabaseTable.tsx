@@ -2,20 +2,18 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { useValues } from 'kea'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
+import { DatabaseSceneRow } from 'scenes/data-warehouse/dataWarehouseSceneLogic'
 
 interface DatabaseTableProps {
     table: string
+    tables: DatabaseSceneRow[]
 }
 
-export function DatabaseTable({ table }: DatabaseTableProps): JSX.Element {
-    const { filteredTables } = useValues(databaseSceneLogic)
-
+export function DatabaseTable({ table, tables }: DatabaseTableProps): JSX.Element {
     return (
         <LemonTable
             size="small"
-            dataSource={filteredTables.find(({ name }) => name === table)?.columns ?? []}
+            dataSource={tables.find(({ name }) => name === table)?.columns ?? []}
             columns={[
                 {
                     title: 'Column',

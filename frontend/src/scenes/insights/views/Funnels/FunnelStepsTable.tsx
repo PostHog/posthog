@@ -210,7 +210,6 @@ export function FunnelStepsTableComponent({
                                     onClick={() =>
                                         openPersonsModalForSeries({ step, series: stepSeries, converted: true })
                                     }
-                                    style={{ padding: 0 }}
                                 >
                                     {humanFriendlyNumber(stepSeries.count ?? 0)}
                                 </ValueInspectorButton>
@@ -243,7 +242,6 @@ export function FunnelStepsTableComponent({
                                                       converted: false,
                                                   })
                                               }
-                                              style={{ padding: 0 }}
                                           >
                                               {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
                                           </ValueInspectorButton>

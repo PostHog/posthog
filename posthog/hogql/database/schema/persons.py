@@ -9,8 +9,17 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     BooleanDatabaseField,
     LazyTable,
+    FieldOrTable,
 )
 from posthog.hogql.errors import HogQLException
+
+PERSONS_FIELDS: Dict[str, FieldOrTable] = {
+    "id": StringDatabaseField(name="id"),
+    "created_at": DateTimeDatabaseField(name="created_at"),
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "properties": StringJSONDatabaseField(name="properties"),
+    "is_identified": BooleanDatabaseField(name="is_identified"),
+}
 
 
 def select_from_persons_table(requested_fields: Dict[str, List[str]]):
@@ -40,33 +49,27 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
 
 
 class RawPersonsTable(Table):
-    id: StringDatabaseField = StringDatabaseField(name="id")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
-    is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
-    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
-    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+    fields: Dict[str, FieldOrTable] = {
+        **PERSONS_FIELDS,
+        "is_deleted": BooleanDatabaseField(name="is_deleted"),
+        "version": IntegerDatabaseField(name="version"),
+    }
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "raw_persons"
 
 
 class PersonsTable(LazyTable):
-    id: StringDatabaseField = StringDatabaseField(name="id")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
-    is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
+    fields: Dict[str, FieldOrTable] = PERSONS_FIELDS
 
     def lazy_select(self, requested_fields: Dict[str, List[str]]):
         return select_from_persons_table(requested_fields)
 
-    def clickhouse_table(self):
+    def to_printed_clickhouse(self, context):
         return "person"
 
-    def hogql_table(self):
+    def to_printed_hogql(self):
         return "persons"

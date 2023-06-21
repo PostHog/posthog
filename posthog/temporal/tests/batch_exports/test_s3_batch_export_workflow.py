@@ -43,9 +43,9 @@ EventValues = TypedDict(
         "created_at": str,
         "distinct_id": str,
         "person_id": str,
-        "person_properties": str,
+        "person_properties": dict | None,
         "team_id": int,
-        "properties": str,
+        "properties": dict | None,
         "elements_chain": str,
     },
 )
@@ -79,11 +79,13 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["_timestamp"],
                 event["person_id"],
                 event["team_id"],
-                event["properties"],
+                json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
                 event["elements_chain"],
                 event["distinct_id"],
                 event["created_at"],
-                event["person_properties"],
+                json.dumps(event["person_properties"])
+                if isinstance(event["person_properties"], dict)
+                else event["person_properties"],
             )
             for event in events
         ],
@@ -171,20 +173,89 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
-            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team_id,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
-            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "elements_chain": "this that and the other",
         }
         # NOTE: we have to do a lot here, otherwise we do not trigger a
         # multipart upload, and the minimum part chunk size is 5MB.
         for i in range(10000)
     ]
 
+    events += [
+        # Insert an events with an empty string in `properties` and
+        # `person_properties` to ensure that we handle empty strings correctly.
+        EventValues(
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "_timestamp": "2023-04-20 14:29:00",
+                "timestamp": "2023-04-20 14:29:00.000000",
+                "created_at": "2023-04-20 14:29:00.000000",
+                "distinct_id": str(uuid4()),
+                "person_id": str(uuid4()),
+                "person_properties": None,
+                "team_id": team_id,
+                "properties": None,
+                "elements_chain": "",
+            }
+        )
+    ]
+
     # Insert some data into the `sharded_events` table.
     await insert_events(
         client=client,
         events=events,
+    )
+
+    # Insert some events before the hour and after the hour, as well as some
+    # events from another team to ensure that we only export the events from
+    # the team that the batch export is for.
+    other_team_id = team_id + 1
+    await insert_events(
+        client=client,
+        events=[
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 13:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 15:30:00",
+                "_timestamp": "2023-04-20 13:30:00",
+                "created_at": "2023-04-20 13:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+            {
+                "uuid": str(uuid4()),
+                "event": "test",
+                "timestamp": "2023-04-20 14:30:00",
+                "_timestamp": "2023-04-20 14:30:00",
+                "created_at": "2023-04-20 14:30:00.000000",
+                "person_id": str(uuid4()),
+                "distinct_id": str(uuid4()),
+                "team_id": other_team_id,
+                "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+                "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+            },
+        ],
     )
 
     # Make a random string to prefix the S3 keys with. This allows us to ensure
@@ -229,6 +300,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
     # Remove team_id, _timestamp from events
     expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
+    expected_events.sort(key=lambda x: x["timestamp"])
 
     # First check one event, the first one, so that we can get a nice diff if
     # the included data is different.
@@ -286,11 +358,11 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "created_at": "2023-04-20 14:30:00.000000",
             "_timestamp": "2023-04-20 14:30:00",
             "person_id": str(uuid4()),
-            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "distinct_id": str(uuid4()),
-            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
         },
         {
             "uuid": str(uuid4()),
@@ -299,11 +371,11 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "created_at": "2023-04-25 14:30:00.000000",
             "_timestamp": "2023-04-25 14:30:00",
             "person_id": str(uuid4()),
-            "person_properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
-            "properties": json.dumps({"$browser": "Chrome", "$os": "Mac OS X"}),
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "distinct_id": str(uuid4()),
-            "elements_chain": json.dumps([{"tag_name": "button", "text": "Click me!"}]),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
         },
     ]
 

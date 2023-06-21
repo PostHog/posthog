@@ -176,7 +176,7 @@ function SidebarContent({
                     loading={accordion.loading}
                     collapsed={accordionCollapseMapping[accordion.key]}
                     toggle={() => toggleAccordion(accordion.key)}
-                    activeItemKey={normalizedActiveItemKey}
+                    activeItemKey={normalizedActiveItemKey ?? null}
                 />
             ))}
         </>
@@ -187,7 +187,7 @@ function SidebarContent({
             items={contents[0].items}
             remote={contents[0].remote}
             loading={contents[0].loading}
-            activeItemKey={normalizedActiveItemKey}
+            activeItemKey={normalizedActiveItemKey ?? null}
         />
     )
 }

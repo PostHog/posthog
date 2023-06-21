@@ -29,7 +29,7 @@ describe('sessionPlayerModalLogic', () => {
         })
         it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
             expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
-                .toDispatchActions(['getSessionRecordingsSuccess'])
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
                 .toMatchValues({
                     selectedSessionRecording: { id: 'abc' },
                     activeSessionRecording: listOfSessionRecordings[0],

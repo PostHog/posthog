@@ -187,7 +187,7 @@ class TestDashboardTemplates(APIBaseTest):
         assert update_response.status_code == status.HTTP_403_FORBIDDEN, update_response
 
     def test_non_staff_can_get_public_dashboard_templates(self) -> None:
-        assert DashboardTemplate.objects.count() == 1  # Default template
+        assert DashboardTemplate.objects.count() == 2  # Default template
         assert self.team.pk is not None
         new_org = Organization.objects.create(name="Test Org 2")
         new_team = Team.objects.create(name="Test Team 2", organization=new_org)
@@ -215,7 +215,7 @@ class TestDashboardTemplates(APIBaseTest):
         )
 
     def test_non_staff_user_cannot_create_dashboard(self) -> None:
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
         self.user.is_staff = False
         self.user.save()
 
@@ -225,16 +225,16 @@ class TestDashboardTemplates(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response
 
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
 
     def test_get_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED, response
-        assert DashboardTemplate.objects.count() == 2
+        assert DashboardTemplate.objects.count() == 3
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}")
 
@@ -246,13 +246,13 @@ class TestDashboardTemplates(APIBaseTest):
         )
 
     def test_delete_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED, response
-        assert DashboardTemplate.objects.count() == 2
+        assert DashboardTemplate.objects.count() == 3
         dashboard_template = DashboardTemplate.objects.get(id=response.json()["id"])
 
         update_response = self.client.patch(
@@ -267,13 +267,13 @@ class TestDashboardTemplates(APIBaseTest):
         assert len(get_response.json()["results"]) == 1  # Just original template
 
     def test_non_staff_user_cannot_delete_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED, response
-        assert DashboardTemplate.objects.count() == 2
+        assert DashboardTemplate.objects.count() == 3
 
         self.user.is_staff = False
         self.user.save()
@@ -289,13 +289,13 @@ class TestDashboardTemplates(APIBaseTest):
         assert len(get_response.json()["results"]) == 2  # Both templates
 
     def test_update_dashboard_template_by_id(self) -> None:
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert DashboardTemplate.objects.count() == 2
+        assert DashboardTemplate.objects.count() == 3
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{response.json()['id']}",
@@ -364,7 +364,7 @@ class TestDashboardTemplates(APIBaseTest):
         This test protects us from accidentally making the original default templates private
         And as they don't have a team_id, they can't be then be found to be made public again
         """
-        assert DashboardTemplate.objects.count() == 1  # default template
+        assert DashboardTemplate.objects.count() == 2  # default template
 
         dashboard_template = DashboardTemplate.objects.all()[0]
 
