@@ -45,7 +45,7 @@
         "packages:build:lemon-ui": "cd frontend/@posthog/lemon-ui && pnpm i && pnpm build",
         "editor:update-tsd": "pnpm packages:build && node frontend/editor-update-tsd.mjs",
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "prettier:check": "prettier --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "prettier:check": "prettier --check \"frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "eslint": "eslint frontend/src",
         "typegen:write": "kea-typegen write",
