@@ -42,7 +42,7 @@ class BaseFilter(BaseParamMixin):
         self.kwargs = kwargs
         self.team = kwargs.get("team", None)
 
-        # Set the HogQL context for the
+        # Set the HogQL context for the request
         self.hogql_context = self.kwargs.get(
             "hogql_context", HogQLContext(within_non_hogql_query=True, team_id=self.team.pk if self.team else None)
         )
