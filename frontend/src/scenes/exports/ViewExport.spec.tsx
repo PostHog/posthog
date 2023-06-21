@@ -9,10 +9,9 @@ import { Export } from './ViewExport'
 import { router } from 'kea-router/lib/router'
 import ReactModal from 'react-modal'
 
+// Required to avoid the error mentioned in
+// https://stackoverflow.com/questions/48269381/warning-react-modal-app-element-is-not-defined-please-use-modal-setappeleme
 ReactModal.setAppElement('*')
-
-// Required as LemonSelect uses this when we click on the select button.
-global.ResizeObserver = require('resize-observer-polyfill')
 
 jest.setTimeout(5000)
 
