@@ -1,4 +1,4 @@
-import { BatchExport, BatchExportData, BatchExportsResponse, BatchExportRun } from './api'
+import { BatchExport, BatchExportData, BatchExportsResponse, BatchExportRun, BackfillRequest } from './api'
 
 export const createExportServiceHandlers = (
     exports: { [id: number]: BatchExport } = {},
@@ -58,7 +58,7 @@ export const createExportServiceHandlers = (
                 // start_date and end_date are in the request body.
                 const id = req.params.export_id as string
 
-                const { start_date, end_date } = req.body as { start_date: string; end_date: string }
+                const { start_at, end_at } = req.body as BackfillRequest
 
                 const run_id = (Object.keys(runs).length + 1).toString()
 
@@ -66,8 +66,8 @@ export const createExportServiceHandlers = (
                     id: run_id,
                     team_id: 1,
                     batch_export_id: id,
-                    data_interval_start: start_date,
-                    data_interval_end: end_date,
+                    data_interval_start: start_at,
+                    data_interval_end: end_at,
                     status: 'Running',
                     opened_at: new Date().toISOString(),
                     closed_at: null,

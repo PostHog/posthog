@@ -344,10 +344,9 @@ export const useTriggerHistoricalExport = (): {
             setState({ loading: true, error: undefined })
             try {
                 await api.create(`api/projects/${currentTeamId}/batch_exports/${exportId}/backfill`, {
-                    export_id: exportId,
-                    start_date: startDate,
-                    end_date: endDate,
-                })
+                    start_at: startDate,
+                    end_at: endDate,
+                } as BackfillRequest)
             } catch (err) {
                 if (err instanceof Error) {
                     setState({ loading: false, error: err })
@@ -363,3 +362,5 @@ export const useTriggerHistoricalExport = (): {
     )
     return { triggerHistoricalExport, loading, error }
 }
+
+export type BackfillRequest = { start_at: string; end_at: string }
