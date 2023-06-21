@@ -1,12 +1,10 @@
 import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
 import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
 import { insightLogic } from './../insightLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
-import { FEATURE_FLAGS } from './../../../lib/constants'
 import { FilterType } from './../../../types'
 import { InsightLogicProps } from '~/types'
 
@@ -29,8 +27,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             ['querySource'],
             insightLogic(props.insightProps),
             ['filters'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             insightLogic(props.insightProps),
@@ -72,11 +68,6 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 // for those sampling at a rate less than 10, let's suggest they go even lower
                 return AVAILABLE_SAMPLING_PERCENTAGES[AVAILABLE_SAMPLING_PERCENTAGES.indexOf(samplingPercentage) - 1]
             },
-        ],
-        samplingAvailable: [
-            (s) => [s.featureFlags],
-            (featureFlags: Record<string, boolean | string | undefined>): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SAMPLING],
         ],
     })),
     listeners(({ props, actions, values }) => ({

@@ -10,7 +10,6 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { LemonSelect } from '@posthog/lemon-ui'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
-import { samplingFilterLogic } from 'scenes/insights/EditorFilters/samplingFilterLogic'
 
 export interface MetricSelectorProps {
     createPreviewInsight: (filters?: Partial<FilterType>) => void
@@ -37,8 +36,6 @@ export function MetricSelector({
 
     const experimentInsightType = filters.insight
 
-    const { samplingAvailable } = useValues(samplingFilterLogic({ insightType: experimentInsightType, insightProps }))
-
     return (
         <>
             <div className="flex items-center w-full gap-2 mb-4">
@@ -54,24 +51,23 @@ export function MetricSelector({
                     ]}
                 />
             </div>
-            {samplingAvailable ? (
-                <div>
-                    <SamplingFilter
-                        insightProps={insightProps}
-                        infoTooltipContent="Sampling on experiment goals is an Alpha feature to enable faster computation of experiment results."
-                        setFilters={(payload) =>
-                            setFilters({
-                                ...filters,
-                                ...(payload.sampling_factor
-                                    ? { sampling_factor: payload.sampling_factor }
-                                    : { sampling_factor: null }),
-                            })
-                        }
-                        initialSamplingPercentage={filters.sampling_factor ? filters.sampling_factor * 100 : null}
-                    />
-                    <br />
-                </div>
-            ) : null}
+
+            <div>
+                <SamplingFilter
+                    insightProps={insightProps}
+                    infoTooltipContent="Sampling on experiment goals is an Alpha feature to enable faster computation of experiment results."
+                    setFilters={(payload) =>
+                        setFilters({
+                            ...filters,
+                            ...(payload.sampling_factor
+                                ? { sampling_factor: payload.sampling_factor }
+                                : { sampling_factor: null }),
+                        })
+                    }
+                    initialSamplingPercentage={filters.sampling_factor ? filters.sampling_factor * 100 : null}
+                />
+                <br />
+            </div>
 
             {experimentInsightType === InsightType.FUNNELS && (
                 <ActionFilter
