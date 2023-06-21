@@ -15,6 +15,7 @@ describe('sessionRecordingsListLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsListLogic.build>
     const aRecording = { id: 'abc', viewed: false, recording_duration: 10 }
     const listOfSessionRecordings = [aRecording]
+    jest.setTimeout(500)
 
     beforeEach(() => {
         useMocks({
@@ -103,7 +104,7 @@ describe('sessionRecordingsListLogic', () => {
         describe('core assumptions', () => {
             it('loads recent recordings and pinned recordings after mounting', async () => {
                 await expectLogic(logic)
-                    .toDispatchActionsInAnyOrder(['getSessionRecordingsSuccess', 'loadPinnedRecordingsSuccess'])
+                    .toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess', 'loadPinnedRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: listOfSessionRecordings,
                         pinnedRecordingsResponse: {
@@ -119,30 +120,30 @@ describe('sessionRecordingsListLogic', () => {
             })
             it('is set by setSessionRecordingId', async () => {
                 expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc'))
-                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         selectedRecordingId: 'abc',
                         activeSessionRecording: listOfSessionRecordings[0],
                     })
-                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
+                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
             })
 
             it('is partial if sessionRecordingId not in list', async () => {
                 expectLogic(logic, () => logic.actions.setSelectedRecordingId('not-in-list'))
-                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         selectedRecordingId: 'not-in-list',
                         activeSessionRecording: { id: 'not-in-list' },
                     })
-                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'not-in-list')
+                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'not-in-list')
             })
 
             it('is read from the URL on the session recording page', async () => {
                 router.actions.push('/replay', {}, { sessionRecordingId: 'abc' })
-                expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
+                expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
                 await expectLogic(logic)
-                    .toDispatchActionsInAnyOrder(['setSelectedRecordingId', 'getSessionRecordingsSuccess'])
+                    .toDispatchActionsInAnyOrder(['setSelectedRecordingId', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         selectedRecordingId: 'abc',
                         activeSessionRecording: listOfSessionRecordings[0],
@@ -156,11 +157,11 @@ describe('sessionRecordingsListLogic', () => {
             })
 
             it('returns the first session recording if none selected', () => {
-                expectLogic(logic).toDispatchActions(['getSessionRecordingsSuccess']).toMatchValues({
+                expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
                     selectedRecordingId: undefined,
                     activeSessionRecording: listOfSessionRecordings[0],
                 })
-                expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
+                expect(router.values.searchParams).not.toHaveProperty('sessionRecordingId', 'not-in-list')
             })
         })
 
@@ -175,33 +176,13 @@ describe('sessionRecordingsListLogic', () => {
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                     })
                 })
-                    .toDispatchActions(['setFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
                 expect(router.values.searchParams.filters).toHaveProperty('events', [
                     { id: '$autocapture', type: 'events', order: 0, name: '$autocapture' },
                 ])
-            })
-        })
-
-        describe('limit and offset', () => {
-            it('is set by loadNext  and loadPrev and gets the right results and sets the url', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.loadNext()
-                })
-                    .toMatchValues({ filters: expect.objectContaining({ offset: RECORDINGS_LIMIT }) })
-                    .toDispatchActions(['loadNext', 'getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: [`List of recordings offset by ${RECORDINGS_LIMIT}`] })
-                expect(router.values.searchParams.filters).toHaveProperty('offset', RECORDINGS_LIMIT)
-
-                await expectLogic(logic, () => {
-                    logic.actions.loadPrev()
-                })
-                    .toMatchValues({ filters: expect.objectContaining({ offset: 0 }) })
-                    .toDispatchActions(['loadPrev', 'getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: listOfSessionRecordings })
-                expect(router.values.searchParams.filters).toHaveProperty('offset', 0)
             })
         })
 
@@ -219,7 +200,7 @@ describe('sessionRecordingsListLogic', () => {
                             date_to: '2021-10-20',
                         }),
                     })
-                    .toDispatchActions(['setFilters', 'getSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by date'] })
 
                 expect(router.values.searchParams.filters).toHaveProperty('date_from', '2021-10-05')
@@ -248,7 +229,7 @@ describe('sessionRecordingsListLogic', () => {
                             },
                         }),
                     })
-                    .toDispatchActions(['setFilters', 'getSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
 
                 expect(router.values.searchParams.filters).toHaveProperty('session_recording_duration', {
@@ -289,7 +270,7 @@ describe('sessionRecordingsListLogic', () => {
                 })
                 logic.mount()
 
-                await expectLogic(logic).toDispatchActions(['getSessionRecordingsSuccess']).toMatchValues({
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
                     selectedRecordingId: 'abc',
                 })
 
@@ -340,7 +321,7 @@ describe('sessionRecordingsListLogic', () => {
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
                     })
                 })
-                    .toDispatchActions(['setFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
+                    .toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
@@ -365,7 +346,7 @@ describe('sessionRecordingsListLogic', () => {
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['replaceFilters'])
+                .toDispatchActions(['setFilters'])
                 .toMatchValues({
                     filters: {
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
@@ -373,6 +354,8 @@ describe('sessionRecordingsListLogic', () => {
                         date_from: '2021-10-01',
                         date_to: '2021-10-10',
                         offset: 50,
+                        console_logs: [],
+                        properties: [],
                         session_recording_duration: {
                             type: PropertyFilterType.Recording,
                             key: 'duration',
@@ -391,11 +374,19 @@ describe('sessionRecordingsListLogic', () => {
             })
 
             await expectLogic(logic)
-                .toDispatchActions(['replaceFilters'])
+                .toDispatchActions(['setFilters'])
                 .toMatchValues({
+                    customFilters: {
+                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                    },
                     filters: {
                         actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
                         session_recording_duration: defaultRecordingDurationFilter,
+                        console_logs: [],
+                        date_from: '-7d',
+                        date_to: null,
+                        events: [],
+                        properties: [],
                     },
                 })
         })
@@ -413,13 +404,13 @@ describe('sessionRecordingsListLogic', () => {
 
         it('loads session recordings for a specific user', async () => {
             await expectLogic(logic)
-                .toDispatchActions(['getSessionRecordingsSuccess'])
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
                 .toMatchValues({ sessionRecordings: ["List of specific user's recordings from server"] })
         })
 
         it('reads sessionRecordingId from the URL on the person page', async () => {
             router.actions.push('/person/123', {}, { sessionRecordingId: 'abc' })
-            expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
+            expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
             await expectLogic(logic).toDispatchActions([logic.actionCreators.setSelectedRecordingId('abc')])
         })

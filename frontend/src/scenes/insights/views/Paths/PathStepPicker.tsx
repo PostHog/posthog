@@ -3,11 +3,11 @@ import { Select } from 'antd'
 import { BarsOutlined } from '@ant-design/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
-import { pathsLogic, DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, EditorFilterProps, PathsFilterType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
@@ -15,26 +15,13 @@ interface StepOption {
     value: number
 }
 
-export function PathStepPickerDataExploration(): JSX.Element {
+export function PathStepPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return <PathStepPickerComponent setFilter={updateInsightFilter} {...insightFilter} />
-}
+    const { step_limit } = pathsFilter || {}
 
-export function PathStepPicker({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
-    const { filter } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    return <PathStepPickerComponent setFilter={setFilter} {...filter} />
-}
-
-type PathStepPickerComponentProps = {
-    setFilter: (filter: PathsFilterType) => void
-} & PathsFilterType
-
-export function PathStepPickerComponent({ step_limit, setFilter }: PathStepPickerComponentProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const MIN = 2,
@@ -51,7 +38,7 @@ export function PathStepPickerComponent({ step_limit, setFilter }: PathStepPicke
             data-attr="path-step-filter"
             defaultValue={5}
             value={step_limit || DEFAULT_STEP_LIMIT}
-            onSelect={(count) => setFilter({ step_limit: count })}
+            onSelect={(count) => updateInsightFilter({ step_limit: count })}
             listHeight={440}
             bordered={false}
             dropdownMatchSelectWidth={true}

@@ -15,7 +15,7 @@ from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
     ADD_TIMEZONE_TO_FUNCTIONS,
-    CHART_FUNCTIONS,
+    HOGQL_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable
@@ -67,7 +67,7 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
 
     context.database = context.database or create_hogql_database(context.team_id)
-    node = resolve_types(node, context.database, scopes=[node.type for node in stack] if stack else None)
+    node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
@@ -511,15 +511,8 @@ class _Printer(Visitor):
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif node.name in CHART_FUNCTIONS:
-            if len(node.args) != 1:
-                raise HogQLException(
-                    f"Chart function '{node.name}' expects exactly one argument. Passed {len(node.args)}"
-                )
-            sparkline = f"tuple('__hogql_chart_type', 'sparkline', 'results', {self.visit(node.args[0])})"
-            if isinstance(self.stack[-1], ast.Alias):
-                return sparkline
-            return f"{sparkline} AS sparkline"
+        elif node.name in HOGQL_FUNCTIONS:
+            raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)

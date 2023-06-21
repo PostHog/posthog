@@ -41,6 +41,7 @@ from . import (
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
+from posthog.warehouse.api import table
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -133,6 +134,7 @@ batch_exports_router = projects_router.register(
     r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
 )
 
+projects_router.register(r"warehouse_table", table.TableViewSet, "warehouse_api", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

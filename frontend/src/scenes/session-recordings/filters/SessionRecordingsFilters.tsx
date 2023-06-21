@@ -211,19 +211,24 @@ export function SessionRecordingsFilters({
                 }}
             />
 
-            <LemonLabel info="Show recordings by persons who match the set criteria">
-                Filter by persons and cohorts
-            </LemonLabel>
-
             {showPropertyFilters && (
-                <PropertyFilters
-                    pageKey={'session-recordings'}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                    propertyFilters={filters.properties}
-                    onChange={(properties) => {
-                        setFilters({ properties })
-                    }}
-                />
+                <>
+                    <LemonLabel info="Show recordings by persons who match the set criteria">
+                        Filter by persons and cohorts
+                    </LemonLabel>
+
+                    <PropertyFilters
+                        pageKey={'session-recordings'}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.Cohorts,
+                        ]}
+                        propertyFilters={filters.properties}
+                        onChange={(properties) => {
+                            setFilters({ properties })
+                        }}
+                    />
+                </>
             )}
 
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER} match={true}>
