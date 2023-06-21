@@ -66,7 +66,7 @@ export class SessionManager {
         public readonly sessionId: string,
         public readonly partition: number,
         public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => Promise<void>
+        private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
     }
@@ -225,7 +225,7 @@ export class SessionManager {
             gaugeS3LinesWritten.set(this.flushBuffer.count)
 
             const offsets = this.flushBuffer.offsets
-            await this.onFinish(offsets)
+            this.onFinish(offsets)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected

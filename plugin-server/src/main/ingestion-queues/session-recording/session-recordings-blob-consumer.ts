@@ -123,14 +123,14 @@ export class SessionRecordingBlobIngester {
                 session_id,
                 partition,
                 topic,
-                async (offsets) => {
-                    const maxOffset = Math.max(...offsets)
-                    await this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, maxOffset)
-
+                (offsets) => {
                     const committedOffset = this.offsetManager?.removeOffsets(topic, partition, offsets)
+                    const maxOffset = Math.max(...offsets)
 
+                    // We don't want to block if anything fails here. Watermarks are best effort
+                    void this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, maxOffset)
                     if (committedOffset) {
-                        await this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, committedOffset)
+                        void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, committedOffset)
                     }
                 }
             )
