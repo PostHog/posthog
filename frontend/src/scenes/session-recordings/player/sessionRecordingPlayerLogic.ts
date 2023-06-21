@@ -737,11 +737,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             })
         },
 
-        setIsFullScreen: ({ isFullScreen }) => {
+        setIsFullScreen: async ({ isFullScreen }) => {
             if (isFullScreen) {
-                props.playerRef?.current?.requestFullscreen().catch((error) => {
-                    console.warn('Failed to enable native full-screen mode:', error)
-                })
+                try {
+                    await props.playerRef?.current?.requestFullscreen()
+                } catch (e) {
+                    console.warn('Failed to enable native full-screen mode:', e)
+                }
             } else if (document.fullscreenElement === props.playerRef?.current) {
                 document.exitFullscreen()
             }
