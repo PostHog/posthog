@@ -25,6 +25,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 export interface NewSurvey
     extends Pick<
         Survey,
+        | 'id'
         | 'name'
         | 'description'
         | 'type'
@@ -41,6 +42,7 @@ export interface NewSurvey
 }
 
 const NEW_SURVEY: NewSurvey = {
+    id: 'new',
     name: '',
     description: '',
     questions: [{ type: SurveyQuestionType.Open, question: '' }],
@@ -82,8 +84,28 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     return surveyDataQuery
 }
 
+export const getSurveyMetricsQueries = (surveyId: string, surveyName: string): SurveyMetricsQueries => {
+    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == '${surveyName} survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == '${surveyName} survey dismissed' and properties.$survey_id == '${surveyId}'`
+    return {
+        surveysShown: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
+        },
+        surveysDismissed: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
+        },
+    }
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
+}
+
+export interface SurveyMetricsQueries {
+    surveysShown: DataTableNode
+    surveysDismissed: DataTableNode
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -116,6 +138,7 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurvey: true,
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
+        setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -146,6 +169,7 @@ export const surveyLogic = kea<surveyLogicType>([
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
                 actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id, survey.name))
             }
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
@@ -221,6 +245,12 @@ export const surveyLogic = kea<surveyLogicType>([
             null as DataTableNode | null,
             {
                 setDataTableQuery: (_, { query }) => query,
+            },
+        ],
+        surveyMetricsQueries: [
+            null as SurveyMetricsQueries | null,
+            {
+                setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
             },
         ],
     }),
