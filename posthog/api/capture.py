@@ -58,7 +58,6 @@ LOG_RATE_LIMITER = Limiter(
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
 
-
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
     "Events received by capture, tagged by resource type.",
@@ -101,7 +100,6 @@ REPLAY_INGESTION_BATCH_COMPRESSION_RATIO_HISTOGRAM = Histogram(
     buckets=(0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.1, 2, 5, 10, INF),
     labelnames=["method"],
 )
-
 
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
@@ -388,7 +386,9 @@ def get_event(request):
 
                 if random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
                     # The new flow we only enable if the dedicated kafka is enabled
-                    processed_replay_events += preprocess_replay_events_for_blob_ingestion(replay_events)
+                    processed_replay_events += preprocess_replay_events_for_blob_ingestion(
+                        replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
+                    )
 
             events = processed_replay_events + other_events
 
