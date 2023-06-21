@@ -23,7 +23,7 @@ from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
-from posthog.utils import is_postgres_connected_cached_check
+from posthog.database_healthcheck import postgres_healthcheck
 
 from .feature_flag import (
     FeatureFlag,
@@ -580,7 +580,7 @@ def get_all_feature_flags(
     )
 
     # check every 20 seconds whether the database is alive or not
-    is_database_alive = is_postgres_connected_cached_check(round(time.time() / 20))
+    is_database_alive = postgres_healthcheck.is_connected()
 
     if not is_database_alive or not flags_have_experience_continuity_enabled:
         return _get_all_feature_flags(
@@ -717,6 +717,10 @@ def handle_feature_flag_exception(err: Exception, log_message: str = ""):
     FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
     if reason == "unknown":
         capture_exception(err)
+
+    # Whenever error occurs, by default assume the database connection is lost.
+    # We'll recover after the next healthcheck.
+    postgres_healthcheck.set_connection(False)
 
 
 def parse_exception_for_error_message(err: Exception):
