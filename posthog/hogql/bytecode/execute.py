@@ -50,15 +50,9 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
             case Operation.NOT:
                 stack.append(not stack.pop())
             case Operation.AND:
-                response = True
-                for _ in range(next(iterator)):
-                    response = response and stack.pop()
-                stack.append(response)
+                stack.append(all([stack.pop() for _ in range(next(iterator))]))
             case Operation.OR:
-                response = False
-                for _ in range(next(iterator)):
-                    response = response or stack.pop()
-                stack.append(response)
+                stack.append(any([stack.pop() for _ in range(next(iterator))]))
             case BinaryOperationOp.Add:
                 stack.append(stack.pop() + stack.pop())
             case BinaryOperationOp.Sub:
