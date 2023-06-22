@@ -9,7 +9,7 @@ from posthog.hogql.errors import HogQLException
 def like(string, pattern, flags=0):
     pattern = re.escape(pattern).replace("%", ".*")
     re_pattern = re.compile(pattern, flags)
-    return re_pattern.match(string) is not None
+    return re_pattern.search(string) is not None
 
 
 def get_nested_value(obj, chain) -> Any:
@@ -91,6 +91,10 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                 args = [stack.pop() for _ in range(next(iterator))]
                 if name == "concat":
                     stack.append("".join([to_concat_arg(arg) for arg in args]))
+                elif name == "match":
+                    if len(args) != 2:
+                        raise HogQLException(f"match() takes exactly 2 arguments ({len(args)} given)")
+                    stack.append(bool(re.search(re.compile(args[1]), args[0])))
                 else:
                     raise HogQLException(f"Unsupported function call: {name}")
             case _:

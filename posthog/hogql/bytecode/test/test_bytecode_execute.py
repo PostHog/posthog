@@ -49,6 +49,9 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run("concat('arg', 'another')"), "arganother")
         self.assertEqual(self._run("concat(1, NULL)"), "1")
         self.assertEqual(self._run("concat(true, false)"), "truefalse")
+        self.assertEqual(self._run("match('test', 'e.*')"), True)
+        self.assertEqual(self._run("match('test', '^e.*')"), False)
+        self.assertEqual(self._run("match('test', 'x.*')"), False)
 
     def test_nested_value(self):
         my_dict = {

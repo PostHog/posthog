@@ -35,6 +35,9 @@ class TestBytecodeCreate(BaseTest):
         self.assertEqual(self._run("1 not ilike 2"), ["_h", "", 2, "", 1, "not ilike"])
         self.assertEqual(self._run("1 in 2"), ["_h", "", 2, "", 1, "in"])
         self.assertEqual(self._run("1 not in 2"), ["_h", "", 2, "", 1, "not in"])
+        self.assertEqual(self._run("match('test', 'e.*')"), ["_h", "", "e.*", "", "test", "()", "match", 2])
+        self.assertEqual(self._run("match('test', '^e.*')"), ["_h", "", "^e.*", "", "test", "()", "match", 2])
+        self.assertEqual(self._run("match('test', 'x.*')"), ["_h", "", "x.*", "", "test", "()", "match", 2])
 
     def test_bytecode_create_error(self):
         with self.assertRaises(NotImplementedException) as e:
