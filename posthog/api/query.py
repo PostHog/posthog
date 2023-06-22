@@ -125,9 +125,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         match = re.search(r"There's no column.*in table", error.message)
         if match:
             # TODO: remove once we support all column types
-            raise ValidationError(
-                match.group(0) + "\n Note: While in beta, not all column types may be fully supported"
-            )
+            raise ValidationError(match.group(0) + ". Note: While in beta, not all column types may be fully supported")
         return
 
     def _tag_client_query_id(self, query_id: str | None):
