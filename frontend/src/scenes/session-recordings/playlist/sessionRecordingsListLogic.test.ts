@@ -283,9 +283,6 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic)
                     .toFinishAllListeners()
                     .toMatchValues({
-                        sessionRecordingsResponse: {
-                            results: [{ ...aRecording }],
-                        },
                         sessionRecordings: [
                             {
                                 ...aRecording,

@@ -164,8 +164,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             } as SessionRecordingsResponse,
             {
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
-                    const currentResults = direction ? values.sessionRecordingsResponse?.results ?? [] : []
-
                     const paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
@@ -174,11 +172,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     }
 
                     if (direction === 'older') {
-                        paramsDict['date_to'] = currentResults[currentResults.length - 1]?.start_time
+                        paramsDict['date_to'] =
+                            values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
                     }
 
                     if (direction === 'newer') {
-                        paramsDict['date_from'] = currentResults[0]?.start_time
+                        paramsDict['date_from'] = values.sessionRecordings[0]?.start_time
                     }
 
                     const params = toParams(paramsDict)
@@ -193,22 +192,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                     breakpoint()
 
-                    const mergedResults: SessionRecordingType[] = [...currentResults]
-
-                    response.results.forEach((recording) => {
-                        if (!currentResults.find((r) => r.id === recording.id)) {
-                            mergedResults.push(recording)
-                        }
-                    })
-
-                    mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
-
                     return {
                         has_next:
                             direction === 'newer'
                                 ? values.sessionRecordingsResponse?.has_next ?? true
                                 : response.has_next,
-                        results: mergedResults,
+                        results: response.results,
                     }
                 },
             },
@@ -254,8 +243,23 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         sessionRecordings: [
             [] as SessionRecordingType[],
             {
-                loadSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
-                    return [...(sessionRecordingsResponse?.results ?? [])]
+                loadSessionRecordings: (state, { direction }) => {
+                    // Reset if we are not paginating
+                    return direction ? state : []
+                },
+
+                loadSessionRecordingsSuccess: (state, { sessionRecordingsResponse }) => {
+                    const mergedResults: SessionRecordingType[] = [...state]
+
+                    sessionRecordingsResponse.results.forEach((recording) => {
+                        if (!state.find((r) => r.id === recording.id)) {
+                            mergedResults.push(recording)
+                        }
+                    })
+
+                    mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
+
+                    return mergedResults
                 },
                 setSelectedRecordingId: (prevSessionRecordings, { id }) =>
                     prevSessionRecordings.map((s) => {
