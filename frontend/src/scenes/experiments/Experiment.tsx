@@ -5,7 +5,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -13,13 +12,11 @@ import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizTy
 import './Experiment.scss'
 import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
-import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FunnelLayout } from 'lib/constants'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getSeriesColor } from 'lib/colors'
@@ -45,6 +42,10 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Query } from '~/queries/Query/Query'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -100,17 +101,19 @@ export function Experiment(): JSX.Element {
 
     const [showWarning, setShowWarning] = useState(true)
 
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: EXPERIMENT_INSIGHT_ID,
-            disableDataExploration: true,
-        })
-    )
-    const { results, conversionMetrics } = useValues(funnelLogic(insightProps))
-    const { results: trendResults } = useValues(trendsLogic(insightProps))
+    // insightLogic
+    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
+    const { insightProps } = useValues(logic)
 
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
+
+    // insightVizDataLogic
     const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    const { conversionMetrics, results } = useValues(funnelDataLogic(insightProps))
+    const { results: trendResults } = useValues(trendsDataLogic(insightProps))
 
     // calculated properties
     const filterSteps = series || []
@@ -524,10 +527,9 @@ export function Experiment(): JSX.Element {
                                         <div className="card-secondary mb-4" data-attr="experiment-preview">
                                             Goal preview
                                         </div>
-                                        <LegacyInsightContainer
-                                            disableHeader={experimentInsightType === InsightType.TRENDS}
-                                            disableTable={true}
-                                        />
+                                        <BindLogic logic={insightLogic} props={insightProps}>
+                                            <Query query={query} context={{ insightProps }} readOnly />
+                                        </BindLogic>
                                     </Col>
                                 </Row>
                                 <Field name="secondary_metrics">
@@ -1044,7 +1046,9 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt-4">
-                                    <LegacyInsightContainer disableHeader={true} disableLastComputation={true} />
+                                    <BindLogic logic={insightLogic} props={insightProps}>
+                                        <Query query={query} context={{ insightProps }} readOnly />
+                                    </BindLogic>
                                 </div>
                             </BindLogic>
                         ) : (
