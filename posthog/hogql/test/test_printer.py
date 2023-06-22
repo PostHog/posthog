@@ -303,6 +303,8 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event not ilike 'E'", context), "not(ilike(events.event, %(hogql_val_9)s))")
         self.assertEqual(self._expr("event in 'E'", context), "in(events.event, %(hogql_val_10)s)")
         self.assertEqual(self._expr("event not in 'E'", context), "not(in(events.event, %(hogql_val_11)s))")
+        self.assertEqual(self._expr("event =~ 'E'", context), "match(events.event, %(hogql_val_12)s)")
+        self.assertEqual(self._expr("event !~ 'E'", context), "not(match(events.event, %(hogql_val_13)s))")
 
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)

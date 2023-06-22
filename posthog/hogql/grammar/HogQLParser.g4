@@ -131,6 +131,8 @@ columnExpr
                  | operator=GE                                                                     // greaterOrEquals
                  | operator=LT                                                                     // less
                  | operator=GT                                                                     // greater
+                 | operator=REGEX                                                                  // =~
+                 | operator=NOT_REGEX                                                              // !~
                  | operator=NOT? IN COHORT?                                                        // in, notIn; cohort()
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3

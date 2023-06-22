@@ -6,6 +6,12 @@ from posthog.hogql.visitor import Visitor
 from posthog.hogql.bytecode.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
 
+def to_bytecode(expr: str) -> List[any]:
+    from posthog.hogql.parser import parse_expr
+
+    return create_bytecode(parse_expr(expr))
+
+
 def create_bytecode(expr: ast.Expr) -> List[Any]:
     try:
         bytecode = [HOGQL_BYTECODE_IDENTIFIER]

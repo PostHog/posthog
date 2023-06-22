@@ -32,6 +32,10 @@ describe('HogQL Bytecode', () => {
         expect(executeHogQLBytecode(['_h', '', 'b', '', 'a', CompareOperationOp.NotILike], fields)).toBe(true)
         expect(executeHogQLBytecode(['_h', '', 'car', '', 'a', CompareOperationOp.In], fields)).toBe(true)
         expect(executeHogQLBytecode(['_h', '', 'car', '', 'a', CompareOperationOp.NotIn], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', '', '.*', '', 'a', CompareOperationOp.Regex], fields)).toBe(true)
+        expect(executeHogQLBytecode(['_h', '', 'b', '', 'a', CompareOperationOp.Regex], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', '', '.*', '', 'a', CompareOperationOp.NotRegex], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', '', 'b', '', 'a', CompareOperationOp.NotRegex], fields)).toBe(true)
         expect(executeHogQLBytecode(['_h', '', 'bla', '', 'properties', Operation.FIELD, 2], fields)).toBe(null)
         expect(executeHogQLBytecode(['_h', '', 'foo', '', 'properties', Operation.FIELD, 2], fields)).toBe('bar')
         expect(executeHogQLBytecode(['_h', '', 'another', '', 'arg', Operation.CALL, 'concat', 2], fields)).toBe(

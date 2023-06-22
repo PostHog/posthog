@@ -52,6 +52,12 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run("match('test', 'e.*')"), True)
         self.assertEqual(self._run("match('test', '^e.*')"), False)
         self.assertEqual(self._run("match('test', 'x.*')"), False)
+        self.assertEqual(self._run("'test' =~ 'e.*'"), True)
+        self.assertEqual(self._run("'test' !~ 'e.*'"), False)
+        self.assertEqual(self._run("'test' =~ '^e.*'"), False)
+        self.assertEqual(self._run("'test' !~ '^e.*'"), True)
+        self.assertEqual(self._run("'test' =~ 'x.*'"), False)
+        self.assertEqual(self._run("'test' !~ 'x.*'"), True)
 
     def test_nested_value(self):
         my_dict = {

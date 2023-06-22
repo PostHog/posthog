@@ -142,6 +142,14 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 temp = stack.pop()
                 stack.push(!stack.pop().includes(temp))
                 break
+            case CompareOperationOp.Regex:
+                temp = stack.pop()
+                stack.push(new RegExp(stack.pop()).test(temp))
+                break
+            case CompareOperationOp.NotRegex:
+                temp = stack.pop()
+                stack.push(!new RegExp(stack.pop()).test(temp))
+                break
             case Operation.FIELD:
                 const count = iterator.next().value
                 const chain = []
@@ -158,9 +166,6 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 if (name === 'concat') {
                     stack.push(args.map((arg) => toConcatArg(arg)).join(''))
                 } else if (name === 'match') {
-                    if (args.length !== 2) {
-                        throw new Error(`match() takes exactly 2 arguments (${args.length} given)`)
-                    }
                     stack.push(new RegExp(args[1]).test(args[0]))
                 } else {
                     throw new Error(`Unsupported function call: ${name}`)

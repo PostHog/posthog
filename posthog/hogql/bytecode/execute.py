@@ -83,6 +83,12 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                 stack.append(stack.pop() in stack.pop())
             case CompareOperationOp.NotIn:
                 stack.append(stack.pop() not in stack.pop())
+            case CompareOperationOp.Regex:
+                args = [stack.pop(), stack.pop()]
+                stack.append(bool(re.search(re.compile(args[1]), args[0])))
+            case CompareOperationOp.NotRegex:
+                args = [stack.pop(), stack.pop()]
+                stack.append(not bool(re.search(re.compile(args[1]), args[0])))
             case Operation.FIELD:
                 chain = [stack.pop() for _ in range(next(iterator))]
                 stack.append(get_nested_value(fields, chain))
@@ -92,8 +98,6 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                 if name == "concat":
                     stack.append("".join([to_concat_arg(arg) for arg in args]))
                 elif name == "match":
-                    if len(args) != 2:
-                        raise HogQLException(f"match() takes exactly 2 arguments ({len(args)} given)")
                     stack.append(bool(re.search(re.compile(args[1]), args[0])))
                 else:
                     raise HogQLException(f"Unsupported function call: {name}")
