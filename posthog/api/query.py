@@ -119,7 +119,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise ValidationError(str(e), e.code_name)
         except Exception as e:
             self.handle_column_ch_error(e)
-            raise ValidationError("Error loading data")
+            raise e
 
     def handle_column_ch_error(self, error):
         if error.message:
