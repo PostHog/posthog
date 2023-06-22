@@ -10,7 +10,6 @@ import {
     PropertyOperator,
     RawAction,
     StringMatching,
-    StringMatching,
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -38,7 +37,7 @@ describe('ActionMatcher', () => {
     })
 
     /** Return a test action created on a common base using provided steps. */
-    async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
+    async function createTestAction(partialSteps: Partial<ActionStep>[], bytecode?: any[]): Promise<Action> {
         const action: RawAction = {
             id: actionCounter++,
             team_id: 2,
@@ -52,6 +51,7 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
+            bytecode: bytecode,
         }
         const steps: ActionStep[] = partialSteps.map(
             (partialStep, index) =>
@@ -1132,6 +1132,40 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFigNumber)).toEqual([])
             expect(await actionMatcher.match(eventFooTrue)).toEqual([])
             expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
+        })
+
+        it('executes bytecode if present', async () => {
+            const actionDefinitionOpIsSet: Action = await createTestAction(
+                [
+                    {
+                        properties: [], // not used, bytecode takes precedence
+                    },
+                ],
+                // properties.foo like '%bar%'
+                ['_h', '', '%bar%', '', 'foo', '', 'properties', '.', '2', 'like']
+            )
+
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: null, pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
+
+            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(await actionMatcher.match(eventFooNull)).toEqual([])
         })
     })
 

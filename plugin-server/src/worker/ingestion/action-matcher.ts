@@ -22,6 +22,7 @@ import {
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
+import { executeHogQLBytecode } from '../../utils/hogql-bytecode'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
@@ -169,6 +170,17 @@ export class ActionMatcher {
         elements: Element[] | undefined,
         action: Action
     ): Promise<boolean> {
+        if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
+            try {
+                return Boolean(executeHogQLBytecode(action.bytecode, event))
+            } catch (error) {
+                // log error and fallback to previous matching
+                captureException(error, {
+                    tags: { team_id: action.team_id },
+                    extra: { event, elements, action },
+                })
+            }
+        }
         for (const step of action.steps) {
             try {
                 if (await this.checkStep(event, elements, step)) {

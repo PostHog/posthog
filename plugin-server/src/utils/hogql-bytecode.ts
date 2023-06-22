@@ -33,7 +33,9 @@ export enum Operation {
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
-    pattern = pattern.replaceAll(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&').replaceAll('%', '.*')
+    pattern = String(pattern)
+        .replaceAll(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        .replaceAll('%', '.*')
     return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
 }
 
@@ -141,9 +143,11 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 stack.push(!stack.pop().includes(temp))
                 break
             case Operation.FIELD:
-                const chain = Array(iterator.next().value)
-                    .fill(null)
-                    .map(() => stack.pop())
+                const count = iterator.next().value
+                const chain = []
+                for (let i = 0; i < count; i++) {
+                    chain.push(stack.pop())
+                }
                 stack.push(getNestedValue(fields, chain))
                 break
             case Operation.CALL:
