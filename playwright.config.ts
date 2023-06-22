@@ -33,10 +33,8 @@ const config: PlaywrightTestConfig = {
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
-        /* Maximum time each action such as `click()` can take.
-        When set to 0 we were seeing 1000ms being applied.
-         Set "very high" since we're happy to wait */
-        actionTimeout: 30_000,
+        /* Maximum time each action such as `click()` can take. Defaults to 0 (no limit). */
+        actionTimeout: 0,
         /* Base URL to use in actions like `await page.goto('/')`. */
         // baseURL: 'http://localhost:3000',
 
