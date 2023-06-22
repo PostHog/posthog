@@ -333,10 +333,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         shouldShowEmptyState: [
             (s) => [s.sessionRecordingsResponse, s.customFilters],
             (sessionRecordingsResponse: SessionRecordingsResponse, customFilters: RecordingFilters | null): boolean => {
-                console.log('shouldShowEmptyState', {
-                    customFilters,
-                    sessionRecordingsResponse,
-                })
                 return (
                     sessionRecordingsResponse?.results.length === 0 &&
                     !!sessionRecordingsResponse?.has_called_api &&
