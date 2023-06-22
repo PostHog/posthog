@@ -42,6 +42,7 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run("'a' not like 'b'"), True)
         self.assertEqual(self._run("'a' not ilike 'b'"), True)
         self.assertEqual(self._run("'a' in 'car'"), True)
+        self.assertEqual(self._run("'a' in 'foo'"), False)
         self.assertEqual(self._run("'a' not in 'car'"), False)
         self.assertEqual(self._run("properties.bla"), None)
         self.assertEqual(self._run("properties.foo"), "bar")
