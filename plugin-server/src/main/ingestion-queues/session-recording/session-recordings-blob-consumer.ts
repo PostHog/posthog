@@ -459,8 +459,6 @@ export class SessionRecordingBlobIngester {
 
         this.sessions = new Map()
 
-        await this.redisPool.drain()
-        await this.redisPool.clear()
         gaugeRealtimeSessions.set(0)
     }
 
