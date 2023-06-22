@@ -319,7 +319,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         type="primary"
                                         to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
                                     >
-                                        Contact support
+                                        Get in touch
                                     </LemonButton>
                                 </>
                             ) : (
