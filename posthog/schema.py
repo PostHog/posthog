@@ -313,6 +313,7 @@ class PathsFilter(BaseModel):
     path_replacements: Optional[bool] = None
     path_start_key: Optional[str] = None
     path_type: Optional[PathType] = None
+    paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
     step_limit: Optional[float] = None
 
