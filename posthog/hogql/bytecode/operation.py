@@ -2,6 +2,8 @@ from enum import Enum
 
 from posthog.hogql.ast import CompareOperationOp, BinaryOperationOp
 
+HOGQL_BYTECODE_IDENTIFIER = "_h"
+
 
 class Operation(str, Enum):
     PLUS = BinaryOperationOp.Add

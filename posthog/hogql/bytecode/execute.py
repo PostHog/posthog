@@ -2,7 +2,7 @@ import re
 from typing import List, Any, Dict
 
 from posthog.hogql.ast import BinaryOperationOp, CompareOperationOp
-from posthog.hogql.bytecode.operation import Operation
+from posthog.hogql.bytecode.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from posthog.hogql.errors import HogQLException
 
 
@@ -34,6 +34,8 @@ def to_concat_arg(arg) -> str:
 def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
     stack = []
     iterator = iter(bytecode)
+    if next(iterator) != HOGQL_BYTECODE_IDENTIFIER:
+        raise HogQLException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
     while (symbol := next(iterator, None)) is not None:
         match symbol:

@@ -3,12 +3,14 @@ from typing import List, Any
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
-from posthog.hogql.bytecode.operation import Operation
+from posthog.hogql.bytecode.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
 
 def create_bytecode(expr: ast.Expr) -> List[Any]:
     try:
-        return BytecodeBuilder().visit(expr)
+        bytecode = [HOGQL_BYTECODE_IDENTIFIER]
+        bytecode.extend(BytecodeBuilder().visit(expr))
+        return bytecode
     except NotImplementedException as e:
         raise NotImplementedException(f"Unsupported HogQL bytecode node: {str(e)}")
 

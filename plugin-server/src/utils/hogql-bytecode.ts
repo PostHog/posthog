@@ -57,6 +57,10 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
     const stack: any[] = []
     const iterator = bytecode[Symbol.iterator]()
 
+    if (iterator.next().value !== '_h') {
+        throw new Error("Invalid HogQL bytecode, must start with '_h'")
+    }
+
     for (const symbol of iterator) {
         switch (symbol) {
             case undefined:
