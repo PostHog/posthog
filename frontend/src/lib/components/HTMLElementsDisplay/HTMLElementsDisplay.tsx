@@ -126,7 +126,7 @@ export function HTMLElementsDisplay({
                         <CloseAllTags elements={elements} />
                     </>
                 ) : (
-                    <div className="text-muted-light">No elements to display</div>
+                    <div className="text-side">No elements to display</div>
                 )}
             </div>
         </div>
