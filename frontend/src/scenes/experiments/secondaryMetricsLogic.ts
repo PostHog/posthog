@@ -5,11 +5,14 @@ import { dayjs } from 'lib/dayjs'
 import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
+import { InsightVizNode } from '~/queries/schema'
 
 import { PREVIEW_INSIGHT_ID } from './constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
@@ -42,7 +45,12 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     connect({
         logic: [insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
-        actions: [insightVizDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }), ['updateQuerySource']],
+        actions: [
+            insightDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            ['setQuery'],
+            insightVizDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            ['updateQuerySource'],
+        ],
     }),
     actions({
         // modal
@@ -62,7 +70,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
 
         // preview insight
         setPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
     }),
     reducers(({ props }) => ({
         isModalOpen: [
@@ -140,11 +147,11 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 })
             }
 
-            actions.setSecondaryMetricModalValue('filters', newInsightFilters)
-            actions.setFilters(newInsightFilters)
+            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        setFilters: ({ filters }) => {
-            actions.updateQuerySource(filtersToQueryNode(filters))
+        // sync form value `filters` with query
+        setQuery: ({ query }) => {
+            actions.setSecondaryMetricModalValue('filters', queryNodeToFilter((query as InsightVizNode).source))
         },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {

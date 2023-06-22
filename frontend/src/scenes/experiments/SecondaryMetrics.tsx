@@ -27,7 +27,6 @@ export function SecondaryMetrics({
         useValues(logic)
 
     const {
-        setFilters,
         deleteMetric,
         openModalToCreateSecondaryMetric,
         openModalToEditSecondaryMetric,
@@ -153,16 +152,7 @@ export function SecondaryMetrics({
                         <LemonInput />
                     </Field>
                     <Field name="filters" label="Query">
-                        {({ value, onChange }) => (
-                            <MetricSelector
-                                setPreviewInsight={setPreviewInsight}
-                                setFilters={(payload) => {
-                                    setFilters(payload)
-                                    onChange(payload)
-                                }}
-                                filters={value}
-                            />
-                        )}
+                        <MetricSelector setPreviewInsight={setPreviewInsight} />
                     </Field>
                 </Form>
             </LemonModal>

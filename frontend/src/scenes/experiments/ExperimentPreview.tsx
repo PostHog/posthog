@@ -45,7 +45,6 @@ export function ExperimentPreview({
         openExperimentGoalModal,
         closeExperimentGoalModal,
         updateExperimentGoal,
-        setFilters,
         setNewExperimentInsight,
     } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
@@ -353,16 +352,7 @@ export function ExperimentPreview({
                     className="space-y-4"
                 >
                     <Field name="filters">
-                        {({ value, onChange }) => (
-                            <MetricSelector
-                                setPreviewInsight={setNewExperimentInsight}
-                                setFilters={(payload) => {
-                                    setFilters(payload)
-                                    onChange(payload)
-                                }}
-                                filters={value}
-                            />
-                        )}
+                        <MetricSelector setPreviewInsight={setNewExperimentInsight} />
                     </Field>
                 </Form>
             </LemonModal>

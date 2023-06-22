@@ -37,6 +37,9 @@ import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { PREVIEW_INSIGHT_ID } from './constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightVizNode } from '~/queries/schema'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -89,6 +92,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentArchived',
                 'reportExperimentReset',
             ],
+            insightDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            ['setQuery'],
+            insightVizDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            ['updateQuerySource'],
         ],
     }),
     actions({
@@ -99,7 +106,6 @@ export const experimentLogic = kea<experimentLogicType>([
             sampleSize,
         }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setExperimentResultCalculationError: (error: string) => ({ error }),
@@ -313,13 +319,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
 
-            actions.setExperiment({ filters: newInsightFilters })
-            actions.setFilters(newInsightFilters)
+            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        setFilters: ({ filters }) => {
-            insightVizDataLogic
-                .findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })
-                ?.actions.updateQuerySource(filtersToQueryNode(filters))
+        // sync form value `filters` with query
+        setQuery: ({ query }) => {
+            actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)

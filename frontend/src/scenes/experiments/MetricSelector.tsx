@@ -1,27 +1,28 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+// import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { PREVIEW_INSIGHT_ID } from './constants'
 import { Query } from '~/queries/Query/Query'
+import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 
 import './Experiment.scss'
 
 export interface MetricSelectorProps {
     setPreviewInsight: (filters?: Partial<FilterType>) => void
-    setFilters: (filters: Partial<FilterType>) => void
-    filters: Partial<FilterType>
 }
 
-export function MetricSelector({ setPreviewInsight, filters, setFilters }: MetricSelectorProps): JSX.Element {
+export function MetricSelector({ setPreviewInsight }: MetricSelectorProps): JSX.Element {
     // insightLogic
     const logic = insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })
     const { insightProps } = useValues(logic)
@@ -30,9 +31,8 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
     const { query } = useValues(insightDataLogic(insightProps))
 
     // insightVizDataLogic
-    const { isTrends, series } = useValues(insightVizDataLogic(insightProps))
-
-    const experimentInsightType = filters.insight
+    const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     // calculated properties
     const filterSteps = series || []
@@ -43,7 +43,7 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
             <div className="flex items-center w-full gap-2 mb-4">
                 <span>Insight Type</span>
                 <LemonSelect
-                    value={experimentInsightType}
+                    value={isTrends ? InsightType.TRENDS : InsightType.FUNNELS}
                     onChange={(val) => {
                         val && setPreviewInsight({ insight: val })
                     }}
@@ -54,7 +54,7 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
                 />
             </div>
 
-            <div>
+            {/* <div>
                 <SamplingFilter
                     insightProps={insightProps}
                     infoTooltipContent="Sampling on experiment goals is an Alpha feature to enable faster computation of experiment results."
@@ -69,19 +69,17 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
                     initialSamplingPercentage={filters.sampling_factor ? filters.sampling_factor * 100 : null}
                 />
                 <br />
-            </div>
+            </div> */}
 
             <ActionFilter
                 bordered
-                filters={filters}
-                setFilters={(payload) => {
-                    setFilters({
-                        ...filters,
-                        insight: experimentInsightType,
-                        ...payload,
-                    })
+                filters={queryNodeToFilter(querySource as InsightQueryNode)}
+                setFilters={(payload: Partial<FilterType>): void => {
+                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as
+                        | TrendsQuery
+                        | FunnelsQuery)
                 }}
-                typeKey={`experiment-funnel-goal-${JSON.stringify(filters)}`}
+                typeKey={`experiment-funnel-goal-${isTrends ? InsightType.TRENDS : InsightType.FUNNELS}`}
                 mathAvailability={isTrends ? undefined : MathAvailability.None}
                 hideDeleteBtn={isTrends || filterSteps.length === 1}
                 buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
