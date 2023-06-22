@@ -657,15 +657,11 @@ class _Printer(Visitor):
                 return materialized_property_sql
             else:
                 for name in type.chain[1:]:
-                    key = f"hogql_val_{len(self.context.values)}"
-                    self.context.values[key] = name
-                    args.append(f"%({key})s")
+                    args.append(self.context.add_value(name))
                 return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
         for name in type.chain:
-            key = f"hogql_val_{len(self.context.values)}"
-            self.context.values[key] = name
-            args.append(f"%({key})s")
+            args.append(self.context.add_value(name))
         return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
 
     def visit_sample_expr(self, node: ast.SampleExpr):
