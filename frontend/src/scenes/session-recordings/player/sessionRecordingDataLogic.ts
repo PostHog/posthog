@@ -36,9 +36,45 @@ export const prepareRecordingSnapshots = (
     newSnapshots?: RecordingSnapshot[],
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
-    return (newSnapshots || [])
+    const seenHashes: Record<string, (RecordingSnapshot | string)[]> = {}
+
+    const prepared = (newSnapshots || [])
         .concat(existingSnapshots ? existingSnapshots ?? [] : [])
+        .filter((snapshot) => {
+            // For a multitude of reasons, there can be duplicate snapshots in the same recording.
+            // We can deduplicate by filtering out snapshots with the same timestamp and delay value (this is quite unique as a pairing)
+            const key = `${snapshot.timestamp}-${snapshot.delay}`
+
+            if (!seenHashes[key]) {
+                seenHashes[key] = [snapshot]
+            } else {
+                // If we are looking at an identical event time, we stringify the original snapshot if not already stringified,
+                // Then stringify the new snapshot and compare the two. If it is the same, we can ignore it.
+                seenHashes[key][0] =
+                    typeof seenHashes[key][0] === 'string' ? seenHashes[key][0] : JSON.stringify(seenHashes[key][0])
+                const newSnapshot = JSON.stringify(snapshot)
+                if (seenHashes[key][0] === newSnapshot) {
+                    return false
+                }
+                seenHashes[key].push(snapshot)
+            }
+
+            return true
+        })
         .sort((a, b) => a.timestamp - b.timestamp)
+
+    return prepared
+}
+
+export const convertSnapshotsByWindowId = (snapshotsByWindowId: {
+    [key: string]: eventWithTime[]
+}): RecordingSnapshot[] => {
+    return Object.entries(snapshotsByWindowId).flatMap(([windowId, snapshots]) => {
+        return snapshots.map((snapshot) => ({
+            ...snapshot,
+            windowId,
+        }))
+    })
 }
 
 // Until we change the API to return a simple list of snapshots, we need to convert this ourselves
@@ -46,14 +82,7 @@ export const convertSnapshotsResponse = (
     snapshotsByWindowId: { [key: string]: eventWithTime[] },
     existingSnapshots?: RecordingSnapshot[]
 ): RecordingSnapshot[] => {
-    const snapshots: RecordingSnapshot[] = Object.entries(snapshotsByWindowId).flatMap(([windowId, snapshots]) => {
-        return snapshots.map((snapshot) => ({
-            ...snapshot,
-            windowId,
-        }))
-    })
-
-    return prepareRecordingSnapshots(snapshots, existingSnapshots)
+    return prepareRecordingSnapshots(convertSnapshotsByWindowId(snapshotsByWindowId), existingSnapshots)
 }
 
 const generateRecordingReportDurations = (
