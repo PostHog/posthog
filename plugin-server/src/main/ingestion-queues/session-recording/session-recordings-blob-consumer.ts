@@ -53,6 +53,34 @@ const gaugeLagMilliseconds = new Gauge({
     labelNames: ['partition'],
 })
 
+/**
+ * a predicate constructed and passed to a session manager. It is called with the session start timestamp and returns
+ * whether the session should be flushed and some extra log context
+ * @param referenceNow the reference time to compare the session start timestamp to
+ * @param flushThresholdSeconds the number of seconds after which a session should be flushed
+ * @param referenceNowFlushAttemptCount the number of times the consumer has attempted to flush the session for this reference now
+ */
+export const flushOnAgePredicate = (
+    referenceNow: number,
+    flushThresholdSeconds: number,
+    referenceNowFlushAttemptCount: number
+) => {
+    return (sessionStartTimestamp: number): { shouldFlush: boolean; extraLogContext: Record<string, any> } => {
+        const bufferAge = referenceNow - sessionStartTimestamp
+        const shouldFlush = referenceNowFlushAttemptCount > 5 || bufferAge > flushThresholdSeconds
+
+        const extraLogContext = {
+            referenceTime: referenceNow,
+            referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
+            flushThreshold: flushThresholdSeconds,
+            bufferAge,
+            referenceNowFlushAttemptCount: referenceNowFlushAttemptCount,
+        }
+
+        return { shouldFlush, extraLogContext }
+    }
+}
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
@@ -378,36 +406,27 @@ export class SessionRecordingBlobIngester {
                 }
                 this.partitionNow[sessionManager.partition].attemptCount += 1
 
-                const shouldFlushBasedOnAgePredicate = (sessionStartTimestamp: number) => {
-                    const bufferAge = referenceNow - sessionStartTimestamp
-                    const referenceNowFlushAttemptCount = this.partitionNow[sessionManager.partition].attemptCount
-                    const shouldFlush =
-                        referenceNowFlushAttemptCount > 5 ||
-                        bufferAge > this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-
-                    const extraLogContext = {
-                        referenceTime: referenceNow,
-                        referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
-                        flushThreshold: this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
-                        bufferAge,
-                        referenceNowFlushAttemptCount,
-                    }
-
-                    return { shouldFlush, extraLogContext }
-                }
-
-                void sessionManager.flushIfSessionBufferIsOld(shouldFlushBasedOnAgePredicate).catch((err) => {
-                    status.error(
-                        '🚽',
-                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
-                        {
-                            err,
-                            session_id: sessionManager.sessionId,
-                        }
+                void sessionManager
+                    .flushIfSessionBufferIsOld(
+                        flushOnAgePredicate(
+                            referenceNow,
+                            this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000,
+                            this.partitionNow[sessionManager.partition].attemptCount
+                        )
                     )
-                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                    throw err
-                })
+                    .catch((err) => {
+                        status.error(
+                            '🚽',
+                            'blob_ingester_consumer - failed trying to flush on idle session: ' +
+                                sessionManager.sessionId,
+                            {
+                                err,
+                                session_id: sessionManager.sessionId,
+                            }
+                        )
+                        captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                        throw err
+                    })
 
                 // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
                 if (sessionManager.isEmpty) {

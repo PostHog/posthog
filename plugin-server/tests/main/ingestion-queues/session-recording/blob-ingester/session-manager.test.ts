@@ -88,64 +88,42 @@ describe('session-manager', () => {
         expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
     })
 
-    it('does not flush if it has received a message recently', async () => {
-        const flushThreshold = 2500 // any value here...
-        const now = DateTime.now()
-
-        const event = createIncomingRecordingMessage({
-            metadata: {
-                timestamp: now
-                    .minus({
-                        milliseconds: flushThreshold - 10, // less than the threshold
-                    })
-                    .toMillis(),
-            } as any,
-        })
-
-        await sessionManager.add(event)
-        await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
+    it('does not flush if the predicate tells it not to', async () => {
+        await sessionManager.add(createIncomingRecordingMessage())
+        await sessionManager.flushIfSessionBufferIsOld(() => ({ shouldFlush: false, extraLogContext: {} }))
 
         // as a proxy for flush having been called or not
         expect(createReadStream).not.toHaveBeenCalled()
     })
 
-    it('does flush if it has not received a message recently', async () => {
-        const flushThreshold = 2500 // any value here...
+    it('does flush if the predicate tells it to', async () => {
         const firstTimestamp = 1679568043305
         const lastTimestamp = 1679568043305 + 4000
 
-        const eventOne = createIncomingRecordingMessage({
-            events: [
-                {
-                    timestamp: firstTimestamp,
-                    type: 4,
-                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                },
-            ],
-            metadata: {
-                // the highest offset doesn't have to be received first!
-                offset: 12345,
-                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
-            } as any,
-        })
-        const eventTwo = createIncomingRecordingMessage({
-            events: [
-                {
-                    timestamp: lastTimestamp,
-                    type: 4,
-                    data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
-                },
-            ],
-            metadata: {
-                offset: 12344,
-                timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
-            } as any,
-        })
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                events: [
+                    {
+                        timestamp: firstTimestamp,
+                        type: 4,
+                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                    },
+                ],
+            })
+        )
+        await sessionManager.add(
+            createIncomingRecordingMessage({
+                events: [
+                    {
+                        timestamp: lastTimestamp,
+                        type: 4,
+                        data: { href: 'http://localhost:3001/', width: 2560, height: 1304 },
+                    },
+                ],
+            })
+        )
 
-        await sessionManager.add(eventOne)
-        await sessionManager.add(eventTwo)
-
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
+        await sessionManager.flushIfSessionBufferIsOld(() => ({ shouldFlush: true, extraLogContext: {} }))
 
         // as a proxy for flush having been called or not
         expect(createReadStream).toHaveBeenCalled()
@@ -159,26 +137,6 @@ describe('session-manager', () => {
                 }),
             })
         )
-    })
-
-    it('does not flush a short session even when lagging if within threshold', async () => {
-        // a timestamp that means the message is older than threshold and all-things-being-equal should flush
-        // uses timestamps offset from now to show this logic still works even if the consumer is running behind
-        const aDayInMilliseconds = 24 * 60 * 60 * 1000
-        const now = DateTime.now()
-
-        const event = createIncomingRecordingMessage({
-            metadata: {
-                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
-            } as any,
-        })
-
-        await sessionManager.add(event)
-
-        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
-
-        // as a proxy for flush having been called or not
-        expect(createReadStream).not.toHaveBeenCalled()
     })
 
     it('flushes messages', async () => {
