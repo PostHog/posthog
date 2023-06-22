@@ -5,7 +5,8 @@ describe('flush on age predicate', () => {
         ['copes when times are back to front', 100, 100, 0, 201, false, -101],
         ['does not flush exactly on threshold', 200, 100, 0, 100, false, 100],
         ['flushes when past threshold', 200, 100, 0, 99, true, 101],
-        ['flushes when not past threshold but attempt count is too high', 200, 100, 6, 199, true, 1],
+        ['flushes when not past threshold and attempt count is not yet too high', 200, 100, 30, 199, false, 1],
+        ['flushes when not past threshold but attempt count is too high', 200, 100, 31, 199, true, 1],
     ])(
         'flush predicate behaves as expected: %s',
         (

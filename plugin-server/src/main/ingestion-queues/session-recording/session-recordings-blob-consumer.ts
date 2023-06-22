@@ -67,7 +67,9 @@ export const flushOnAgePredicate = (
 ) => {
     return (sessionStartTimestamp: number): { shouldFlush: boolean; extraLogContext: Record<string, any> } => {
         const bufferAge = referenceNow - sessionStartTimestamp
-        const shouldFlush = referenceNowFlushAttemptCount > 5 || bufferAge > flushThresholdSeconds
+        // for now hardcode this threshold. At 30 seconds per flush, this is 15 minutes of trying to flush and failing
+        const tooManyAttempts = referenceNowFlushAttemptCount > 30
+        const shouldFlush = tooManyAttempts || bufferAge > flushThresholdSeconds
 
         const extraLogContext = {
             referenceTime: referenceNow,
