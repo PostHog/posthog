@@ -6,7 +6,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
 
 
-class TestBytecodeCreate(BaseTest):
+class TestBytecodeExecute(BaseTest):
     def _run(self, expr: str) -> Any:
         fields = {
             "properties": {"foo": "bar"},
