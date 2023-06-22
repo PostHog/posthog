@@ -20,7 +20,7 @@ class TestBytecodeCreate(BaseTest):
             ["", 2, "", 1, "or", 2, "", 2, "", 1, "or", 2, "and", 2],
         )
         self.assertEqual(self._run("not true"), ["", True, "not"])
-        self.assertEqual(self._run("properties.bla"), [".", 2, "properties", "bla"])
+        self.assertEqual(self._run("properties.bla"), ["", "bla", "", "properties", ".", 2])
         self.assertEqual(self._run("call('arg', 'another')"), ["", "another", "", "arg", "()", "call", 2])
         self.assertEqual(self._run("1 = 2"), ["", 2, "", 1, "=="])
         self.assertEqual(self._run("1 == 2"), ["", 2, "", 1, "=="])
@@ -38,5 +38,5 @@ class TestBytecodeCreate(BaseTest):
 
     def test_bytecode_create_error(self):
         with self.assertRaises(NotImplementedException) as e:
-            self._run("1[1]")
-        self.assertEqual(str(e.exception), "Unsupported HogQL bytecode node: Visitor has no method visit_array_access")
+            self._run("(select 1)")
+        self.assertEqual(str(e.exception), "Unsupported HogQL bytecode node: Visitor has no method visit_select_query")

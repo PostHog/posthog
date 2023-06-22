@@ -94,7 +94,7 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
             case CompareOperationOp.NotIn:
                 stack.append(stack.pop() not in stack.pop())
             case Operation.FIELD:
-                chain = [next(iterator) for _ in range(next(iterator))]
+                chain = [stack.pop() for _ in range(next(iterator))]
                 stack.append(get_nested_value(fields, chain))
             case Operation.CALL:
                 name = next(iterator)

@@ -40,7 +40,16 @@ class BytecodeBuilder(Visitor):
         return [*self.visit(node.right), *self.visit(node.left), node.op]
 
     def visit_field(self, node: ast.Field):
-        return [Operation.FIELD, len(node.chain), *node.chain]
+        chain = []
+        for element in reversed(node.chain):
+            chain.extend([Operation.CONSTANT, element])
+        return [*chain, Operation.FIELD, len(node.chain)]
+
+    def visit_tuple_access(self, node: ast.TupleAccess):
+        return [Operation.CONSTANT, node.index, Operation.FIELD, 1]
+
+    def visit_array_access(self, node: ast.ArrayAccess):
+        return [*self.visit(node.property), Operation.FIELD, 1]
 
     def visit_constant(self, node: ast.Constant):
         return [Operation.CONSTANT, node.value]
