@@ -1,8 +1,40 @@
+import re
 from typing import List, Any, Dict
 
-from posthog.hogql.ast import BinaryOperationOp
+from posthog.hogql.ast import BinaryOperationOp, CompareOperationOp
 from posthog.hogql.bytecode.operation import Operation
 from posthog.hogql.errors import HogQLException
+
+
+def like(pattern, string):
+    pattern = re.escape(pattern).replace("\\%", ".*")
+    re_pattern = re.compile(pattern)
+    return re_pattern.match(string) is not None
+
+
+def ilike(pattern, string):
+    pattern = re.escape(pattern).replace("\\%", ".*")
+    re_pattern = re.compile(pattern, re.IGNORECASE)
+    return re_pattern.match(string) is not None
+
+
+def get_nested_value(obj, chain) -> Any:
+    for key in chain:
+        if isinstance(key, int):
+            obj = obj[key]
+        else:
+            obj = obj.get(key, None)
+    return obj
+
+
+def to_concat_arg(arg) -> str:
+    if arg is None:
+        return ""
+    if arg is True:
+        return "true"
+    if arg is False:
+        return "false"
+    return str(arg)
 
 
 def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
@@ -18,17 +50,59 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
             case Operation.NOT:
                 stack.append(not stack.pop())
             case Operation.AND:
-                stack.append(stack.pop() and stack.pop())
+                response = True
+                for _ in range(next(iterator)):
+                    response = response and stack.pop()
+                stack.append(response)
             case Operation.OR:
-                stack.append(stack.pop() or stack.pop())
+                response = False
+                for _ in range(next(iterator)):
+                    response = response or stack.pop()
+                stack.append(response)
             case BinaryOperationOp.Add:
                 stack.append(stack.pop() + stack.pop())
-            case Operation.MINUS:
+            case BinaryOperationOp.Sub:
                 stack.append(stack.pop() - stack.pop())
-            case Operation.DIVIDE:
+            case BinaryOperationOp.Div:
                 stack.append(stack.pop() / stack.pop())
-            case Operation.MULTIPLY:
+            case BinaryOperationOp.Mult:
                 stack.append(stack.pop() * stack.pop())
+            case BinaryOperationOp.Mod:
+                stack.append(stack.pop() % stack.pop())
+            case CompareOperationOp.Eq:
+                stack.append(stack.pop() == stack.pop())
+            case CompareOperationOp.NotEq:
+                stack.append(stack.pop() != stack.pop())
+            case CompareOperationOp.Gt:
+                stack.append(stack.pop() > stack.pop())
+            case CompareOperationOp.GtE:
+                stack.append(stack.pop() >= stack.pop())
+            case CompareOperationOp.Lt:
+                stack.append(stack.pop() < stack.pop())
+            case CompareOperationOp.LtE:
+                stack.append(stack.pop() <= stack.pop())
+            case CompareOperationOp.Like:
+                stack.append(like(stack.pop(), stack.pop()))
+            case CompareOperationOp.ILike:
+                stack.append(ilike(stack.pop(), stack.pop()))
+            case CompareOperationOp.NotLike:
+                stack.append(not like(stack.pop(), stack.pop()))
+            case CompareOperationOp.NotILike:
+                stack.append(not ilike(stack.pop(), stack.pop()))
+            case CompareOperationOp.In:
+                stack.append(stack.pop() in stack.pop())
+            case CompareOperationOp.NotIn:
+                stack.append(stack.pop() not in stack.pop())
+            case Operation.FIELD:
+                chain = [next(iterator) for _ in range(next(iterator))]
+                stack.append(get_nested_value(fields, chain))
+            case Operation.CALL:
+                name = next(iterator)
+                args = [stack.pop() for _ in range(next(iterator))]
+                if name == "concat":
+                    stack.append("".join([to_concat_arg(arg) for arg in args]))
+                else:
+                    raise HogQLException(f"Unsupported function call: {name}")
             case _:
-                raise HogQLException("Unexpected node while running bytecode!")
+                raise HogQLException(f"Unexpected node while running bytecode: {symbol}")
     return stack.pop()

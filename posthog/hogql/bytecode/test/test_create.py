@@ -1,6 +1,7 @@
 from typing import List
 
 from posthog.hogql.bytecode.create import create_bytecode
+from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
 
@@ -18,20 +19,24 @@ class TestBytecodeCreate(BaseTest):
             self._run("(1 or 2) and (1 or 2)"),
             ["", 2, "", 1, "or", 2, "", 2, "", 1, "or", 2, "and", 2],
         )
-        # self.assertEqual(self._run("not true"), ["not", "", True])
-        # self.assertEqual(self._run("properties.bla"), [".", 2, "properties", "bla"])
-        # self.assertEqual(self._run("call('arg', 'another')"), ["()", "call", 2, "", "arg", "", "another"])
-        # self.assertEqual(self._run("1 = 2"), ["==", "", 1, "", 2])
-        # self.assertEqual(self._run("1 == 2"), ["==", "", 1, "", 2])
-        # self.assertEqual(self._run("1 < 2"), ["<", "", 1, "", 2])
-        # self.assertEqual(self._run("1 <= 2"), ["<=", "", 1, "", 2])
-        # self.assertEqual(self._run("1 > 2"), [">", "", 1, "", 2])
-        # self.assertEqual(self._run("1 >= 2"), [">=", "", 1, "", 2])
-        # self.assertEqual(self._run("1 like 2"), ["like", "", 1, "", 2])
-        # self.assertEqual(self._run("1 ilike 2"), ["ilike", "", 1, "", 2])
-        # self.assertEqual(self._run("1 not like 2"), ["not like", "", 1, "", 2])
-        # self.assertEqual(self._run("1 not ilike 2"), ["not ilike", "", 1, "", 2])
-        # self.assertEqual(self._run("1 in 2"), ["in", "", 1, "", 2])
-        # self.assertEqual(self._run("1 not in 2"), ["not in", "", 1, "", 2])
-        # self.assertEqual(self._run("1 =~ 2"), ["=~", "", 1, "", 2])
-        # self.assertEqual(self._run("1 !~ 2"), ["!~", "", 1, "", 2])
+        self.assertEqual(self._run("not true"), ["", True, "not"])
+        self.assertEqual(self._run("properties.bla"), [".", 2, "properties", "bla"])
+        self.assertEqual(self._run("call('arg', 'another')"), ["", "another", "", "arg", "()", "call", 2])
+        self.assertEqual(self._run("1 = 2"), ["", 2, "", 1, "=="])
+        self.assertEqual(self._run("1 == 2"), ["", 2, "", 1, "=="])
+        self.assertEqual(self._run("1 != 2"), ["", 2, "", 1, "!="])
+        self.assertEqual(self._run("1 < 2"), ["", 2, "", 1, "<"])
+        self.assertEqual(self._run("1 <= 2"), ["", 2, "", 1, "<="])
+        self.assertEqual(self._run("1 > 2"), ["", 2, "", 1, ">"])
+        self.assertEqual(self._run("1 >= 2"), ["", 2, "", 1, ">="])
+        self.assertEqual(self._run("1 like 2"), ["", 2, "", 1, "like"])
+        self.assertEqual(self._run("1 ilike 2"), ["", 2, "", 1, "ilike"])
+        self.assertEqual(self._run("1 not like 2"), ["", 2, "", 1, "not like"])
+        self.assertEqual(self._run("1 not ilike 2"), ["", 2, "", 1, "not ilike"])
+        self.assertEqual(self._run("1 in 2"), ["", 2, "", 1, "in"])
+        self.assertEqual(self._run("1 not in 2"), ["", 2, "", 1, "not in"])
+
+    def test_bytecode_create_error(self):
+        with self.assertRaises(NotImplementedException) as e:
+            self._run("1[1]")
+        self.assertEqual(str(e.exception), "Unsupported HogQL bytecode node: Visitor has no method visit_array_access")

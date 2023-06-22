@@ -1,15 +1,19 @@
 from typing import List, Any
 
 from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.errors import NotImplementedException
+from posthog.hogql.visitor import Visitor
 from posthog.hogql.bytecode.operation import Operation
 
 
 def create_bytecode(expr: ast.Expr) -> List[Any]:
-    return BytecodeBuilder().visit(expr)
+    try:
+        return BytecodeBuilder().visit(expr)
+    except NotImplementedException as e:
+        raise NotImplementedException(f"Unsupported HogQL bytecode node: {str(e)}")
 
 
-class BytecodeBuilder(CloningVisitor):
+class BytecodeBuilder(Visitor):
     def visit_and(self, node: ast.And):
         response = []
         for expr in reversed(node.exprs):
@@ -43,7 +47,7 @@ class BytecodeBuilder(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         response = []
-        for expr in node.args:
+        for expr in reversed(node.args):
             response.extend(self.visit(expr))
         response.extend([Operation.CALL, node.name, len(node.args)])
         return response
