@@ -14,7 +14,14 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
         raise HogQLException("cohort() takes only constant arguments", node=arg)
 
     from posthog.models import Cohort
-    from posthog.hogql.property import cohort_subquery
+    from posthog.hogql.parser import parse_expr
+
+    def cohort_subquery(cohort_id, is_static) -> ast.Expr:
+        if is_static:
+            sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+        else:
+            sql = "(SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+        return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)})
 
     if isinstance(arg.value, int) and not isinstance(arg.value, bool):
         cohorts = Cohort.objects.filter(id=arg.value, team_id=context.team_id).values_list("id", "is_static")
