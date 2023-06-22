@@ -12,9 +12,9 @@ interface SurveyAppearanceProps {
 export function SurveyAppearance({ question, appearance, onAppearanceChange }: SurveyAppearanceProps): JSX.Element {
     return (
         <>
-            <h3 className="mb-4">Preview</h3>
+            <h3 className="mb-4 text-center">Preview</h3>
             <BaseAppearance question={question} appearance={appearance} />
-            <div>Background color</div>
+            <div className="mt-2">Background color</div>
             <LemonInput
                 value={appearance.backgroundColor}
                 onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}

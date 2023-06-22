@@ -242,14 +242,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         >
                             Add condition set
                         </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            className="mt-0 w-max"
-                            onClick={addConditionSet}
-                            icon={<IconPlus />}
-                        >
-                            Add condition set
-                        </LemonButton>
                     </PureField>
                 </div>
                 <div className="flex flex-col flex-1 items-center">
