@@ -167,6 +167,14 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                     stack.push(args.map((arg) => toConcatArg(arg)).join(''))
                 } else if (name === 'match') {
                     stack.push(new RegExp(args[1]).test(args[0]))
+                } else if (name == 'toString' || name == 'toUUID') {
+                    stack.push(String(args[0] ?? null))
+                } else if (name == 'toInt') {
+                    const value = parseInt(args[0])
+                    stack.push(isNaN(value) ? null : value)
+                } else if (name == 'toFloat') {
+                    const value = parseFloat(args[0])
+                    stack.push(isNaN(value) ? null : value)
                 } else {
                     throw new Error(`Unsupported function call: ${name}`)
                 }

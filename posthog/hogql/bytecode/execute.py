@@ -99,6 +99,20 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                     stack.append("".join([to_concat_arg(arg) for arg in args]))
                 elif name == "match":
                     stack.append(bool(re.search(re.compile(args[1]), args[0])))
+                elif name == "toString" or name == "toUUID":
+                    if args[0] is True:
+                        stack.append("true")
+                    elif args[0] is False:
+                        stack.append("false")
+                    elif args[0] is None:
+                        stack.append("null")
+                    else:
+                        stack.append(str(args[0]))
+                elif name == "toInt" or name == "toFloat":
+                    try:
+                        stack.append(int(args[0]) if name == "toInt" else float(args[0]))
+                    except ValueError:
+                        stack.append(None)
                 else:
                     raise HogQLException(f"Unsupported function call: {name}")
             case _:

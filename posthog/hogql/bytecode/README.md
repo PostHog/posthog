@@ -59,3 +59,7 @@ toInt(val)              # toInt('123') == 123
 toFloat(val)            # toFloat('123.2') == 123.2
 toUUID(val)             # toUUID('string') == 'string'
 ```
+
+## Notable missing features
+
+- As of now, there is no support for `DateTime` comparisons.

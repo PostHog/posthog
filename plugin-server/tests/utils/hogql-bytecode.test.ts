@@ -46,6 +46,16 @@ describe('HogQL Bytecode', () => {
         expect(executeHogQLBytecode(['_h', '', 'e.*', '', 'test', Operation.CALL, 'match', 2], fields)).toBe(true)
         expect(executeHogQLBytecode(['_h', '', '^e.*', '', 'test', Operation.CALL, 'match', 2], fields)).toBe(false)
         expect(executeHogQLBytecode(['_h', '', 'x.*', '', 'test', Operation.CALL, 'match', 2], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', '', 1, Operation.CALL, 'toString', 1], fields)).toBe('1')
+        expect(executeHogQLBytecode(['_h', '', 1.5, Operation.CALL, 'toString', 1], fields)).toBe('1.5')
+        expect(executeHogQLBytecode(['_h', '', true, Operation.CALL, 'toString', 1], fields)).toBe('true')
+        expect(executeHogQLBytecode(['_h', '', null, Operation.CALL, 'toString', 1], fields)).toBe('null')
+        expect(executeHogQLBytecode(['_h', '', 'string', Operation.CALL, 'toString', 1], fields)).toBe('string')
+        expect(executeHogQLBytecode(['_h', '', '1', Operation.CALL, 'toInt', 1], fields)).toBe(1)
+        expect(executeHogQLBytecode(['_h', '', 'bla', Operation.CALL, 'toInt', 1], fields)).toBe(null)
+        expect(executeHogQLBytecode(['_h', '', '1.2', Operation.CALL, 'toFloat', 1], fields)).toBe(1.2)
+        expect(executeHogQLBytecode(['_h', '', 'bla', Operation.CALL, 'toFloat', 1], fields)).toBe(null)
+        expect(executeHogQLBytecode(['_h', '', 'asd', Operation.CALL, 'toUUID', 1], fields)).toBe('asd')
     })
 
     test('error handling', () => {
