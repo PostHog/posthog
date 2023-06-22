@@ -133,7 +133,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
         SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
-        POSTHOG_SESSION_RECORDING_REDIS_PORT: 6379,
+        POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
     }
 }
 
