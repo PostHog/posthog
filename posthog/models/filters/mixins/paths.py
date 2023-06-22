@@ -101,10 +101,10 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
             return cast(PathType, PAGEVIEW_EVENT), {"event": PAGEVIEW_EVENT}
 
 
-class PathsHogQLExpressionMixin(BaseParamMixin):
+class PathsHogQLExpressionMixin(PathTypeMixin):
     @cached_property
     def paths_hogql_expression(self) -> Optional[str]:
-        if CUSTOM_EVENT in self._data.get(PATHS_INCLUDE_EVENT_TYPES, []):
+        if self.path_type == CUSTOM_EVENT or CUSTOM_EVENT in self._data.get(PATHS_INCLUDE_EVENT_TYPES, []):
             return self._data.get(PATHS_HOGQL_EXPRESSION, "event")
         else:
             return None

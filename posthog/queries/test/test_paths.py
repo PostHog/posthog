@@ -247,6 +247,46 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3]["target"], "3_custom_event_3")
         self.assertEqual(response[3]["value"], 1)
 
+    def test_custom_hogql_paths(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_4"])
+
+        _create_event(distinct_id="person_1", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_1", event="custom_event_3", team=self.team, properties={"a": "!"}),
+        _create_event(
+            properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team
+        ),  # should be ignored,
+        _create_event(distinct_id="person_2", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_2", event="custom_event_2", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_2", event="custom_event_3", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_3", event="custom_event_2", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_3", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_4", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_4", event="custom_event_2", team=self.team, properties={"a": "!"}),
+
+        filter = PathFilter(
+            data={"path_type": "custom_event", "paths_hogql_expression": "event || properties.a"}, team=self.team
+        )
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(response[0]["source"], "1_custom_event_1!", response)
+        self.assertEqual(response[0]["target"], "2_custom_event_2!")
+        self.assertEqual(response[0]["value"], 2)
+
+        self.assertEqual(response[1]["source"], "1_custom_event_1!")
+        self.assertEqual(response[1]["target"], "2_custom_event_3!")
+        self.assertEqual(response[1]["value"], 1)
+
+        self.assertEqual(response[2]["source"], "1_custom_event_2!")
+        self.assertEqual(response[2]["target"], "2_custom_event_1!")
+        self.assertEqual(response[2]["value"], 1)
+
+        self.assertEqual(response[3]["source"], "2_custom_event_2!", response[3])
+        self.assertEqual(response[3]["target"], "3_custom_event_3!")
+        self.assertEqual(response[3]["value"], 1)
+
     def test_screen_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person_2a", "person_2b"])
