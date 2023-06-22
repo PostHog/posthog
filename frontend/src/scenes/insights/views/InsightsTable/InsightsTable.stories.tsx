@@ -16,7 +16,7 @@ import { CalcColumnState } from './insightsTableLogic'
 
 const Template: ComponentStory<typeof InsightsTableComponent> = (props: Partial<InsightsTableComponentProps>) => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../__mocks__/trendsLineBreakdown.json')
+    const insight = require('../../../../mocks/fixtures/api/projects/:team_id/insights/trendsLineBreakdown.json')
     const insightProps = { dashboardItemId: `${insight.short_id}` }
 
     const [aggregation, setAggregation] = useState(AggregationType.Total)
