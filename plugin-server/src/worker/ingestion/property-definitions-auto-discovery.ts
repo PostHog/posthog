@@ -81,7 +81,7 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
         return PropertyType.String
     }
 
-    if (/^\$feature\//i.test(key)) {
+    if (key.indexOf('$feature/') === 0) {
         // $feature/ prefixed properties should always be detected as strings.
         // These are feature flag values, and can be boolean or string.
         // Sometimes the first value sent is boolean (because flag isn't enabled) while

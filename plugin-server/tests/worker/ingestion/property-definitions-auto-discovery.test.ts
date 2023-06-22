@@ -47,6 +47,7 @@ describe('property definitions auto discovery', () => {
             )
             expect(detectPropertyDefinitionTypes('true', '$$feature/my-feature')).toEqual(PropertyType.Boolean)
             expect(detectPropertyDefinitionTypes('true', ' $feature/my-feature')).toEqual(PropertyType.Boolean)
+            expect(detectPropertyDefinitionTypes('true', '$feat/$feature/my-feature')).toEqual(PropertyType.Boolean)
             expect(detectPropertyDefinitionTypes('true', '$features/my-feature')).toEqual(PropertyType.Boolean)
             expect(detectPropertyDefinitionTypes('["a","b","c"]', '$active_feature_flags')).toEqual(PropertyType.String)
             expect(detectPropertyDefinitionTypes(12, 'feature_flag')).toEqual(PropertyType.Numeric)
