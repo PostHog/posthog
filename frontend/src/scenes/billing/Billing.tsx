@@ -23,8 +23,8 @@ export const scene: SceneExport = {
     logic: billingLogic,
 }
 
-export function BillingPageHeader(): JSX.Element {
-    return <PageHeader title="Billing &amp; usage" />
+export function BillingPageHeader({ buttons }: { buttons?: JSX.Element | false }): JSX.Element {
+    return <PageHeader title="Billing &amp; usage" buttons={buttons} />
 }
 
 export function Billing(): JSX.Element {
@@ -114,10 +114,9 @@ export function Billing(): JSX.Element {
     return (
         <div ref={ref}>
             {!isOnboarding && (
-                <div className="flex justify-between">
-                    <BillingPageHeader />
-                    {billing?.has_active_subscription && (
-                        <div>
+                <BillingPageHeader
+                    buttons={
+                        billing?.has_active_subscription && (
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
@@ -127,9 +126,9 @@ export function Billing(): JSX.Element {
                             >
                                 Manage card details
                             </LemonButton>
-                        </div>
-                    )}
-                </div>
+                        )
+                    }
+                />
             )}
             {showLicenseDirectInput && (
                 <>
@@ -157,16 +156,16 @@ export function Billing(): JSX.Element {
             ) : null}
             {!billing?.has_active_subscription && cloudOrDev && (
                 <>
-                    <div className="my-8">
+                    <div className="my-4">
                         <BillingHero />
                     </div>
                 </>
             )}
             <div
-                className={clsx('flex flex-wrap gap-4', {
-                    'flex-col pb-4 items-stretch': size === 'small',
-                    'items-center': size !== 'small',
-                })}
+                className={clsx(
+                    'flex flex-wrap gap-4',
+                    size === 'small' ? 'flex-col pb-4 items-stretch' : 'items-center'
+                )}
             >
                 {!isOnboarding && billing?.billing_period && (
                     <div className="flex-1">
@@ -239,7 +238,7 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between">
                 <h2>Products</h2>
                 {isOnboarding && (
                     <LemonButton
@@ -248,11 +247,11 @@ export function Billing(): JSX.Element {
                         to={getUpgradeAllProductsLink()}
                         disableClientSideRouting
                     >
-                        Upgrade All
+                        Upgrade all
                     </LemonButton>
                 )}
             </div>
-            <LemonDivider className="mt-2 mb-8" />
+            <LemonDivider className="mt-2 mb-6" />
 
             {products
                 ?.filter((product) => !product.inclusion_only || product.contact_support)

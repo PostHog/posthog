@@ -1,6 +1,6 @@
 .BillingHero {
     background-color: var(--mark-color);
-    border-radius: 0.5rem;
+    border-radius: var(--radius);
     position: relative;
     display: flex;
     flex-direction: row;

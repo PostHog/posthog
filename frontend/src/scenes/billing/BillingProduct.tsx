@@ -280,14 +280,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     }
 
     return (
-        <div
-            className={clsx('flex flex-wrap max-w-xl pb-12', {
-                'flex-col pb-4': size === 'small',
-            })}
-            ref={ref}
-        >
-            <div className="border border-border rounded w-full bg-white">
-                <div className="border-b border-border bg-mid p-4">
+        <div className={clsx('flex flex-wrap max-w-xl', size === 'small' ? 'flex-col pb-6' : 'pb-12')} ref={ref}>
+            <div className="border rounded w-full bg-white">
+                <div className="border-b bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {product.image_url ? (
                             <img
@@ -514,20 +509,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )}
                         </div>
                     )}
-                    {!isOnboarding && product.addons?.length > 0 && (
-                        <div className="pb-8">
-                            <h4 className="mb-4">Addons</h4>
-                            <div className="gap-y-4 flex flex-col">
-                                {product.addons.map((addon, i) => {
-                                    return <BillingProductAddon key={i} addon={addon} />
-                                })}
-                            </div>
-                        </div>
-                    )}
                 </div>
                 {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
                     <div
-                        className={`border-t border-border p-8 flex justify-between ${
+                        className={`p-8 flex justify-between ${
                             product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
                         }`}
                     >
@@ -627,12 +612,16 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </div>
                             </div>
                         )}
-                        <PlanComparisonModal
-                            product={product}
-                            includeAddons={isOnboarding}
-                            modalOpen={isPlanComparisonModalOpen}
-                            onClose={toggleIsPlanComparisonModalOpen}
-                        />
+                    </div>
+                )}
+                {!isOnboarding && product.addons?.length > 0 && (
+                    <div className="p-4">
+                        <h4 className="mb-4">Addons</h4>
+                        <div className="gap-y-4 flex flex-col">
+                            {product.addons.map((addon, i) => {
+                                return <BillingProductAddon key={i} addon={addon} />
+                            })}
+                        </div>
                     </div>
                 )}
                 <BillingLimitInput product={product} />
@@ -642,6 +631,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 onClose={toggleIsPricingModalOpen}
                 product={product}
                 planKey={product.subscribed ? currentPlanKey : upgradeToPlanKey}
+            />
+            <PlanComparisonModal
+                product={product}
+                includeAddons={isOnboarding}
+                modalOpen={isPlanComparisonModalOpen}
+                onClose={toggleIsPlanComparisonModalOpen}
             />
         </div>
     )
