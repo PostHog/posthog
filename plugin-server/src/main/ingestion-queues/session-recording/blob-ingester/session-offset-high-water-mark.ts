@@ -134,7 +134,7 @@ export class SessionOffsetHighWaterMark {
                     ...tp,
                     offset,
                 })
-                const currentHighWaterMarks = this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`]
+                const currentHighWaterMarks = this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`] || {}
                 // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
                 Object.keys(currentHighWaterMarks).forEach((sessionId) => {
                     if (currentHighWaterMarks[sessionId] <= offset) {
