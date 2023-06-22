@@ -11,25 +11,29 @@ def create_bytecode(expr: ast.Expr) -> List[Any]:
 
 class BytecodeBuilder(CloningVisitor):
     def visit_and(self, node: ast.And):
-        response = [Operation.AND, len(node.exprs)]
-        for expr in node.exprs:
+        response = []
+        for expr in reversed(node.exprs):
             response.extend(self.visit(expr))
+        response.append(Operation.AND)
+        response.append(len(node.exprs))
         return response
 
     def visit_or(self, node: ast.Or):
-        response = [Operation.OR, len(node.exprs)]
-        for expr in node.exprs:
+        response = []
+        for expr in reversed(node.exprs):
             response.extend(self.visit(expr))
+        response.append(Operation.OR)
+        response.append(len(node.exprs))
         return response
 
     def visit_not(self, node: ast.Not):
-        return [Operation.NOT, *self.visit(node.expr)]
+        return [*self.visit(node.expr), Operation.NOT]
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        return [node.op, *self.visit(node.left), *self.visit(node.right)]
+        return [*self.visit(node.right), *self.visit(node.left), node.op]
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
-        return [node.op, *self.visit(node.left), *self.visit(node.right)]
+        return [*self.visit(node.right), *self.visit(node.left), node.op]
 
     def visit_field(self, node: ast.Field):
         return [Operation.FIELD, len(node.chain), *node.chain]
@@ -38,7 +42,8 @@ class BytecodeBuilder(CloningVisitor):
         return [Operation.CONSTANT, node.value]
 
     def visit_call(self, node: ast.Call):
-        response = [Operation.CALL, node.name, len(node.args)]
+        response = []
         for expr in node.args:
             response.extend(self.visit(expr))
+        response.extend([Operation.CALL, node.name, len(node.args)])
         return response
