@@ -136,16 +136,18 @@ export class SessionManager {
         }
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(
+        shouldFlushPredicate: (sessionStartTimestamp: number) => {
+            shouldFlush: boolean
+            extraLogContext: Record<string, any>
+        }
+    ): Promise<void> {
         if (this.destroying) {
             return
         }
 
-        const logContext: Record<string, any> = {
+        let logContext: Record<string, any> = {
             ...this.logContext(),
-            referenceTime: referenceNow,
-            referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
-            flushThresholdMillis,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -157,10 +159,14 @@ export class SessionManager {
             return
         }
 
-        const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
-        logContext['bufferAge'] = bufferAge
+        const { shouldFlush, extraLogContext } = shouldFlushPredicate(this.buffer.oldestKafkaTimestamp)
 
-        if (bufferAge >= flushThresholdMillis) {
+        logContext = {
+            ...logContext,
+            ...extraLogContext,
+        }
+
+        if (shouldFlush) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
