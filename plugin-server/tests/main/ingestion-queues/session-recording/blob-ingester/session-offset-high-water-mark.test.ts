@@ -38,7 +38,9 @@ describe('session offset high-water mark', () => {
 
         it('can add a high-water mark', async () => {
             await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'some-session', 123)
-            expect(sessionOffsetHighWaterMark.getWatermarkFor('topic', 1)).toEqual({ 'some-session': 123 })
+            expect(sessionOffsetHighWaterMark.getWatermarkFor({ topic: 'topic', partition: 1 })).toEqual({
+                'some-session': 123,
+            })
         })
     })
 
