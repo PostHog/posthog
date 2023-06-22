@@ -1,7 +1,6 @@
 import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,7 +23,6 @@ import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -37,6 +35,8 @@ import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { PREVIEW_INSIGHT_ID } from './constants'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -317,11 +317,9 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setFilters(newInsightFilters)
         },
         setFilters: ({ filters }) => {
-            if (values.experimentInsightType === InsightType.FUNNELS) {
-                funnelLogic.findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })?.actions.setFilters(filters)
-            } else {
-                trendsLogic.findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })?.actions.setFilters(filters)
-            }
+            insightVizDataLogic
+                .findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })
+                ?.actions.updateQuerySource(filtersToQueryNode(filters))
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)

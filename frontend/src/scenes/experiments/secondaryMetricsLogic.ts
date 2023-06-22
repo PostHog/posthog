@@ -1,16 +1,18 @@
 import { actions, connect, kea, listeners, path, props, key, reducers } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { forms } from 'kea-forms'
+import { dayjs } from 'lib/dayjs'
+
 import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+
+import { PREVIEW_INSIGHT_ID } from './constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
-import { dayjs } from 'lib/dayjs'
-import { forms } from 'kea-forms'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { PREVIEW_INSIGHT_ID } from './constants'
 
 const DEFAULT_DURATION = 14
 
@@ -40,12 +42,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     connect({
         logic: [insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
-        actions: [
-            trendsLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
-            ['setFilters as setTrendsFilters'],
-            funnelLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
-            ['setFilters as setFunnelFilters'],
-        ],
+        actions: [insightVizDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }), ['updateQuerySource']],
     }),
     actions({
         // modal
@@ -147,11 +144,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             actions.setFilters(newInsightFilters)
         },
         setFilters: ({ filters }) => {
-            if (filters.insight === InsightType.FUNNELS) {
-                actions.setFunnelFilters(filters)
-            } else {
-                actions.setTrendsFilters(filters)
-            }
+            actions.updateQuerySource(filtersToQueryNode(filters))
         },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {
