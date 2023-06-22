@@ -28,7 +28,7 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
         },
         {
             type: PathType.CustomEvent,
-            label: 'Custom events',
+            label: 'Custom HogQL expression',
             selected: includeEventTypes?.includes(PathType.CustomEvent),
         },
     ]

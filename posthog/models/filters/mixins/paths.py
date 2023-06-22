@@ -16,6 +16,7 @@ from posthog.constants import (
     PATH_REPLACEMENTS,
     PATH_START_KEY,
     PATH_TYPE,
+    PATHS_HOGQL_EXPRESSION,
     PATHS_EXCLUDE_EVENTS,
     PATHS_INCLUDE_CUSTOM_EVENTS,
     PATHS_INCLUDE_EVENT_TYPES,
@@ -98,6 +99,19 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
             return None, {}
         else:
             return cast(PathType, PAGEVIEW_EVENT), {"event": PAGEVIEW_EVENT}
+
+
+class PathsHogQLExpressionMixin(BaseParamMixin):
+    @cached_property
+    def paths_hogql_expression(self) -> Optional[str]:
+        if CUSTOM_EVENT in self._data.get(PATHS_INCLUDE_EVENT_TYPES, []):
+            return self._data.get(PATHS_HOGQL_EXPRESSION, "event")
+        else:
+            return None
+
+    @include_dict
+    def paths_hogql_expression_to_dict(self):
+        return {"paths_hogql_expression": self.paths_hogql_expression} if self.paths_hogql_expression else {}
 
 
 class TargetEventsMixin(BaseParamMixin):

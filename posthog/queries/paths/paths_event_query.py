@@ -7,6 +7,7 @@ from posthog.constants import (
     PAGEVIEW_EVENT,
     SCREEN_EVENT,
 )
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
@@ -58,17 +59,22 @@ class PathEventQuery(EventQuery):
             for field in self._extra_event_properties
         ]
 
+        event_hogql = self._filter.paths_hogql_expression or "event"
+
+        if self._should_query_screen():
+            event_hogql = f"if(event = '{SCREEN_EVENT}', properties.$screen_name, {event_hogql})"
+        if self._should_query_url():
+            event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '/$', ''), {event_hogql})"
+
         event_conditional = (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
-            if self._should_query_screen()
-            else "if(0, '', "
+            translate_hogql(
+                query=event_hogql,
+                context=self._filter.hogql_context,
+                dialect="clickhouse",
+                events_table_alias=self.EVENT_TABLE_ALIAS,
+            )
+            + " AS path_item_ungrouped"
         )
-        event_conditional += (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
-            if self._should_query_url()
-            else "if(0, '', "
-        )
-        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item_ungrouped"
 
         _fields.append(event_conditional)
 
@@ -172,14 +178,6 @@ class PathEventQuery(EventQuery):
         _fields.append(f"if(group_index > 0, %(groupings)s[group_index], {final_path_item_column}) AS path_item")
 
         return _fields, params
-
-    def _get_current_url_parsing(self):
-        path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        return f"if(length({path_type}) > 1, replaceRegexpAll({path_type}, '/$', ''), {path_type})"
-
-    def _get_screen_name_parsing(self):
-        path_type, _ = get_property_string_expr("events", "$screen_name", "'$screen_name'", "properties")
-        return path_type
 
     def _get_event_query(self) -> Tuple[str, Dict[str, Any]]:
         params: Dict[str, Any] = {}
