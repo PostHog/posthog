@@ -6,8 +6,8 @@ from posthog.hogql.bytecode.operation import Operation
 from posthog.hogql.errors import HogQLException
 
 
-def like(pattern, string, flags=0):
-    pattern = re.escape(pattern).replace("\\%", ".*")
+def like(string, pattern, flags=0):
+    pattern = re.escape(pattern).replace("%", ".*")
     re_pattern = re.compile(pattern, flags)
     return re_pattern.match(string) is not None
 
