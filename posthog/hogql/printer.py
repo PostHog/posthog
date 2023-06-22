@@ -140,7 +140,7 @@ class _Printer(Visitor):
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":
             if not self.context.enable_select_queries:
-                raise HogQLException("Full SELECT queries are disabled if context.enable_select_queries is False")
+                raise HogQLException("Full SELECT queries are disabled in this context")
             if not self.context.team_id:
                 raise HogQLException("Full SELECT queries are disabled if context.team_id is not set")
 
