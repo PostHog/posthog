@@ -3,19 +3,10 @@
 from django.db import migrations, models
 
 
-def generate_bytecodes(apps, schema_editor):
-    Action = apps.get_model("posthog", "Action")
-    for action in Action.objects.all():
-        try:
-            action.refresh_bytecode()
-        except Exception:
-            pass
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0330_add_autocapture_exceptions_events_to_ignore"),
+        ("posthog", "0331_add_missing_property_definition_index"),
     ]
 
     operations = [
@@ -24,5 +15,4 @@ class Migration(migrations.Migration):
             name="bytecode",
             field=models.JSONField(blank=True, default=list, null=True),
         ),
-        migrations.RunPython(generate_bytecodes),
     ]

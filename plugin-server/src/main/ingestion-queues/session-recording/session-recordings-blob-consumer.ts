@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
+import { CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } from 'node-rdkafka-acosom'
 import path from 'path'
 import { Gauge } from 'prom-client'
 
@@ -13,13 +13,14 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, Team } from '../../../types'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
 import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
+import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -55,6 +56,7 @@ const gaugeLagMilliseconds = new Gauge({
 
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
+    private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
     offsetManager?: OffsetManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
@@ -69,14 +71,19 @@ export class SessionRecordingBlobIngester {
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage,
+        private redisPool: RedisPool,
         private flushIntervalTimeoutMs = 30000
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
+        this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(
+            this.redisPool,
+            serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+        )
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<void> {
+    public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
@@ -92,6 +99,20 @@ export class SessionRecordingBlobIngester {
             .set(DateTime.now().toMillis() - timestamp)
         this.consumerNow = Math.max(timestamp, this.consumerNow ?? -Infinity)
 
+        const highWaterMarkSpan = sentrySpan?.startChild({
+            op: 'checkHighWaterMark',
+        })
+        if (await this.sessionOffsetHighWaterMark.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'high_water_mark',
+                })
+                .inc()
+            return
+        }
+        highWaterMarkSpan?.finish()
+
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
 
@@ -103,12 +124,19 @@ export class SessionRecordingBlobIngester {
                 partition,
                 topic,
                 (offsets) => {
-                    this.offsetManager?.removeOffsets(topic, partition, offsets)
+                    const committedOffset = this.offsetManager?.removeOffsets(topic, partition, offsets)
+                    const maxOffset = Math.max(...offsets)
+
+                    // We don't want to block if anything fails here. Watermarks are best effort
+                    void this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, maxOffset)
+                    if (committedOffset) {
+                        void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, committedOffset)
+                    }
                 }
             )
 
             this.sessions.set(key, sessionManager)
-            status.debug('📦', 'Blob ingestion consumer started session manager', {
+            status.info('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
                 topic,
@@ -204,7 +232,7 @@ export class SessionRecordingBlobIngester {
         const consumeSpan = span?.startChild({
             op: 'consume',
         })
-        await this.consume(recordingMessage)
+        await this.consume(recordingMessage, consumeSpan)
         consumeSpan?.finish()
     }
 
@@ -237,12 +265,7 @@ export class SessionRecordingBlobIngester {
             throw e
         }
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars({
-            ...this.serverConfig,
-            // We use the same kafka config overall but different hosts for the session recordings
-            KAFKA_HOSTS: this.serverConfig.SESSION_RECORDING_KAFKA_HOSTS,
-            KAFKA_SECURITY_PROTOCOL: this.serverConfig.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL,
-        })
+        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
         this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -289,7 +312,7 @@ export class SessionRecordingBlobIngester {
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
 
-                const revokedPartitions = topicPartitions.map((x) => x.partition).sort()
+                const revokedPartitions = topicPartitions.map((x) => x.partition)
                 if (!revokedPartitions.length) {
                     return
                 }
@@ -306,6 +329,11 @@ export class SessionRecordingBlobIngester {
                 revokedPartitions.forEach((partition) => {
                     gaugeLagMilliseconds.remove({ partition: partition.toString() })
                 })
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    this.sessionOffsetHighWaterMark.revoke(topicPartition)
+                })
+
                 return
             }
 
