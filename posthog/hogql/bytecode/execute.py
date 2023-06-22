@@ -6,15 +6,9 @@ from posthog.hogql.bytecode.operation import Operation
 from posthog.hogql.errors import HogQLException
 
 
-def like(pattern, string):
+def like(pattern, string, flags=0):
     pattern = re.escape(pattern).replace("\\%", ".*")
-    re_pattern = re.compile(pattern)
-    return re_pattern.match(string) is not None
-
-
-def ilike(pattern, string):
-    pattern = re.escape(pattern).replace("\\%", ".*")
-    re_pattern = re.compile(pattern, re.IGNORECASE)
+    re_pattern = re.compile(pattern, flags)
     return re_pattern.match(string) is not None
 
 
@@ -78,11 +72,11 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
             case CompareOperationOp.Like:
                 stack.append(like(stack.pop(), stack.pop()))
             case CompareOperationOp.ILike:
-                stack.append(ilike(stack.pop(), stack.pop()))
+                stack.append(like(stack.pop(), stack.pop(), re.IGNORECASE))
             case CompareOperationOp.NotLike:
                 stack.append(not like(stack.pop(), stack.pop()))
             case CompareOperationOp.NotILike:
-                stack.append(not ilike(stack.pop(), stack.pop()))
+                stack.append(not like(stack.pop(), stack.pop(), re.IGNORECASE))
             case CompareOperationOp.In:
                 stack.append(stack.pop() in stack.pop())
             case CompareOperationOp.NotIn:
