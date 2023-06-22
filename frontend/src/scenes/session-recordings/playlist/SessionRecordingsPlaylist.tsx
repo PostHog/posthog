@@ -145,6 +145,7 @@ export function RecordingsLists({
                             >
                                 <span>
                                     <LemonSwitch
+                                        aria-label="Autoplay next recording"
                                         checked={!!autoplayDirection}
                                         onChange={toggleAutoplayDirection}
                                         handleContent={
@@ -164,6 +165,7 @@ export function RecordingsLists({
                             </Tooltip>
 
                             <LemonButton
+                                tooltip={'filter recordings'}
                                 size="small"
                                 status={showFilters ? 'primary' : 'primary-alt'}
                                 type={showFilters ? 'tertiary' : 'tertiary'}
