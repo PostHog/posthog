@@ -114,7 +114,8 @@ async function expectStoryToMatchSnapshot(
         await page.waitForTimeout(300) // Wait for initial UI to load
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
-            await page.waitForSelector(waitForLoadersToDisappear)
+            // explicitly set a timeout because global was being ignored
+            await page.waitForSelector(waitForLoadersToDisappear, { timeout: 5000 })
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
