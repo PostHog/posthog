@@ -1106,3 +1106,38 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
         )
+
+    def test_null_equality(self):
+        expected = [
+            ("null", "!=", "2", 1),
+            ("2", "!=", "null", 1),
+            ("3", "!=", "4", 1),
+            ("3", "!=", "3", 0),
+            ("null", "!=", "null", 0),
+            ("null", "=", "2", 0),
+            ("2", "=", "null", 0),
+            ("3", "=", "4", 0),
+            ("3", "=", "3", 1),
+            ("null", "=", "null", 1),
+        ]
+
+        for (a, op, b, res) in expected:
+            # works when selecting directly
+            query = f"select {a} {op} {b}"
+            response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(response.results, [(res,)], query)
+
+            # works when selecting via a subquery
+            query = f"select a {op} b from (select {a} as a, {b} as b)"
+            response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(response.results, [(res,)], query)
+
+            # works when selecting via a subquery
+            query = f"select {a} {op} b from (select {b} as b)"
+            response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(response.results, [(res,)], query)
+
+            # works when selecting via a subquery
+            query = f"select a {op} {b} from (select {a} as a)"
+            response = execute_hogql_query(query, team=self.team)
+            self.assertEqual(response.results, [(res,)], query)

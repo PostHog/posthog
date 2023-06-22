@@ -348,15 +348,32 @@ class _Printer(Visitor):
         left = self.visit(node.left)
         right = self.visit(node.right)
         if node.op == ast.CompareOperationOp.Eq:
-            if isinstance(node.right, ast.Constant) and node.right.value is None:
-                return f"isNull({left})"
+            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+                return "1" if node.left.value == node.right.value else "0"
+            elif isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNull({left})"
+                return f"ifNull(equals({left}, {right}), 0)"
+            elif isinstance(node.left, ast.Constant) and node.left.value is None:
+                if node.left.value is None:
+                    return f"isNull({right})"
+                return f"ifNull(equals({left}, {right}), 0)"
             else:
-                return f"equals({left}, {right})"
+                return f"ifNull(equals({left}, {right}), isNull({left}) and isNull({right}))"
         elif node.op == ast.CompareOperationOp.NotEq:
-            if isinstance(node.right, ast.Constant) and node.right.value is None:
-                return f"isNotNull({left})"
+            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+                return "1" if node.left.value != node.right.value else "0"
+            elif isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNotNull({left})"
+                return f"ifNull(notEquals({left}, {right}), 1)"
+            elif isinstance(node.left, ast.Constant) and node.left.value is None:
+                if node.left.value is None:
+                    return f"isNotNull({right})"
+                return f"ifNull(notEquals({left}, {right}), 1)"
             else:
-                return f"notEquals({left}, {right})"
+                return f"ifNull(notEquals({left}, {right}), isNotNull({left}) or isNotNull({right}))"
+
         elif node.op == ast.CompareOperationOp.Gt:
             return f"greater({left}, {right})"
         elif node.op == ast.CompareOperationOp.GtE:
