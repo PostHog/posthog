@@ -115,6 +115,8 @@ export function Billing(): JSX.Element {
         return url
     }
 
+    const upgradeAllProductsLink = getUpgradeAllProductsLink()
+
     return (
         <div ref={ref}>
             {!isOnboarding && (
@@ -245,11 +247,11 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between">
                 <h2>Products</h2>
-                {isOnboarding && getUpgradeAllProductsLink() && (
+                {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={getUpgradeAllProductsLink()}
+                        to={upgradeAllProductsLink}
                         disableClientSideRouting
                     >
                         Upgrade all
