@@ -30,7 +30,7 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
     const { query } = useValues(insightDataLogic(insightProps))
 
     // insightVizDataLogic
-    const { series } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, series } = useValues(insightVizDataLogic(insightProps))
 
     const experimentInsightType = filters.insight
 
@@ -71,59 +71,34 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
                 <br />
             </div>
 
-            {experimentInsightType === InsightType.FUNNELS && (
-                <ActionFilter
-                    bordered
-                    filters={filters}
-                    setFilters={(payload) => {
-                        setFilters({
-                            ...filters,
-                            insight: InsightType.FUNNELS,
-                            ...payload,
-                        })
-                    }}
-                    typeKey={`experiment-funnel-goal-${JSON.stringify(filters)}`}
-                    mathAvailability={MathAvailability.None}
-                    hideDeleteBtn={filterSteps.length === 1}
-                    buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty}
-                    seriesIndicatorType="numeric"
-                    sortable
-                    showNestedArrow={true}
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                />
-            )}
-            {experimentInsightType === InsightType.TRENDS && (
-                <ActionFilter
-                    bordered
-                    filters={filters}
-                    setFilters={(payload: Partial<FilterType>) => {
-                        setFilters({
-                            ...filters,
-                            insight: InsightType.TRENDS,
-                            ...payload,
-                        })
-                    }}
-                    typeKey={`experiment-trends-goal-${JSON.stringify(filters)}`}
-                    buttonCopy="Add graph series"
-                    showSeriesIndicator
-                    entitiesLimit={1}
-                    hideDeleteBtn
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                />
-            )}
+            <ActionFilter
+                bordered
+                filters={filters}
+                setFilters={(payload) => {
+                    setFilters({
+                        ...filters,
+                        insight: experimentInsightType,
+                        ...payload,
+                    })
+                }}
+                typeKey={`experiment-funnel-goal-${JSON.stringify(filters)}`}
+                mathAvailability={isTrends ? undefined : MathAvailability.None}
+                hideDeleteBtn={isTrends || filterSteps.length === 1}
+                buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
+                showSeriesIndicator={isTrends || !isStepsEmpty}
+                entitiesLimit={isTrends ? 1 : undefined}
+                seriesIndicatorType={isTrends ? undefined : 'numeric'}
+                sortable={isTrends ? undefined : true}
+                showNestedArrow={isTrends ? undefined : true}
+                propertiesTaxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                ]}
+            />
+
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <Query query={query} context={{ insightProps }} readOnly />
