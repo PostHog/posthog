@@ -84,6 +84,9 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = """
 EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
     "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
+
+INSERTED_AT_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW()"
+
 EVENTS_TABLE_SQL = lambda: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
@@ -95,7 +98,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     table_name=EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=EVENTS_DATA_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS + ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW()",
+    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
@@ -173,7 +176,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
     indexes="",
 )
