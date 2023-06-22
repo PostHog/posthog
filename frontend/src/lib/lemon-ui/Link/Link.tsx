@@ -1,27 +1,26 @@
 import React from 'react'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
+import clsx from 'clsx'
+import './Link.scss'
 
 type RoutePart = string | Record<string, any>
 
 export type LinkProps = Pick<
     React.HTMLProps<HTMLAnchorElement>,
-    | 'target'
-    | 'className'
-    | 'onClick'
-    | 'onMouseDown'
-    | 'onMouseEnter'
-    | 'onMouseLeave'
-    | 'children'
-    | 'title'
-    | 'onKeyDown'
-    | 'onFocus'
+    'target' | 'className' | 'children' | 'title' | 'disabled'
 > & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
     /** If true, in-app navigation will not be used and the link will navigate with a page load */
     disableClientSideRouting?: boolean
     preventClick?: boolean
+    onClick?: (event: React.MouseEvent<HTMLElement>) => void
+    onMouseDown?: (event: React.MouseEvent<HTMLElement>) => void
+    onMouseEnter?: (event: React.MouseEvent<HTMLElement>) => void
+    onMouseLeave?: (event: React.MouseEvent<HTMLElement>) => void
+    onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void
+    onFocus?: (event: React.FocusEvent<HTMLElement>) => void
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -41,9 +40,9 @@ const shouldForcePageLoad = (input: any): boolean => {
  * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
  * or whether to be routed internally via kea-router
  */
-export const Link: React.FC<LinkProps & React.RefAttributes<HTMLAnchorElement>> = React.forwardRef(
-    ({ to, target, disableClientSideRouting, preventClick = false, ...props }, ref) => {
-        const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
+export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = React.forwardRef(
+    ({ to, target, disableClientSideRouting, preventClick = false, onClick: onClickRaw, className, ...props }, ref) => {
+        const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
                 return
@@ -59,18 +58,21 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLAnchorElement>> 
                     }
                 }
             }
-            props.onClick?.(event)
+            onClickRaw?.(event)
         }
 
-        return (
+        return to ? (
             <a
-                {...props}
-                ref={ref}
-                href={typeof to === 'string' ? to : '#'}
+                ref={ref as any}
+                className={clsx('Link', className)}
                 onClick={onClick}
+                href={typeof to === 'string' ? to : '#'}
                 target={target}
                 rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+                {...props}
             />
+        ) : (
+            <button ref={ref as any} className={clsx('Link', className)} onClick={onClick} type="button" {...props} />
         )
     }
 )

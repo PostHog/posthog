@@ -51,7 +51,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <>
                         <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
                             {stringWithWBR(featureFlag.key, 17)}
-                            <LemonTag type={isExperiment ? 'purple' : 'default'} className="ml-2">
+                            <LemonTag type={isExperiment ? 'completion' : 'default'} className="ml-2">
                                 {isExperiment ? 'Experiment' : 'Feature flag'}
                             </LemonTag>
                         </Link>

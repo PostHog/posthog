@@ -13,13 +13,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 function getSessionReplayLink(): string {
-    const LOOK_BACK = 30
-    const recordingStartTime = Math.max(
-        Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
-        0
-    )
-    const link = `http://go/session/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `Session: ${link} (at ${window.location.href})`
+    const link = posthog
+        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+        .replace(window.location.origin + '/replay/', 'http://go/session/')
+
+    return `Session: ${link} (at ${window.location.href.replace(/&supportModal=.+($|&)?/, '$1')})`
 }
 
 function getDjangoAdminLink(
@@ -30,15 +28,15 @@ function getDjangoAdminLink(
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloudRegion}/?q=${user.email}`
-    return `Admin: ${link} (project ID ${currentTeamId})`
+    const link = `http://go/admin${cloudRegion}/${user.email}`
+    return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
 function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/sentry${cloudRegion}/?q=${user.team?.id}`
+    const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
     return `Sentry: ${link}`
 }
 

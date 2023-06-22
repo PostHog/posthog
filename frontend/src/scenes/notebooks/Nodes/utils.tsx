@@ -2,12 +2,13 @@ import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, nodePasteRule } fro
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 
-export function useJsonNodeState(props: NodeViewProps, key: string): [any, (value: any) => void] {
+export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (value: T) => void] {
     let value = props.node.attrs[key]
     try {
         value = typeof value === 'string' ? JSON.parse(value) : value
     } catch (e) {
         console.error("Couldn't parse query", e)
+        value = {}
     }
 
     const setValue = (value: any): void => {

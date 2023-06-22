@@ -6,7 +6,6 @@ import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-
 import { funnelLogic } from '../funnelLogic'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { FunnelLayout } from 'lib/constants'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
 import { ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -16,7 +15,6 @@ import { FunnelStepMoreDataExploration, FunnelStepMore } from '../FunnelStepMore
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
-import { AverageTimeInspector } from './AverageTimeInspector'
 import { Noun } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
@@ -127,16 +125,12 @@ export function FunnelBarGraphComponent({
                                     <FunnelStepMore stepIndex={stepIndex} />
                                 )}
                             </div>
-                            <div className={`funnel-step-metadata funnel-time-metadata ${FunnelLayout.horizontal}`}>
-                                {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (
-                                    <AverageTimeInspector
-                                        onClick={() => {}}
-                                        averageTime={step.average_conversion_time}
-                                        aggregationTargetLabel={aggregationTargetLabel}
-                                        disabled
-                                    />
-                                ) : null}
-                            </div>
+                            {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
+                                <div className="text-muted-alt">
+                                    Average time to convert:{' '}
+                                    <b>{humanFriendlyDuration(step.average_conversion_time, 2)}</b>
+                                </div>
+                            ) : null}
                         </header>
                         <div className="funnel-inner-viz">
                             <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
@@ -308,40 +302,29 @@ export function FunnelBarGraphComponent({
                                 )}
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
-                                <div className="step-stat">
-                                    <div className="center-flex">
-                                        <ValueInspectorButton
-                                            onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={isInDashboardContext}
-                                        >
-                                            <IconTrendingFlat
-                                                style={{ color: 'var(--success)' }}
-                                                className="value-inspector-button-icon"
-                                            />
-                                            <b>
-                                                {pluralize(
-                                                    step.count,
-                                                    aggregationTargetLabel.singular,
-                                                    aggregationTargetLabel.plural
-                                                )}
-                                            </b>
-                                        </ValueInspectorButton>
-                                        <span className="text-muted-alt">
-                                            (
-                                            {percentage(
-                                                step.order > 0 ? step.count / steps[stepIndex - 1].count : 1,
-                                                2,
-                                                true
+                                <div>
+                                    <ValueInspectorButton
+                                        onClick={() => openPersonsModalForStep({ step, converted: true })}
+                                        disabled={isInDashboardContext}
+                                    >
+                                        <IconTrendingFlat
+                                            style={{ color: 'var(--success)' }}
+                                            className="value-inspector-button-icon"
+                                        />
+                                        <b>
+                                            {pluralize(
+                                                step.count,
+                                                aggregationTargetLabel.singular,
+                                                aggregationTargetLabel.plural
                                             )}
-                                            )
-                                        </span>
-                                    </div>
-                                    <div className="text-muted-alt conversion-metadata-caption grow">
-                                        completed step
-                                    </div>
+                                        </b>
+                                    </ValueInspectorButton>{' '}
+                                    <span className="text-muted-alt grow">
+                                        {`(${percentage(step.conversionRates.fromPrevious, 2, true)}) completed step`}
+                                    </span>
                                 </div>
-                                <div className={clsx('step-stat', stepIndex === 0 && 'invisible')}>
-                                    <div className="center-flex">
+                                {stepIndex > 0 && (
+                                    <div>
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}
                                             disabled={isInDashboardContext}
@@ -357,19 +340,16 @@ export function FunnelBarGraphComponent({
                                                     aggregationTargetLabel.plural
                                                 )}
                                             </b>
-                                        </ValueInspectorButton>
+                                        </ValueInspectorButton>{' '}
                                         <span className="text-muted-alt">
-                                            (
-                                            {percentage(
-                                                step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0,
+                                            {`(${percentage(
+                                                1 - step.conversionRates.fromPrevious,
                                                 2,
                                                 true
-                                            )}
-                                            )
+                                            )}) dropped off`}
                                         </span>
                                     </div>
-                                    <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     </section>

@@ -673,8 +673,16 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPosition": 2,
     "maxIntersectionsPositionIf": 3,
 }
-CHART_FUNCTIONS = {"sparkline": 1}
+HOGQL_FUNCTIONS = {
+    "sparkline": 1,
+    "cohort": 1,
+}
+
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+# Functions where we use a -OrNull variant by default
+ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+# Functions where the first argument needs to be DateTime and not DateTime64
+FIRST_ARG_DATETIME_FUNCTIONS = ("tumble", "tumbleStart", "tumbleEnd", "hop", "hopStart", "hopEnd")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 

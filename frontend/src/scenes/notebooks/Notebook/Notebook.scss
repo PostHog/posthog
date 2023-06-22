@@ -67,4 +67,18 @@
         margin-left: auto;
         margin-right: auto;
     }
+
+    .LemonTable__content > table > thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+}
+
+.NotebookFloatingButton {
+    .LemonButton {
+        border-radius: 1rem;
+        min-height: 0.25rem;
+        padding: 0.25rem !important; // NOTE - yuck
+    }
 }

@@ -1,13 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { FilterType, InsightLogicProps, InsightType, SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import clsx from 'clsx'
 import './EmptyStates.scss'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +20,8 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -57,7 +58,6 @@ export function InsightTimeoutState({
 
     const { setSamplingPercentage } = useActions(_samplingFilterLogic)
     const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
-    const { openSupportForm } = useActions(supportLogic)
 
     const speedUpBySamplingAvailable = samplingAvailable && suggestedSamplingPercentage
     return (
@@ -95,16 +95,7 @@ export function InsightTimeoutState({
                 ) : null}
                 <p className="m-auto text-center">
                     In order to improve the performance of the query, you can {speedUpBySamplingAvailable ? 'also' : ''}{' '}
-                    try to reduce the date range of your query, remove breakdowns, or get in touch with us by{' '}
-                    <Link
-                        data-attr="insight-timeout-bug-report"
-                        onClick={() => {
-                            openSupportForm('bug', 'analytics')
-                        }}
-                    >
-                        submitting a bug report
-                    </Link>
-                    .
+                    try to reduce the date range of your query, or remove breakdowns.
                 </p>
                 {!!queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
@@ -119,9 +110,15 @@ export interface InsightErrorStateProps {
 }
 
 export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    if (!preflight?.cloud) {
+        excludeDetail = true // We don't provide support for self-hosted instances
+    }
+
     return (
-        <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
+        <div className="insight-empty-state error">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IconErrorOutline />
@@ -142,9 +139,8 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                                         openSupportForm('bug', 'analytics')
                                     }}
                                 >
-                                    Submit a bug report
+                                    If this persists, submit a bug report.
                                 </Link>
-                                .
                             </li>
                         </ol>
                     </div>
@@ -288,8 +284,8 @@ export function SavedInsightsEmptyState(): JSX.Element {
     return (
         <div className="saved-insight-empty-state">
             <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <IconTrendUp />
+                <div className="illustration-main w-40 m-auto">
+                    <BuilderHog3 className="w-full h-full" />
                 </div>
                 <h2 className="empty-state__title">
                     {usingFilters

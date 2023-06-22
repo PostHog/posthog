@@ -508,7 +508,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     473: ErrorCodeMeta("DEADLOCK_AVOIDED"),
     474: ErrorCodeMeta("INVALID_TEMPLATE_FORMAT"),
     475: ErrorCodeMeta("INVALID_WITH_FILL_EXPRESSION"),
-    476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY"),
+    476: ErrorCodeMeta("WITH_TIES_WITHOUT_ORDER_BY", user_safe=True),
     477: ErrorCodeMeta("INVALID_USAGE_OF_INPUT"),
     478: ErrorCodeMeta("UNKNOWN_POLICY"),
     479: ErrorCodeMeta("UNKNOWN_DISK"),
