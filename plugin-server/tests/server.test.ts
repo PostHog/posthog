@@ -43,7 +43,7 @@ describe('server', () => {
     afterEach(async () => {
         await pluginsServer?.stop?.()
         pluginsServer = null
-        jest.runAllTimers()
+        jest.runOnlyPendingTimers()
         jest.useRealTimers()
     })
 
