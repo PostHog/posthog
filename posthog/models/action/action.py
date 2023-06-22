@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Any
 
 from django.db import models
 from django.db.models import Q
@@ -27,6 +27,7 @@ class Action(models.Model):
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+    bytecode: models.JSONField = models.JSONField(default=list, null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -48,6 +49,18 @@ class Action(models.Model):
 
     def get_step_events(self) -> List[str]:
         return [action_step.event for action_step in self.steps.all()]
+
+    def generate_bytecode(self) -> List[Any]:
+        from posthog.hogql.property import action_to_expr
+        from posthog.hogql.bytecode.create import create_bytecode
+
+        return create_bytecode(action_to_expr(self))
+
+    def refresh_bytecode(self):
+        new_bytecode = self.generate_bytecode()
+        if new_bytecode != self.bytecode:
+            self.bytecode = new_bytecode
+            self.save(update_fields=["bytecode"])
 
 
 @receiver(post_save, sender=Action)

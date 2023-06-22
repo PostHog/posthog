@@ -217,3 +217,35 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
+
+        self.assertEqual(action1.bytecode, action1.generate_bytecode())
+        self.assertEqual(
+            action1.bytecode,
+            [
+                "_h",
+                # toInt(properties.filters_count) > 10
+                "",
+                10,
+                "",
+                "filters_count",
+                "",
+                "properties",
+                ".",
+                2,
+                "()",
+                "toInt",
+                1,
+                ">",
+                # event = 'insight viewed'
+                "",
+                "insight viewed",
+                "",
+                "event",
+                ".",
+                1,
+                "==",
+                # and
+                "and",
+                2,
+            ],
+        )

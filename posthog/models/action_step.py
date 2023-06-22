@@ -50,6 +50,7 @@ class ActionStep(models.Model):
 
 @receiver(post_save, sender=ActionStep)
 def action_step_saved(sender, instance: ActionStep, created, **kwargs):
+    instance.action.refresh_bytecode()
     get_client().publish(
         "reload-action", json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id})
     )
@@ -57,6 +58,7 @@ def action_step_saved(sender, instance: ActionStep, created, **kwargs):
 
 @mutable_receiver(post_delete, sender=ActionStep)
 def action_step_deleted(sender, instance: ActionStep, **kwargs):
+    instance.action.refresh_bytecode()
     get_client().publish(
         "reload-action", json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id})
     )
