@@ -426,11 +426,15 @@ def get_event(request):
                 # errors, and set Retry-After header accordingly.
                 # TODO: return 400 error for non-retriable errors that require the
                 # client to change their request.
-                if isinstance(exc, MessageSizeTooLargeError):
-                    # we don't believe this will happen enough to be sending too many messages to Sentry
-                    # but that it will be useful to see what data is causing these errors
-                    capture_exception(exc, {"data": data})
-                logger.error("kafka_produce_failure", exc_info=exc, name=exc.__class__.__name__)
+
+                logger.error(
+                    "kafka_produce_failure",
+                    exc_info=exc,
+                    name=exc.__class__.__name__,
+                    # data could be large, so we don't always want to include it,
+                    # but we do want to include it for some errors to aid debugging
+                    data=data if isinstance(exc, MessageSizeTooLargeError) else None,
+                )
                 return cors_response(
                     request,
                     generate_exception_response(
