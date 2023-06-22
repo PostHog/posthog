@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="action",
             name="bytecode",
-            field=models.JSONField(blank=True, default=list, null=True),
+            field=models.JSONField(blank=True, null=True),
         ),
     ]
