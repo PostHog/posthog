@@ -710,6 +710,11 @@ export interface LocalRecordingFilters extends RecordingFilters {
 export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
+    // it is possible to "receive" a response without calling the API
+    // e.g. when the `setSessionRecordingId` action is received
+    // in that case we can appear to receive an "empty" response
+    // and show an incorrect state to the user
+    has_called_api?: boolean
 }
 
 export type EntityType = 'actions' | 'events' | 'new_entity'

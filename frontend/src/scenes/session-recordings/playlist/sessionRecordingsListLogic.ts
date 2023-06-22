@@ -209,6 +209,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                                 ? values.sessionRecordingsResponse?.has_next ?? true
                                 : response.has_next,
                         results: mergedResults,
+                        has_called_api: true,
                     }
                 },
                 setSelectedRecordingId: async ({ id }) => {
@@ -227,6 +228,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     return {
                         has_next: values.sessionRecordingsResponse.has_next,
                         results: updatedResults,
+                        has_called_api: values.sessionRecordingsResponse.has_called_api || false,
                     }
                 },
             },
@@ -329,9 +331,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     selectors({
         shouldShowEmptyState: [
-            (s) => [s.sessionRecordings, s.customFilters, s.sessionRecordingsResponseLoading],
-            (sessionRecordings, customFilters, sessionRecordingsResponseLoading): boolean => {
-                return !sessionRecordingsResponseLoading && sessionRecordings.length === 0 && !customFilters
+            (s) => [s.sessionRecordingsResponse, s.customFilters],
+            (sessionRecordingsResponse: SessionRecordingsResponse, customFilters: RecordingFilters | null): boolean => {
+                console.log('shouldShowEmptyState', {
+                    customFilters,
+                    sessionRecordingsResponse,
+                })
+                return (
+                    sessionRecordingsResponse?.results.length === 0 &&
+                    !!sessionRecordingsResponse?.has_called_api &&
+                    !customFilters
+                )
             },
         ],
 
