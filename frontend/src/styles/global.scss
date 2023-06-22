@@ -687,12 +687,6 @@ body {
         box-shadow: var(--shadow-elevation);
     }
 
-    .ant-table,
-    ant-input-number,
-    .ant-select-dropdown {
-        background: var(--bg-light);
-    }
-
     .ant-modal-mask {
         z-index: var(--z-ant-modal-mask);
     }
@@ -708,10 +702,6 @@ body {
 
     .ant-picker-dropdown {
         z-index: var(--z-ant-select-dropdown);
-    }
-
-    .ant-card {
-        background: var(--bg-light);
     }
 
     .ant-card-bordered {
@@ -750,10 +740,6 @@ body {
         max-width: 350px;
     }
 
-    .ant-table {
-        background: var(--bg-light);
-    }
-
     .ant-table-thead > tr > th,
     .ant-table-small .ant-table-thead > tr > th {
         background: var(--mid);
@@ -764,10 +750,6 @@ body {
 
     .ant-table-tbody > tr.ant-table-placeholder:hover > td {
         background: inherit;
-    }
-
-    .ant-popover-inner {
-        background: var(--bg-light);
     }
 }
 
