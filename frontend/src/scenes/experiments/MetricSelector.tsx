@@ -1,16 +1,19 @@
 import { BindLogic, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
-import './Experiment.scss'
-import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { PREVIEW_INSIGHT_ID } from './constants'
+import { Query } from '~/queries/Query/Query'
+
+import './Experiment.scss'
 
 export interface MetricSelectorProps {
     setPreviewInsight: (filters?: Partial<FilterType>) => void
@@ -19,17 +22,25 @@ export interface MetricSelectorProps {
 }
 
 export function MetricSelector({ setPreviewInsight, filters, setFilters }: MetricSelectorProps): JSX.Element {
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: PREVIEW_INSIGHT_ID,
-            syncWithUrl: false,
-            disableDataExploration: true,
-        })
-    )
-    const { isStepsEmpty, filterSteps, filters: funnelsFilters } = useValues(funnelLogic(insightProps))
-    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
+    // insightLogic
+    const logic = insightLogic({
+        dashboardItemId: PREVIEW_INSIGHT_ID,
+        syncWithUrl: false,
+        disableDataExploration: true,
+    })
+    const { insightProps } = useValues(logic)
+
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
+
+    // insightVizDataLogic
+    const { series } = useValues(insightVizDataLogic(insightProps))
 
     const experimentInsightType = filters.insight
+
+    // calculated properties
+    const filterSteps = series || []
+    const isStepsEmpty = filterSteps.length === 0
 
     return (
         <>
@@ -67,7 +78,7 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
             {experimentInsightType === InsightType.FUNNELS && (
                 <ActionFilter
                     bordered
-                    filters={funnelsFilters}
+                    filters={filters}
                     setFilters={(payload) => {
                         setFilters({
                             ...filters,
@@ -95,7 +106,7 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
             {experimentInsightType === InsightType.TRENDS && (
                 <ActionFilter
                     bordered
-                    filters={trendsFilters}
+                    filters={filters}
                     setFilters={(payload: Partial<FilterType>) => {
                         setFilters({
                             ...filters,
@@ -119,7 +130,7 @@ export function MetricSelector({ setPreviewInsight, filters, setFilters }: Metri
             )}
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <LegacyInsightContainer disableHeader={true} disableTable={true} />
+                    <Query query={query} context={{ insightProps }} readOnly />
                 </BindLogic>
             </div>
         </>
