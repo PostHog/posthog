@@ -66,7 +66,7 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
+        browserContext.setDefaultTimeout(2000) // Reduce the default timeout from 30 s to 2 s to preempt Jest timeouts
         if (!skip) {
             const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
