@@ -120,9 +120,6 @@ export class SessionManager {
             return
         }
 
-        // TODO: Check that the offset is higher than the lastProcessed
-        // If not - ignore it
-        // If it is - update lastProcessed and process it
         await this.addToBuffer(message)
         await this.flushIfBufferExceedsCapacity()
     }
@@ -245,6 +242,7 @@ export class SessionManager {
             }
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
+                errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
                 error,
                 ...this.logContext(),
                 reason,
@@ -256,21 +254,12 @@ export class SessionManager {
             // We turn off real time as the file will now be in S3
             this.realtime = false
 
+            const offsets = this.flushBuffer.offsets
+            this.onFinish(offsets)
+
             await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
 
-            const offsets = this.flushBuffer.offsets
-            if (this.flushBuffer.newestKafkaTimestamp !== null) {
-                void this.realtimeManager.clearMessages(
-                    this.teamId,
-                    this.sessionId,
-                    this.flushBuffer.newestKafkaTimestamp
-                )
-            }
-
             this.flushBuffer = undefined
-
-            // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets)
         }
     }
 

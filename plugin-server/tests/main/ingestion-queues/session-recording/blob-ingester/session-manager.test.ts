@@ -13,7 +13,7 @@ jest.mock('fs', () => {
         writeFileSync: jest.fn(),
         createReadStream: jest.fn().mockImplementation(() => {
             return {
-                pipe: jest.fn(),
+                pipe: () => ({ close: jest.fn() }),
             }
         }),
     }
@@ -141,6 +141,8 @@ describe('session-manager', () => {
                 },
             ],
             metadata: {
+                // the highest offset doesn't have to be received first!
+                offset: 12345,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
             } as any,
         })
@@ -153,6 +155,7 @@ describe('session-manager', () => {
                 },
             ],
             metadata: {
+                offset: 12344,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
             } as any,
         })

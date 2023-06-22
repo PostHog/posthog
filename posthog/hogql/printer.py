@@ -214,12 +214,12 @@ class _Printer(Visitor):
 
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
+            if node.limit_with_ties:
+                clauses.append("WITH TIES")
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
             if node.limit_by is not None:
                 clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
-            if node.limit_with_ties:
-                clauses.append("WITH TIES")
 
         response = " ".join([clause for clause in clauses if clause])
 
@@ -657,15 +657,11 @@ class _Printer(Visitor):
                 return materialized_property_sql
             else:
                 for name in type.chain[1:]:
-                    key = f"hogql_val_{len(self.context.values)}"
-                    self.context.values[key] = name
-                    args.append(f"%({key})s")
+                    args.append(self.context.add_value(name))
                 return self._unsafe_json_extract_trim_quotes(materialized_property_sql, args)
 
         for name in type.chain:
-            key = f"hogql_val_{len(self.context.values)}"
-            self.context.values[key] = name
-            args.append(f"%({key})s")
+            args.append(self.context.add_value(name))
         return self._unsafe_json_extract_trim_quotes(self.visit(field_type), args)
 
     def visit_sample_expr(self, node: ast.SampleExpr):

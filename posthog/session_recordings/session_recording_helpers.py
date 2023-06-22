@@ -441,5 +441,5 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
     return events_summary
 
 
-def byte_size_dict(d: Dict) -> int:
-    return len(json.dumps(d))
+def byte_size_dict(x: Dict | List) -> int:
+    return len(json.dumps(x))
