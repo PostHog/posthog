@@ -191,6 +191,7 @@ describe('DB', () => {
                                 target: 'https://rest-hooks.example.com/',
                             },
                         ],
+                        bytecode: null,
                     },
                 },
             })

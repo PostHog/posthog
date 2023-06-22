@@ -51,7 +51,7 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            bytecode: bytecode,
+            bytecode: bytecode ?? null,
         }
         const steps: ActionStep[] = partialSteps.map(
             (partialStep, index) =>
