@@ -34,7 +34,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { PREVIEW_INSIGHT_ID } from './constants'
+import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -92,9 +92,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentArchived',
                 'reportExperimentReset',
             ],
-            insightDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
-            insightVizDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['updateQuerySource'],
         ],
     }),

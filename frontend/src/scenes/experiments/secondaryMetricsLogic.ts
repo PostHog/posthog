@@ -7,7 +7,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
 import { InsightVizNode } from '~/queries/schema'
 
-import { PREVIEW_INSIGHT_ID } from './constants'
+import { SEONDARY_METRIC_INSIGHT_ID } from './constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -43,12 +43,12 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({
-        logic: [insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })],
+        logic: [insightLogic({ dashboardItemId: SEONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
         actions: [
-            insightDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            insightDataLogic({ dashboardItemId: SEONDARY_METRIC_INSIGHT_ID }),
             ['setQuery'],
-            insightVizDataLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
+            insightVizDataLogic({ dashboardItemId: SEONDARY_METRIC_INSIGHT_ID }),
             ['updateQuerySource'],
         ],
     }),

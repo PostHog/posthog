@@ -8,23 +8,23 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { FilterType, InsightType } from '~/types'
+import { FilterType, InsightShortId, InsightType } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
-import { PREVIEW_INSIGHT_ID } from './constants'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 
 import './Experiment.scss'
 
 export interface MetricSelectorProps {
+    dashboardItemId: InsightShortId
     setPreviewInsight: (filters?: Partial<FilterType>) => void
 }
 
-export function MetricSelector({ setPreviewInsight }: MetricSelectorProps): JSX.Element {
+export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSelectorProps): JSX.Element {
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })
+    const logic = insightLogic({ dashboardItemId, syncWithUrl: false })
     const { insightProps } = useValues(logic)
 
     // insightDataLogic

@@ -40,7 +40,7 @@ import { Field } from 'lib/forms/Field'
 import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { PREVIEW_INSIGHT_ID } from './constants'
+import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
@@ -102,7 +102,7 @@ export function Experiment(): JSX.Element {
 
     const { insightProps } = useValues(
         insightLogic({
-            dashboardItemId: PREVIEW_INSIGHT_ID,
+            dashboardItemId: EXPERIMENT_INSIGHT_ID,
             disableDataExploration: true,
         })
     )

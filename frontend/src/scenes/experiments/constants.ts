@@ -1,3 +1,6 @@
 import { InsightShortId } from '~/types'
 
-export const PREVIEW_INSIGHT_ID = 'new-preview' as InsightShortId
+// :TRICKY: `new-` prefix indicates an unsaved insight and slightly alters
+// behaviour of insight related logics
+export const EXPERIMENT_INSIGHT_ID = 'new-experiment-insight' as InsightShortId
+export const SEONDARY_METRIC_INSIGHT_ID = 'new-secondary-metric-insight' as InsightShortId
