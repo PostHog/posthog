@@ -30,4 +30,5 @@ class TestPathFilter(BaseTest):
             "breakdown_normalize_url": False,
             "interval": "day",
             "sampling_factor": 0.1,
+            "paths_hogql_expression": "event",
         }

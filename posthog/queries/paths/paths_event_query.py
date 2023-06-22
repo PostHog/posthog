@@ -61,19 +61,20 @@ class PathEventQuery(EventQuery):
 
         event_hogql = self._filter.paths_hogql_expression or "event"
 
+        if self._should_query_url():
+            event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})"
         if self._should_query_screen():
             event_hogql = f"if(event = '{SCREEN_EVENT}', properties.$screen_name, {event_hogql})"
-        if self._should_query_url():
-            event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '/$', ''), {event_hogql})"
 
         event_conditional = (
-            translate_hogql(
+            "ifNull("
+            + translate_hogql(
                 query=event_hogql,
                 context=self._filter.hogql_context,
                 dialect="clickhouse",
                 events_table_alias=self.EVENT_TABLE_ALIAS,
             )
-            + " AS path_item_ungrouped"
+            + ", '') AS path_item_ungrouped"
         )
 
         _fields.append(event_conditional)
