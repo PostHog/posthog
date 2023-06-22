@@ -23,16 +23,16 @@ const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
 export class SessionOffsetHighWaterMark {
     private topicPartitionWaterMarks: Record<string, Record<string, number>> = {}
 
-    getWatermarkFor(topic: string, partition: number): Record<string, number> {
-        const key = `${topic}-${partition}`
+    getWatermarkFor(tp: TopicPartition): Record<string, number> {
+        const key = `${tp.topic}-${tp.partition}`
         if (!this.topicPartitionWaterMarks[key]) {
             this.topicPartitionWaterMarks[key] = {}
         }
         return this.topicPartitionWaterMarks[key]
     }
 
-    private setWaterMarkFor(topic: string, partition: number, sessionId: string, offset: number) {
-        const key = `${topic}-${partition}`
+    private setWaterMarkFor(tp: TopicPartition, sessionId: string, offset: number) {
+        const key = `${tp.topic}-${tp.partition}`
         if (!this.topicPartitionWaterMarks[key]) {
             this.topicPartitionWaterMarks[key] = {}
         }
@@ -73,7 +73,7 @@ export class SessionOffsetHighWaterMark {
                     offset,
                     updatedCount,
                 })
-                this.setWaterMarkFor(tp.topic, tp.partition, sessionId, offset)
+                this.setWaterMarkFor(tp, sessionId, offset)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
@@ -151,7 +151,7 @@ export class SessionOffsetHighWaterMark {
                     ...tp,
                     offset,
                 })
-                const currentHighWaterMarks = this.getWatermarkFor(tp.topic, tp.partition)
+                const currentHighWaterMarks = this.getWatermarkFor(tp)
                 // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
                 Object.keys(currentHighWaterMarks).forEach((sessionId) => {
                     if (currentHighWaterMarks[sessionId] <= offset) {
