@@ -125,7 +125,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return obj
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(request=request, team=self.team)
         use_v2_list = request.GET.get("version") == "2"
         use_v3_list = request.GET.get("version") == "3"
 
@@ -232,8 +232,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         recording.load_snapshots(limit, offset)
 
-        if not recording.snapshot_data_by_window_id:
-            raise exceptions.NotFound("Snapshots not found")
+        if offset == 0:
+            if not recording.snapshot_data_by_window_id:
+                raise exceptions.NotFound("Snapshots not found")
 
         if recording.can_load_more_snapshots:
             next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
@@ -261,7 +262,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs):
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(request=request, team=self.team)
         session_ids = [
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]
