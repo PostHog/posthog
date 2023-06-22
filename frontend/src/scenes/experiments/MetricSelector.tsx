@@ -23,11 +23,7 @@ export interface MetricSelectorProps {
 
 export function MetricSelector({ setPreviewInsight, filters, setFilters }: MetricSelectorProps): JSX.Element {
     // insightLogic
-    const logic = insightLogic({
-        dashboardItemId: PREVIEW_INSIGHT_ID,
-        syncWithUrl: false,
-        disableDataExploration: true,
-    })
+    const logic = insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })
     const { insightProps } = useValues(logic)
 
     // insightDataLogic

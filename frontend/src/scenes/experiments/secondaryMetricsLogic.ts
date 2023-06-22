@@ -38,13 +38,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({
-        logic: [
-            insightLogic({
-                dashboardItemId: PREVIEW_INSIGHT_ID,
-                syncWithUrl: false,
-                disableDataExploration: true,
-            }),
-        ],
+        logic: [insightLogic({ dashboardItemId: PREVIEW_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
         actions: [
             trendsLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
