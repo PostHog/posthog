@@ -120,7 +120,6 @@ export function InsightContainer({
                     isLoading={insightDataLoading}
                     queryId={timedOutQueryId}
                     insightProps={insightProps}
-                    insightType={activeView}
                 />
             )
         }
