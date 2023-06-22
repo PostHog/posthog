@@ -261,8 +261,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
                     return mergedResults
                 },
-                setSelectedRecordingId: (prevSessionRecordings, { id }) =>
-                    prevSessionRecordings.map((s) => {
+                setSelectedRecordingId: (state, { id }) =>
+                    state.map((s) => {
                         if (s.id === id) {
                             return {
                                 ...s,
@@ -287,6 +287,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.loadPinnedRecordings()
         },
         setFilters: () => {
+            actions.loadSessionRecordings()
+            props.onFiltersChange?.(values.filters)
+        },
+
+        resetFilters: () => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
         },

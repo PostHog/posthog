@@ -295,14 +295,6 @@ describe('sessionRecordingsListLogic', () => {
                 })
                     .toFinishAllListeners()
                     .toMatchValues({
-                        sessionRecordingsResponse: {
-                            results: [
-                                {
-                                    ...aRecording,
-                                    viewed: true,
-                                },
-                            ],
-                        },
                         sessionRecordings: [
                             {
                                 ...aRecording,
