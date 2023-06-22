@@ -1,10 +1,34 @@
 import './SurveyAppearance.scss'
+import { LemonInput } from '@posthog/lemon-ui'
+import { useState } from 'react'
+import { SurveyAppearance } from '~/types'
 
-export function SurveyAppearance(): JSX.Element {
+interface SurveyAppearanceProps {
+    // type: string
+    question: string
+    appearance: SurveyAppearance
+    onAppearanceChange: (appearance: SurveyAppearance) => void
+}
+export function SurveyAppearance({ question, appearance, onAppearanceChange }: SurveyAppearanceProps): JSX.Element {
     return (
         <>
             <h3 className="mb-4">Preview</h3>
-            <BaseAppearance question="question??" />
+            <BaseAppearance question={question} appearance={appearance} />
+            <div>Background color</div>
+            <LemonInput
+                value={appearance.backgroundColor}
+                onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+            />
+            <div>Text color</div>
+            <LemonInput
+                value={appearance?.textColor}
+                onChange={(textColor) => onAppearanceChange({ ...appearance, textColor })}
+            />
+            <div>Submit button color</div>
+            <LemonInput
+                value={appearance?.submitButtonColor}
+                onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+            />
         </>
     )
 }
@@ -33,21 +57,37 @@ const posthogLogoSVG = (
     </svg>
 )
 // This should be synced to the UI of the surveys app plugin
-function BaseAppearance({ question }: { question: string }): JSX.Element {
+function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearance }): JSX.Element {
+    const [hasText, setHasText] = useState(false)
+    console.log('appearance', appearance)
+
     return (
-        // <div>
-        <form className="survey-form">
+        <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
             <div className="survey-box">
                 <div className="cancel-btn-wrapper">
-                    <button className="form-cancel">X</button>
+                    <button className="form-cancel" style={{ backgroundColor: appearance.backgroundColor }}>
+                        X
+                    </button>
                 </div>
                 <div className="question-textarea-wrapper">
-                    <div className="survey-question">{question}</div>
-                    <textarea className="survey-textarea" name="survey" rows={4} />
+                    <div className="survey-question" style={{ color: appearance.textColor }}>
+                        {question}
+                    </div>
+                    <textarea
+                        className="survey-textarea"
+                        name="survey"
+                        rows={4}
+                        onChange={(event) => setHasText(!!event?.target.value)}
+                    />
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
-                        <button className="form-submit" type="submit" disabled>
+                        <button
+                            className="form-submit"
+                            type="submit"
+                            disabled={!hasText}
+                            style={{ backgroundColor: appearance.submitButtonColor }}
+                        >
                             Submit
                         </button>
                     </div>
