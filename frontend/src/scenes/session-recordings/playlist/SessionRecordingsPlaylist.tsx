@@ -12,7 +12,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { IconFilter, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconFilter, IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -134,18 +134,6 @@ export function RecordingsLists({
                                 </Tooltip>
                             ) : null}
 
-                            <LemonButton
-                                noPadding
-                                status={showFilters ? 'primary' : 'primary-alt'}
-                                type={showFilters ? 'primary' : 'tertiary'}
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
-                                }
-                                onClick={() => setShowFilters(!showFilters)}
-                            />
-
                             <Tooltip
                                 title={
                                     <div className="text-center">
@@ -174,6 +162,19 @@ export function RecordingsLists({
                                     />
                                 </span>
                             </Tooltip>
+
+                            <LemonButton
+                                size="small"
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'tertiary' : 'tertiary'}
+                                active={showFilters}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconMagnifier />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
                         </>
                     }
                     subheader={
