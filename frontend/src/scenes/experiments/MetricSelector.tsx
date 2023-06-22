@@ -70,7 +70,7 @@ export function MetricSelector({ setPreviewInsight }: MetricSelectorProps): JSX.
                         | TrendsQuery
                         | FunnelsQuery)
                 }}
-                typeKey={`experiment-funnel-goal-${isTrends ? InsightType.TRENDS : InsightType.FUNNELS}`}
+                typeKey={`experiment-${isTrends ? InsightType.TRENDS : InsightType.FUNNELS}-secondary-metric`}
                 mathAvailability={isTrends ? undefined : MathAvailability.None}
                 hideDeleteBtn={isTrends || filterSteps.length === 1}
                 buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
