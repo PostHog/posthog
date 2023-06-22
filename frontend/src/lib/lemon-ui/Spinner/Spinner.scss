@@ -44,4 +44,7 @@
         background: var(--bg-light);
         opacity: 0.5;
     }
+    .posthog-3000 &.SpinnerOverlay--scene-level::before {
+        background: var(--bg-3000);
+    }
 }

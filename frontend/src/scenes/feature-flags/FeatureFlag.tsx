@@ -125,7 +125,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     if (featureFlagLoading) {
         return (
             // TODO: This should be skeleton loaders
-            <SpinnerOverlay />
+            <SpinnerOverlay sceneLevel />
         )
     }
 
