@@ -403,9 +403,7 @@
 .SidebarListItem__link {
     row-gap: 1px;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
-    &:hover {
-        color: inherit;
-    }
+    color: inherit !important; // Disable link color
 }
 
 .SidebarListItem__rename {
