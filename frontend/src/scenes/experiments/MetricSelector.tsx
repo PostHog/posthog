@@ -11,7 +11,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
-// import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { PREVIEW_INSIGHT_ID } from './constants'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
@@ -54,22 +54,13 @@ export function MetricSelector({ setPreviewInsight }: MetricSelectorProps): JSX.
                 />
             </div>
 
-            {/* <div>
+            <div>
                 <SamplingFilter
                     insightProps={insightProps}
                     infoTooltipContent="Sampling on experiment goals is an Alpha feature to enable faster computation of experiment results."
-                    setFilters={(payload) =>
-                        setFilters({
-                            ...filters,
-                            ...(payload.sampling_factor
-                                ? { sampling_factor: payload.sampling_factor }
-                                : { sampling_factor: null }),
-                        })
-                    }
-                    initialSamplingPercentage={filters.sampling_factor ? filters.sampling_factor * 100 : null}
                 />
                 <br />
-            </div> */}
+            </div>
 
             <ActionFilter
                 bordered
