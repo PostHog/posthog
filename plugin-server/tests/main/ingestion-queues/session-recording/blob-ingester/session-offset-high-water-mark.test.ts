@@ -22,12 +22,6 @@ describe('session offset high-water mark', () => {
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(hub.redisPool, keyPrefix)
-        // works even before anything is written to redis
-        expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toStrictEqual({})
-
-        await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'some-session', 123)
-        await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'another-session', 12)
-        await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 2 }, 'a-third-session', 1)
     })
 
     afterEach(async () => {
@@ -35,61 +29,87 @@ describe('session offset high-water mark', () => {
         await closeHub()
     })
 
-    it('can get high-water marks for all sessions for a partition', async () => {
-        expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toEqual({
-            'some-session': 123,
-            'another-session': 12,
-        })
-    })
-
-    it('can remove all high-water marks based on a given offset', async () => {
-        const inMemoryResults = await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
-        // the commit updates the in-memory cache
-        expect(inMemoryResults).toEqual({
-            'some-session': 123,
+    describe('with no existing high-water marks', () => {
+        it('can remove all high-water marks based on a given offset', async () => {
+            const inMemoryResults = await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
+            expect(inMemoryResults).toEqual({})
+            expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toEqual({})
         })
 
-        // the commit updates redis
-        // removes all high-water marks that are <= 12
-        expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toEqual({
-            'some-session': 123,
-        })
-        // does not affect other partitions
-        expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 2 })).toEqual({
-            'a-third-session': 1,
-        })
-    })
-
-    it('can check if an offset is below the high-water mark', async () => {
-        const partitionOneTestCases: [number, boolean][] = [
-            [124, false],
-            [123, true],
-            [12, true],
-            [11, true],
-            [1, true],
-            [0, true],
-        ]
-        await Promise.allSettled(
-            partitionOneTestCases.map(async ([offset, expected]) => {
-                expect(
-                    await sessionOffsetHighWaterMark.isBelowHighWaterMark(
-                        { topic: 'topic', partition: 1 },
-                        'some-session',
-                        offset
-                    )
-                ).toBe(expected)
+        it('can add a high-water mark', async () => {
+            await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'some-session', 123)
+            expect(sessionOffsetHighWaterMark.getWatermarkFor({ topic: 'topic', partition: 1 })).toEqual({
+                'some-session': 123,
             })
-        )
+        })
     })
 
-    it('can check if an offset is below the high-water mark even if we have never seen it before', async () => {
-        // there is nothing for a partition? we are always below the high-water mark
-        expect(
-            await sessionOffsetHighWaterMark.isBelowHighWaterMark(
-                { topic: 'topic', partition: 1 },
-                'anything we did not add yet',
-                5432
+    describe('with existing high-water marks', () => {
+        beforeEach(async () => {
+            // works even before anything is written to redis
+            expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toStrictEqual({})
+
+            await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'some-session', 123)
+            await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'another-session', 12)
+            await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 2 }, 'a-third-session', 1)
+        })
+
+        it('can get high-water marks for all sessions for a partition', async () => {
+            expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toEqual({
+                'some-session': 123,
+                'another-session': 12,
+            })
+        })
+
+        it('can remove all high-water marks based on a given offset', async () => {
+            const inMemoryResults = await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
+            // the commit updates the in-memory cache
+            expect(inMemoryResults).toEqual({
+                'some-session': 123,
+            })
+
+            // the commit updates redis
+            // removes all high-water marks that are <= 12
+            expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 1 })).toEqual({
+                'some-session': 123,
+            })
+            // does not affect other partitions
+            expect(await sessionOffsetHighWaterMark.getAll({ topic: 'topic', partition: 2 })).toEqual({
+                'a-third-session': 1,
+            })
+        })
+
+        it('can check if an offset is below the high-water mark', async () => {
+            const partitionOneTestCases: [number, boolean][] = [
+                [124, false],
+                [123, true],
+                [12, true],
+                [11, true],
+                [1, true],
+                [0, true],
+            ]
+            await Promise.allSettled(
+                partitionOneTestCases.map(async ([offset, expected]) => {
+                    expect(
+                        await sessionOffsetHighWaterMark.isBelowHighWaterMark(
+                            { topic: 'topic', partition: 1 },
+                            'some-session',
+                            offset
+                        )
+                    ).toBe(expected)
+                })
             )
-        ).toBe(false)
+        })
+
+        it('can check if an offset is below the high-water mark even if we have never seen it before', async () => {
+            // there is nothing for a partition? we are always below the high-water mark
+            expect(
+                await sessionOffsetHighWaterMark.isBelowHighWaterMark(
+                    { topic: 'topic', partition: 1 },
+                    'anything we did not add yet',
+                    5432
+                )
+            ).toBe(false)
+        })
     })
 })
