@@ -449,7 +449,7 @@ def get_event(request):
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
 
-            futures: List[FutureRecordMetadata] = []
+            futures = []
 
             # We want to be super careful with our new ingestion flow for now so the whole thing is separated
             # This is mostly a copy of above except we only log, we don't error out
