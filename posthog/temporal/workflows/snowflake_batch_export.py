@@ -3,12 +3,14 @@ import json
 from dataclasses import dataclass
 from string import Template
 import tempfile
+from typing import Optional
+from uuid import UUID
 
 from django.conf import settings
 import snowflake.connector
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import SnowflakeBatchExportInputs
+from posthog.batch_exports.service import SnowflakeBatchExportInputs, afetch_batch_export
 
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
@@ -17,7 +19,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import get_data_interval_from_workflow_inputs, get_results_iterator, get_rows_count
 from posthog.temporal.workflows.clickhouse import get_client
 
 
@@ -49,7 +51,7 @@ class SnowflakeInsertInputs:
     warehouse: str
     schema: str
     table_name: str
-    data_interval_start: str
+    data_interval_start: Optional[str]
     data_interval_end: str
 
 
@@ -211,11 +213,21 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
-        """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info("Starting S3 export")
+        """Workflow implementation to export data to Snowflake."""
+        workflow.logger.info("Starting Snowflake export")
 
-        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        batch_export = await afetch_batch_export(UUID(inputs.batch_export_id))
+        if not batch_export:
+            workflow.logger.warn(f"BatchExport {inputs.batch_export_id} does not exist")
+            return
 
+        print(batch_export)
+        (data_interval_start, data_interval_end) = get_data_interval_from_workflow_inputs(
+            interval='hour',
+            data_interval_start_str=inputs.data_interval_start, 
+            data_interval_end_str=inputs.data_interval_end
+        )
+        
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
@@ -278,60 +290,3 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-
-
-def get_data_interval_from_workflow_inputs(inputs: SnowflakeBatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
-    """Return the start and end of an export's data interval.
-
-    Args:
-        inputs: The Snowflake BatchExport inputs.
-
-    Raises:
-        TypeError: If when trying to obtain the data interval end we run into non-str types.
-
-    Returns:
-        A tuple of two dt.datetime indicating start and end of the
-        data_interval.
-
-    TODO: this is pretty much a straight copy of the same function for S3.
-    Refactor to not use the destination specific inputs.
-    """
-    data_interval_end_str = inputs.data_interval_end
-
-    if not data_interval_end_str:
-        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
-
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if data_interval_end_search_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
-        # Failing here would perhaps be a bug in Temporal.
-        if isinstance(data_interval_end_search_attr[0], str):
-            data_interval_end_str = data_interval_end_search_attr[0]
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
-            data_interval_end = data_interval_end_search_attr[0]
-
-        else:
-            msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
-                f"of type '{type(data_interval_end_search_attr[0])}'."
-            )
-            raise TypeError(msg)
-    else:
-        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-    # TODO: handle different time intervals. I'm also no 100% happy with how we
-    # decide on the interval start/end. I would be much happier if we were to
-    # inspect the previous `data_interval_end` and used that as the start of
-    # the next interval. This would be more robust to failures and retries.
-    data_interval_start = data_interval_end - dt.timedelta(seconds=3600)
-
-    return (data_interval_start, data_interval_end)

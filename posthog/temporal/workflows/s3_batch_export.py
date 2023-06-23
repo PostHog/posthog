@@ -2,14 +2,15 @@ import datetime as dt
 import json
 import tempfile
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Literal, Optional
+from uuid import UUID
 
 import boto3
 from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import S3BatchExportInputs
+from posthog.batch_exports.service import S3BatchExportInputs, afetch_batch_export, fetch_batch_export, fetch_batch_export_runs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -17,7 +18,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import get_data_interval_from_workflow_inputs, get_results_iterator, get_rows_count
 from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
@@ -192,7 +193,15 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        batch_export = await afetch_batch_export(UUID(inputs.batch_export_id))
+        if not batch_export:
+            raise ValueError(f"BatchExport {inputs.batch_export_id} does not exist")
+        
+        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(
+            interval=batch_export.interval,
+            data_interval_start_str=inputs.data_interval_start, 
+            data_interval_end_str=inputs.data_interval_end
+        )
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -254,51 +263,3 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-
-def get_data_interval_from_workflow_inputs(inputs: S3BatchExportInputs) -> tuple[dt.datetime, dt.datetime]:
-    """Return the start and end of an export's data interval.
-
-    Args:
-        inputs: The S3 BatchExport inputs.
-
-    Raises:
-        TypeError: If when trying to obtain the data interval end we run into non-str types.
-
-    Returns:
-        A tuple of two dt.datetime indicating start and end of the data_interval.
-    """
-    data_interval_end_str = inputs.data_interval_end
-
-    if not data_interval_end_str:
-        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
-
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if data_interval_end_search_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
-        # Failing here would perhaps be a bug in Temporal.
-        if isinstance(data_interval_end_search_attr[0], str):
-            data_interval_end_str = data_interval_end_search_attr[0]
-            data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-        elif isinstance(data_interval_end_search_attr[0], dt.datetime):
-            data_interval_end = data_interval_end_search_attr[0]
-
-        else:
-            msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
-                f"of type '{type(data_interval_end_search_attr[0])}'."
-            )
-            raise TypeError(msg)
-    else:
-        data_interval_end = dt.datetime.fromisoformat(data_interval_end_str)
-
-    data_interval_start = data_interval_end - dt.timedelta(seconds=inputs.batch_window_size)
-
-    return (data_interval_start, data_interval_end)

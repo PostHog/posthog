@@ -1,10 +1,11 @@
 import datetime as dt
-from asgiref.sync import sync_to_async
+from asgiref.sync import sync_to_async, ThreadSensitiveContext
 from uuid import UUID
 
 from dataclasses import dataclass, asdict
 
 from rest_framework.exceptions import ValidationError
+
 
 from posthog import settings
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
@@ -47,6 +48,7 @@ class S3BatchExportInputs:
     batch_export_id: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    data_interval_start: str | None = None
     data_interval_end: str | None = None
 
 
@@ -63,6 +65,7 @@ class SnowflakeBatchExportInputs:
     warehouse: str
     schema: str
     table_name: str = "events"
+    data_interval_start: str | None = None
     data_interval_end: str | None = None
 
 
@@ -252,6 +255,23 @@ async def acreate_batch_export(team_id: int, interval: str, name: str, destinati
     Create a BatchExport and its underlying Schedule.
     """
     return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
+
+
+def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
+    """
+    Fetch a BatchExport by id.
+    """
+    try:
+        return BatchExport.objects.get(id=batch_export_id)
+    except BatchExport.DoesNotExist:
+        return None
+
+
+async def afetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
+    """
+    Fetch a BatchExport by id.
+    """
+    return await sync_to_async(fetch_batch_export)(batch_export_id)  # type: ignore
 
 
 def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
