@@ -8,6 +8,8 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
@@ -91,6 +93,11 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         return results[0][0]
     else:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+
+
+def get_start_of_interval_sql(interval: str, hogql_context: HogQLContext, *, source: str = "timestamp") -> str:
+    trunc_func = get_trunc_func_ch(interval)
+    return translate_hogql(f"{trunc_func}({source})", hogql_context, "clickhouse")
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:

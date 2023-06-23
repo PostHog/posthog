@@ -14,14 +14,13 @@ from posthog.models.property.util import get_single_or_multi_property_string_exp
 from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.util import get_person_properties_mode, get_trunc_func_ch
+from posthog.queries.util import get_person_properties_mode, get_start_of_interval_sql
 from posthog.utils import PersonOnEventsMode
 
 
 class RetentionEventsQuery(EventQuery):
     _filter: RetentionFilter
     _event_query_type: RetentionQueryType
-    _trunc_func: str
 
     def __init__(
         self,
@@ -38,8 +37,6 @@ class RetentionEventsQuery(EventQuery):
             override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
             person_on_events_mode=person_on_events_mode,
         )
-
-        self._trunc_func = get_trunc_func_ch(self._filter.period)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
@@ -95,15 +92,14 @@ class RetentionEventsQuery(EventQuery):
             # lives easier when zero filling the response. We could however
             # handle this WITH FILL within the query.
 
-            start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._trunc_func)
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [
                     f"""
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
-                            {self._trunc_func}(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s)))
+                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='%(start_date)s')},
+                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='min(e.timestamp)')}
                         )
                     ] as breakdown_values
                     """
@@ -114,8 +110,8 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
-                            {self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s))
+                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='%(start_date)s')},
+                            {get_start_of_interval_sql(self._filter.period, self._filter.hogql_context, source='e.timestamp')}
                         )
                     ] as breakdown_values
                     """
@@ -180,7 +176,7 @@ class RetentionEventsQuery(EventQuery):
             return "{} as target".format(self._person_id_alias)
 
     def get_timestamp_field(self) -> str:
-        start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._trunc_func)
+        start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._team, self._trunc_func)
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:

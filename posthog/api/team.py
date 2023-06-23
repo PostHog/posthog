@@ -130,6 +130,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_version",
             "effective_membership_level",
             "access_control",
+            "week_start_day",
             "has_group_types",
             "primary_dashboard",
             "live_events_columns",

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 from pydantic.fields import ModelField
@@ -54,15 +54,23 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
-    def __init__(self, timezone: Optional[str]):
+    _timezone: Optional[str] = None
+    _week_start_day: Optional[Literal[0, 1]] = None
+
+    def __init__(self, timezone: Optional[str], week_start_day: Optional[Literal[0, 1]] = None):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise HogQLException(f"Unknown timezone: '{str(timezone)}'")
+        self._week_start_day = week_start_day
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
+
+    def get_week_start_day(self) -> Literal[0, 1]:
+        """Return 0 if week starts on Sunday, 1 if it starts on Monday."""
+        return self._week_start_day or 0
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
@@ -106,7 +114,7 @@ def create_hogql_database(team_id: int) -> Database:
     from posthog.warehouse.models import DataWarehouseTable
 
     team = Team.objects.get(pk=team_id)
-    database = Database(timezone=team.timezone)
+    database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
     if team.person_on_events_mode != PersonOnEventsMode.DISABLED:
         # TODO: split PoE v1 and v2 once SQL Expression fields are supported #15180
         database.events.fields["person"] = FieldTraverser(chain=["poe"])

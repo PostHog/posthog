@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { Link, LinkProps } from '../Link'
 
 export interface LemonLabelProps
-    extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'htmlFor' | 'form' | 'children' | 'className'> {
+    extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'id' | 'htmlFor' | 'form' | 'children' | 'className'> {
     info?: React.ReactNode
     infoLink?: LinkProps['to']
     showOptional?: boolean

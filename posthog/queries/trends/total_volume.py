@@ -39,7 +39,7 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_start_of_interval_sql
 from posthog.utils import PersonOnEventsMode, encode_get_request_params, generate_short_id
 
 
@@ -49,8 +49,6 @@ class TrendsTotalVolume:
     PERSON_ID_OVERRIDES_TABLE_ALIAS = EventQuery.PERSON_ID_OVERRIDES_TABLE_ALIAS
 
     def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
-
-        trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
 
         person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -82,7 +80,6 @@ class TrendsTotalVolume:
         content_sql_params = {
             "aggregate_operation": aggregate_operation,
             "timestamp": "e.timestamp",
-            "interval": trunc_func,
             "interval_func": interval_func,
         }
         params: Dict = {"team_id": team.id, "timezone": team.timezone}
@@ -122,7 +119,12 @@ class TrendsTotalVolume:
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
             tag_queries(trend_volume_display="time_series")
-            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
+            null_sql = NULL_SQL.format(
+                truncated_timestamp=get_start_of_interval_sql(
+                    filter.interval, filter.hogql_context, source="%(date_to)s"
+                ),
+                interval_func=interval_func,
+            )
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 tag_queries(trend_volume_type="active_users")
@@ -131,6 +133,12 @@ class TrendsTotalVolume:
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
+                    date_to_truncated=get_start_of_interval_sql(
+                        filter.interval, filter.hogql_context, source="%(date_to)s"
+                    ),
+                    date_from_active_users_adjusted_truncated=get_start_of_interval_sql(
+                        filter.interval, filter.hogql_context, source="%(date_from_active_users_adjusted)s"
+                    ),
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
@@ -143,7 +151,7 @@ class TrendsTotalVolume:
                 )
                 content_sql_params["aggregate_operation"] = "COUNT(DISTINCT actor_id)"
                 content_sql = VOLUME_SQL.format(
-                    timestamp_column="first_seen_timestamp",
+                    timestamp_truncated=get_start_of_interval_sql(filter, "first_seen_timestamp"),
                     event_query_base=f"FROM ({cumulative_sql})",
                     **content_sql_params,
                 )
@@ -154,6 +162,7 @@ class TrendsTotalVolume:
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query_base=event_query_base,
                     aggregator=determine_aggregator(entity, team),
+                    timestamp_truncated=get_start_of_interval_sql(filter.interval, filter.hogql_context),
                     **content_sql_params,
                 )
             elif entity.math_property == "$session_duration":
@@ -162,6 +171,7 @@ class TrendsTotalVolume:
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
                     event_query_base=event_query_base,
+                    timestamp_truncated=get_start_of_interval_sql(filter.interval, filter.hogql_context),
                     **content_sql_params,
                 )
             else:
@@ -170,8 +180,8 @@ class TrendsTotalVolume:
                 else:
                     tag_queries(trend_volume_type="volume")
                 content_sql = VOLUME_SQL.format(
-                    timestamp_column="timestamp",
                     event_query_base=event_query_base,
+                    timestamp_truncated=get_start_of_interval_sql(filter.interval, filter.hogql_context),
                     **content_sql_params,
                 )
 

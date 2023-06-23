@@ -1,7 +1,7 @@
 VOLUME_SQL = """
 SELECT
     {aggregate_operation} AS total,
-    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s)) AS date
+    {timestamp_truncated} AS date
 {event_query_base}
 GROUP BY date
 """
@@ -15,7 +15,7 @@ VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS total, date FROM (
     SELECT
         count() AS intermediate_count,
-        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS date
+        {timestamp_truncated} AS date
     {event_query_base}
     GROUP BY {aggregator}, date
 ) GROUP BY date
@@ -33,7 +33,7 @@ SELECT {aggregate_operation} AS total FROM (
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} AS total, date FROM (
     SELECT
-        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as date,
+        {truncated_timestamp} as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
     GROUP BY e.$session_id, date
@@ -55,8 +55,8 @@ SELECT counts AS total, timestamp AS day_start FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
-        SELECT toDateTime({interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number))) AS timestamp
-        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
+        SELECT toDateTime({date_to_truncated} - {interval_func}(number))) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {date_from_active_users_adjusted_truncated}, toDateTime(%(date_to)s, %(timezone)s)))
     ) d
     /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
        but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */

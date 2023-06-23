@@ -329,6 +329,8 @@ export interface TeamType extends TeamBasicType {
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
+    /** 0 or unset for Sunday, 1 for Monday. */
+    week_start_day?: number
     path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]

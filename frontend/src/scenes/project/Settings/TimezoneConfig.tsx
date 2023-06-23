@@ -41,15 +41,17 @@ export function TimezoneConfig(): JSX.Element {
     })
 
     return (
-        <LemonSelectMultiple
-            mode="single"
-            placeholder="Select a timezone"
-            loading={currentTeamLoading}
-            disabled={currentTeamLoading}
-            value={[currentTeam.timezone]}
-            onChange={(val: string[]) => onChange(val as any)}
-            options={options}
-            data-attr="timezone-select"
-        />
+        <div className="max-w-80">
+            <LemonSelectMultiple
+                mode="single"
+                placeholder="Select a timezone"
+                loading={currentTeamLoading}
+                disabled={currentTeamLoading}
+                value={[currentTeam.timezone]}
+                onChange={(val: string[]) => onChange(val as any)}
+                options={options}
+                data-attr="timezone-select"
+            />
+        </div>
     )
 }

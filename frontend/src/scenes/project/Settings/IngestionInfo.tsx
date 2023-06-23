@@ -16,7 +16,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
         return (
             <>
                 <h2 id="snippet" className="subtitle">
-                    Event Ingestion
+                    Event ingestion
                 </h2>
                 <p>
                     PostHog can ingest events from almost anywhere - JavaScript, Android, iOS, React Native, Node.js,

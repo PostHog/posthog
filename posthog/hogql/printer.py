@@ -508,6 +508,11 @@ class _Printer(Visitor):
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
+                if node.name == "toStartOfWeek" and len(node.args) == 1:
+                    # If week mode hasn't been specified, use the project's default.
+                    # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
+                    args.append("3" if self._get_week_start_day() else "0")
+
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
@@ -792,3 +797,6 @@ class _Printer(Visitor):
 
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
+
+    def _get_week_start_day(self):
+        return self.context.database.get_week_start_day() if self.context.database else 0
