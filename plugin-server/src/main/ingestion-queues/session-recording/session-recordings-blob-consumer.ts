@@ -6,10 +6,7 @@ import { CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } 
 import path from 'path'
 import { Gauge } from 'prom-client'
 
-import {
-    KAFKA_SESSION_RECORDING_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '../../../config/kafka-topics'
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
@@ -18,7 +15,6 @@ import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
-import { OffsetManager } from './blob-ingester/offset-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
@@ -54,10 +50,21 @@ const gaugeLagMilliseconds = new Gauge({
     labelNames: ['partition'],
 })
 
+const gaugeOffsetCommitted = new Gauge({
+    name: 'offset_manager_offset_committed',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
+    labelNames: ['partition'],
+})
+
+const gaugeOffsetCommitFailed = new Gauge({
+    name: 'offset_manager_offset_commit_failed',
+    help: 'An attempt to commit failed, other than accidentally committing just after a rebalance this is not great news.',
+    labelNames: ['partition'],
+})
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
-    offsetManager?: OffsetManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
     flushInterval: NodeJS.Timer | null = null
@@ -124,14 +131,13 @@ export class SessionRecordingBlobIngester {
                 partition,
                 topic,
                 (offsets) => {
-                    const committedOffset = this.offsetManager?.removeOffsets(topic, partition, offsets)
-                    const maxOffset = Math.max(...offsets)
-
-                    // We don't want to block if anything fails here. Watermarks are best effort
-                    void this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, maxOffset)
-                    if (committedOffset) {
-                        void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, committedOffset)
+                    if (offsets.length === 0) {
+                        return
                     }
+
+                    this.commitOffsets(topic, partition, session_id, offsets)
+                    // We don't want to block if anything fails here. Watermarks are best effort
+                    void this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, offsets.slice(-1)[0])
                 }
             )
 
@@ -144,7 +150,6 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.offsetManager?.addOffset(topic, partition, session_id, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
@@ -287,8 +292,6 @@ export class SessionRecordingBlobIngester {
             },
         })
 
-        this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
-
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
@@ -321,8 +324,6 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                // any commit from this point is invalid, so we revoke immediately
-                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
                 await this.destroySessions(sessionsToDrop)
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
@@ -450,5 +451,73 @@ export class SessionRecordingBlobIngester {
         })
 
         await Promise.allSettled(destroyPromises)
+    }
+
+    // Given a topic and partition and a list of offsets, commit the highest offset that is no longer found across any of the existing sessions.
+    // This approach is fault tolerant in that if anything goes wrong, the next commit on that partition will work
+    private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
+        let potentiallyBlockingSession: SessionManager | undefined
+
+        for (const [_, sessionManager] of this.sessions) {
+            if (sessionManager.partition === partition && sessionManager.topic === topic) {
+                const lowestOffset = sessionManager.getLowestOffset()
+                if (lowestOffset && lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)) {
+                    potentiallyBlockingSession = sessionManager
+                }
+            }
+        }
+
+        // Question - given that we always commit + 1, couldn't we just grab the lowest offset across all in flight sessions and commit that??
+        // Would make a lot of this code simpler
+
+        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
+        const commitableOffsets = potentiallyBlockingOffset
+            ? offsets.filter((offset) => offset < potentiallyBlockingOffset)
+            : offsets
+
+        if (commitableOffsets.length === 0) {
+            // If there are no offsets to commit then we're done
+            status.info('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
+                partition,
+                blockingSession: potentiallyBlockingSession?.sessionId,
+                lowestInflightOffset: potentiallyBlockingOffset,
+                lowestOffsetToRemove: offsets[0],
+            })
+            return
+        }
+
+        // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
+        const highestOffsetToCommit = Math.max(...commitableOffsets)
+
+        status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
+            partition,
+            offsetToCommit: highestOffsetToCommit,
+        })
+
+        // NOTE: Should this also be +1 ?
+        void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
+
+        try {
+            this.batchConsumer?.consumer.commitSync({
+                topic,
+                partition,
+                // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                // for some reason you commit the next offset you expect to read and not the one you actually have
+                offset: highestOffsetToCommit + 1,
+            })
+            gaugeOffsetCommitted.inc({ partition })
+        } catch (e) {
+            gaugeOffsetCommitFailed.inc({ partition })
+            captureException(e, {
+                extra: { partition, offsetToCommit: highestOffsetToCommit, sessionId },
+                tags: { partition },
+            })
+            if (e.message !== 'Broker: Specified group generation id is not valid') {
+                // If this is not a known error that happens when you commit just after a re-balance
+                // then we throw instead of swallowing
+                // TODO: ideally we'd only swallow this if it really was just after re-balance
+                throw e
+            }
+        }
     }
 }

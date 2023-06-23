@@ -239,12 +239,11 @@ export class SessionManager {
             counterS3WriteErrored.inc()
         } finally {
             this.inProgressUpload = null
-            const offsets = this.flushBuffer.offsets
-            this.onFinish(offsets)
-
-            await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
-
+            const { file, offsets } = this.flushBuffer
+            // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
+            this.onFinish(offsets)
+            await this.deleteFile(file, 'on s3 flush')
         }
     }
 
@@ -291,6 +290,8 @@ export class SessionManager {
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
+            // It is important that we sort the offsets as the parent expects these to be sorted
+            this.buffer.offsets.sort((a, b) => a - b)
 
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
@@ -338,5 +339,12 @@ export class SessionManager {
                 })
             )
         await Promise.allSettled(filePromises)
+    }
+
+    public getLowestOffset(): number | null {
+        if (this.buffer.offsets.length === 0) {
+            return null
+        }
+        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
     }
 }
