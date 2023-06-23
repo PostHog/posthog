@@ -443,15 +443,18 @@ def get_event(request):
                 )
 
     try:
-        if random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
+        if replay_events and random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
             # The new flow we only enable if the dedicated kafka is enabled
-            alternative_replay_events_ingestion = preprocess_replay_events_for_blob_ingestion(
+            alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
 
+            futures: List[FutureRecordMetadata] = []
+
             # We want to be super careful with our new ingestion flow for now so the whole thing is separated
             # This is mostly a copy of above except we only log, we don't error out
-            if len(alternative_replay_events_ingestion) > 0:
+            if alternative_replay_events:
+                processed_events = list(preprocess_events(alternative_replay_events))
                 for event, event_uuid, distinct_id in processed_events:
                     futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
 
@@ -459,7 +462,7 @@ def get_event(request):
                 for future in futures:
                     future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
 
-    except Exception as e:
+    except Exception as exc:
         capture_exception(exc, {"data": data})
         logger.error("kafka_session_recording_produce_failure", exc_info=exc)
         pass
