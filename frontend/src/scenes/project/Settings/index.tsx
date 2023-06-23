@@ -118,7 +118,7 @@ export function ProjectSettings(): JSX.Element {
                         Timezone
                     </LemonLabel>
                     <TimezoneConfig />
-                    <LemonLabel id="timezone">Weeks start on</LemonLabel>
+                    <LemonLabel id="timezone">Week starts on</LemonLabel>
                     <WeekStartConfig />
                 </div>
                 <LemonDivider className="my-6" />
