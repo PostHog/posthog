@@ -1,10 +1,16 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { DataWarehouseSceneRow, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonButton } from '@posthog/lemon-ui'
+import { deleteWithUndo } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function DataWarehouseTablesContainer(): JSX.Element {
     const { tables, dataWarehouseLoading } = useValues(dataWarehouseSceneLogic)
+    const { loadDataWarehouse } = useActions(dataWarehouseSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
     return (
         <DatabaseTables
             tables={tables}
@@ -27,6 +33,34 @@ export function DataWarehouseTablesContainer(): JSX.Element {
                     </div>
                 )
             }}
+            extraColumns={[
+                {
+                    width: 0,
+                    render: function Render(_, warehouseTable: DataWarehouseSceneRow) {
+                        return (
+                            <More
+                                overlay={
+                                    <>
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() => {
+                                                deleteWithUndo({
+                                                    endpoint: `projects/${currentTeamId}/warehouse_table`,
+                                                    object: { name: warehouseTable.name, id: warehouseTable.id },
+                                                    callback: loadDataWarehouse,
+                                                })
+                                            }}
+                                            fullWidth
+                                        >
+                                            Delete table
+                                        </LemonButton>
+                                    </>
+                                }
+                            />
+                        )
+                    },
+                },
+            ]}
         />
     )
 }

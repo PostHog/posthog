@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useValues } from 'kea'
 import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -27,16 +27,18 @@ export function DatabaseTablesContainer(): JSX.Element {
     )
 }
 
-interface DatabaseTablesProps<T> {
+interface DatabaseTablesProps<T extends Record<string, any>> {
     tables: T[]
     loading: boolean
     renderRow: (row: T) => JSX.Element
+    extraColumns?: LemonTableColumns<T>
 }
 
 export function DatabaseTables<T extends DatabaseSceneRow>({
     tables,
     loading,
     renderRow,
+    extraColumns = [],
 }: DatabaseTablesProps<T>): JSX.Element {
     return (
         <>
@@ -81,6 +83,7 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                             )
                         },
                     },
+                    ...extraColumns,
                 ]}
                 expandable={{
                     expandedRowRender: renderRow,
