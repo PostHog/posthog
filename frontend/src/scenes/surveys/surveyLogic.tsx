@@ -38,10 +38,13 @@ export interface NewSurvey
         | 'linked_flag'
         | 'targeting_flag'
         | 'archived'
+        | 'appearance'
     > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
+
+export const defaultSurveyAppearance = { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' }
 
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
@@ -57,6 +60,7 @@ const NEW_SURVEY: NewSurvey = {
     end_date: null,
     conditions: null,
     archived: false,
+    appearance: defaultSurveyAppearance,
 }
 
 export const surveyEventName = 'survey sent'

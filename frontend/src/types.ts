@@ -2056,9 +2056,9 @@ export enum SurveyType {
 }
 
 export interface SurveyAppearance {
-    background_color?: string
-    button_color?: string
-    text_color?: string
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
 }
 
 export interface SurveyQuestion {
