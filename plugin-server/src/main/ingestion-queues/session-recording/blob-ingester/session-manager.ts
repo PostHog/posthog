@@ -14,7 +14,7 @@ import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
 import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
-import { convertToPersistedMessage } from './utils'
+import { convertToPersistedMessage, now } from './utils'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
@@ -53,6 +53,7 @@ type SessionBuffer = {
         firstTimestamp: number
         lastTimestamp: number
     } | null
+    createdAt: number
 }
 
 export class SessionManager {
@@ -169,15 +170,22 @@ export class SessionManager {
             return
         }
 
-        const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
+        const bufferAgeInMemory = now() - this.buffer.createdAt
+        const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
+
+        // We will use whichever age is oldest (largest). This handles the fact that the reference now can get "stuck" if there is no new data in the partition
+        const bufferAge = Math.max(bufferAgeInMemory, bufferAgeFromReference)
+
         logContext['bufferAge'] = bufferAge
+        logContext['bufferAgeInMemory'] = bufferAgeInMemory
+        logContext['bufferAgeFromReference'] = bufferAgeFromReference
 
         if (bufferAge >= flushThresholdMillis) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
             // return the promise and let the caller decide whether to await
-            return this.flush('buffer_age')
+            return this.flush(bufferAgeInMemory > bufferAgeFromReference ? 'buffer_age' : 'buffer_age_realtime')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 ...logContext,
@@ -189,7 +197,7 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
+    public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
         if (this.flushBuffer) {
             return
         }
@@ -253,13 +261,11 @@ export class SessionManager {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
             this.realtime = false
-
-            const offsets = this.flushBuffer.offsets
-            this.onFinish(offsets)
-
-            await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
-
+            const { file, offsets } = this.flushBuffer
+            // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
+            this.onFinish(offsets)
+            await this.deleteFile(file, 'on s3 flush')
         }
     }
 
@@ -268,6 +274,7 @@ export class SessionManager {
             const id = randomUUID()
             const buffer: SessionBuffer = {
                 id,
+                createdAt: now(),
                 count: 0,
                 size: 0,
                 oldestKafkaTimestamp: null,
@@ -312,6 +319,8 @@ export class SessionManager {
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
+            // It is important that we sort the offsets as the parent expects these to be sorted
+            this.buffer.offsets.sort((a, b) => a - b)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
@@ -391,5 +400,12 @@ export class SessionManager {
                 })
             )
         await Promise.allSettled(filePromises)
+    }
+
+    public getLowestOffset(): number | null {
+        if (this.buffer.offsets.length === 0) {
+            return null
+        }
+        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
     }
 }
