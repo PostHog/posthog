@@ -58,8 +58,7 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
                     </ConfigFilter>
                 )}
 
-                {isTrendsFilter(filters) &&
-                !filters.breakdown_type &&
+                {!filters.breakdown_type &&
                 !filters.compare &&
                 (!filters.display || filters.display === ChartDisplayType.ActionsLineGraph) &&
                 featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL] ? (
@@ -77,11 +76,10 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
             <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {isFilterWithDisplay(filters) && (
                     <>
-                        {isTrendsFilter(filters) && (
-                            <ConfigFilter>
-                                <UnitPicker filters={filters} setFilters={setFilters} />
-                            </ConfigFilter>
-                        )}
+                        <ConfigFilter>
+                            <UnitPicker filters={filters} setFilters={setFilters} />
+                        </ConfigFilter>
+
                         <ConfigFilter>
                             <ChartFilter filters={filters} />
                         </ConfigFilter>
