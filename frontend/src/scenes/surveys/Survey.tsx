@@ -244,6 +244,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         </LemonButton>
                     </PureField>
                 </div>
+                <LemonDivider vertical />
                 <div className="flex flex-col flex-1 items-center">
                     <Field name="appearance" label="">
                         {({ value, onChange }) => (

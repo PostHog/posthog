@@ -7,28 +7,38 @@ interface SurveyAppearanceProps {
     // type: string
     question: string
     appearance: SurveyAppearance
+    readOnly?: boolean
     onAppearanceChange: (appearance: SurveyAppearance) => void
 }
-export function SurveyAppearance({ question, appearance, onAppearanceChange }: SurveyAppearanceProps): JSX.Element {
+export function SurveyAppearance({
+    question,
+    appearance,
+    readOnly,
+    onAppearanceChange,
+}: SurveyAppearanceProps): JSX.Element {
     return (
         <>
             <h3 className="mb-4 text-center">Preview</h3>
             <BaseAppearance question={question} appearance={appearance} />
-            <div className="mt-2">Background color</div>
-            <LemonInput
-                value={appearance.backgroundColor}
-                onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
-            />
-            <div>Text color</div>
-            <LemonInput
-                value={appearance?.textColor}
-                onChange={(textColor) => onAppearanceChange({ ...appearance, textColor })}
-            />
-            <div>Submit button color</div>
-            <LemonInput
-                value={appearance?.submitButtonColor}
-                onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
-            />
+            {!readOnly && (
+                <div className="flex flex-col">
+                    <div className="mt-2">Background color</div>
+                    <LemonInput
+                        value={appearance.backgroundColor}
+                        onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
+                    />
+                    <div className="mt-2">Text color</div>
+                    <LemonInput
+                        value={appearance?.textColor}
+                        onChange={(textColor) => onAppearanceChange({ ...appearance, textColor })}
+                    />
+                    <div className="mt-2">Submit button color</div>
+                    <LemonInput
+                        value={appearance?.submitButtonColor}
+                        onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                    />
+                </div>
+            )}
         </>
     )
 }
@@ -59,7 +69,6 @@ const posthogLogoSVG = (
 // This should be synced to the UI of the surveys app plugin
 function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearance }): JSX.Element {
     const [hasText, setHasText] = useState(false)
-    console.log('appearance', appearance)
 
     return (
         <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
@@ -84,8 +93,9 @@ function BaseAppearance({ question, appearance }: { question: string; appearance
                     <div className="buttons">
                         <button
                             className="form-submit"
-                            type="submit"
+                            type="button"
                             disabled={!hasText}
+                            onClick={() => {}}
                             style={{ backgroundColor: appearance.submitButtonColor }}
                         >
                             Submit
