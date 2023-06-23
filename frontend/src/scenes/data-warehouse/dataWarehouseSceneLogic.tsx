@@ -12,6 +12,11 @@ export interface DatabaseSceneRow {
     columns: DatabaseSchemaQueryResponseField[]
 }
 
+export interface DataWarehouseSceneRow extends DatabaseSceneRow {
+    url_pattern: string
+    format: string
+}
+
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
     loaders({
@@ -26,7 +31,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     selectors({
         tables: [
             (s) => [s.dataWarehouse],
-            (warehouse): DatabaseSceneRow[] => {
+            (warehouse): DataWarehouseSceneRow[] => {
                 if (!warehouse) {
                     return []
                 }
@@ -36,7 +41,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         ({
                             name: table.name,
                             columns: table.columns,
-                        } as DatabaseSceneRow)
+                            url_pattern: table.url_pattern,
+                            format: table.format,
+                        } as DataWarehouseSceneRow)
                 )
             },
         ],
