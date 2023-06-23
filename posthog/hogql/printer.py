@@ -354,7 +354,9 @@ class _Printer(Visitor):
         if node.op == ast.CompareOperationOp.Eq:
             if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
                 return "1" if node.left.value == node.right.value else "0"
-            elif self.in_join_on:  # TODO: get this info from the stack (needs clause support)
+            elif (
+                self.in_join_on or self.dialect == "hogql"
+            ):  # TODO: get this info from the stack (needs clause support)
                 return f"equals({left}, {right})"
             elif isinstance(node.right, ast.Constant):
                 if node.right.value is None:
@@ -369,7 +371,9 @@ class _Printer(Visitor):
         elif node.op == ast.CompareOperationOp.NotEq:
             if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
                 return "1" if node.left.value != node.right.value else "0"
-            elif self.in_join_on:  # TODO: get this info from the stack (needs clause support)
+            elif (
+                self.in_join_on or self.dialect == "hogql"
+            ):  # TODO: get this info from the stack (needs clause support)
                 return f"notEquals({left}, {right})"
             elif isinstance(node.right, ast.Constant):
                 if node.right.value is None:
