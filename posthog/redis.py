@@ -14,6 +14,8 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
     global _client_map
 
     if not _client_map.get(redis_url):
+        client: Any = None
+
         if settings.TEST:
             import fakeredis
 
