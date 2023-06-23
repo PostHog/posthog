@@ -1,5 +1,4 @@
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -9,6 +8,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { ProductKey } from '~/types'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { DataWarehouseTablesContainer } from './DataWarehouseTables'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouse,
@@ -16,7 +16,7 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouse(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSceneLogic)
 
     return (
         <div>
@@ -49,7 +49,7 @@ export function DataWarehouse(): JSX.Element {
                     </div>
                 }
             />
-            {!user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE] && (
+            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
                     thingName={'data warehouse table'}
@@ -57,12 +57,12 @@ export function DataWarehouse(): JSX.Element {
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
                     action={() => router.actions.push(urls.dataWarehouseTable('new'))}
-                    isEmpty={true}
+                    isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}
-            <DataWarehouseTablesContainer />
+            {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
         </div>
     )
 }
