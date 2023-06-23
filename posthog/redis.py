@@ -1,11 +1,11 @@
 # flake8: noqa
-from typing import Optional
+from typing import Dict, Optional
 
 import redis
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-_client_map = {}  # type: Optional[redis.Redis]
+_client_map: Dict[str, redis.Redis] = {}
 
 
 def get_client(redis_url: Optional[str] = None) -> redis.Redis:
@@ -27,3 +27,9 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
         _client_map[redis_url] = client
 
     return _client_map[redis_url]
+
+
+def TEST_clear_clients():
+    global _client_map
+    for key in list(_client_map.keys()):
+        del _client_map[key]
