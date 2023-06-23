@@ -5,6 +5,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { now } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createIncomingRecordingMessage } from '../fixtures'
 
 jest.mock('fs', () => {
@@ -79,7 +80,7 @@ describe('session-manager', () => {
     })
 
     it('adds a message', async () => {
-        const timestamp = DateTime.now().toMillis() - 10000
+        const timestamp = now() - 10000
         const event = createIncomingRecordingMessage({
             metadata: {
                 timestamp: timestamp,
@@ -96,6 +97,7 @@ describe('session-manager', () => {
             id: expect.any(String),
             size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
+            createdAt: now(),
             eventsRange: {
                 firstTimestamp: 1679568314158,
                 lastTimestamp: 1679568314158,
@@ -163,7 +165,7 @@ describe('session-manager', () => {
         await sessionManager.add(eventOne)
         await sessionManager.add(eventTwo)
 
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
+        await sessionManager.flushIfSessionBufferIsOld(now(), flushThreshold)
 
         // as a proxy for flush having been called or not
         expect(createReadStream).toHaveBeenCalled()
@@ -197,6 +199,26 @@ describe('session-manager', () => {
 
         // as a proxy for flush having been called or not
         expect(createReadStream).not.toHaveBeenCalled()
+    })
+
+    it('does flush if lagging but nonetheless too old', async () => {
+        const aDayInMilliseconds = 24 * 60 * 60 * 1000
+        const now = DateTime.now()
+
+        const event = createIncomingRecordingMessage({
+            metadata: {
+                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
+            } as any,
+        })
+
+        await sessionManager.add(event)
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        expect(createReadStream).not.toHaveBeenCalled()
+
+        // Manually modify the date to simulate this being idle for too long
+        sessionManager.buffer.createdAt = now.minus({ milliseconds: 3000 }).toMillis()
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        expect(createReadStream).toHaveBeenCalled()
     })
 
     it('flushes messages', async () => {

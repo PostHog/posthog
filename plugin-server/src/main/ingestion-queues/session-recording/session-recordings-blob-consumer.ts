@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
-import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } from 'node-rdkafka-acosom'
 import path from 'path'
@@ -19,6 +18,7 @@ import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
+import { now } from './blob-ingester/utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -27,7 +27,6 @@ const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
 const flushIntervalTimeoutMs = 30000
-const hoursInMillis = (hours: number) => hours * 60 * 60 * 1000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
@@ -78,8 +77,6 @@ export class SessionRecordingBlobIngester {
     enabledTeams: number[] | null
     // the time at the most recent message of a particular partition
     partitionNow: Record<number, number | null> = {}
-    // the most recent message timestamp seen across all partitions
-    consumerNow: number | null = null
 
     constructor(
         private teamManager: TeamManager,
@@ -112,8 +109,7 @@ export class SessionRecordingBlobIngester {
             .labels({
                 partition: partition.toString(),
             })
-            .set(DateTime.now().toMillis() - timestamp)
-        this.consumerNow = Math.max(timestamp, this.consumerNow ?? -Infinity)
+            .set(now() - timestamp)
 
         const highWaterMarkSpan = sentrySpan?.startChild({
             op: 'checkHighWaterMark',
@@ -384,24 +380,9 @@ export class SessionRecordingBlobIngester {
                 sessionManagerBufferSizes += sessionManager.buffer.size
 
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
-                let referenceTime = this.partitionNow[sessionManager.partition]
+                const referenceTime = this.partitionNow[sessionManager.partition]
                 if (!referenceTime) {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
-                }
-
-                // it is possible for a session to need an idle flush to continue
-                // but for the head of that partition to be within the idle timeout threshold.
-                // for e.g. when no new message is received on the partition
-                // and so, it will never flush on idle.
-                // in that circumstance, we still need to flush the session.
-                // the aim is for no partition to lag more than ten minutes behind "now"
-                // but as traffic isn't distributed evenly between partitions.
-                // if "partition now" is lagging behind "consumer now" then we use "consumer now"
-                // and if there is no "consumer now" then we use "server now"
-                // that way so long as the consumer is running and receiving messages
-                // we will be more likely to flush "stuck" partitions
-                if (DateTime.now().toMillis() - referenceTime >= hoursInMillis(2)) {
-                    referenceTime = this.consumerNow ?? DateTime.now().toMillis()
                 }
 
                 void sessionManager
