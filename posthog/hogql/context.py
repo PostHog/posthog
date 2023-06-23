@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional, Any
+from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Any
 
-from posthog.hogql.database.database import Database
 from posthog.utils import PersonOnEventsMode
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 
 @dataclass
@@ -20,7 +22,7 @@ class HogQLContext:
     # Team making the queries
     team_id: Optional[int]
     # Virtual database we're querying, will be populated from team_id if not present
-    database: Optional[Database] = None
+    database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: Dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.

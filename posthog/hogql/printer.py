@@ -32,6 +32,7 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.team.team import WeekStartDay
 from posthog.utils import PersonOnEventsMode
 
 
@@ -511,7 +512,7 @@ class _Printer(Visitor):
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-                    args.append("3" if self._get_week_start_day() else "0")
+                    args.append("3" if self._get_week_start_day() == WeekStartDay.MONDAY else "0")
 
                 return f"{clickhouse_name}({', '.join(args)})"
             else:
@@ -795,8 +796,8 @@ class _Printer(Visitor):
         except ModuleNotFoundError:
             return None
 
-    def _get_timezone(self):
+    def _get_timezone(self) -> str:
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
-    def _get_week_start_day(self):
-        return self.context.database.get_week_start_day() if self.context.database else 0
+    def _get_week_start_day(self) -> WeekStartDay:
+        return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY

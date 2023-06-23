@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 from pydantic.fields import ModelField
@@ -28,6 +28,7 @@ from posthog.hogql.database.schema.session_recording_events import SessionRecord
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
+from posthog.models.team.team import WeekStartDay
 from posthog.utils import PersonOnEventsMode
 
 
@@ -54,10 +55,10 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
-    _timezone: Optional[str] = None
-    _week_start_day: Optional[Literal[0, 1]] = None
+    _timezone: Optional[str]
+    _week_start_day: Optional[WeekStartDay]
 
-    def __init__(self, timezone: Optional[str], week_start_day: Optional[Literal[0, 1]] = None):
+    def __init__(self, timezone: Optional[str], week_start_day: Optional[WeekStartDay]):
         super().__init__()
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
@@ -68,9 +69,8 @@ class Database(BaseModel):
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
 
-    def get_week_start_day(self) -> Literal[0, 1]:
-        """Return 0 if week starts on Sunday, 1 if it starts on Monday."""
-        return self._week_start_day or 0
+    def get_week_start_day(self) -> WeekStartDay:
+        return self._week_start_day or WeekStartDay.SUNDAY
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
