@@ -279,16 +279,18 @@ const eachMessage =
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
                         const properties = event.properties || {}
-                        replayRecord = createSessionReplayEvent(
-                            messagePayload.uuid,
-                            team.id,
-                            messagePayload.distinct_id,
-                            {
-                                ...properties,
-                                // Map to the new snapshot_items property
-                                $snapshots_items: properties.$snapshot_data?.events_summary || [],
-                            }
-                        )
+                        if (properties.$snapshot_data?.events_summary.length) {
+                            replayRecord = createSessionReplayEvent(
+                                messagePayload.uuid,
+                                team.id,
+                                messagePayload.distinct_id,
+                                {
+                                    ...properties,
+                                    // Map to the new snapshot_items property
+                                    $snapshots_item: properties.$snapshot_data?.events_summary || [],
+                                }
+                            )
+                        }
                         // the replay record timestamp has to be valid and be within a reasonable diff from now
                         if (replayRecord !== null) {
                             const asDate = DateTime.fromSQL(replayRecord.first_timestamp)

@@ -28,9 +28,9 @@ import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
+import { startSessionRecordingEventsConsumerV2 } from './ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
-import { startSessionRecordingEventsConsumerV2 } from './ingestion-queues/session-recording/session-recordings-consumer-v2'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
@@ -380,17 +380,21 @@ export async function startPluginsServer(
             const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
             const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
 
+            if (!s3) {
+                throw new Error("Can't start session recording blob ingestion without object storage")
+            }
+
+            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
+
             const eventsConsumer = await startSessionRecordingEventsConsumerV2({
                 teamManager: teamManager,
                 serverConfig: serverConfig,
             })
 
-            if (!s3) {
-                throw new Error("Can't start session recording blob ingestion without object storage")
-            }
-            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
             await ingester.start()
+
             const batchConsumer = ingester.batchConsumer
+
             if (batchConsumer) {
                 stopSessionRecordingBlobConsumer = async () => {
                     // Tricky - in some cases the hub is responsible, in which case it will drain and clear. Otherwise we are responsible.
@@ -401,9 +405,11 @@ export async function startPluginsServer(
 
                     await Promise.allSettled([ingester.stop(), eventsConsumer.stop()])
                 }
-                joinSessionRecordingBlobConsumer = () =>
-                    Promise.allSettled([batchConsumer.join(), eventsConsumer.join()])
-                healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
+                joinSessionRecordingBlobConsumer = async () => {
+                    await Promise.all([batchConsumer.join(), eventsConsumer.join()])
+                }
+                healthChecks['session-recordings-blob'] = () =>
+                    (batchConsumer.isHealthy() && eventsConsumer.isHealthy()) ?? false
             }
         }
 
