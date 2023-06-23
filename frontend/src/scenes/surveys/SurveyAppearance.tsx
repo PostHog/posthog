@@ -1,14 +1,14 @@
 import './SurveyAppearance.scss'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useState } from 'react'
-import { SurveyAppearance } from '~/types'
+import { SurveyAppearance as SurveyAppearanceType } from '~/types'
 
 interface SurveyAppearanceProps {
     // type: string
     question: string
-    appearance: SurveyAppearance
+    appearance: SurveyAppearanceType
     readOnly?: boolean
-    onAppearanceChange: (appearance: SurveyAppearance) => void
+    onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 export function SurveyAppearance({
     question,
@@ -67,7 +67,7 @@ const posthogLogoSVG = (
     </svg>
 )
 // This should be synced to the UI of the surveys app plugin
-function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearance }): JSX.Element {
+function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearanceType }): JSX.Element {
     const [hasText, setHasText] = useState(false)
 
     return (
