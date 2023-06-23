@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 _client = None  # type: Optional[redis.Redis]
 
 
-def get_client() -> redis.Redis:
+def get_client(redis_url=settings.REDIS_URL) -> redis.Redis:
     global _client
 
     if _client:
@@ -18,8 +18,8 @@ def get_client() -> redis.Redis:
         import fakeredis
 
         _client = fakeredis.FakeRedis()
-    elif settings.REDIS_URL:
-        _client = redis.from_url(settings.REDIS_URL, db=0)
+    elif redis_url:
+        _client = redis.from_url(redis_url, db=0)
 
     if not _client:
         raise ImproperlyConfigured("Redis not configured!")
