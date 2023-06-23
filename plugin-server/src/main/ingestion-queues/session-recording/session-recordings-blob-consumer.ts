@@ -476,7 +476,7 @@ export class SessionRecordingBlobIngester {
 
         if (commitableOffsets.length === 0) {
             // If there are no offsets to commit then we're done
-            console.log('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
+            status.info('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
                 partition,
                 blockingSession: potentiallyBlockingSession?.sessionId,
                 lowestInflightOffset: potentiallyBlockingOffset,
