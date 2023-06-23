@@ -5,23 +5,25 @@ import redis
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-_client = None  # type: Optional[redis.Redis]
+_client_map = {}  # type: Optional[redis.Redis]
 
 
-def get_client(redis_url=settings.REDIS_URL) -> redis.Redis:
-    global _client
+def get_client(redis_url: Optional[str] = None) -> redis.Redis:
+    redis_url = redis_url or settings.REDIS_URL
 
-    if _client:
-        return _client
+    global _client_map
 
-    if settings.TEST:
-        import fakeredis
+    if not _client_map.get(redis_url):
+        if settings.TEST:
+            import fakeredis
 
-        _client = fakeredis.FakeRedis()
-    elif redis_url:
-        _client = redis.from_url(redis_url, db=0)
+            client = fakeredis.FakeRedis()
+        elif redis_url:
+            client = redis.from_url(redis_url, db=0)
 
-    if not _client:
-        raise ImproperlyConfigured("Redis not configured!")
+        if not client:
+            raise ImproperlyConfigured("Redis not configured!")
 
-    return _client
+        _client_map[redis_url] = client
+
+    return _client_map[redis_url]
