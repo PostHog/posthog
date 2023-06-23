@@ -148,21 +148,22 @@ export async function runPluginTask(
     const teamId = pluginConfig?.team_id
     let shouldQueueAppMetric = false
 
+    if (!pluginConfig) {
+        // We will not get a response from `getPluginConfig` if the plugin is disabled
+        status.info('🚮', 'Skipping job for disabled pluginconfig', {
+            taskName: taskName,
+            taskType: taskType,
+            pluginConfigId: pluginConfigId,
+        })
+        return
+    }
+
     try {
         const task = await pluginConfig?.vm?.getTask(taskName, taskType)
         if (!task) {
             throw new Error(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
             )
-        }
-
-        if (!pluginConfig?.enabled) {
-            status.info('🚮', 'Skipping job for disabled pluginconfig', {
-                taskName: taskName,
-                taskType: taskType,
-                pluginConfigId: pluginConfigId,
-            })
-            return
         }
 
         shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics

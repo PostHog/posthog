@@ -733,14 +733,13 @@ test.concurrent(
         // Create a plugin config that is in a different organization
         const otherOrganizationId = await createOrganization()
         const otherTeamId = await createTeam(otherOrganizationId)
-        const otherPluginConfig = await createPluginConfig({
+        await createPluginConfig({
             team_id: otherTeamId,
             plugin_id: plugin.id,
             config: {},
         })
 
         await reloadPlugins()
-        await waitForPluginToLoad(otherPluginConfig)
 
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
