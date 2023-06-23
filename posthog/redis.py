@@ -17,7 +17,7 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
         if settings.TEST:
             import fakeredis
 
-            client = fakeredis.FakeRedis()
+            client = fakeredis.FakeRedis()  # type: ignore
         elif redis_url:
             client = redis.from_url(redis_url, db=0)
 

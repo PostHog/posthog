@@ -17,8 +17,8 @@ class TestRedis(TestCase):
         with self.settings(REDIS_URL="redis://mocked:6379", TEST=False):
             client = get_client()
 
-        assert client == "test"
-        assert _client_map == {
+        assert client == "test"  # type: ignore
+        assert _client_map == {  # type: ignore
             "redis://mocked:6379": "test",
         }
         mock_redis.from_url.assert_called_once_with("redis://mocked:6379", db=0)
