@@ -1,14 +1,13 @@
 import datetime as dt
-from asgiref.sync import sync_to_async, ThreadSensitiveContext
+from asgiref.sync import sync_to_async
 from uuid import UUID
-
 from dataclasses import dataclass, asdict
 
 from rest_framework.exceptions import ValidationError
 
 
 from posthog import settings
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
+from posthog.batch_exports import models
 from posthog.temporal.client import sync_connect
 from asgiref.sync import async_to_sync
 
@@ -57,14 +56,6 @@ class SnowflakeBatchExportInputs:
     """Inputs for Snowflake export workflow."""
 
     batch_export_id: str
-    team_id: int
-    user: str
-    password: str
-    account: str
-    database: str
-    warehouse: str
-    schema: str
-    table_name: str = "events"
     data_interval_start: str | None = None
     data_interval_end: str | None = None
 
@@ -86,12 +77,12 @@ async def create_schedule(temporal, id: str, schedule: Schedule, trigger_immedia
 
 
 def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
-    """Pause this BatchExport.
+    """Pause this models.BatchExport.
 
     We pass the call to the underlying BatchExportSchedule. This exists here as a convinience so that users only
-    need to interact with a BatchExport.
+    need to interact with a models.BatchExport.
     """
-    BatchExport.objects.filter(id=batch_export_id).update(paused=True)
+    models.BatchExport.objects.filter(id=batch_export_id).update(paused=True)
     pause_schedule(temporal, schedule_id=batch_export_id, note=note)
 
 
@@ -103,12 +94,12 @@ async def pause_schedule(temporal: Client, schedule_id: str, note: str | None = 
 
 
 def unpause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> None:
-    """Pause this BatchExport.
+    """Pause this models.BatchExport.
 
     We pass the call to the underlying BatchExportSchedule. This exists here as a convinience so that users only
-    need to interact with a BatchExport.
+    need to interact with a models.BatchExport.
     """
-    BatchExport.objects.filter(id=batch_export_id).update(paused=False)
+    models.BatchExport.objects.filter(id=batch_export_id).update(paused=False)
     unpause_schedule(temporal, schedule_id=batch_export_id, note=note)
 
 
@@ -144,8 +135,8 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
     if start_at is None or end_at is None:
         raise ValidationError("start_at and end_at must be defined for backfilling")
 
-    batch_export = BatchExport.objects.get(id=batch_export_id)
-    backfill_run = BatchExportRun.objects.create(
+    batch_export = models.BatchExport.objects.get(id=batch_export_id)
+    backfill_run = models.BatchExportRun.objects.create(
         batch_export=batch_export,
         data_interval_start=start_at,
         data_interval_end=end_at,
@@ -168,8 +159,8 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
 
 def create_batch_export_run(
     batch_export_id: UUID,
-    data_interval_start: str,
-    data_interval_end: str,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
 ):
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -180,13 +171,12 @@ def create_batch_export_run(
         data_interval_start:
         data_interval_end:
     """
-    run = BatchExportRun(
+    run = models.BatchExportRun.objects.create(
         batch_export_id=batch_export_id,
-        status=BatchExportRun.Status.STARTING,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
-        data_interval_end=dt.datetime.fromisoformat(data_interval_end),
+        status=models.BatchExportRun.Status.STARTING,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
     )
-    run.save()
 
     return run
 
@@ -197,7 +187,7 @@ def update_batch_export_run_status(run_id: UUID, status: str):
     Arguments:
         id: The id of the BatchExportRun to update.
     """
-    updated = BatchExportRun.objects.filter(id=run_id).update(status=status)
+    updated = models.BatchExportRun.objects.filter(id=run_id).update(status=status)
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
@@ -206,9 +196,11 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
     """
     Create a BatchExport and its underlying Schedule.
     """
-    destination = BatchExportDestination.objects.create(**destination_data)
+    destination = models.BatchExportDestination.objects.create(**destination_data)
 
-    batch_export = BatchExport.objects.create(team_id=team_id, name=name, interval=interval, destination=destination)
+    batch_export = models.BatchExport.objects.create(
+        team_id=team_id, name=name, interval=interval, destination=destination
+    )
 
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
 
@@ -229,11 +221,7 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
                 workflow,
                 asdict(
                     workflow_inputs(
-                        team_id=batch_export.team.id,
-                        # We could take the batch_export_id from the Workflow id
-                        # But temporal appends a timestamp at the end we would have to parse out.
                         batch_export_id=str(batch_export.id),
-                        **batch_export.destination.config,
                     )
                 ),
                 id=str(batch_export.id),
@@ -250,11 +238,34 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
     return batch_export
 
 
-async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
+async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> models.BatchExport:
     """
     Create a BatchExport and its underlying Schedule.
     """
     return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
+
+
+@dataclass
+class BatchExportDestination:
+    """
+    Static structures that we can easily pass around to, e.g. asyncio tasks.
+    """
+
+    type: str
+    config: dict
+
+
+@dataclass
+class BatchExport:
+    """
+    Static structures that we can easily pass around to, e.g. asyncio tasks.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    interval: str
+    destination: BatchExportDestination
 
 
 def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
@@ -262,9 +273,22 @@ def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
     Fetch a BatchExport by id.
     """
     try:
-        return BatchExport.objects.get(id=batch_export_id)
-    except BatchExport.DoesNotExist:
+        export_row = models.BatchExport.objects.values(
+            "id", "team_id", "name", "interval", "destination__type", "destination__config"
+        ).get(id=batch_export_id)
+    except models.BatchExport.DoesNotExist:
         return None
+
+    return BatchExport(
+        id=export_row["id"],
+        team_id=export_row["team_id"],
+        name=export_row["name"],
+        interval=export_row["interval"],
+        destination=BatchExportDestination(
+            type=export_row["destination__type"],
+            config=export_row["destination__config"],
+        ),
+    )
 
 
 async def afetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
@@ -274,15 +298,32 @@ async def afetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
     return await sync_to_async(fetch_batch_export)(batch_export_id)  # type: ignore
 
 
-def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
+def fetch_batch_export_run(run_id: UUID) -> models.BatchExportRun | None:
     """
-    Fetch the BatchExportRuns for a given BatchExport.
+    Fetch a BatchExportRun by id.
     """
-    return list(BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
+    try:
+        return models.BatchExportRun.objects.get(id=run_id)
+    except models.BatchExportRun.DoesNotExist:
+        return None
 
 
-async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[BatchExportRun]:
+async def afetch_batch_export_run(run_id: UUID) -> models.BatchExportRun | None:
     """
-    Fetch the BatchExportRuns for a given BatchExport.
+    Fetch a BatchExportRun by id.
+    """
+    return await sync_to_async(fetch_batch_export_run)(run_id)  # type: ignore
+
+
+def fetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[models.BatchExportRun]:
+    """
+    Fetch the BatchExportRuns for a given models.BatchExport.
+    """
+    return list(models.BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
+
+
+async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> list[models.BatchExportRun]:
+    """
+    Fetch the BatchExportRuns for a given models.BatchExport.
     """
     return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore

@@ -1,10 +1,8 @@
 import json
 from string import Template
-from typing import Literal, Optional
 
 from aiochclient import ChClient
 
-from temporalio import workflow
 from datetime import datetime, timedelta
 
 
@@ -25,9 +23,9 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 
-async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str):
-    data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+async def get_rows_count(client: ChClient, team_id: int, interval_start: datetime, interval_end: datetime):
+    data_interval_start_ch = interval_start.strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_end_ch = interval_end.strftime("%Y-%m-%d %H:%M:%S")
 
     row = await client.fetchrow(
         SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
@@ -44,9 +42,9 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     return row["count"]
 
 
-async def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
-    data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
+async def get_results_iterator(client: ChClient, team_id: int, interval_start: datetime, interval_end: datetime):
+    data_interval_start_ch = interval_start.strftime("%Y-%m-%d %H:%M:%S")
+    data_interval_end_ch = interval_end.strftime("%Y-%m-%d %H:%M:%S")
 
     async for row in client.iterate(
         SELECT_QUERY_TEMPLATE.safe_substitute(
@@ -83,7 +81,7 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
         }
 
 
-def get_data_interval_from_workflow_inputs(interval: str, data_interval_start_str: Optional[str], data_interval_end_str: Optional[str]) -> tuple[datetime, datetime]:
+def get_data_interval_from_workflow_inputs(interval: str, data_interval_end: datetime) -> tuple[datetime, datetime]:
     """
     Return the start and end of an export's data interval.
 
@@ -109,46 +107,15 @@ def get_data_interval_from_workflow_inputs(interval: str, data_interval_start_st
         A tuple of two datetime indicating start and end of the data_interval.
 
     """
-    if not data_interval_end_str:
-        data_interval_end_search_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
+    data_interval_end = data_interval_end - timedelta(seconds=1800)
 
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if data_interval_end_search_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
-        # Failing here would perhaps be a bug in Temporal.
-        if isinstance(data_interval_end_search_attr[0], str):
-            data_interval_end_str = data_interval_end_search_attr[0]
-            data_interval_end = datetime.fromisoformat(data_interval_end_str)
-
-        elif isinstance(data_interval_end_search_attr[0], datetime):
-            data_interval_end = data_interval_end_search_attr[0]
-
-        else:
-            msg = (
-                f"Expected search attribute to be of type 'str' or 'datetime' found '{data_interval_end_search_attr[0]}' "
-                f"of type '{type(data_interval_end_search_attr[0])}'."
-            )
-            raise TypeError(msg)
+    if interval == "hour":
+        data_interval_end = data_interval_end.replace(minute=0, second=0, microsecond=0)
+        data_interval_start = data_interval_end - timedelta(hours=1)
+    elif interval == "day":
+        data_interval_end = data_interval_end.replace(hour=0, minute=0, second=0, microsecond=0)
+        data_interval_start = data_interval_end - timedelta(days=1)
     else:
-        data_interval_end = datetime.fromisoformat(data_interval_end_str) - timedelta(seconds=1800)
-
-    if data_interval_start_str:
-        data_interval_start = datetime.fromisoformat(data_interval_start_str)
-    else:
-        if interval == "hour":
-            data_interval_end = data_interval_end.replace(minute=0, second=0, microsecond=0)
-            data_interval_start = data_interval_end - timedelta(hours=1)
-        elif interval == "day":
-            data_interval_end = data_interval_end.replace(hour=0, minute=0, second=0, microsecond=0)
-            data_interval_start = data_interval_end - timedelta(days=1)
-        else:
-            raise ValueError(f"Unexpected interval: {interval}")
+        raise ValueError(f"Unexpected interval: {interval}")
 
     return (data_interval_start, data_interval_end)

@@ -3,14 +3,13 @@ import json
 from dataclasses import dataclass
 from string import Template
 import tempfile
-from typing import Optional
 from uuid import UUID
 
 from django.conf import settings
 import snowflake.connector
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import SnowflakeBatchExportInputs, afetch_batch_export
+from posthog.batch_exports.service import SnowflakeBatchExportInputs, afetch_batch_export, afetch_batch_export_run
 
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
@@ -19,7 +18,7 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_data_interval_from_workflow_inputs, get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
 from posthog.temporal.workflows.clickhouse import get_client
 
 
@@ -43,16 +42,7 @@ class SnowflakeInsertInputs:
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    team_id: int
-    user: str
-    password: str
-    account: str
-    database: str
-    warehouse: str
-    schema: str
-    table_name: str
-    data_interval_start: Optional[str]
-    data_interval_end: str
+    run_id: str
 
 
 @activity.defn
@@ -70,7 +60,26 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     have or haven't processed yet. We have `_timestamp` in the events table, but
     this is the time
     """
-    activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    activity.logger.info("Running Snowflake export run: %s", inputs.run_id)
+
+    run = await afetch_batch_export_run(UUID(inputs.run_id))
+    if run is None:
+        activity.logger.info("Run %s does not exist. Exiting.", inputs.run_id)
+        return
+
+    export = await afetch_batch_export(run.batch_export_id)
+    if export is None:
+        activity.logger.info("Run %s has no batch export. Exiting.", run.batch_export_id)
+        return
+
+    config = export.destination.config
+    user = config.get("user")
+    password = config.get("password")
+    account = config.get("account")
+    warehouse = config.get("warehouse")
+    database = config.get("database")
+    schema = config.get("schema")
+    table_name = config.get("table_name")
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -78,40 +87,40 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
         count = await get_rows_count(
             client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
+            team_id=export.team_id,
+            interval_start=run.data_interval_start,
+            interval_end=run.data_interval_end,
         )
 
         if count == 0:
             activity.logger.info(
                 "Nothing to export in batch %s - %s. Exiting.",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
+                run.data_interval_start,
+                run.data_interval_end,
             )
             return
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         conn = snowflake.connector.connect(
-            user=inputs.user,
-            password=inputs.password,
-            account=inputs.account,
-            warehouse=inputs.warehouse,
-            database=inputs.database,
-            schema=inputs.schema,
+            user=user,
+            password=password,
+            account=account,
+            warehouse=warehouse,
+            database=database,
+            schema=schema,
         )
 
         try:
             cursor = conn.cursor()
-            cursor.execute(f'USE DATABASE "{inputs.database}"')
-            cursor.execute(f'USE SCHEMA "{inputs.schema}"')
+            cursor.execute(f'USE DATABASE "{database}"')
+            cursor.execute(f'USE SCHEMA "{schema}"')
 
             # Create the table if it doesn't exist. Note that we use the same schema
             # as the snowflake-plugin for backwards compatibility.
             cursor.execute(
                 f"""
-                CREATE TABLE IF NOT EXISTS "{inputs.database}"."{inputs.schema}"."{inputs.table_name}" (
+                CREATE TABLE IF NOT EXISTS "{database}"."{schema}"."{table_name}" (
                     "uuid" STRING,
                     "event" STRING,
                     "properties" VARIANT,
@@ -130,9 +139,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
             results_iterator = get_results_iterator(
                 client=client,
-                team_id=inputs.team_id,
-                interval_start=inputs.data_interval_start,
-                interval_end=inputs.data_interval_end,
+                team_id=export.team_id,
+                interval_start=run.data_interval_start,
+                interval_end=run.data_interval_end,
             )
 
             local_results_file = tempfile.NamedTemporaryFile()
@@ -162,7 +171,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file.flush()
                         cursor.execute(
                             f"""
-                            PUT file://{local_results_file.name} @%"{inputs.table_name}"
+                            PUT file://{local_results_file.name} @%"{table_name}"
                             """
                         )
 
@@ -174,7 +183,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 local_results_file.flush()
                 cursor.execute(
                     f"""
-                    PUT file://{local_results_file.name} @%"{inputs.table_name}"
+                    PUT file://{local_results_file.name} @%"{table_name}"
                     """
                 )
 
@@ -183,7 +192,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
                 cursor.execute(
                     f"""
-                    COPY INTO "{inputs.table_name}"
+                    COPY INTO "{table_name}"
                     FILE_FORMAT = (TYPE = 'JSON')
                     MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
                     PURGE = TRUE
@@ -216,24 +225,39 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake."""
         workflow.logger.info("Starting Snowflake export")
 
-        batch_export = await afetch_batch_export(UUID(inputs.batch_export_id))
-        if not batch_export:
-            workflow.logger.warn(f"BatchExport {inputs.batch_export_id} does not exist")
-            return
+        scheduled_start_time = None
+        workflow_schedule_time_attr = workflow.info().search_attributes.get("TemporalScheduledStartTime")
+        if workflow_schedule_time_attr:
+            # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
+            # So, they exist to make mypy happy.
+            if workflow_schedule_time_attr is None:
+                msg = (
+                    "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
+                    "This should be set by the Temporal Schedule unless triggering workflow manually."
+                    "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+                )
+                raise TypeError(msg)
 
-        print(batch_export)
-        (data_interval_start, data_interval_end) = get_data_interval_from_workflow_inputs(
-            interval='hour',
-            data_interval_start_str=inputs.data_interval_start, 
-            data_interval_end_str=inputs.data_interval_end
-        )
-        
+            # Failing here would perhaps be a bug in Temporal.
+            if isinstance(workflow_schedule_time_attr[0], str):
+                data_interval_end_str = workflow_schedule_time_attr[0]
+                scheduled_start_time = data_interval_end_str
+
+            elif isinstance(workflow_schedule_time_attr[0], dt.datetime):
+                scheduled_start_time = workflow_schedule_time_attr[0].isoformat()
+
+            else:
+                msg = (
+                    f"Expected search attribute to be of type 'str' or 'datetime' found '{workflow_schedule_time_attr[0]}' "
+                    f"of type '{type(workflow_schedule_time_attr[0])}'."
+                )
+                raise TypeError(msg)
+
         create_export_run_inputs = CreateBatchExportRunInputs(
-            team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
+            scheduled_start_time=scheduled_start_time or inputs.data_interval_end,
         )
+
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
@@ -247,18 +271,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
         update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
-        insert_inputs = SnowflakeInsertInputs(
-            team_id=inputs.team_id,
-            user=inputs.user,
-            password=inputs.password,
-            account=inputs.account,
-            warehouse=inputs.warehouse,
-            database=inputs.database,
-            schema=inputs.schema,
-            table_name=inputs.table_name,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-        )
+        insert_inputs = SnowflakeInsertInputs(run_id=run_id)
         try:
             await workflow.execute_activity(
                 insert_into_snowflake_activity,

@@ -254,10 +254,8 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
 
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
-        team_id=team.pk,
         batch_export_id=str(batch_export.id),
-        data_interval_end="2023-04-20 14:40:00.000000",
-        **batch_export.destination.config,
+        data_interval_end="2023-04-20 16:00:00",
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:

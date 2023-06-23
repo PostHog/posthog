@@ -1,11 +1,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from posthog.batch_exports.service import update_batch_export_run_status, create_batch_export_run
+from posthog.batch_exports.service import afetch_batch_export, update_batch_export_run_status, create_batch_export_run
 from temporalio import activity
 from asgiref.sync import sync_to_async
+
+from posthog.temporal.workflows.batch_exports import get_data_interval_from_workflow_inputs
 
 
 class PostHogWorkflow(ABC):
@@ -43,38 +46,44 @@ class CreateBatchExportRunInputs:
     """Inputs to the create_export_run activity.
 
     Attributes:
-        team_id: The id of the team the BatchExportRun belongs to.
-        batch_export_id:
-        run_id:
-        data_interval_start: Start of this BatchExportRun's data interval.
-        data_interval_end: End of this BatchExportRun's data interval.
+        batch_export_id: The ID of the BatchExport that this run is for.
+        scheduled_start_time: The time at which the export was scheduled to
+        start. If it's None we assume that it.
     """
 
-    team_id: int
     batch_export_id: str
-    data_interval_start: str
-    data_interval_end: str
+    scheduled_start_time: str
 
 
 @activity.defn
-async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
+async def create_export_run(inputs: CreateBatchExportRunInputs) -> str | None:
     """Activity that creates an BatchExportRun.
 
     Intended to be used in all export workflows, usually at the start, to create a model
     instance to represent them in our database.
     """
-    activity.logger.info(f"Creating BatchExportRun model instance in team {inputs.team_id}.")
+    activity.logger.info("Creating BatchExportRun model for export: %s", inputs.batch_export_id)
+
+    batch_export = await afetch_batch_export(UUID(inputs.batch_export_id))
+    if not batch_export:
+        activity.logger.warn(f"BatchExport {inputs.batch_export_id} does not exist")
+        return
+
+    datetime.fromisoformat(inputs.scheduled_start_time)
+    (data_interval_start, data_interval_end) = get_data_interval_from_workflow_inputs(
+        interval="hour", data_interval_end=datetime.fromisoformat(inputs.scheduled_start_time)
+    )
 
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
     run = await sync_to_async(create_batch_export_run)(  # type: ignore
         batch_export_id=UUID(inputs.batch_export_id),
-        data_interval_start=inputs.data_interval_start,
-        data_interval_end=inputs.data_interval_end,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
     )
 
-    activity.logger.info(f"Created BatchExportRun {run.id} in team {inputs.team_id}.")
+    activity.logger.info(f"Created BatchExportRun {run.id}")
 
     return str(run.id)
 
