@@ -195,7 +195,7 @@ KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bo
 
 SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
     "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
-    1024 * 1024 * 0.95,  # a little less than 1MB to account for overhead
+    1024 * 1024,  # 1MB
     type_cast=int,
 )
 

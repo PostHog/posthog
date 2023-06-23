@@ -7,14 +7,14 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay } from '../utils/utils'
+import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -75,7 +75,7 @@ export async function startPluginsServer(
     // 2. this queue consumes from the plugin_events_ingestion topic.
     // 3. update or creates people in the Persons table in pg with the new event
     //    data.
-    // 4. passes he event through `processEvent` on any plugins that the team
+    // 4. passes the event through `processEvent` on any plugins that the team
     //    has enabled.
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
@@ -373,13 +373,16 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
+            const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, blobServerConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
+            const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
+
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3)
+            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {
