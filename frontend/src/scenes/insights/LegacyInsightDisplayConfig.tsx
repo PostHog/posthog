@@ -3,7 +3,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { ChartDisplayType, FilterType, InsightType, ItemMode, TrendsFilterType } from '~/types'
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
@@ -11,14 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import {
-    isFilterWithDisplay,
-    isStickinessFilter,
-    isTrendsFilter,
-    isAreaChartDisplay,
-    isLifecycleFilter,
-} from 'scenes/insights/sharedUtils'
-import { ValueOnSeriesFilter } from './EditorFilters/ValueOnSeriesFilter'
+import { isFilterWithDisplay, isTrendsFilter, isAreaChartDisplay } from 'scenes/insights/sharedUtils'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -36,12 +29,6 @@ const showCompareFilter = function (filters: Partial<FilterType>): boolean {
     return !isAreaChartDisplay(filters)
 }
 
-const showValueOnSeriesFilter = (filters: FilterType): boolean => {
-    return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(
-        (filters as TrendsFilterType).display || ChartDisplayType.ActionsLineGraph
-    )
-}
-
 function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
 }
@@ -54,7 +41,7 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
 
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setFilters, setFiltersMerge } = useActions(insightLogic)
+    const { setFilters } = useActions(insightLogic)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -84,28 +71,6 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
                 {showCompareFilter(filters) && (
                     <ConfigFilter>
                         <CompareFilter />
-                    </ConfigFilter>
-                )}
-
-                {showValueOnSeriesFilter(filters) && (
-                    <ConfigFilter>
-                        <ValueOnSeriesFilter
-                            checked={
-                                !!(
-                                    ((isTrendsFilter(filters) ||
-                                        isStickinessFilter(filters) ||
-                                        isLifecycleFilter(filters)) &&
-                                        (filters as TrendsFilterType).show_values_on_series) ||
-                                    // pie charts have value checked by default
-                                    (isTrendsFilter(filters) &&
-                                        filters.display === ChartDisplayType.ActionsPie &&
-                                        filters.show_values_on_series === undefined)
-                                )
-                            }
-                            onChange={(checked) => {
-                                setFiltersMerge({ show_values_on_series: checked } as TrendsFilterType)
-                            }}
-                        />
                     </ConfigFilter>
                 )}
             </div>
