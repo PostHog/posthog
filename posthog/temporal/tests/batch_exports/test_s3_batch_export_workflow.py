@@ -1,6 +1,5 @@
 import functools
 import json
-from random import randint
 from typing import Literal, TypedDict
 from unittest import mock
 from uuid import uuid4
@@ -20,7 +19,8 @@ from asgiref.sync import sync_to_async
 
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+from posthog.batch_exports.service import afetch_batch_export_runs
+from posthog.batch_exports.models import acreate_batch_export, acreate_batch_export_run
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
@@ -135,7 +135,7 @@ def amaterialize(table: Literal["events", "person", "groups"], column: str):
     return materialize(table, column)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment):
     """
@@ -147,9 +147,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     data_interval_start = "2023-04-20 14:00:00"
     data_interval_end = "2023-04-25 15:00:00"
 
-    # Generate a random team id integer. There's still a chance of a collision,
-    # but it's very small.
-    team_id = randint(1, 1000000)
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    team_id = team.pk
 
     client = ChClient(
         url=settings.CLICKHOUSE_HTTP_URL,
@@ -262,16 +262,25 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     # isolation of the test, and also to check that the data is being written.
     prefix = str(uuid4())
 
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix=prefix,
+    export = await acreate_batch_export(
         team_id=team_id,
-        data_interval_start=data_interval_start,
-        data_interval_end=data_interval_end,
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
+        name="test",
+        type_="s3",
+        config=dict(
+            bucket_name=bucket_name,
+            region="us-east-1",
+            prefix=prefix,
+            aws_access_key_id="object_storage_root_user",
+            aws_secret_access_key="object_storage_root_password",
+        ),
+        interval="hour",
     )
+
+    run = await acreate_batch_export_run(
+        batch_export_id=export.id, data_interval_start=data_interval_start, data_interval_end=data_interval_end
+    )
+
+    insert_inputs = S3InsertInputs(run_id=str(run.id))
 
     with override_settings(
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
@@ -346,7 +355,8 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     batch_export = await acreate_batch_export(
         team_id=team.pk,
         name=batch_export_data["name"],
-        destination_data=batch_export_data["destination"],
+        type_="S3",
+        config=batch_export_data["destination"]["config"],
         interval=batch_export_data["interval"],
     )
 

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 from django.db import models, transaction
 
@@ -120,10 +121,19 @@ class BatchExport(UUIDModel):
     )
 
 
+# Below are methods that are not part of the Django ORM, but rather are used to
+# create and manipulate the BatchExport and BatchExportRun models in a way that
+# maintains certain invariants that may not be enforced by the ORM. They also
+# included for the purposes of being able to provide a lay that avoids the risk
+# of using the ORM in e.g. asyncio tasks for which the ORM is not designed for
+# with our version of Django.
+
+
 @dataclass
 class BatchExportDestinationData:
     """
-    Static structures that we can easily pass around to, e.g. asyncio tasks.
+    Static structures that we can easily pass around to, e.g. asyncio tasks
+    without having to worry about Django ORM objects.
     """
 
     type: str
@@ -133,7 +143,8 @@ class BatchExportDestinationData:
 @dataclass
 class BatchExportData:
     """
-    Static structures that we can easily pass around to, e.g. asyncio tasks.
+    Static structures that we can easily pass around to, e.g. asyncio tasks
+    without having to worry about Django ORM objects.
     """
 
     id: UUID
@@ -143,8 +154,8 @@ class BatchExportData:
     destination: BatchExportDestinationData
 
 
-def acreate_batch_export(
-    team_id: int, name: str, type: str, config: dict, interval: str, paused: bool = False
+def create_batch_export(
+    team_id: int, name: str, type_: str, config: dict, interval: str, paused: bool = False
 ) -> BatchExportData:
     """
     Creates a BatchExport for a given team, destination, and interval.
@@ -157,7 +168,7 @@ def acreate_batch_export(
     :return: The created BatchExport.
     """
     with transaction.atomic():
-        destination = BatchExportDestination.objects.create(type=type, config=config)
+        destination = BatchExportDestination.objects.create(type=type_, config=config)
         export = BatchExport.objects.create(
             team_id=team_id, name=name, destination=destination, interval=interval, paused=paused
         )
@@ -174,7 +185,38 @@ def acreate_batch_export(
     )
 
 
-def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
+acreate_batch_export = sync_to_async(create_batch_export)
+
+
+def create_batch_export_run(
+    batch_export_id: UUID,
+    data_interval_start: datetime,
+    data_interval_end: datetime,
+    status: BatchExportRun.Status = BatchExportRun.Status.STARTING,
+):
+    """
+    Creates a BatchExportRun for a given BatchExport.
+
+    :param batch_export_id: The BatchExport to create the BatchExportRun for.
+    :param status: The status of the BatchExportRun.
+    :param data_interval_start: The start of the data interval.
+    :param data_interval_end: The end of the data interval.
+    :return: The created BatchExportRun.
+    """
+    batch_export_run = BatchExportRun.objects.create(
+        batch_export_id=batch_export_id,
+        status=status,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+    )
+
+    return batch_export_run
+
+
+acreate_batch_export_run = sync_to_async(create_batch_export_run)
+
+
+def fetch_batch_export(batch_export_id: UUID) -> BatchExportData | None:
     """
     Fetch a BatchExport by id.
     """
@@ -185,12 +227,12 @@ def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
     except BatchExport.DoesNotExist:
         return None
 
-    return BatchExport(
+    return BatchExportData(
         id=export_row["id"],
         team_id=export_row["team_id"],
         name=export_row["name"],
         interval=export_row["interval"],
-        destination=BatchExportDestination(
+        destination=BatchExportDestinationData(
             type=export_row["destination__type"],
             config=export_row["destination__config"],
         ),

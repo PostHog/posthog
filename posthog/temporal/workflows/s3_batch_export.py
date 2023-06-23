@@ -73,7 +73,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     prefix = config["prefix"]
     aws_access_key_id = config["aws_access_key_id"]
     aws_secret_access_key = config["aws_secret_access_key"]
-    region = config["aws_region"]
+    region = config["region"]
 
     async with get_client() as client:
         if not await client.is_alive():
