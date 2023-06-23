@@ -324,7 +324,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {truncated_timestamp} - {interval_func}(number)) AS day_start
+SELECT toUInt16(0) AS total, {date_to_truncated} - {interval_func}(number)) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --
@@ -344,12 +344,12 @@ SELECT toUInt16(0) AS total, {truncated_timestamp} - {interval_func}(number)) AS
 --
 -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
-FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
+FROM numbers(dateDiff(%(interval)s, {date_from_truncated}, toDateTime(%(date_to)s, %(timezone)s)))
 
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s))
+SELECT toUInt16(0) AS total, {date_to_truncated}
 """
 
 EVENT_JOIN_PERSON_SQL = """

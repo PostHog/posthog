@@ -120,8 +120,11 @@ class TrendsTotalVolume:
         else:
             tag_queries(trend_volume_display="time_series")
             null_sql = NULL_SQL.format(
-                truncated_timestamp=get_start_of_interval_sql(
+                date_to_truncated=get_start_of_interval_sql(
                     filter.interval, filter.hogql_context, source="%(date_to)s"
+                ),
+                date_from_truncated=get_start_of_interval_sql(
+                    filter.interval, filter.hogql_context, source="%(date_from)s"
                 ),
                 interval_func=interval_func,
             )
@@ -151,7 +154,9 @@ class TrendsTotalVolume:
                 )
                 content_sql_params["aggregate_operation"] = "COUNT(DISTINCT actor_id)"
                 content_sql = VOLUME_SQL.format(
-                    timestamp_truncated=get_start_of_interval_sql(filter, "first_seen_timestamp"),
+                    timestamp_truncated=get_start_of_interval_sql(
+                        filter.interval, filter.hogql_context, source="first_seen_timestamp"
+                    ),
                     event_query_base=f"FROM ({cumulative_sql})",
                     **content_sql_params,
                 )

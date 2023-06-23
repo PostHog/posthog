@@ -13,7 +13,6 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property.util import get_single_or_multi_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.event_query import EventQuery
-from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.util import get_person_properties_mode, get_start_of_interval_sql
 from posthog.utils import PersonOnEventsMode
 
@@ -176,13 +175,15 @@ class RetentionEventsQuery(EventQuery):
             return "{} as target".format(self._person_id_alias)
 
     def get_timestamp_field(self) -> str:
-        start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._team, self._trunc_func)
+        start_of_inteval_sql = get_start_of_interval_sql(
+            self._filter.period, self._filter.hogql_context, source=f"{self.EVENT_TABLE_ALIAS}.timestamp"
+        )
         if self._event_query_type == RetentionQueryType.TARGET:
-            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
+            return f"DISTINCT {start_of_inteval_sql} AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s))) as event_date"
+            return f"min({start_of_inteval_sql}) as event_date"
         else:
-            return f"{self._trunc_func}(toTimeZone(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, 'UTC'), %(timezone)s)) AS event_date"
+            return f"{start_of_inteval_sql} AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         non_person_id_aggregation = (

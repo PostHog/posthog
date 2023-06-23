@@ -33,7 +33,7 @@ SELECT {aggregate_operation} AS total FROM (
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} AS total, date FROM (
     SELECT
-        {truncated_timestamp} as date,
+        {timestamp_truncated} as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
     GROUP BY e.$session_id, date
@@ -167,12 +167,10 @@ SELECT groupArray(day_start) as date, groupArray(count) AS total, breakdown_valu
                 --       upper bound, then including the lower bound in the query also.
 
                 SELECT
-                    {interval}(
-                        toDateTime(%(date_to)s, %(timezone)s) - number * %(seconds_in_interval)s
-                    ) as day_start
+                {date_to_truncated} - {interval_func}(number) as day_start
                 FROM numbers({num_intervals})
                 UNION ALL
-                SELECT {interval}(toDateTime(%(date_from)s, %(timezone)s)) as day_start
+                SELECT {timestamp_truncated} as day_start
             ) as ticks
 
             -- Zero fill for all values for the specified breakdown
@@ -198,7 +196,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
+    {timestamp_truncated} as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {sample_clause}
@@ -217,7 +215,7 @@ FROM (
     SELECT
         COUNT(*) AS intermediate_count,
         {aggregator},
-        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS day_start,
+        {timestamp_truncated} AS day_start,
         {breakdown_value} as breakdown_value
     FROM events AS e
     {sample_clause}
@@ -254,7 +252,7 @@ SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
-        SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {timestamp_truncated} as day_start,
             {breakdown_value} as breakdown_value
         FROM events AS e
         {sample_clause}
@@ -272,7 +270,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
+    {timestamp_truncated} as day_start,
     breakdown_value
 FROM (
     SELECT
