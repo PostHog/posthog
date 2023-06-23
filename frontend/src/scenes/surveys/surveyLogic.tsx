@@ -11,6 +11,8 @@ import {
     FeatureFlagFilters,
     FeatureFlagGroupType,
     PluginType,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
     SurveyQuestionType,
     SurveyType,
@@ -57,22 +59,26 @@ const NEW_SURVEY: NewSurvey = {
     archived: false,
 }
 
-export const getSurveyEventName = (surveyName: string): string => {
-    return `${surveyName} survey sent`
-}
+export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
+export const getSurveyDataQuery = (surveyId: string): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
-            select: ['*', 'event', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
+            select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
-            after: '-30d',
-            limit: 100,
-            event: getSurveyEventName(surveyName),
+            event: 'survey sent',
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: surveyId,
+                },
+            ],
         },
         propertiesViaUrl: true,
         showExport: true,
@@ -168,7 +174,7 @@ export const surveyLogic = kea<surveyLogicType>([
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
             if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+                actions.setDataTableQuery(getSurveyDataQuery(survey.id))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
