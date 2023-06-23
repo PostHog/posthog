@@ -317,7 +317,7 @@ export function SurveyReleaseSummary({
                     <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
                 </div>
             )}
-            {(targetingFlagFilters?.groups?.[0].properties?.length || 0) > 0 && (
+            {(targetingFlagFilters?.groups?.[0]?.properties?.length || 0) > 0 && (
                 <div className="flex flex-row font-medium gap-1">
                     <span>User conditions:</span>{' '}
                 </div>
@@ -325,7 +325,7 @@ export function SurveyReleaseSummary({
             {targetingFlagFilters?.groups?.map((group, index) => (
                 <>
                     {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2 py-1">OR</div>}
-                    {group.properties.map((property, idx) => (
+                    {group.properties?.map((property, idx) => (
                         <>
                             <div className="feature-flag-property-display" key={idx}>
                                 {idx === 0 ? (

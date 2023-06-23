@@ -293,7 +293,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     return (
         <>
             {/* This was added around Jun 23 so at some point can just be removed */}
-            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-4 leading-7">
                 <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
                 <span className="mx-1 text-lg">
                     <IconMagnifier />

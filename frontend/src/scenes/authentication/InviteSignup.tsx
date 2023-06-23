@@ -308,7 +308,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <SpinnerOverlay />
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (
