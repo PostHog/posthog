@@ -177,6 +177,8 @@ export class SessionManager {
         const bufferAge = Math.max(bufferAgeInMemory, bufferAgeFromReference)
 
         logContext['bufferAge'] = bufferAge
+        logContext['bufferAgeInMemory'] = bufferAgeInMemory
+        logContext['bufferAgeFromReference'] = bufferAgeFromReference
 
         if (bufferAge >= flushThresholdMillis) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
