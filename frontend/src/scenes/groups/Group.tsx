@@ -63,7 +63,7 @@ export function Group(): JSX.Element {
     const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (!groupData) {
-        return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
+        return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
     return (

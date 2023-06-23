@@ -18,6 +18,7 @@
     line-height: 1.5rem;
     font-weight: 500;
     cursor: pointer;
+    user-select: none;
     -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
     &.LemonButton--disabled {
@@ -122,6 +123,7 @@
         font-size: 1.5rem;
         flex-shrink: 0;
         transition: color 200ms ease;
+        justify-items: center;
     }
 
     // LemonStealth has some specific styles
@@ -187,25 +189,25 @@
 
             // Primary - blocked color style
             &.LemonButton--primary {
-                color: var(--white);
+                color: #fff;
                 background: var(--#{$status});
                 .LemonButton__icon {
-                    color: var(--white);
+                    color: #fff;
                 }
 
                 &:not(.LemonButton--disabled):hover,
                 &.LemonButton--active {
-                    color: var(--white);
+                    color: #fff;
                     background: var(--#{$status}-light, var(--#{$status}));
                     .LemonButton__icon {
-                        color: var(--white);
+                        color: #fff;
                     }
                 }
                 &:not(.LemonButton--disabled):active {
                     background: var(--#{$status}-dark, var(--#{$status}));
-                    color: var(--white);
+                    color: #fff;
                     .LemonButton__icon {
-                        color: var(--white);
+                        color: #fff;
                     }
                 }
             }
@@ -260,6 +262,11 @@
         &.LemonButton--primary {
             color: #fff;
             background: var(--primary-3000);
+            &:not(.LemonButton--disabled):hover,
+            &.LemonButton--active {
+                background: var(--primary-3000-hover);
+                color: #fff;
+            }
             .LemonButton__icon {
                 color: #fff;
             }
@@ -268,6 +275,11 @@
         &.LemonButton--secondary {
             color: var(--default);
             background: var(--secondary-3000);
+            &:not(.LemonButton--disabled):hover,
+            &.LemonButton--active {
+                background: var(--secondary-3000-hover);
+                color: var(--default);
+            }
             .LemonButton__icon {
                 color: var(--default);
             }
@@ -300,15 +312,9 @@
     top: 50%;
     right: 0.5rem;
     transform: translateY(-50%);
+    background: none;
 
     .LemonButtonWithSideAction--small & {
         right: 0.375rem;
-    }
-
-    &.LemonButton--status-primary {
-        &:hover {
-            // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
-            background: var(--primary-extralight);
-        }
     }
 }
