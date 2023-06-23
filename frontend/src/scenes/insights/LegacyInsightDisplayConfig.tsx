@@ -7,7 +7,6 @@ import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, NON_TIME_SERIES_DISP
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, TrendsFilterType } from '~/types'
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
-import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -164,14 +163,6 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
                         )}
                         <ConfigFilter>
                             <ChartFilter filters={filters} />
-                        </ConfigFilter>
-                    </>
-                )}
-
-                {isFunnels && filters.funnel_viz_type === FunnelVizType.Steps && (
-                    <>
-                        <ConfigFilter>
-                            <FunnelDisplayLayoutPicker />
                         </ConfigFilter>
                     </>
                 )}

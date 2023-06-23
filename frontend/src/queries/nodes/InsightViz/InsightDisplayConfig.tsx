@@ -13,7 +13,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { ValueOnSeriesFilterDataExploration } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 
@@ -100,7 +100,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showFunnelDisplayLayout && (
                     <ConfigFilter>
-                        <FunnelDisplayLayoutPickerDataExploration />
+                        <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
 
