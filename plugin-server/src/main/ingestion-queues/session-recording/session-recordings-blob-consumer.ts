@@ -25,6 +25,7 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+const flushIntervalTimeoutMs = 30000
 const hoursInMillis = (hours: number) => hours * 60 * 60 * 1000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
@@ -78,8 +79,7 @@ export class SessionRecordingBlobIngester {
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage,
-        private redisPool: RedisPool,
-        private flushIntervalTimeoutMs = 30000
+        private redisPool: RedisPool
     ) {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
@@ -109,6 +109,7 @@ export class SessionRecordingBlobIngester {
         const highWaterMarkSpan = sentrySpan?.startChild({
             op: 'checkHighWaterMark',
         })
+
         if (await this.sessionOffsetHighWaterMark.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
             eventDroppedCounter
                 .labels({
@@ -116,6 +117,7 @@ export class SessionRecordingBlobIngester {
                     drop_cause: 'high_water_mark',
                 })
                 .inc()
+            this.commitOffsets(topic, partition, session_id, [offset])
             return
         }
         highWaterMarkSpan?.finish()
@@ -420,7 +422,7 @@ export class SessionRecordingBlobIngester {
             gaugeBytesBuffered.set(sessionManagerBufferSizes)
 
             status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
-        }, this.flushIntervalTimeoutMs)
+        }, flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
@@ -467,9 +469,6 @@ export class SessionRecordingBlobIngester {
             }
         }
 
-        // Question - given that we always commit + 1, couldn't we just grab the lowest offset across all in flight sessions and commit that??
-        // Would make a lot of this code simpler
-
         const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
         const commitableOffsets = potentiallyBlockingOffset
             ? offsets.filter((offset) => offset < potentiallyBlockingOffset)
@@ -477,7 +476,7 @@ export class SessionRecordingBlobIngester {
 
         if (commitableOffsets.length === 0) {
             // If there are no offsets to commit then we're done
-            status.info('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
+            console.log('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
                 partition,
                 blockingSession: potentiallyBlockingSession?.sessionId,
                 lowestInflightOffset: potentiallyBlockingOffset,
@@ -487,14 +486,13 @@ export class SessionRecordingBlobIngester {
         }
 
         // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
-        const highestOffsetToCommit = Math.max(...commitableOffsets)
+        const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
 
-        status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
+        console.log('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
             partition,
             offsetToCommit: highestOffsetToCommit,
         })
 
-        // NOTE: Should this also be +1 ?
         void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
