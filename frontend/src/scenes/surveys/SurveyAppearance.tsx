@@ -1,14 +1,14 @@
 import './SurveyAppearance.scss'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useState } from 'react'
-import { SurveyAppearance } from '~/types'
+import { SurveyAppearance as SurveyAppearanceType } from '~/types'
 
 interface SurveyAppearanceProps {
     // type: string
     question: string
-    appearance: SurveyAppearance
+    appearance: SurveyAppearanceType
     readOnly?: boolean
-    onAppearanceChange: (appearance: SurveyAppearance) => void
+    onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 export function SurveyAppearance({
     question,
