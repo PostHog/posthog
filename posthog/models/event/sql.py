@@ -349,7 +349,7 @@ FROM numbers(dateDiff(%(interval)s, {date_from_truncated}, toDateTime(%(date_to)
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {date_to_truncated}
+SELECT toUInt16(0) AS total, {date_from_truncated}
 """
 
 EVENT_JOIN_PERSON_SQL = """
