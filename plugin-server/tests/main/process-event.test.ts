@@ -1191,14 +1191,10 @@ test('capture first team event', async () => {
 })
 
 test('snapshot event stored as session_recording_event', () => {
-    const data = createSessionRecordingEvent(
-        'some-id',
-        team.id,
-        '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-        now,
-        '',
-        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties
-    )
+    const data = createSessionRecordingEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', now, {
+        $session_id: 'abcf-efg',
+        $snapshot_data: { timestamp: 123 },
+    } as any as Properties)
 
     expect(data).toEqual({
         created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),

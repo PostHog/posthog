@@ -3,7 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { activeMilliseconds, RRWebEventSummary } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
+import { activeMilliseconds, RRWebEvent } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     Element,
     GroupTypeIndex,
@@ -241,7 +241,6 @@ export const createSessionRecordingEvent = (
     team_id: number,
     distinct_id: string,
     timestamp: DateTime,
-    ip: string | null,
     properties: Properties
 ) => {
     const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
@@ -281,30 +280,21 @@ export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
     distinct_id: string,
-    ip: string | null,
     properties: Properties
 ) => {
-    const chunkIndex = properties['$snapshot_data']?.chunk_index
+    const events: RRWebEvent[] = properties['$snapshot_items'] || []
 
-    // only the first chunk has the eventsSummary
-    // we can ignore subsequent chunks for calculating a replay event
-    if (chunkIndex > 0) {
-        return null
-    }
-
-    const eventsSummaries: RRWebEventSummary[] = properties['$snapshot_data']?.['events_summary'] || []
-
-    const timestamps = eventsSummaries
-        .filter((eventSummary: RRWebEventSummary) => {
+    const timestamps = events
+        .filter((eventSummary: RRWebEvent) => {
             return !!eventSummary?.timestamp
         })
-        .map((eventSummary: RRWebEventSummary) => {
+        .map((eventSummary: RRWebEvent) => {
             return castTimestampOrNow(DateTime.fromMillis(eventSummary.timestamp), TimestampFormat.ClickHouse)
         })
         .sort()
 
     // but every event where chunk index = 0 must have an eventsSummary
-    if (eventsSummaries.length === 0 || timestamps.length === 0) {
+    if (events.length === 0 || timestamps.length === 0) {
         status.warn('🙈', 'ignoring an empty session recording event', {
             session_id: properties['$session_id'],
             properties: properties,
@@ -320,7 +310,7 @@ export const createSessionReplayEvent = (
     let consoleWarnCount = 0
     let consoleErrorCount = 0
     let url: string | undefined = undefined
-    eventsSummaries.forEach((eventSummary: RRWebEventSummary) => {
+    events.forEach((eventSummary: RRWebEvent) => {
         if (eventSummary.type === 3) {
             mouseActivity += 1
             if (eventSummary.data?.source === 2) {
@@ -345,7 +335,7 @@ export const createSessionReplayEvent = (
         }
     })
 
-    const activeTime = activeMilliseconds(eventsSummaries)
+    const activeTime = activeMilliseconds(events)
 
     const data: SummarizedSessionRecordingEvent = {
         uuid,

@@ -10,17 +10,17 @@ const activeSources = [1, 2, 3, 4, 5, 6, 7, 12]
 
 const ACTIVITY_THRESHOLD_MS = 5000
 
-export interface RRWebEventSummaryData {
+export interface RRWebPartialData {
     href?: string
     source?: number
     payload?: Record<string, any>
     plugin?: string
 }
 
-export interface RRWebEventSummary {
+export interface RRWebEvent {
     timestamp: number
     type: number
-    data: RRWebEventSummaryData
+    data: RRWebPartialData
     windowId: string
 }
 
@@ -33,11 +33,11 @@ interface RecordingSegment {
     isActive: boolean
 }
 
-const isActiveEvent = (event: RRWebEventSummary): boolean => {
+const isActiveEvent = (event: RRWebEvent): boolean => {
     return event.type === 3 && activeSources.includes(event.data?.source || -1)
 }
 
-const createSegments = (snapshots: RRWebEventSummary[]): RecordingSegment[] => {
+const createSegments = (snapshots: RRWebEvent[]): RecordingSegment[] => {
     let segments: RecordingSegment[] = []
     let activeSegment!: Partial<RecordingSegment>
     let lastActiveEventTimestamp = 0
@@ -98,7 +98,7 @@ const createSegments = (snapshots: RRWebEventSummary[]): RecordingSegment[] => {
  * TODO add code sharing between plugin-server and front-end so that this method can
  * call the same createSegments function as the front-end
  */
-export const activeMilliseconds = (snapshots: RRWebEventSummary[]): number => {
+export const activeMilliseconds = (snapshots: RRWebEvent[]): number => {
     const segments = createSegments(snapshots)
     return segments.reduce((acc, segment) => {
         if (segment.isActive) {
