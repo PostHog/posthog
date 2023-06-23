@@ -8,7 +8,15 @@ import { useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } from '~/types'
+import {
+    AvailableFeature,
+    ChartDisplayType,
+    FilterType,
+    FunnelStep,
+    FunnelVizType,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 import './Experiment.scss'
 import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
@@ -40,8 +48,8 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Query } from '~/queries/Query/Query'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -1046,9 +1054,28 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt-4">
-                                    <BindLogic logic={insightLogic} props={insightProps}>
-                                        <Query query={query} context={{ insightProps }} readOnly />
-                                    </BindLogic>
+                                    <Query
+                                        query={{
+                                            kind: NodeKind.InsightVizNode,
+                                            source: filtersToQueryNode(
+                                                transformResultFilters(experimentResults.filters)
+                                            ),
+                                            showTable: true,
+                                        }}
+                                        context={{
+                                            insightProps: {
+                                                dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
+                                                cachedInsight: {
+                                                    short_id: experimentResults.fakeInsightId as InsightShortId,
+                                                    filters: transformResultFilters(experimentResults.filters),
+                                                    result: experimentResults.insight,
+                                                    disable_baseline: true,
+                                                },
+                                                doNotLoad: true,
+                                            },
+                                        }}
+                                        readOnly
+                                    />
                                 </div>
                             </BindLogic>
                         ) : (
@@ -1079,3 +1106,14 @@ export function Experiment(): JSX.Element {
         </>
     )
 }
+
+const transformResultFilters = (filters: Partial<FilterType>): Partial<FilterType> => ({
+    ...filters,
+    ...(filters.insight === InsightType.FUNNELS && {
+        layout: FunnelLayout.vertical,
+        funnel_viz_type: FunnelVizType.Steps,
+    }),
+    ...(filters.insight === InsightType.TRENDS && {
+        display: ChartDisplayType.ActionsLineGraphCumulative,
+    }),
+})
