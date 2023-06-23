@@ -323,7 +323,7 @@ def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

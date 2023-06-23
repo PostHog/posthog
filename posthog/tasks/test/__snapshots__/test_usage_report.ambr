@@ -14,6 +14,7 @@
          count(1) as count
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND event != '$feature_flag_called'
   GROUP BY team_id
   '
 ---
@@ -194,6 +195,7 @@
          count(1) as count
   FROM events
   WHERE timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
+    AND event != '$feature_flag_called'
   GROUP BY team_id
   '
 ---
