@@ -15,6 +15,7 @@ import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
+import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
@@ -44,6 +45,10 @@ const gaugeBytesBuffered = new Gauge({
     name: 'recording_blob_ingestion_bytes_buffered',
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
+export const gaugeRealtimeSessions = new Gauge({
+    name: 'recording_realtime_sessions',
+    help: 'Number of real time sessions being handled by this blob ingestion consumer',
+})
 
 const gaugeLagMilliseconds = new Gauge({
     name: 'recording_blob_ingestion_lag_in_milliseconds',
@@ -66,6 +71,7 @@ const gaugeOffsetCommitFailed = new Gauge({
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
+    realtimeManager: RealtimeManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
     flushInterval: NodeJS.Timer | null = null
@@ -84,6 +90,9 @@ export class SessionRecordingBlobIngester {
         const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
         this.enabledTeams =
             enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
+
+        this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
+
         this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(
             this.redisPool,
             serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
@@ -128,6 +137,7 @@ export class SessionRecordingBlobIngester {
             const sessionManager = new SessionManager(
                 this.serverConfig,
                 this.objectStorage.s3,
+                this.realtimeManager,
                 team_id,
                 session_id,
                 partition,
@@ -271,6 +281,7 @@ export class SessionRecordingBlobIngester {
             captureException(e)
             throw e
         }
+        await this.realtimeManager.subscribe()
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
         this.producer = await createKafkaProducer(connectionConfig)
@@ -420,6 +431,12 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManagerBufferSizes)
+            gaugeRealtimeSessions.set(
+                Array.from(this.sessions.values()).reduce(
+                    (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
+                    0
+                )
+            )
 
             status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
         }, flushIntervalTimeoutMs)
@@ -432,6 +449,8 @@ export class SessionRecordingBlobIngester {
             clearInterval(this.flushInterval)
         }
 
+        await this.realtimeManager.unsubscribe()
+
         if (this.producer && this.producer.isConnected()) {
             status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
@@ -442,6 +461,8 @@ export class SessionRecordingBlobIngester {
         await this.destroySessions([...this.sessions.entries()])
 
         this.sessions = new Map()
+
+        gaugeRealtimeSessions.set(0)
     }
 
     async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {

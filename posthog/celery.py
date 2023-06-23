@@ -192,6 +192,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="check feature flags that should be rolled back",
         )
 
+        sender.add_periodic_task(
+            crontab(minute=10, hour="*/12"),
+            find_flags_with_enriched_analytics.s(),
+            name="find feature flags with enriched analytics",
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -766,6 +772,17 @@ def calculate_decide_usage() -> None:
         capture_team_decide_usage(ph_client, team.id, team.uuid)
 
     ph_client.shutdown()
+
+
+@app.task(ignore_result=True)
+def find_flags_with_enriched_analytics():
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
+    from datetime import datetime, timedelta
+
+    end = datetime.now()
+    begin = end - timedelta(hours=12)
+
+    find_flags_with_enriched_analytics(begin, end)
 
 
 @app.task(ignore_result=True)

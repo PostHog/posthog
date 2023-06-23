@@ -92,8 +92,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             [
                 'loadRecording',
                 'loadRecordingSnapshotsSuccess',
+                'loadRecordingSnapshotsV2Success',
                 'loadRecordingSnapshotsFailure',
-                'loadRecordingBlobSnapshotsFailure',
+                'loadRecordingSnapshotsV2Failure',
                 'loadRecordingMetaSuccess',
             ],
             playerSettingsLogic,
@@ -466,6 +467,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.updateFromMetadata()
         },
+        loadRecordingSnapshotsV2Success: async () => {
+            // As the connected data logic may be preloaded we call a shared function here and on mount
+            actions.updateFromMetadata()
+        },
 
         loadRecordingSnapshotsFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
@@ -473,14 +478,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setErrorPlayerState(true)
             }
         },
-
-        loadRecordingBlobSnapshotsFailure: () => {
+        loadRecordingSnapshotsV2Failure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setErrorPlayerState(true)
             }
         },
-
         setPlay: () => {
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
