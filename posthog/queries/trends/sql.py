@@ -170,7 +170,7 @@ SELECT groupArray(day_start) as date, groupArray(count) AS total, breakdown_valu
                 {date_to_truncated} - {interval_func}(number) as day_start
                 FROM numbers({num_intervals})
                 UNION ALL
-                SELECT {timestamp_truncated} as day_start
+                SELECT {date_from_truncated} as day_start
             ) as ticks
 
             -- Zero fill for all values for the specified breakdown

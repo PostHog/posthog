@@ -381,7 +381,9 @@ class TrendsBreakdown:
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 num_intervals=num_intervals,
                 inner_sql=inner_sql,
-                timestamp_truncated=get_start_of_interval_sql(self.filter.interval, self.filter.hogql_context),
+                date_from_truncated=get_start_of_interval_sql(
+                    self.filter.interval, self.filter.hogql_context, source="%(date_from)s"
+                ),
                 date_to_truncated=get_start_of_interval_sql(
                     self.filter.interval, self.filter.hogql_context, source="%(date_to)s"
                 ),
