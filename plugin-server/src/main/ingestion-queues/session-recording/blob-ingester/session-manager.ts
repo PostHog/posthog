@@ -161,8 +161,8 @@ export class SessionManager {
         const bufferAgeInMemory = now() - this.buffer.createdAt
         const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
 
-        // We will use whichever age is oldest. This handles the fact that the reference now can get "stuck" if there is no new data in the partition
-        const bufferAge = Math.min(bufferAgeInMemory, bufferAgeFromReference)
+        // We will use whichever age is oldest (largest). This handles the fact that the reference now can get "stuck" if there is no new data in the partition
+        const bufferAge = Math.max(bufferAgeInMemory, bufferAgeFromReference)
 
         logContext['bufferAge'] = bufferAge
 
