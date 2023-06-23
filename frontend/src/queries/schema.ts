@@ -314,6 +314,7 @@ export interface InsightVizNode extends Node {
     showTable?: boolean
     showCorrelationTable?: boolean
     showLastComputation?: boolean
+    showLegendButton?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

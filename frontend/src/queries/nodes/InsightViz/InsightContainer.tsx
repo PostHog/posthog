@@ -51,6 +51,7 @@ export function InsightContainer({
     disableTable,
     disableCorrelationTable,
     disableLastComputation,
+    disableLegendButton,
     insightMode,
     context,
 }: {
@@ -58,6 +59,7 @@ export function InsightContainer({
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
+    disableLegendButton?: boolean
     insightMode?: ItemMode
     context?: QueryContext
 }): JSX.Element {
@@ -226,7 +228,7 @@ export function InsightContainer({
                         <div>
                             {isFunnels ? <FunnelCanvasLabelDataExploration /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
-                            <InsightLegendButtonDataExploration />
+                            {!disableLegendButton && <InsightLegendButtonDataExploration />}
                         </div>
                     </div>
                     {!!BlockingEmptyState ? (

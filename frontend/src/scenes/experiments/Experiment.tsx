@@ -1061,6 +1061,7 @@ export function Experiment(): JSX.Element {
                                                 transformResultFilters(experimentResults.filters)
                                             ),
                                             showTable: true,
+                                            showLegendButton: false,
                                         }}
                                         context={{
                                             insightProps: {
