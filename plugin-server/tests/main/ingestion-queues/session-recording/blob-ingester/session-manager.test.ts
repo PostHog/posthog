@@ -79,6 +79,7 @@ describe('session-manager', () => {
             id: expect.any(String),
             size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
+            createdAt: now(),
             eventsRange: {
                 firstTimestamp: 1679568314158,
                 lastTimestamp: 1679568314158,
