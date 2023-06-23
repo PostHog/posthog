@@ -4,7 +4,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, TrendsFilterType } from '~/types'
+import { ChartDisplayType, FilterType, InsightType, ItemMode, TrendsFilterType } from '~/types'
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,9 +13,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import {
     isFilterWithDisplay,
-    isFunnelsFilter,
-    isPathsFilter,
-    isRetentionFilter,
     isStickinessFilter,
     isTrendsFilter,
     isAreaChartDisplay,
@@ -31,56 +28,18 @@ interface InsightDisplayConfigProps {
 }
 
 const showIntervalFilter = function (filter: Partial<FilterType>): boolean {
-    if (isFunnelsFilter(filter)) {
-        return filter.funnel_viz_type === FunnelVizType.Trends
-    }
-    if (isRetentionFilter(filter) || isPathsFilter(filter)) {
-        return false
-    }
-
-    if (isLifecycleFilter(filter)) {
-        return true
-    }
-
-    return (
-        (isTrendsFilter(filter) || isStickinessFilter(filter)) &&
-        (!filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display))
-    )
-}
-
-const showDateFilter = {
-    [`${InsightType.TRENDS}`]: true,
-    [`${InsightType.STICKINESS}`]: true,
-    [`${InsightType.LIFECYCLE}`]: true,
-    [`${InsightType.FUNNELS}`]: true,
-    [`${InsightType.RETENTION}`]: false,
-    [`${InsightType.PATHS}`]: true,
+    const display = (filter as TrendsFilterType).display
+    return !display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(display)
 }
 
 const showCompareFilter = function (filters: Partial<FilterType>): boolean {
-    if (isTrendsFilter(filters)) {
-        return !isAreaChartDisplay(filters)
-    }
-
-    if (isStickinessFilter(filters)) {
-        return true
-    }
-
-    return false
-}
-
-const isFunnelEmpty = (filters: FilterType): boolean => {
-    return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
+    return !isAreaChartDisplay(filters)
 }
 
 const showValueOnSeriesFilter = (filters: FilterType): boolean => {
-    if (isTrendsFilter(filters) || isStickinessFilter(filters)) {
-        return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)
-    } else if (isLifecycleFilter(filters)) {
-        return true
-    } else {
-        return false
-    }
+    return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(
+        (filters as TrendsFilterType).display || ChartDisplayType.ActionsLineGraph
+    )
 }
 
 function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
@@ -88,14 +47,11 @@ function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
 }
 
 export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
-    if (!isFunnelsFilter(filters) && !isTrendsFilter(filters)) {
-        // The legacy InsightContainer should only be used in Experiments,
-        // where we only have funnel and trend insights, allowing us already
-        // to gradually remove the other insight types here
+    if (!isTrendsFilter(filters)) {
+        // This legacy component is being removed, don't use it
         throw new Error('Unsupported insight type')
     }
 
-    const isFunnels = isFunnelsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setFilters, setFiltersMerge } = useActions(insightLogic)
@@ -103,9 +59,9 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
-                {filters.insight && showDateFilter[filters.insight] && !disableTable && (
+                {filters.insight && !disableTable && (
                     <ConfigFilter>
-                        <InsightDateFilter disabled={isFunnels && isFunnelEmpty(filters)} />
+                        <InsightDateFilter disabled={false} />
                     </ConfigFilter>
                 )}
 
