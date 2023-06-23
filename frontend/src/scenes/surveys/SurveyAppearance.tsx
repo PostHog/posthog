@@ -67,7 +67,7 @@ const posthogLogoSVG = (
     </svg>
 )
 // This should be synced to the UI of the surveys app plugin
-function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearance }): JSX.Element {
+function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearanceType }): JSX.Element {
     const [hasText, setHasText] = useState(false)
 
     return (
