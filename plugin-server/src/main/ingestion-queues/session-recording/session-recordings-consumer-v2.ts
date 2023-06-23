@@ -11,8 +11,7 @@ import { startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../kafka/producer'
-import { PipelineEvent, RawEventMessage, Team } from '../../../types'
-import { KafkaConfig } from '../../../utils/db/hub'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
 import { status } from '../../../utils/status'
 import { createSessionReplayEvent } from '../../../worker/ingestion/process-event'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
@@ -24,20 +23,10 @@ const fetchBatchSize = 500
 
 export const startSessionRecordingEventsConsumerV2 = async ({
     teamManager,
-    kafkaConfig,
-    consumerMaxBytes,
-    consumerMaxBytesPerPartition,
-    consumerMaxWaitMs,
-    consumerErrorBackoffMs,
-    batchingTimeoutMs,
+    serverConfig,
 }: {
     teamManager: TeamManager
-    kafkaConfig: KafkaConfig
-    consumerMaxBytes: number
-    consumerMaxBytesPerPartition: number
-    consumerMaxWaitMs: number
-    consumerErrorBackoffMs: number
-    batchingTimeoutMs: number
+    serverConfig: PluginsServerConfig
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -60,7 +49,7 @@ export const startSessionRecordingEventsConsumerV2 = async ({
 
     status.info('🔁', 'Starting session recordings consumer')
 
-    const connectionConfig = createRdConnectionConfigFromEnvVars(kafkaConfig)
+    const connectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
     const producer = await createKafkaProducer(connectionConfig)
 
     const eachBatchWithContext = eachBatch({
@@ -75,12 +64,12 @@ export const startSessionRecordingEventsConsumerV2 = async ({
         groupId,
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         sessionTimeout,
-        consumerMaxBytesPerPartition,
-        consumerMaxBytes,
-        consumerMaxWaitMs,
-        consumerErrorBackoffMs,
         fetchBatchSize,
-        batchingTimeoutMs,
+        consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
+        consumerMaxBytesPerPartition: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+        consumerMaxWaitMs: serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+        consumerErrorBackoffMs: serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+        batchingTimeoutMs: serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
         eachBatch: eachBatchWithContext,
     })
 

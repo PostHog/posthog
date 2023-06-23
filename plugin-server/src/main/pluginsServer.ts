@@ -30,6 +30,7 @@ import { SessionRecordingBlobIngester } from './ingestion-queues/session-recordi
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
+import { startSessionRecordingEventsConsumerV2 } from './ingestion-queues/session-recording/session-recordings-consumer-v2'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
@@ -379,6 +380,11 @@ export async function startPluginsServer(
             const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
             const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
 
+            const eventsConsumer = await startSessionRecordingEventsConsumerV2({
+                teamManager: teamManager,
+                serverConfig: serverConfig,
+            })
+
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
@@ -393,9 +399,10 @@ export async function startPluginsServer(
                         await redisPool.clear()
                     }
 
-                    await ingester.stop()
+                    await Promise.allSettled([ingester.stop(), eventsConsumer.stop()])
                 }
-                joinSessionRecordingBlobConsumer = () => batchConsumer.join()
+                joinSessionRecordingBlobConsumer = () =>
+                    Promise.allSettled([batchConsumer.join(), eventsConsumer.join()])
                 healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
             }
         }
