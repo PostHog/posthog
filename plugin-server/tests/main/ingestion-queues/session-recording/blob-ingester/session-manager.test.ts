@@ -5,6 +5,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { now } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createIncomingRecordingMessage } from '../fixtures'
 
 jest.mock('fs', () => {
@@ -62,7 +63,7 @@ describe('session-manager', () => {
     })
 
     it('adds a message', async () => {
-        const timestamp = DateTime.now().toMillis() - 10000
+        const timestamp = now() - 10000
         const event = createIncomingRecordingMessage({
             metadata: {
                 timestamp: timestamp,
@@ -145,7 +146,7 @@ describe('session-manager', () => {
         await sessionManager.add(eventOne)
         await sessionManager.add(eventTwo)
 
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
+        await sessionManager.flushIfSessionBufferIsOld(now(), flushThreshold)
 
         // as a proxy for flush having been called or not
         expect(createReadStream).toHaveBeenCalled()

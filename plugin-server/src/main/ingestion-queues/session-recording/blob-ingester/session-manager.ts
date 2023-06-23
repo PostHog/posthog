@@ -13,7 +13,7 @@ import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
 import { IncomingRecordingMessage } from './types'
-import { convertToPersistedMessage } from './utils'
+import { convertToPersistedMessage, now } from './utils'
 
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
@@ -51,6 +51,7 @@ type SessionBuffer = {
         firstTimestamp: number
         lastTimestamp: number
     } | null
+    createdAt: number
 }
 
 export class SessionManager {
@@ -157,7 +158,12 @@ export class SessionManager {
             return
         }
 
-        const bufferAge = referenceNow - this.buffer.oldestKafkaTimestamp
+        const bufferAgeInMemory = now() - this.buffer.createdAt
+        const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
+
+        // We will use whichever age is oldest. This handles the fact that the reference now can get "stuck" if there is no new data in the partition
+        const bufferAge = Math.min(bufferAgeInMemory, bufferAgeFromReference)
+
         logContext['bufferAge'] = bufferAge
 
         if (bufferAge >= flushThresholdMillis) {
@@ -165,7 +171,7 @@ export class SessionManager {
                 ...logContext,
             })
             // return the promise and let the caller decide whether to await
-            return this.flush('buffer_age')
+            return this.flush(bufferAgeInMemory > bufferAgeFromReference ? 'buffer_age' : 'buffer_age_realtime')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 ...logContext,
@@ -177,7 +183,7 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(reason: 'buffer_size' | 'buffer_age'): Promise<void> {
+    public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
         if (this.flushBuffer) {
             return
         }
@@ -253,6 +259,7 @@ export class SessionManager {
             const id = randomUUID()
             const buffer: SessionBuffer = {
                 id,
+                createdAt: now(),
                 count: 0,
                 size: 0,
                 oldestKafkaTimestamp: null,
