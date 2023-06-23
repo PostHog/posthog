@@ -3,10 +3,12 @@ from typing import Literal, Optional
 from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
+from posthog.models.team.team import WeekStartDay
 from posthog.test.base import BaseTest
 from posthog.utils import PersonOnEventsMode
 
@@ -625,6 +627,23 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("'a' || 'b' || 3 || timestamp"),
             f"concat(%(hogql_val_0)s, %(hogql_val_1)s, toString(3), ifNull(toString(toTimeZone(events.timestamp, %(hogql_val_2)s)), ''))",
+        )
+
+    def test_to_start_of_week_gets_mode(self):
+        sunday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.SUNDAY))
+        monday_week_context = HogQLContext(team_id=self.team.pk, database=Database(None, WeekStartDay.MONDAY))
+
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)"),  # Sunday is the default
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        )
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)", sunday_week_context),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0)",
+        )
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)", monday_week_context),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)",
         )
 
     def test_functions_expecting_datetime_arg(self):
