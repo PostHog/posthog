@@ -132,16 +132,6 @@ def get_workflow_scheduled_start_time(workflow_info: workflow.Info):
     scheduled_start_time = None
     workflow_schedule_time_attr = workflow_info.search_attributes.get("TemporalScheduledStartTime")
     if workflow_schedule_time_attr:
-        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
-        # So, they exist to make mypy happy.
-        if workflow_schedule_time_attr is None:
-            msg = (
-                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
-                "This should be set by the Temporal Schedule unless triggering workflow manually."
-                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
-            )
-            raise TypeError(msg)
-
         # Failing here would perhaps be a bug in Temporal.
         if isinstance(workflow_schedule_time_attr[0], str):
             data_interval_end_str = workflow_schedule_time_attr[0]

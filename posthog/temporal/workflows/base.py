@@ -68,7 +68,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str | None:
     batch_export = await afetch_batch_export(UUID(inputs.batch_export_id))
     if not batch_export:
         activity.logger.warn(f"BatchExport {inputs.batch_export_id} does not exist")
-        return
+        return None
 
     datetime.fromisoformat(inputs.data_interval_end)
     (data_interval_start, data_interval_end) = get_data_interval_from_workflow_inputs(
