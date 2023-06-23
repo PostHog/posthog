@@ -183,6 +183,26 @@ describe('session-manager', () => {
         expect(createReadStream).not.toHaveBeenCalled()
     })
 
+    it('does flush if lagging but nonetheless too old', async () => {
+        const aDayInMilliseconds = 24 * 60 * 60 * 1000
+        const now = DateTime.now()
+
+        const event = createIncomingRecordingMessage({
+            metadata: {
+                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
+            } as any,
+        })
+
+        await sessionManager.add(event)
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        expect(createReadStream).not.toHaveBeenCalled()
+
+        // Manually modify the date to simulate this being idle for too long
+        sessionManager.buffer.createdAt = now.minus({ milliseconds: 3000 }).toMillis()
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        expect(createReadStream).toHaveBeenCalled()
+    })
+
     it('flushes messages', async () => {
         const event = createIncomingRecordingMessage()
         await sessionManager.add(event)
