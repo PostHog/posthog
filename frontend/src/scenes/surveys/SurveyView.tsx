@@ -12,7 +12,7 @@ import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
-import { surveyLogic } from './surveyLogic'
+import { defaultSurveyAppearance, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
@@ -198,7 +198,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             />
                                             <div className="mt-6">
                                                 <SurveyAppearance
-                                                    appearance={survey.appearance}
+                                                    appearance={survey.appearance || defaultSurveyAppearance}
                                                     question={survey.questions[0].question}
                                                     readOnly={true}
                                                     onAppearanceChange={() => {}}

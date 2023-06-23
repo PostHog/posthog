@@ -1,5 +1,5 @@
 import { SceneExport } from 'scenes/sceneTypes'
-import { NewSurvey, surveyLogic } from './surveyLogic'
+import { NewSurvey, defaultSurveyAppearance, surveyLogic } from './surveyLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -253,7 +253,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 onAppearanceChange={(appearance) => {
                                     onChange(appearance)
                                 }}
-                                appearance={value}
+                                appearance={value || defaultSurveyAppearance}
                             />
                         )}
                     </Field>

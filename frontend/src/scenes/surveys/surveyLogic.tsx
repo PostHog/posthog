@@ -42,6 +42,8 @@ export interface NewSurvey
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
+export const defaultSurveyAppearance = { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' }
+
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
@@ -56,7 +58,7 @@ const NEW_SURVEY: NewSurvey = {
     end_date: null,
     conditions: null,
     archived: false,
-    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' },
+    appearance: defaultSurveyAppearance,
 }
 
 export const getSurveyEventName = (surveyName: string): string => {

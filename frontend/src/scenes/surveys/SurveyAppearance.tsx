@@ -24,7 +24,7 @@ export function SurveyAppearance({
                 <div className="flex flex-col">
                     <div className="mt-2">Background color</div>
                     <LemonInput
-                        value={appearance.backgroundColor}
+                        value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
                     />
                     <div className="mt-2">Text color</div>
