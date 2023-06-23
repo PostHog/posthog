@@ -47,11 +47,28 @@ describe('session-manager', () => {
         send: jest.fn(),
     }
 
+    const mockRealtimeManager: any = {
+        clearAllMessages: jest.fn(),
+        onSubscriptionEvent: jest.fn(() => jest.fn()),
+        clearMessages: jest.fn(),
+        addMessage: jest.fn(),
+        addMessagesFromBuffer: jest.fn(),
+    }
+
     beforeEach(() => {
         // it's always May 25
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
-        sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
+        sessionManager = new SessionManager(
+            defaultConfig,
+            mockS3Client,
+            mockRealtimeManager,
+            1,
+            'session_id_1',
+            1,
+            'topic',
+            mockFinish
+        )
         mockFinish.mockClear()
     })
 
@@ -74,6 +91,7 @@ describe('session-manager', () => {
         expect(sessionManager.buffer).toEqual({
             count: 1,
             oldestKafkaTimestamp: timestamp,
+            newestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 4139, // The size of the event payload - this may change when test data changes

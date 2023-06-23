@@ -2,7 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, unlink } from 'fs/promises'
+import { appendFile, readFile, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
@@ -12,6 +12,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
+import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
@@ -43,6 +44,7 @@ const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 type SessionBuffer = {
     id: string
     oldestKafkaTimestamp: number | null
+    newestKafkaTimestamp: number | null
     count: number
     size: number
     file: string
@@ -57,11 +59,14 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
+    realtime = false
     inProgressUpload: Upload | null = null
+    unsubscribe: () => void
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
+        public readonly realtimeManager: RealtimeManager,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -69,6 +74,13 @@ export class SessionManager {
         private readonly onFinish: (offsetsToRemove: number[]) => void
     ) {
         this.buffer = this.createBuffer()
+
+        // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
+        void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
+
+        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+            void this.startRealtime()
+        })
     }
 
     private logContext = (): Record<string, any> => {
@@ -239,6 +251,9 @@ export class SessionManager {
             counterS3WriteErrored.inc()
         } finally {
             this.inProgressUpload = null
+            // We turn off real time as the file will now be in S3
+            this.realtime = false
+
             const offsets = this.flushBuffer.offsets
             this.onFinish(offsets)
 
@@ -256,6 +271,7 @@ export class SessionManager {
                 count: 0,
                 size: 0,
                 oldestKafkaTimestamp: null,
+                newestKafkaTimestamp: null,
                 file: path.join(
                     bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
                     `${this.teamId}.${this.sessionId}.${id}.jsonl`
@@ -284,6 +300,11 @@ export class SessionManager {
                 message.metadata.timestamp
             )
 
+            this.buffer.newestKafkaTimestamp = Math.max(
+                this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
             const messageData = convertToPersistedMessage(message)
             this.setEventsRangeFrom(message)
 
@@ -291,6 +312,11 @@ export class SessionManager {
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
+
+            if (this.realtime) {
+                // We don't care about the response here as it is an optimistic call
+                void this.realtimeManager.addMessage(message)
+            }
 
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
@@ -322,7 +348,34 @@ export class SessionManager {
         this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
 
+    private async startRealtime() {
+        if (this.realtime) {
+            return
+        }
+
+        status.info('⚡️', `blob_ingester_session_manager Real-time mode started `, { sessionId: this.sessionId })
+
+        this.realtime = true
+
+        try {
+            const timestamp = this.buffer.oldestKafkaTimestamp ?? 0
+            const existingContent = await readFile(this.buffer.file, 'utf-8')
+            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, existingContent, timestamp)
+            status.info('⚡️', 'blob_ingester_session_manager loaded existing snapshot buffer into realtime', {
+                sessionId: this.sessionId,
+                teamId: this.teamId,
+            })
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed loading existing snapshot buffer', {
+                sessionId: this.sessionId,
+                teamId: this.teamId,
+            })
+            captureException(e)
+        }
+    }
+
     public async destroy(): Promise<void> {
+        this.unsubscribe()
         this.destroying = true
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort()

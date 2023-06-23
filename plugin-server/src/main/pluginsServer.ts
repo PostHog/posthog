@@ -386,7 +386,15 @@ export async function startPluginsServer(
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                stopSessionRecordingBlobConsumer = async () => {
+                    // Tricky - in some cases the hub is responsible, in which case it will drain and clear. Otherwise we are responsible.
+                    if (!hub?.db.redisPool) {
+                        await redisPool.drain()
+                        await redisPool.clear()
+                    }
+
+                    await ingester.stop()
+                }
                 joinSessionRecordingBlobConsumer = () => batchConsumer.join()
                 healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
             }
