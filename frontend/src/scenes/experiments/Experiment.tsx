@@ -751,7 +751,7 @@ export function Experiment(): JSX.Element {
                         )}
                         {showWarning && experimentResults && !areResultsSignificant && !experiment.end_date && (
                             <Row align="top" className="not-significant-results">
-                                <Col span={23} style={{ fontWeight: 500, color: '#2D2D2D' }}>
+                                <Col span={23} style={{ fontWeight: 500, color: 'var(--bg-charcoal)' }}>
                                     <strong>Your results are not statistically significant</strong>.{' '}
                                     {significanceBannerDetails}{' '}
                                     {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See
