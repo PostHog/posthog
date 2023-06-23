@@ -74,7 +74,11 @@ function BaseAppearance({ question, appearance }: { question: string; appearance
         <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
             <div className="survey-box">
                 <div className="cancel-btn-wrapper">
-                    <button className="form-cancel" style={{ backgroundColor: appearance.backgroundColor }}>
+                    <button
+                        className="form-cancel"
+                        type="button"
+                        style={{ backgroundColor: appearance.backgroundColor }}
+                    >
                         X
                     </button>
                 </div>
