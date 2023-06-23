@@ -304,28 +304,6 @@ input::-ms-clear {
     color: var(--muted);
 }
 
-.ant-btn-sm {
-    font-size: 12px !important;
-}
-
-.ant-btn-primary.btn-danger {
-    background-color: var(--danger) !important;
-    border-color: var(--danger) !important;
-
-    &:disabled {
-        background-color: var(--danger-light) !important;
-        color: lighten(#fff, 20%) !important;
-        border-color: var(--danger-light) !important;
-    }
-}
-
-.ant-btn-md {
-    // Size between `small` & `default`
-    font-size: 13px !important;
-    height: 28px !important;
-    padding: 0px 10px !important;
-}
-
 .info-indicator {
     color: var(--primary-alt) !important;
     cursor: pointer;
