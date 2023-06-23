@@ -29,6 +29,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -246,6 +247,7 @@ export function OverViewTab({
                         docsURL="https://posthog.com/docs/feature-flags/manual"
                         action={() => router.actions.push(urls.featureFlag('new'))}
                         isEmpty={shouldShowEmptyState}
+                        customHog={FeatureFlagHog}
                     />
                 )}{' '}
             {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (

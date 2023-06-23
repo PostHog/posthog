@@ -1,4 +1,8 @@
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import {
+    prepareRecordingSnapshots,
+    sessionRecordingDataLogic,
+    convertSnapshotsByWindowId,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
@@ -436,6 +440,26 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     chunkPaginationIndex: 1,
                 })
+        })
+    })
+
+    describe('prepareRecordingSnapshots', () => {
+        it('should remove duplicate snapshots and sort by timestamp', () => {
+            const snapshots = convertSnapshotsByWindowId(recordingSnapshotsJson.snapshot_data_by_window_id)
+            const snapshotsWithDuplicates = snapshots
+                .slice(0, 2)
+                .concat(snapshots.slice(0, 2))
+                .concat(snapshots.slice(2))
+
+            expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
+
+            expect(prepareRecordingSnapshots(snapshots)).toEqual(prepareRecordingSnapshots(snapshotsWithDuplicates))
+        })
+
+        it('should match snapshot', () => {
+            const snapshots = convertSnapshotsByWindowId(recordingSnapshotsJson.snapshot_data_by_window_id)
+
+            expect(prepareRecordingSnapshots(snapshots)).toMatchSnapshot()
         })
     })
 })

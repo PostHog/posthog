@@ -67,22 +67,14 @@ export function Billing(): JSX.Element {
             <div className="space-y-4">
                 {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
-                    There was an issue retrieving your current billing information. If this message persists please
-                    <Link
-                        onClick={() => {
-                            openSupportForm('bug', 'billing')
-                        }}
-                    >
-                        submit a bug report
-                    </Link>
+                    There was an issue retrieving your current billing information. If this message persists, please
+                    {preflight?.cloud ? (
+                        <Link onClick={() => openSupportForm('bug', 'billing')}>submit a bug report</Link>
+                    ) : (
+                        <Link to="mailto:sales@posthog.com">contact sales@posthog.com</Link>
+                    )}
                     .
                 </LemonBanner>
-                {!cloudOrDev ? (
-                    <LemonBanner type="info">
-                        There was an issue retrieving your current billing information. If this message persists please
-                        contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link>.
-                    </LemonBanner>
-                ) : null}
             </div>
         )
     }
@@ -93,6 +85,7 @@ export function Billing(): JSX.Element {
             return ''
         }
         let url = '/api/billing-v2/activation?products='
+        let productsToUpgrade = ''
         for (const product of products) {
             if (product.subscribed || product.contact_support || product.inclusion_only) {
                 continue
@@ -104,20 +97,25 @@ export function Billing(): JSX.Element {
             if (!upgradePlanKey) {
                 continue
             }
-            url += `${product.type}:${upgradePlanKey},`
+            productsToUpgrade += `${product.type}:${upgradePlanKey},`
             if (product.addons?.length) {
                 for (const addon of product.addons) {
-                    url += `${addon.type}:${addon.plans[0].plan_key},`
+                    productsToUpgrade += `${addon.type}:${addon.plans[0].plan_key},`
                 }
             }
         }
         // remove the trailing comma that will be at the end of the url
-        url = url.slice(0, -1)
+        if (!productsToUpgrade) {
+            return ''
+        }
+        url += productsToUpgrade.slice(0, -1)
         if (redirectPath) {
             url += `&redirect_path=${redirectPath}`
         }
         return url
     }
+
+    const upgradeAllProductsLink = getUpgradeAllProductsLink()
 
     return (
         <div ref={ref}>
@@ -249,14 +247,14 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between">
                 <h2>Products</h2>
-                {isOnboarding && (
+                {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={getUpgradeAllProductsLink()}
+                        to={upgradeAllProductsLink}
                         disableClientSideRouting
                     >
-                        Upgrade All
+                        Upgrade all
                     </LemonButton>
                 )}
             </div>

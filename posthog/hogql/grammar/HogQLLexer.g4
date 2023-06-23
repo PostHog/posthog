@@ -28,6 +28,7 @@ CHECK: C H E C K;
 CLEAR: C L E A R;
 CLUSTER: C L U S T E R;
 CODEC: C O D E C;
+COHORT: C O H O R T;
 COLLATE: C O L L A T E;
 COLUMN: C O L U M N;
 COMMENT: C O M M E N T;
@@ -303,4 +304,5 @@ UNDERSCORE: '_';
 
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
 SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
-WHITESPACE: [ \u000B\u000C\t\r\n] -> skip;  // '\n' can be part of multiline single query
+// whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
+WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);

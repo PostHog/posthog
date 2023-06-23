@@ -1,15 +1,16 @@
-from posthog.hogql.database.models import Table, StringDatabaseField, IntegerDatabaseField, LazyJoin
+from typing import Dict
+
+from posthog.hogql.database.models import Table, StringDatabaseField, IntegerDatabaseField, LazyJoin, FieldOrTable
 from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
 
 
 class StaticCohortPeople(Table):
-    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
-    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-
-    person: LazyJoin = LazyJoin(
-        from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table
-    )
+    fields: Dict[str, FieldOrTable] = {
+        "person_id": StringDatabaseField(name="person_id"),
+        "cohort_id": IntegerDatabaseField(name="cohort_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "person": LazyJoin(from_field="person_id", join_table=PersonsTable(), join_function=join_with_persons_table),
+    }
 
     def avoid_asterisk_fields(self):
         return ["_timestamp", "_offset"]
