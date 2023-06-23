@@ -8,7 +8,6 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, Tre
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
-import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -175,11 +174,6 @@ export function LegacyInsightDisplayConfig({ filters, disableTable }: InsightDis
                             <FunnelDisplayLayoutPicker />
                         </ConfigFilter>
                     </>
-                )}
-                {isFunnels && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
-                    <ConfigFilter>
-                        <FunnelBinsPicker />
-                    </ConfigFilter>
                 )}
             </div>
         </div>
