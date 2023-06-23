@@ -10,6 +10,9 @@
       }
     </script>
     {% include "head.html" %}
+      <meta property="og:title" content="{{ title }}">
+      <meta property="og:url" content="{{ request.build_absolute_uri }}">
+      <meta property="og:image" content="{{ request.build_absolute_uri }}.png">
   </head>
   <body>
     <script>

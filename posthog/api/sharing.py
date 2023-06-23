@@ -193,13 +193,16 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
+            asset_title = resource.insight.name or resource.insight.derived_name
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
         elif resource.dashboard and not resource.dashboard.deleted:
+            asset_title = resource.dashboard.name
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             exported_data.update({"dashboard": dashboard_data})
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
+            asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
         else:
@@ -223,6 +226,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         return render_template(
             "exporter.html",
             request=request,
-            context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder)},
+            context={"exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder), "asset_title": asset_title},
             team_for_public_context=resource.team,
         )
