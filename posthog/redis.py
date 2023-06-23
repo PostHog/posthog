@@ -1,11 +1,11 @@
 # flake8: noqa
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import redis
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-_client_map: Dict[str, redis.Redis] = {}
+_client_map: Dict[str, Any] = {}
 
 
 def get_client(redis_url: Optional[str] = None) -> redis.Redis:
@@ -17,7 +17,7 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
         if settings.TEST:
             import fakeredis
 
-            client = fakeredis.FakeRedis()  # type: ignore
+            client = fakeredis.FakeRedis()
         elif redis_url:
             client = redis.from_url(redis_url, db=0)
 
