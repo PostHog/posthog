@@ -2,7 +2,7 @@ import datetime as dt
 import json
 import tempfile
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Literal, Optional
+from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 import boto3
@@ -10,7 +10,8 @@ from django.conf import settings
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import S3BatchExportInputs, afetch_batch_export, fetch_batch_export, fetch_batch_export_runs
+from posthog.batch_exports.service import S3BatchExportInputs, afetch_batch_export_run
+from posthog.batch_exports.models import afetch_batch_export
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -18,7 +19,11 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_data_interval_from_workflow_inputs, get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
+    get_workflow_scheduled_start_time,
+)
 from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
@@ -29,18 +34,7 @@ if TYPE_CHECKING:
 class S3InsertInputs:
     """Inputs for S3 exports."""
 
-    # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
-    # to keep track of where credentials are being stored and increases the
-    # attach surface for credential leaks.
-
-    bucket_name: str
-    region: str
-    prefix: str
-    team_id: int
-    data_interval_start: str
-    data_interval_end: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    run_id: str
 
 
 @activity.defn
@@ -62,7 +56,24 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     have or haven't processed yet. We have `_timestamp` in the events table, but
     this is the time
     """
-    activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    activity.logger.info("Running Snowflake export run: %s", inputs.run_id)
+
+    run = await afetch_batch_export_run(UUID(inputs.run_id))
+    if run is None:
+        activity.logger.info("Run %s does not exist. Exiting.", inputs.run_id)
+        return
+
+    export = await afetch_batch_export(run.batch_export_id)
+    if export is None:
+        activity.logger.info("Run %s has no batch export. Exiting.", run.batch_export_id)
+        return
+
+    config = export.destination.config
+    bucket_name = config["bucket_name"]
+    prefix = config["prefix"]
+    aws_access_key_id = config["aws_access_key_id"]
+    aws_secret_access_key = config["aws_secret_access_key"]
+    region = config["aws_region"]
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -70,16 +81,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         count = await get_rows_count(
             client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
+            team_id=export.team_id,
+            interval_start=run.data_interval_start,
+            interval_end=run.data_interval_end,
         )
 
         if count == 0:
             activity.logger.info(
                 "Nothing to export in batch %s - %s. Exiting.",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
+                run.data_interval_start,
+                run.data_interval_end,
                 count,
             )
             return
@@ -87,14 +98,14 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        key = f"{prefix}/{run.data_interval_start}-{run.data_interval_end}.jsonl"
         s3_client = boto3.client(
             "s3",
-            region_name=inputs.region,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
+            region_name=region,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
         )
-        multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
+        multipart_response = s3_client.create_multipart_upload(Bucket=bucket_name, Key=key)
         upload_id = multipart_response["UploadId"]
 
         # Iterate through chunks of results from ClickHouse and push them to S3
@@ -106,9 +117,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         part_number = 1
         results_iterator = get_results_iterator(
             client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
+            team_id=export.team_id,
+            interval_start=run.data_interval_start,
+            interval_end=run.data_interval_end,
         )
 
         with tempfile.NamedTemporaryFile() as local_results_file:
@@ -135,7 +146,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     local_results_file.seek(0)
                     response = s3_client.upload_part(
-                        Bucket=inputs.bucket_name,
+                        Bucket=bucket_name,
                         Key=key,
                         PartNumber=part_number,
                         UploadId=upload_id,
@@ -154,7 +165,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             # Upload the last part
             local_results_file.seek(0)
             response = s3_client.upload_part(
-                Bucket=inputs.bucket_name,
+                Bucket=bucket_name,
                 Key=key,
                 PartNumber=part_number,
                 UploadId=upload_id,
@@ -166,7 +177,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         # Complete the multipart upload
         s3_client.complete_multipart_upload(
-            Bucket=inputs.bucket_name,
+            Bucket=bucket_name,
             Key=key,
             UploadId=upload_id,
             MultipartUpload={"Parts": parts},
@@ -193,22 +204,17 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         workflow.logger.info("Starting S3 export")
 
-        batch_export = await afetch_batch_export(UUID(inputs.batch_export_id))
-        if not batch_export:
-            raise ValueError(f"BatchExport {inputs.batch_export_id} does not exist")
-        
-        data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(
-            interval=batch_export.interval,
-            data_interval_start_str=inputs.data_interval_start, 
-            data_interval_end_str=inputs.data_interval_end
-        )
+        workflow_schedule_time = get_workflow_scheduled_start_time(workflow.info())
+
+        data_interval_end = inputs.data_interval_end or workflow_schedule_time
+        if not data_interval_end:
+            raise ValueError("Either data_interval_end or TemporalScheduledStartTime must be set")
 
         create_export_run_inputs = CreateBatchExportRunInputs(
-            team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_end=data_interval_end,
         )
+
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
@@ -220,18 +226,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
+        if not run_id:
+            raise ValueError("Failed to create BatchExportRun")
+
         update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
 
-        insert_inputs = S3InsertInputs(
-            bucket_name=inputs.bucket_name,
-            region=inputs.region,
-            prefix=inputs.prefix,
-            team_id=inputs.team_id,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-        )
+        insert_inputs = S3InsertInputs(run_id=run_id)
         try:
             await workflow.execute_activity(
                 insert_into_s3_activity,
@@ -241,7 +241,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     non_retryable_error_types=[
-                        # If we can't connect to ClickHouse, no point in retrying.
+                        # If we can't connect to ClickHouse, no point in
+                        # retrying.
                         "ConnectionError",
                         # Validation failed, and will keep failing.
                         "ValueError",
@@ -250,7 +251,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             )
 
         except Exception as e:
-            workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
+            workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
             raise
 
@@ -262,4 +263,3 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-

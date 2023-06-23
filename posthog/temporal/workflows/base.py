@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from posthog.batch_exports.service import afetch_batch_export, update_batch_export_run_status, create_batch_export_run
+from posthog.batch_exports.service import update_batch_export_run_status, create_batch_export_run
+from posthog.batch_exports.models import afetch_batch_export
 from temporalio import activity
 from asgiref.sync import sync_to_async
 
@@ -52,7 +53,7 @@ class CreateBatchExportRunInputs:
     """
 
     batch_export_id: str
-    scheduled_start_time: str
+    data_interval_end: str
 
 
 @activity.defn
@@ -69,9 +70,9 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str | None:
         activity.logger.warn(f"BatchExport {inputs.batch_export_id} does not exist")
         return
 
-    datetime.fromisoformat(inputs.scheduled_start_time)
+    datetime.fromisoformat(inputs.data_interval_end)
     (data_interval_start, data_interval_end) = get_data_interval_from_workflow_inputs(
-        interval="hour", data_interval_end=datetime.fromisoformat(inputs.scheduled_start_time)
+        interval="hour", data_interval_end=datetime.fromisoformat(inputs.data_interval_end)
     )
 
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1

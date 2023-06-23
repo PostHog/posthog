@@ -387,10 +387,8 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
 
     workflow_id = str(uuid4())
     inputs = S3BatchExportInputs(
-        team_id=team.pk,
         batch_export_id=str(batch_export.id),
         data_interval_end="2023-04-25 14:30:00.000000",
-        **batch_export.destination.config,
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:

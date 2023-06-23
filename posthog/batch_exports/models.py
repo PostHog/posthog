@@ -1,5 +1,8 @@
-from django.db import models
+from dataclasses import dataclass
+from uuid import UUID
+from django.db import models, transaction
 
+from asgiref.sync import sync_to_async
 from posthog.models.utils import UUIDModel
 
 
@@ -115,3 +118,87 @@ class BatchExport(UUIDModel):
     last_updated_at: models.DateTimeField = models.DateTimeField(
         auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
     )
+
+
+@dataclass
+class BatchExportDestinationData:
+    """
+    Static structures that we can easily pass around to, e.g. asyncio tasks.
+    """
+
+    type: str
+    config: dict
+
+
+@dataclass
+class BatchExportData:
+    """
+    Static structures that we can easily pass around to, e.g. asyncio tasks.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    interval: str
+    destination: BatchExportDestinationData
+
+
+def acreate_batch_export(
+    team_id: int, name: str, type: str, config: dict, interval: str, paused: bool = False
+) -> BatchExportData:
+    """
+    Creates a BatchExport for a given team, destination, and interval.
+
+    :param team: The team to create the BatchExport for.
+    :param name: The name of the BatchExport.
+    :param destination: The destination to export data to.
+    :param interval: The interval at which to export data.
+    :param paused: Whether the BatchExport should be paused or not.
+    :return: The created BatchExport.
+    """
+    with transaction.atomic():
+        destination = BatchExportDestination.objects.create(type=type, config=config)
+        export = BatchExport.objects.create(
+            team_id=team_id, name=name, destination=destination, interval=interval, paused=paused
+        )
+
+    return BatchExportData(
+        id=export.id,
+        team_id=export.team_id,
+        name=export.name,
+        interval=export.interval,
+        destination=BatchExportDestinationData(
+            type=export.destination.type,
+            config=export.destination.config,
+        ),
+    )
+
+
+def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
+    """
+    Fetch a BatchExport by id.
+    """
+    try:
+        export_row = BatchExport.objects.values(
+            "id", "team_id", "name", "interval", "destination__type", "destination__config"
+        ).get(id=batch_export_id)
+    except BatchExport.DoesNotExist:
+        return None
+
+    return BatchExport(
+        id=export_row["id"],
+        team_id=export_row["team_id"],
+        name=export_row["name"],
+        interval=export_row["interval"],
+        destination=BatchExportDestination(
+            type=export_row["destination__type"],
+            config=export_row["destination__config"],
+        ),
+    )
+
+
+async def afetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
+    """
+    Fetch a BatchExport by id.
+    """
+    return await sync_to_async(fetch_batch_export)(batch_export_id)  # type: ignore

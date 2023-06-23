@@ -24,29 +24,9 @@ from temporalio.client import (
 
 @dataclass
 class S3BatchExportInputs:
-    """Inputs for S3 export workflow.
+    """Inputs for S3 export workflow."""
 
-    Attributes:
-        bucket_name: The S3 bucket we are exporting to.
-        region: The AWS region where the bucket is located.
-        file_name_prefix: A prefix for the file name to be created in S3.
-        batch_window_size: The size in seconds of the batch window.
-            For example, for one hour batches, this should be 3600.
-        team_id: The team_id whose data we are exporting.
-        file_format: The format of the file to be created in S3, supported by ClickHouse.
-            A list of all supported formats can be found in https://clickhouse.com/docs/en/interfaces/formats.
-        data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
-            scheduled runs and for backfills.
-    """
-
-    bucket_name: str
-    region: str
-    prefix: str
-    batch_window_size: int
-    team_id: int
     batch_export_id: str
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
     data_interval_start: str | None = None
     data_interval_end: str | None = None
 
@@ -243,59 +223,6 @@ async def acreate_batch_export(team_id: int, interval: str, name: str, destinati
     Create a BatchExport and its underlying Schedule.
     """
     return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
-
-
-@dataclass
-class BatchExportDestination:
-    """
-    Static structures that we can easily pass around to, e.g. asyncio tasks.
-    """
-
-    type: str
-    config: dict
-
-
-@dataclass
-class BatchExport:
-    """
-    Static structures that we can easily pass around to, e.g. asyncio tasks.
-    """
-
-    id: UUID
-    team_id: int
-    name: str
-    interval: str
-    destination: BatchExportDestination
-
-
-def fetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
-    """
-    Fetch a BatchExport by id.
-    """
-    try:
-        export_row = models.BatchExport.objects.values(
-            "id", "team_id", "name", "interval", "destination__type", "destination__config"
-        ).get(id=batch_export_id)
-    except models.BatchExport.DoesNotExist:
-        return None
-
-    return BatchExport(
-        id=export_row["id"],
-        team_id=export_row["team_id"],
-        name=export_row["name"],
-        interval=export_row["interval"],
-        destination=BatchExportDestination(
-            type=export_row["destination__type"],
-            config=export_row["destination__config"],
-        ),
-    )
-
-
-async def afetch_batch_export(batch_export_id: UUID) -> BatchExport | None:
-    """
-    Fetch a BatchExport by id.
-    """
-    return await sync_to_async(fetch_batch_export)(batch_export_id)  # type: ignore
 
 
 def fetch_batch_export_run(run_id: UUID) -> models.BatchExportRun | None:

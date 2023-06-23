@@ -5,6 +5,8 @@ from aiochclient import ChClient
 
 from datetime import datetime, timedelta
 
+from temporalio import workflow
+
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -119,3 +121,40 @@ def get_data_interval_from_workflow_inputs(interval: str, data_interval_end: dat
         raise ValueError(f"Unexpected interval: {interval}")
 
     return (data_interval_start, data_interval_end)
+
+
+def get_workflow_scheduled_start_time(workflow_info: workflow.Info):
+    """
+    Given a Temporal workflow Info object, return the scheduled start time of
+    the workflow. If the workflow was not started by a Temporal Schedule, this
+    will be None.
+    """
+    scheduled_start_time = None
+    workflow_schedule_time_attr = workflow_info.search_attributes.get("TemporalScheduledStartTime")
+    if workflow_schedule_time_attr:
+        # These two if-checks are a bit pedantic, but Temporal SDK is heavily typed.
+        # So, they exist to make mypy happy.
+        if workflow_schedule_time_attr is None:
+            msg = (
+                "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
+                "This should be set by the Temporal Schedule unless triggering workflow manually."
+                "In the latter case, ensure 'S3BatchExportInputs.data_interval_end' is set."
+            )
+            raise TypeError(msg)
+
+        # Failing here would perhaps be a bug in Temporal.
+        if isinstance(workflow_schedule_time_attr[0], str):
+            data_interval_end_str = workflow_schedule_time_attr[0]
+            scheduled_start_time = data_interval_end_str
+
+        elif isinstance(workflow_schedule_time_attr[0], datetime):
+            scheduled_start_time = workflow_schedule_time_attr[0].isoformat()
+
+        else:
+            msg = (
+                f"Expected search attribute to be of type 'str' or 'datetime' found '{workflow_schedule_time_attr[0]}' "
+                f"of type '{type(workflow_schedule_time_attr[0])}'."
+            )
+            raise TypeError(msg)
+
+    return scheduled_start_time
