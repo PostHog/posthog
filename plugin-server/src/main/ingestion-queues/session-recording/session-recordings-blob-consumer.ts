@@ -488,7 +488,7 @@ export class SessionRecordingBlobIngester {
         // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
         const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
 
-        console.log('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
+        status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
             partition,
             offsetToCommit: highestOffsetToCommit,
         })
