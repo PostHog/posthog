@@ -22,7 +22,7 @@ function newAction(element: HTMLElement | null, dataAttributes: string[] = []): 
 function toElementsChain(element: HTMLElement): ElementType[] {
     const chain: HTMLElement[] = []
     let currentElement: HTMLElement | null | undefined = element
-    while (currentElement && currentElement !== document.body.parentNode) {
+    while (currentElement && chain.length <= 10 && currentElement !== document.body) {
         chain.push(currentElement)
         currentElement = currentElement.parentElement
     }

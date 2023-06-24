@@ -60,29 +60,6 @@ function Tags({
     )
 }
 
-function Crumbs({ elements }: { elements: ElementType[] }): JSX.Element {
-    return (
-        <ul dir="rtl" className="w-full flex px-0 py-2 m-0 overflow-y-auto">
-            {elements.map((element, index) => {
-                return (
-                    <li key={index} dir="ltr" className="whitespace-no-wrap p-0 m-0 shrink-0">
-                        <pre className={clsx('text-white text-sm px-2 py-1 m-0', index === 0 && 'bg-default-dark')}>
-                            {element.tag_name}
-                            {element.attr_id ? `#${element.attr_id}` : undefined}
-                            {(element.attr_class || []).map((elementClass) => {
-                                if (!elementClass.trim()) {
-                                    return undefined
-                                }
-                                return `.${elementClass}`
-                            })}
-                        </pre>
-                    </li>
-                )
-            })}
-        </ul>
-    )
-}
-
 let uniqueNode = 0
 
 interface HTMLElementsDisplayPropsBase {
@@ -151,7 +128,6 @@ export function HTMLElementsDisplay({
                 ) : (
                     <div className="text-side">No elements to display</div>
                 )}
-                <Crumbs elements={providedElements} />
             </div>
         </div>
     )
