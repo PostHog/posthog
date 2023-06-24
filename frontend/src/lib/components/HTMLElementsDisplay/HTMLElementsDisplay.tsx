@@ -93,8 +93,16 @@ export function HTMLElementsDisplay({
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
-    const { parsedSelectors, chosenSelector, chosenSelectorMatchCount, messageStatus, elements } = useValues(logic)
-    const { setParsedSelectors } = useActions(logic)
+    const {
+        parsedSelectors,
+        chosenSelector,
+        chosenSelectorMatchCount,
+        messageStatus,
+        elements,
+        hasHiddenElements,
+        parsedElements,
+    } = useValues(logic)
+    const { setParsedSelectors, showMoreOfElementsChain } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-1">
@@ -116,8 +124,16 @@ export function HTMLElementsDisplay({
             <div className="px-4 rounded bg-default">
                 {elements.length ? (
                     <>
+                        {hasHiddenElements && (
+                            <pre
+                                className="p-0 m-0 italic text-white text-sm opacity-50 cursor-pointer"
+                                onClick={showMoreOfElementsChain}
+                            >
+                                Show hidden elements
+                            </pre>
+                        )}
                         <Tags
-                            elements={elements}
+                            elements={parsedElements}
                             highlight={highlight}
                             editable={editable}
                             parsedCSSSelectors={parsedSelectors}

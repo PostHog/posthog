@@ -20,7 +20,7 @@ export interface HtmlElementDisplayLogicProps {
 
 export const elementsChain = (providedElements: ElementType[] | undefined): ElementType[] => {
     const safeElements = [...(providedElements || [])]
-    return safeElements.reverse().slice(Math.max(safeElements.length - 10, 1))
+    return safeElements.reverse()
 }
 
 export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
@@ -30,6 +30,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     actions({
         setParsedSelectors: (selectors: Record<number, ParsedCSSSelector>) => ({ selectors }),
         setElements: (providedElements: ElementType[]) => ({ providedElements }),
+        showMoreOfElementsChain: true,
     }),
     reducers(({ props }) => ({
         elements: [
@@ -40,6 +41,12 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
             {} as Record<number, ParsedCSSSelector>,
             {
                 setParsedSelectors: (_, { selectors }) => selectors,
+            },
+        ],
+        visibleElements: [
+            10,
+            {
+                showMoreOfElementsChain: (state) => state + 3,
             },
         ],
     })),
@@ -109,6 +116,18 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     : chosenSelectorMatchCount === 1
                     ? 'success'
                     : 'warning'
+            },
+        ],
+        hasHiddenElements: [
+            (s) => [s.elements, s.visibleElements],
+            (elements, visibleElements) => {
+                return elements.length > visibleElements
+            },
+        ],
+        parsedElements: [
+            (s) => [s.elements, s.visibleElements],
+            (elements, visibleElements) => {
+                return elements.slice(Math.max(elements.length - visibleElements, 0))
             },
         ],
     })),
