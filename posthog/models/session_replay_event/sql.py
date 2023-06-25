@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     active_milliseconds Int64,
     console_log_count Int64,
     console_warn_count Int64,
-    console_error_count Int64
+    console_error_count Int64,
     size Int64
 ) ENGINE = {engine}
 """

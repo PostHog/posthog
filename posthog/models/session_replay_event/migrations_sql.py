@@ -47,7 +47,7 @@ ADD_CONSOLE_COUNTS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLA
 # migration to add size column to the session replay table
 ALTER_SESSION_REPLAY_ADD_SIZE_COLUMN = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
-        ADD COLUMN IF NOT EXISTS size SimpleAggregateFunction(sum, Int64),
+        ADD COLUMN IF NOT EXISTS size SimpleAggregateFunction(sum, Int64)
 """
 
 
