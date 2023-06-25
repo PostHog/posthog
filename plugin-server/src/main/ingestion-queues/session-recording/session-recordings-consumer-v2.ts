@@ -233,6 +233,10 @@ const eachMessage = async ({
         return drop('invalid_event_type')
     }
 
+    if (event.properties?.['$snapshot_consumer'] !== 'v2') {
+        return drop('invalid_event_type')
+    }
+
     try {
         const replayRecord = createSessionReplayEvent(
             messagePayload.uuid,

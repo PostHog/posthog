@@ -267,6 +267,13 @@ const eachMessage =
                             drop_cause: 'recordings-consumer-does-not-handle-snapshot-items',
                         })
                         .inc()
+                } else if (event.properties?.['$snapshot_consumer'] ?? 'v1' !== 'v1') {
+                    eventDroppedCounter
+                        .labels({
+                            event_type: 'session_recordings',
+                            drop_cause: 'event-destined-for-v2-consumer',
+                        })
+                        .inc()
                 } else if (event.event === '$snapshot') {
                     const clickHouseRecord = createSessionRecordingEvent(
                         messagePayload.uuid,

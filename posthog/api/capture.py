@@ -366,15 +366,21 @@ def get_event(request):
             replay_events, other_events = split_replay_events(events)
             processed_replay_events = replay_events
 
+            consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
+
             if len(replay_events) > 0:
                 # Legacy solution stays in place
-                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
+                snapshot_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
-                if random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
-                    # The new flow we only enable if the dedicated kafka is enabled
-                    processed_replay_events += preprocess_replay_events_for_blob_ingestion(
-                        replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
-                    )
+                snapshot_items_events = preprocess_replay_events_for_blob_ingestion(
+                    replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
+                )
+
+                processed_replay_events = snapshot_events + snapshot_items_events
+
+                # Mark all events so that they are only consumed by one consumer
+                for event in processed_replay_events:
+                    event["properties"]["$snapshot_consumer"] = consumer_destination
 
             events = processed_replay_events + other_events
 
