@@ -8,13 +8,22 @@ import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import {
+    IconExport,
+    IconFullScreen,
+    IconMagnifier,
+    IconPause,
+    IconPlay,
+    IconSkipInactivity,
+    IconWarning,
+} from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function PlayerController(): JSX.Element {
     const { currentPlayerState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
@@ -30,7 +39,19 @@ export function PlayerController(): JSX.Element {
         <div className="p-3 bg-bg-light flex flex-col select-none">
             <Seekbar />
             <div className="flex justify-between items-center h-8 gap-2">
-                <div className="flex-1" />
+                <div className="flex-1 flex text-xs text-muted-alt font-semibold font-italic items-center gap-1">
+                    {currentPlayerState === SessionPlayerState.ERROR && (
+                        <>
+                            <IconWarning /> Error
+                        </>
+                    )}
+                    {currentPlayerState === SessionPlayerState.BUFFER && (
+                        <>
+                            <Spinner monocolor /> Buffering…
+                        </>
+                    )}
+                    {currentPlayerState === SessionPlayerState.SKIP && <>Skipping inactivity...</>}
+                </div>
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
