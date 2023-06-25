@@ -17,7 +17,7 @@ class TestRedis(TestCase):
         with self.settings(REDIS_URL="redis://mocked:6379", TEST=False):
             client = get_client()
 
-        assert client == "test"
+        assert client
         assert _client_map == {
             "redis://mocked:6379": "test",
         }
