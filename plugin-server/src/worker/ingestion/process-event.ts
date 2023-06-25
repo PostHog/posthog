@@ -285,12 +285,8 @@ export const createSessionReplayEvent = (
     const events: RRWebEvent[] = properties['$snapshot_items'] || []
 
     const timestamps = events
-        .filter((eventSummary: RRWebEvent) => {
-            return !!eventSummary?.timestamp
-        })
-        .map((eventSummary: RRWebEvent) => {
-            return castTimestampOrNow(DateTime.fromMillis(eventSummary.timestamp), TimestampFormat.ClickHouse)
-        })
+        .filter((e) => !!e?.timestamp)
+        .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
         .sort()
 
     // but every event where chunk index = 0 must have an eventsSummary
@@ -310,21 +306,21 @@ export const createSessionReplayEvent = (
     let consoleWarnCount = 0
     let consoleErrorCount = 0
     let url: string | undefined = undefined
-    events.forEach((eventSummary: RRWebEvent) => {
-        if (eventSummary.type === 3) {
+    events.forEach((event) => {
+        if (event.type === 3) {
             mouseActivity += 1
-            if (eventSummary.data?.source === 2) {
+            if (event.data?.source === 2) {
                 clickCount += 1
             }
-            if (eventSummary.data?.source === 5) {
+            if (event.data?.source === 5) {
                 keypressCount += 1
             }
         }
-        if (!!eventSummary.data?.href?.trim().length && url === undefined) {
-            url = eventSummary.data.href
+        if (!!event.data?.href?.trim().length && url === undefined) {
+            url = event.data.href
         }
-        if (eventSummary.type === 6 && eventSummary.data?.plugin === 'rrweb/console@1') {
-            const level = eventSummary.data.payload?.level
+        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
+            const level = event.data.payload?.level
             if (level === 'log') {
                 consoleLogCount += 1
             } else if (level === 'warn') {

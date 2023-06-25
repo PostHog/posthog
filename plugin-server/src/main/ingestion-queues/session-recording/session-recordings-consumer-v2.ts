@@ -151,7 +151,6 @@ const eachMessage = async ({
     const dlq = (text: string, labels: Record<string, any> = {}) => {
         if (!message.value || !message.timestamp) {
             warn(text, {
-                reason: 'empty',
                 ...labels,
             })
             return [
