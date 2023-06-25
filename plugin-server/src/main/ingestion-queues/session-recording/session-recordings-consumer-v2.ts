@@ -2,6 +2,7 @@ import { captureException, captureMessage } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
+import { sessionRecordingConsumerConfig } from '../../../config/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
@@ -47,10 +48,12 @@ export const startSessionRecordingEventsConsumerV2 = async ({
         this.
     */
 
+    const recordingsServerConfig = sessionRecordingConsumerConfig(serverConfig)
+
     status.info('🔁', 'Starting session recordings consumer')
 
-    const connectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer(connectionConfig)
+    // We currently produce to the main kafka as this is the one connected to ClickHouse
+    const producer = await createKafkaProducer(createRdConnectionConfigFromEnvVars(serverConfig))
 
     const eachBatchWithContext = eachBatch({
         teamManager,
@@ -60,7 +63,8 @@ export const startSessionRecordingEventsConsumerV2 = async ({
     // Create a node-rdkafka consumer that fetches batches of messages, runs
     // eachBatchWithContext, then commits offsets for the batch.
     const consumer = await startBatchConsumer({
-        connectionConfig,
+        // We consume from the recording Kafka cluster.
+        connectionConfig: createRdConnectionConfigFromEnvVars(recordingsServerConfig),
         groupId,
         topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         sessionTimeout,

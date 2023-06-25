@@ -7,7 +7,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
+import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
@@ -374,7 +374,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
-            const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
+            const blobServerConfig = sessionRecordingConsumerConfig(serverConfig)
             const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, blobServerConfig)
             const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
@@ -388,7 +388,7 @@ export async function startPluginsServer(
 
             const eventsConsumer = await startSessionRecordingEventsConsumerV2({
                 teamManager: teamManager,
-                serverConfig: serverConfig,
+                serverConfig: serverConfig, // We use the standard config, as this consumer connects to multiple kafkas
             })
 
             await ingester.start()
