@@ -1,7 +1,14 @@
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
-import { Kafka, CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } from 'node-rdkafka-acosom'
+import {
+    CODES,
+    features,
+    HighLevelProducer as RdKafkaProducer,
+    librdkafkaVersion,
+    Message,
+    TopicPartition,
+} from 'node-rdkafka-acosom'
 import path from 'path'
 import { Gauge } from 'prom-client'
 
@@ -267,8 +274,8 @@ export class SessionRecordingBlobIngester {
 
     public async start(): Promise<void> {
         status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer', {
-            librdKafkaVersion: Kafka.librdkafkaVersion,
-            kafkaCapabilities: Kafka.features,
+            librdKafkaVersion: librdkafkaVersion,
+            kafkaCapabilities: features,
         })
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
