@@ -27,11 +27,6 @@ const Template: ComponentStory<typeof SessionRecordingPlayer> = (
     }
 ) => {
     const idRef = useRef(uuid())
-    // const { noIntegrations = false, featureAvailable = true, ...props } = args
-    // const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
-    // const [modalOpen, setModalOpen] = useState(false)
-
-    // useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
 
     const props: SessionRecordingPlayerProps = {
         ...args,
@@ -70,4 +65,8 @@ export const NoAutoPlay = (): JSX.Element => {
 
 export const NoInspector = (): JSX.Element => {
     return <Template {...commonProps} noInspector />
+}
+
+export const FrameOnly = (): JSX.Element => {
+    return <Template {...commonProps} noControls noMeta noInspector noBorder />
 }

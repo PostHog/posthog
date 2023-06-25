@@ -35,7 +35,7 @@ export function SessionPlayerModal(): JSX.Element | null {
                 ) : null}
             </header>
             <LemonModal.Content embedded>
-                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} includeMeta={false} noBorder />}
+                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noMeta noBorder />}
             </LemonModal.Content>
         </LemonModal>
     )

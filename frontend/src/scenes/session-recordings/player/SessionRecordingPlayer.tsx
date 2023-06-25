@@ -25,9 +25,10 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { urls } from 'scenes/urls'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
-    includeMeta?: boolean
+    noMeta?: boolean
     noBorder?: boolean
     noInspector?: boolean
+    noControls?: boolean
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -42,11 +43,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         sessionRecordingData,
         playerKey,
-        includeMeta = true,
+        noMeta = false,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
         noBorder = false,
         noInspector = false,
+        noControls = false,
         autoPlay = true,
         nextSessionRecording,
         mode = SessionRecordingPlayerMode.Standard,
@@ -151,13 +153,13 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     })}
                 >
                     <div className="SessionRecordingPlayer__main">
-                        {includeMeta || isFullScreen ? <PlayerMeta /> : null}
+                        {!noMeta || isFullScreen ? <PlayerMeta /> : null}
                         <div className="SessionRecordingPlayer__body">
                             <PlayerFrame />
                             <PlayerFrameOverlay />
                         </div>
                         <LemonDivider className="my-0" />
-                        <PlayerController />
+                        {!noControls && <PlayerController />}
                     </div>
                     {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
                     {explorerMode && (
