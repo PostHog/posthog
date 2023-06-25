@@ -1241,7 +1241,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 0,
+            size: 136,
         },
     },
     {
@@ -1257,7 +1257,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 0,
+            size: 136,
         },
     },
     {
@@ -1313,7 +1313,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 2,
             console_warn_count: 3,
             console_error_count: 1,
-            size: 0,
+            size: 825,
         },
     },
     {
@@ -1351,7 +1351,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 0,
+            size: 276,
         },
     },
     {
@@ -1378,7 +1378,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 0,
+            size: 496,
         },
     },
 ]
