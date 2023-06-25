@@ -1,8 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } from 'node-rdkafka-acosom'
-import Kafka from 'node-rdkafka-acosom'
+import { Kafka, CODES, HighLevelProducer as RdKafkaProducer, Message, TopicPartition } from 'node-rdkafka-acosom'
 import path from 'path'
 import { Gauge } from 'prom-client'
 
