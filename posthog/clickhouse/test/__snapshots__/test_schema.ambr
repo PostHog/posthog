@@ -335,7 +335,7 @@
       active_milliseconds Int64,
       console_log_count Int64,
       console_warn_count Int64,
-      console_error_count Int64
+      console_error_count Int64,
       size Int64
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
@@ -920,7 +920,7 @@
       active_milliseconds Int64,
       console_log_count Int64,
       console_warn_count Int64,
-      console_error_count Int64
+      console_error_count Int64,
       size Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
