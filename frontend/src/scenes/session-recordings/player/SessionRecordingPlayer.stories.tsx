@@ -12,13 +12,21 @@ import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_e
 export default {
     title: 'Components/Replay/Player',
     component: SessionRecordingPlayer,
+    argTypes: {
+        noBorder: {
+            defaultValue: false,
+        },
+        noInspector: {
+            defaultValue: false,
+        },
+        noControls: {
+            defaultValue: false,
+        },
+        noMeta: {
+            defaultValue: false,
+        },
+    },
 } as ComponentMeta<typeof SessionRecordingPlayer>
-
-const commonProps = {
-    sessionRecordingId: 'storybook',
-    playerKey: 'storybook',
-    autoPlay: false,
-}
 
 const Template: ComponentStory<typeof SessionRecordingPlayer> = (
     args: SessionRecordingPlayerProps & {
@@ -30,6 +38,7 @@ const Template: ComponentStory<typeof SessionRecordingPlayer> = (
 
     const props: SessionRecordingPlayerProps = {
         ...args,
+        autoPlay: false,
         sessionRecordingId: idRef.current,
         playerKey: `storybook-${idRef.current}`,
     }
@@ -55,18 +64,25 @@ const Template: ComponentStory<typeof SessionRecordingPlayer> = (
     )
 }
 
-export const Player_ = (): JSX.Element => {
-    return <Template {...commonProps} autoPlay />
+export const Player = Template.bind({})
+Player.args = {
+    autoPlay: true,
 }
 
-export const NoAutoPlay = (): JSX.Element => {
-    return <Template {...commonProps} />
+export const NoAutoPlay = Template.bind({})
+NoAutoPlay.args = {
+    autoPlay: true,
 }
 
-export const NoInspector = (): JSX.Element => {
-    return <Template {...commonProps} noInspector />
+export const NoInspector = Template.bind({})
+NoInspector.args = {
+    noInspector: true,
 }
 
-export const FrameOnly = (): JSX.Element => {
-    return <Template {...commonProps} noControls noMeta noInspector noBorder />
+export const FrameOnly = Template.bind({})
+FrameOnly.args = {
+    noControls: true,
+    noMeta: true,
+    noInspector: true,
+    noBorder: true,
 }
