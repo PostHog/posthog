@@ -55,43 +55,11 @@ export const funnelLogic = kea<funnelLogicType>({
             converted,
         }),
 
-        showTooltip: (
-            origin: [number, number, number],
-            stepIndex: number,
-            series: FunnelStepWithConversionMetrics
-        ) => ({
-            origin,
-            stepIndex,
-            series,
-        }),
-        hideTooltip: true,
-
         // Correlation related actions
         openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
             correlation,
             success,
         }),
-    }),
-    reducers: () => ({
-        isTooltipShown: [
-            false,
-            {
-                showTooltip: () => true,
-                hideTooltip: () => false,
-            },
-        ],
-        currentTooltip: [
-            null as [number, FunnelStepWithConversionMetrics] | null,
-            {
-                showTooltip: (_, { stepIndex, series }) => [stepIndex, series],
-            },
-        ],
-        tooltipOrigin: [
-            null as [number, number, number] | null, // x, y, width
-            {
-                showTooltip: (_, { origin }) => origin,
-            },
-        ],
     }),
 
     selectors: () => ({

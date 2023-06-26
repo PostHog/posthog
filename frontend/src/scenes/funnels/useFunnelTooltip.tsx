@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
-import { funnelLogic } from './funnelLogic'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -18,6 +17,7 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { BreakdownFilter } from '~/queries/schema'
 import { funnelDataLogic } from './funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelTooltipLogic } from './funnelTooltipLogic'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
@@ -102,7 +102,7 @@ function FunnelTooltip({
 export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { breakdown, querySource } = useValues(funnelDataLogic(insightProps))
-    const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelLogic)
+    const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelTooltipLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
