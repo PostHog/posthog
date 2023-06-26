@@ -24,16 +24,14 @@ export function FunnelStepsPicker(): JSX.Element | null {
     const optionsForRange = (range: number[]): LemonSelectOptions<number> => {
         return range
             .map((stepIndex): LemonSelectOption<number> | null => {
-                // data exploration has no order on series and instead relies on array order
-                const stepFilter = filterSteps.find((f) => f.order === stepIndex) || filterSteps[stepIndex]
-                return stepFilter
+                return filterSteps[stepIndex]
                     ? {
                           value: stepIndex,
                           label: `Step ${stepIndex + 1}`,
                           labelInMenu: (
                               <>
                                   <span>Step ${stepIndex + 1} – </span>
-                                  <EntityFilterInfo filter={stepFilter as EntityFilter} />
+                                  <EntityFilterInfo filter={filterSteps[stepIndex] as EntityFilter} />
                               </>
                           ),
                       }
