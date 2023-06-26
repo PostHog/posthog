@@ -94,7 +94,7 @@ export const createTaskRunner =
         )
 
 export async function processUnhandledException(error: Error, server: Hub, kind: string): Promise<void> {
-    let pluginConfig: PluginConfig | undefined = undefined
+    let pluginConfig: PluginConfig | null | undefined = undefined
 
     if (error instanceof TimeoutError) {
         pluginConfig = error.pluginConfig
