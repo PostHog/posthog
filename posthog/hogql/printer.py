@@ -506,7 +506,7 @@ class _Printer(Visitor):
                     # must add precision if adding timezone in the next step
                     args.append("6")
 
-                if node.name in ADD_TIMEZONE_TO_FUNCTIONS and (max_args is None or len(args) < max_args):
+                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
