@@ -37,6 +37,16 @@ describe('runPluginTask()', () => {
                         },
                     },
                 ],
+                [
+                    -1,
+                    {
+                        team_id: 2,
+                        enabled: true,
+                        vm: {
+                            getTask,
+                        },
+                    },
+                ],
             ]),
             appMetrics: {
                 queueMetric: jest.fn(),
@@ -101,11 +111,12 @@ describe('runPluginTask()', () => {
     })
 
     it('calls processError if task not found', async () => {
+        getTask.mockResolvedValue(null)
         await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, -1)
 
         expect(processError).toHaveBeenCalledWith(
             mockHub,
-            null,
+            expect.anything(),
             new Error('Task "some_task" not found for plugin "undefined" with config id -1')
         )
         expect(mockHub.appMetrics.queueError).not.toHaveBeenCalled()
