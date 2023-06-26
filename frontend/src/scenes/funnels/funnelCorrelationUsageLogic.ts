@@ -30,7 +30,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             insightVizDataLogic(props),
             ['loadDataSuccess'],
             funnelLogic(props),
-            ['hideSkewWarning as legacyHideSkewWarning', 'openCorrelationPersonsModal'],
+            ['openCorrelationPersonsModal'],
             funnelDataLogic(props),
             ['hideSkewWarning'],
             funnelCorrelationLogic(props),
@@ -80,10 +80,6 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
     }),
 
     listeners(({ values, actions }) => ({
-        // skew warning
-        legacyHideSkewWarning: () => {
-            actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
-        },
         hideSkewWarning: () => {
             actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
         },

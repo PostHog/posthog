@@ -21,9 +21,8 @@ type StepLegendProps = {
 } & ChartParams
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
-    const { aggregationTargetLabel } = useValues(funnelLogic)
     const { insightProps } = useValues(insightLogic)
-    const { canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
 
     const { openPersonsModalForStep } = useActions(funnelLogic)
     const { hasAvailableFeature } = useValues(userLogic)
