@@ -274,7 +274,7 @@ async function initPluginsForTeam(hub: Hub, teamId: number) {
 
     // Load the plugin configs into the hub.
     const configs = await Promise.all(pluginConfigs.rows.map((pluginConfig) => getPluginConfig(hub, pluginConfig.id)))
-    return configs
+    return configs.filter((config) => config !== null) as PluginConfig[]
 }
 
 export async function loadPluginConfig(hub: Hub, pluginConfig: PluginConfig) {
