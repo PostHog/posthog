@@ -127,19 +127,36 @@ export async function eachBatchLegacyIngestion(
                         // node-rdkafka adheres to the `isRetriable` interface.
                         if (error?.isRetriable === false) {
                             const sentryEventId = Sentry.captureException(error)
-                            await queue.pluginsServer.kafkaProducer.queueMessage({
-                                topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-                                messages: [
-                                    {
-                                        ...message,
-                                        headers: {
-                                            ...message.headers,
-                                            'sentry-event-id': sentryEventId,
-                                            'event-id': pluginEvent.uuid,
+                            try {
+                                await queue.pluginsServer.kafkaProducer.queueMessage({
+                                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+                                    messages: [
+                                        {
+                                            ...message,
+                                            headers: {
+                                                ...message.headers,
+                                                'sentry-event-id': sentryEventId,
+                                                'event-id': pluginEvent.uuid,
+                                            },
                                         },
-                                    },
-                                ],
-                            })
+                                    ],
+                                })
+                            } catch (error) {
+                                // If we can't send to the DLQ and it's not
+                                // retriable, just continue. We'll commit the
+                                // offset and move on.
+                                if (error?.isRetriable === false) {
+                                    status.error('🔥', `Error pushing to DLQ`, {
+                                        stack: error.stack,
+                                        error: error,
+                                    })
+                                    continue
+                                }
+
+                                // If we can't send to the DLQ and it is
+                                // retriable, raise the error.
+                                throw error
+                            }
                         } else {
                             throw error
                         }
