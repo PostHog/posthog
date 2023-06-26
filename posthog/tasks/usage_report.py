@@ -30,6 +30,7 @@ from posthog.celery import app
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import FlagRequestType
+from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -307,6 +308,7 @@ def capture_event(
         pha_client.group_identify("instance", settings.SITE_URL, properties)
 
 
+@timed_log()
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -318,6 +320,7 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -331,6 +334,7 @@ def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -345,6 +349,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -358,6 +363,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
     return results
 
 
+@timed_log()
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -371,6 +377,7 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
     return results
 
 
+@timed_log()
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -395,6 +402,7 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
     return result
 
 
+@timed_log()
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -406,6 +414,7 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     return result
 
 
+@timed_log()
 def get_teams_with_hogql_metric(
     begin: datetime,
     end: datetime,
@@ -435,6 +444,7 @@ def get_teams_with_hogql_metric(
     return result
 
 
+@timed_log()
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
 ) -> List[Tuple[int, int]]:
