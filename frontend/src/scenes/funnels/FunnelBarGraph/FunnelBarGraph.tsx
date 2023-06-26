@@ -7,65 +7,26 @@ import { funnelLogic } from '../funnelLogic'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
+import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMoreDataExploration, FunnelStepMore } from '../FunnelStepMore'
+import { FunnelStepMoreDataExploration } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
-import { Noun } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
-import { FunnelsFilter } from '~/queries/schema'
 
-export function FunnelBarGraphDataExploration(props: ChartParams): JSX.Element {
+export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(
         funnelDataLogic(insightProps)
     )
-    return (
-        <FunnelBarGraphComponent
-            steps={visibleStepsWithConversionMetrics}
-            stepReference={funnelsFilter?.funnel_step_reference || FunnelStepReference.total}
-            aggregationTargetLabel={aggregationTargetLabel}
-            funnelsFilter={funnelsFilter}
-            isUsingDataExploration
-            {...props}
-        />
-    )
-}
 
-export function FunnelBarGraph(props: ChartParams): JSX.Element {
-    const { filters, visibleStepsWithConversionMetrics, stepReference, aggregationTargetLabel } = useValues(funnelLogic)
-    return (
-        <FunnelBarGraphComponent
-            steps={visibleStepsWithConversionMetrics}
-            stepReference={stepReference}
-            aggregationTargetLabel={aggregationTargetLabel}
-            funnelsFilter={filters}
-            {...props}
-        />
-    )
-}
+    const steps = visibleStepsWithConversionMetrics
+    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
 
-type FunnelBarGraphComponentProps = {
-    steps: FunnelStepWithConversionMetrics[]
-    stepReference: FunnelStepReference
-    aggregationTargetLabel: Noun
-    funnelsFilter?: FunnelsFilter | null
-    isUsingDataExploration?: boolean
-} & ChartParams
-
-export function FunnelBarGraphComponent({
-    steps,
-    stepReference,
-    aggregationTargetLabel,
-    funnelsFilter,
-    isUsingDataExploration,
-    ...props
-}: FunnelBarGraphComponentProps): JSX.Element {
     const { isInDashboardContext } = useValues(funnelLogic)
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelLogic)
 
@@ -119,11 +80,7 @@ export function FunnelBarGraphComponent({
                                 {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
-                                {isUsingDataExploration ? (
-                                    <FunnelStepMoreDataExploration stepIndex={stepIndex} />
-                                ) : (
-                                    <FunnelStepMore stepIndex={stepIndex} />
-                                )}
+                                <FunnelStepMoreDataExploration stepIndex={stepIndex} />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
                                 <div className="text-muted-alt">

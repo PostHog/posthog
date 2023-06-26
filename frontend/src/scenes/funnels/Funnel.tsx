@@ -10,7 +10,7 @@ import { FunnelLayout } from 'lib/constants'
 import { FunnelHistogramDataExploration } from './FunnelHistogram'
 import { FunnelLineGraphDataExploration } from 'scenes/funnels/FunnelLineGraph'
 import { FunnelBarChartDataExploration } from './FunnelBarChart/FunnelBarChart'
-import { FunnelBarGraphDataExploration } from './FunnelBarGraph/FunnelBarGraph'
+import { FunnelBarGraph } from './FunnelBarGraph/FunnelBarGraph'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -30,7 +30,7 @@ export function Funnel(props: ChartParams): JSX.Element {
             {(layout || FunnelLayout.vertical) === FunnelLayout.vertical ? (
                 <FunnelBarChartDataExploration {...props} />
             ) : (
-                <FunnelBarGraphDataExploration {...props} />
+                <FunnelBarGraph {...props} />
             )}
         </BindLogic>
     )
