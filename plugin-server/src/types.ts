@@ -218,7 +218,8 @@ export interface Hub extends PluginsServerConfig {
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
-    pluginConfigs: LRU<number, Promise<PluginConfig>>
+    // Not we include null here to indicate that the plugin is not enabled
+    pluginConfigs: LRU<number, Promise<PluginConfig | null>>
     pluginConfigsPerTeam: LRU<number, Promise<PluginConfig[]>>
     pluginSchedule: Record<string, PluginConfigId[]> | null
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
