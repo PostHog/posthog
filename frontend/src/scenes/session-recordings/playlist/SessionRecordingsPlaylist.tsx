@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
+import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
@@ -12,7 +12,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -22,6 +22,13 @@ import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { openSessionRecordingSettingsDialog } from '../settings/SessionRecordingSettings'
+import { teamLogic } from 'scenes/teamLogic'
+import { router } from 'kea-router'
+import { userLogic } from 'scenes/userLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -127,18 +134,6 @@ export function RecordingsLists({
                                 </Tooltip>
                             ) : null}
 
-                            <LemonButton
-                                noPadding
-                                status={showFilters ? 'primary' : 'primary-alt'}
-                                type={showFilters ? 'primary' : 'tertiary'}
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
-                                }
-                                onClick={() => setShowFilters(!showFilters)}
-                            />
-
                             <Tooltip
                                 title={
                                     <div className="text-center">
@@ -150,6 +145,7 @@ export function RecordingsLists({
                             >
                                 <span>
                                     <LemonSwitch
+                                        aria-label="Autoplay next recording"
                                         checked={!!autoplayDirection}
                                         onChange={toggleAutoplayDirection}
                                         handleContent={
@@ -167,6 +163,20 @@ export function RecordingsLists({
                                     />
                                 </span>
                             </Tooltip>
+
+                            <LemonButton
+                                tooltip={'filter recordings'}
+                                size="small"
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'tertiary' : 'tertiary'}
+                                active={showFilters}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconMagnifier />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
                         </>
                     }
                     subheader={
@@ -266,7 +276,14 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState } = useValues(logic)
+    const { currentTeam } = useValues(teamLogic)
+    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowProductIntroduction =
+        !user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -276,45 +293,83 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     return (
         <>
             {/* This was added around Jun 23 so at some point can just be removed */}
-            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-4 leading-7">
                 <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
                 <span className="mx-1 text-lg">
-                    <IconFilter />
+                    <IconMagnifier />
                 </span>
                 icon at the top of the list of recordings.
             </LemonBanner>
-            <div
-                ref={playlistRef}
-                data-attr="session-recordings-playlist"
-                className={clsx('SessionRecordingsPlaylist', {
-                    'SessionRecordingsPlaylist--wide': size !== 'small',
-                })}
-            >
-                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
-                    <RecordingsLists {...props} />
-                </div>
-                <div className="SessionRecordingsPlaylist__right-column">
-                    {activeSessionRecording?.id ? (
-                        <SessionRecordingPlayer
-                            playerKey="playlist"
-                            playlistShortId={playlistShortId}
-                            sessionRecordingId={activeSessionRecording?.id}
-                            matching={activeSessionRecording?.matching_events}
-                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
-                            nextSessionRecording={nextSessionRecording}
-                        />
-                    ) : (
-                        <div className="mt-20">
-                            <EmptyMessage
-                                title="No recording selected"
-                                description="Please select a recording from the list on the left"
-                                buttonText="Learn more about recordings"
-                                buttonTo="https://posthog.com/docs/user-guides/recordings"
+            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
+                <ProductIntroduction
+                    productName="Session replay"
+                    productKey={ProductKey.SESSION_REPLAY}
+                    thingName="recording"
+                    titleOverride="Record your first session"
+                    description={`Session replay allows you to watch how real users use your product.
+                    ${
+                        recordingsDisabled
+                            ? 'Enable recordings to get started.'
+                            : 'Install the PostHog snippet on your website to start capturing recordings.'
+                    }`}
+                    isEmpty={shouldShowEmptyState}
+                    docsURL="https://posthog.com/docs/session-replay/manual"
+                    actionElementOverride={
+                        recordingsDisabled ? (
+                            <LemonButton
+                                type="primary"
+                                sideIcon={<IconSettings />}
+                                onClick={() => openSessionRecordingSettingsDialog()}
+                            >
+                                Enable recordings
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => router.actions.push(urls.projectSettings() + '#snippet')}
+                            >
+                                Get the PostHog snippet
+                            </LemonButton>
+                        )
+                    }
+                />
+            )}
+            {!shouldShowEmptyState && (
+                <div
+                    ref={playlistRef}
+                    data-attr="session-recordings-playlist"
+                    className={clsx('SessionRecordingsPlaylist', {
+                        'SessionRecordingsPlaylist--wide': size !== 'small',
+                    })}
+                >
+                    <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
+                        <RecordingsLists {...props} />
+                    </div>
+                    <div className="SessionRecordingsPlaylist__right-column">
+                        {activeSessionRecording?.id ? (
+                            <SessionRecordingPlayer
+                                playerKey="playlist"
+                                playlistShortId={playlistShortId}
+                                sessionRecordingId={activeSessionRecording?.id}
+                                matching={activeSessionRecording?.matching_events}
+                                recordingStartTime={
+                                    activeSessionRecording ? activeSessionRecording.start_time : undefined
+                                }
+                                nextSessionRecording={nextSessionRecording}
                             />
-                        </div>
-                    )}
+                        ) : (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </>
     )
 }

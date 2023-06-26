@@ -6,7 +6,7 @@
         width: 900px;
         max-width: 100%;
         min-width: 300px;
-        background: white;
+        background: var(--bg-light);
 
         .TaxonomicPropertyFilter__row__items {
             > :first-child {

@@ -32,6 +32,8 @@ from posthog.rate_limit import TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
 from posthog.utils import relative_date_parse
 
+import re
+
 
 class QueryThrottle(TeamRateThrottle):
     scope = "query"
@@ -115,6 +117,19 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise ValidationError(str(e))
         except ExposedCHQueryError as e:
             raise ValidationError(str(e), e.code_name)
+        except Exception as e:
+            self.handle_column_ch_error(e)
+            raise e
+
+    def handle_column_ch_error(self, error):
+        if error.message:
+            match = re.search(r"There's no column.*in table", error.message)
+            if match:
+                # TODO: remove once we support all column types
+                raise ValidationError(
+                    match.group(0) + ". Note: While in beta, not all column types may be fully supported"
+                )
+        return
 
     def _tag_client_query_id(self, query_id: str | None):
         if query_id is not None:

@@ -3,6 +3,7 @@ import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../../../src/config/config'
+import { now } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 import { createOrganization, createTeam } from '../../../helpers/sql'
@@ -93,7 +94,7 @@ describe('session-recordings-consumer', () => {
                     team_id: teamId,
                     data: JSON.stringify({
                         event: '$snapshot',
-                        properties: { $snapshot_data: { events_summary: [{ timestamp: DateTime.now().toMillis() }] } },
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: now() }] } },
                     }),
                 }),
                 timestamp: 123,

@@ -358,7 +358,7 @@
         --sidebar-list-item-marker-offset: var(--sidebar-list-item-ribbon-width);
         &::before {
             width: var(--sidebar-list-item-ribbon-width);
-            height: calc(100% + 1px);
+            height: 100%;
             background: var(--sidebar-list-item-status-color);
         }
     }
@@ -403,9 +403,7 @@
 .SidebarListItem__link {
     row-gap: 1px;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
-    &:hover {
-        color: inherit;
-    }
+    color: inherit !important; // Disable link color
 }
 
 .SidebarListItem__rename {
