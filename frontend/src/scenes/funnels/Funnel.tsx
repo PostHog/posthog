@@ -7,7 +7,7 @@ import { funnelDataLogic } from './funnelDataLogic'
 
 import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelLayout } from 'lib/constants'
-import { FunnelHistogramDataExploration } from './FunnelHistogram'
+import { FunnelHistogram } from './FunnelHistogram'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { FunnelBarChart } from './FunnelBarChart/FunnelBarChart'
 import { FunnelBarGraph } from './FunnelBarGraph/FunnelBarGraph'
@@ -22,7 +22,7 @@ export function Funnel(props: ChartParams): JSX.Element {
     }
 
     if (funnel_viz_type == FunnelVizType.TimeToConvert) {
-        return <FunnelHistogramDataExploration />
+        return <FunnelHistogram />
     }
 
     return (
