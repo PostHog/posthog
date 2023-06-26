@@ -3,6 +3,7 @@ from time import sleep
 from typing import Dict, List, Optional
 
 import structlog
+from posthog import settings
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -17,9 +18,8 @@ def get_key(team_id: str, suffix: str) -> str:
     return f"@posthog/replay/snapshots/team-{team_id}/{suffix}"
 
 
-# TODO: Type this better
 def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[List[Dict]]:
-    redis = get_client()
+    redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
     key = get_key(team_id, session_id)
     encoded_snapshots = redis.zrange(key, 0, -1, withscores=True)
 

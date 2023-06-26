@@ -338,6 +338,8 @@ def get_event(request):
 
     structlog.contextvars.bind_contextvars(token=token)
 
+    replay_events: List[Any] = []
+
     with start_span(op="request.process"):
         if isinstance(data, dict):
             if data.get("batch"):  # posthog-python and posthog-ruby
@@ -369,12 +371,6 @@ def get_event(request):
             if len(replay_events) > 0:
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-                if random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
-                    # The new flow we only enable if the dedicated kafka is enabled
-                    processed_replay_events += preprocess_replay_events_for_blob_ingestion(
-                        replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
-                    )
 
             events = processed_replay_events + other_events
 
@@ -445,6 +441,31 @@ def get_event(request):
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     ),
                 )
+
+    try:
+        if replay_events and random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
+            # The new flow we only enable if the dedicated kafka is enabled
+            alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
+                replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
+            )
+
+            futures = []
+
+            # We want to be super careful with our new ingestion flow for now so the whole thing is separated
+            # This is mostly a copy of above except we only log, we don't error out
+            if alternative_replay_events:
+                processed_events = list(preprocess_events(alternative_replay_events))
+                for event, event_uuid, distinct_id in processed_events:
+                    futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+
+                start_time = time.monotonic()
+                for future in futures:
+                    future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+
+    except Exception as exc:
+        capture_exception(exc, {"data": data})
+        logger.error("kafka_session_recording_produce_failure", exc_info=exc)
+        pass
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
