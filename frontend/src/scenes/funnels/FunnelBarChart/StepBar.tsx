@@ -7,6 +7,7 @@ import { getSeriesColor } from 'lib/colors'
 import clsx from 'clsx'
 import { funnelTooltipLogic } from '../funnelTooltipLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from '../funnelDataLogic'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -21,8 +22,8 @@ interface StepBarCSSProperties extends React.CSSProperties {
 export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { openPersonsModalForSeries } = useActions(funnelLogic)
+    const { disableFunnelBreakdownBaseline } = useValues(funnelDataLogic(insightProps))
     const { showTooltip, hideTooltip } = useActions(funnelTooltipLogic(insightProps))
-    const { disableFunnelBreakdownBaseline } = useValues(funnelLogic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 

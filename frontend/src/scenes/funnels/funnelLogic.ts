@@ -68,10 +68,6 @@ export const funnelLogic = kea<funnelLogicType>({
             (inflightFilters): Partial<FunnelsFilterType> =>
                 inflightFilters && isFunnelsFilter(inflightFilters) ? inflightFilters : {},
         ],
-        disableFunnelBreakdownBaseline: [
-            () => [(_, props) => props],
-            (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
-        ],
         canOpenPersonModal: [
             (s) => [s.filters, s.isInDashboardContext],
             (filters, isInDashboardContext): boolean => {
