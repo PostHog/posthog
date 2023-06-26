@@ -1,60 +1,30 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
-import { funnelLogic } from '../funnelLogic'
 import './FunnelBarChart.scss'
-import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { ChartParams } from '~/types'
 import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useFunnelTooltip } from '../useFunnelTooltip'
-import { StepLegend, StepLegendDataExploration } from './StepLegend'
+import { StepLegendDataExploration } from './StepLegend'
 import { StepBars } from './StepBars'
 import { StepBarLabels } from './StepBarLabels'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
-
-export function FunnelBarChartDataExploration(props: ChartParams): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
-    return (
-        <FunnelBarChartComponent
-            isUsingDataExploration
-            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
-            {...props}
-            showPersonsModal={canOpenPersonModal && props.showPersonsModal}
-        />
-    )
-}
-
-export function FunnelBarChart(props: ChartParams): JSX.Element {
-    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelLogic)
-    return (
-        <FunnelBarChartComponent
-            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
-            {...props}
-            showPersonsModal={canOpenPersonModal && props.showPersonsModal}
-        />
-    )
-}
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-width': string
     '--bar-row-height': string
 }
 
-type FunnelBarChartComponent = {
-    visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
-    isUsingDataExploration?: boolean
-} & ChartParams
+export function FunnelBarChart(props: ChartParams): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
 
-export function FunnelBarChartComponent({
-    showPersonsModal = true,
-    isUsingDataExploration = false,
-    visibleStepsWithConversionMetrics,
-}: FunnelBarChartComponent): JSX.Element {
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
+    const showPersonsModal = canOpenPersonModal && !!props.showPersonsModal
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
         seriesCount >= 60
@@ -119,21 +89,12 @@ export function FunnelBarChartComponent({
                         <td />
                         {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                             <td key={stepIndex}>
-                                {isUsingDataExploration ? (
-                                    <StepLegendDataExploration
-                                        step={step}
-                                        stepIndex={stepIndex}
-                                        showTime={showTime}
-                                        showPersonsModal={showPersonsModal}
-                                    />
-                                ) : (
-                                    <StepLegend
-                                        step={step}
-                                        stepIndex={stepIndex}
-                                        showTime={showTime}
-                                        showPersonsModal={showPersonsModal}
-                                    />
-                                )}
+                                <StepLegendDataExploration
+                                    step={step}
+                                    stepIndex={stepIndex}
+                                    showTime={showTime}
+                                    showPersonsModal={showPersonsModal}
+                                />
                             </td>
                         ))}
                     </tr>
