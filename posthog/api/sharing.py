@@ -9,6 +9,7 @@ from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
+from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import SessionRecordingSerializer
@@ -183,27 +184,32 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         }
         exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        if isinstance(resource, SharingConfiguration):
+        if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
+            exported_data["accessToken"] = resource.access_token
+            exported_asset = self.exported_asset_for_sharing_configuration(resource)
+            if not exported_asset:
+                raise NotFound()
+            return get_content_response(exported_asset, False)
+        elif isinstance(resource, SharingConfiguration):
             exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
             if request.path.endswith(f".{resource.file_ext}"):
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = False
+        add_og_tags = resource.insight or resource.dashboard
+
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
-            add_og_tags = True
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             exported_data.update({"dashboard": dashboard_data})
-            add_og_tags = True
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
@@ -236,3 +242,30 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             },
             team_for_public_context=resource.team,
         )
+
+    def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
+        target = resource.insight or resource.dashboard
+        if not target:
+            return None
+
+        exported_asset_matches = ExportedAsset.objects.filter(
+            team=resource.team,
+            insight=resource.insight or None,
+            dashboard=resource.dashboard or None,
+        )
+
+        if exported_asset_matches.exists():
+            return exported_asset_matches.first()
+        else:
+            serializer = ExportedAssetSerializer(
+                data={
+                    "insight": resource.insight.pk if resource.insight else None,
+                    "dashboard": resource.dashboard.pk if resource.dashboard else None,
+                    "export_format": "image/png",
+                },
+                context={"team_id": resource.team.pk, "request": self.request},
+            )
+            serializer.is_valid(raise_exception=True)
+            export_asset = serializer.save()
+            ExportedAssetSerializer.generate_export_sync(export_asset)
+            return export_asset
