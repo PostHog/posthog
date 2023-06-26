@@ -93,12 +93,7 @@ export function LegacyInsightContainer({
         }
         if (!!timedOutQueryId) {
             return (
-                <InsightTimeoutState
-                    isLoading={insightLoading}
-                    queryId={timedOutQueryId}
-                    insightType={activeView}
-                    insightProps={insightProps}
-                />
+                <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} insightProps={insightProps} />
             )
         }
 

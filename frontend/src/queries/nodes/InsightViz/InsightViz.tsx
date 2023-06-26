@@ -50,6 +50,7 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
     const disableTable = query.showTable ? !query.showTable : !showIfFull
     const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
     const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
+    const disableLegendButton = query.showLegendButton ? !query.showLegendButton : !showIfFull
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -73,6 +74,7 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
                             disableTable={disableTable}
                             disableCorrelationTable={disableCorrelationTable}
                             disableLastComputation={disableLastComputation}
+                            disableLegendButton={disableLegendButton}
                         />
                     </div>
                 </div>

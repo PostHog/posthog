@@ -1,50 +1,28 @@
 import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
 import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
-import { insightLogic } from './../insightLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
-import { FEATURE_FLAGS } from './../../../lib/constants'
-import { FilterType } from './../../../types'
 import { InsightLogicProps } from '~/types'
 
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
-export interface SamplingFilterLogicProps {
-    insightProps: InsightLogicProps
-    setFilters?: (filters: Partial<FilterType>) => void
-    initialSamplingPercentage?: number | null
-}
-
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
     path(['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic']),
-    props({} as SamplingFilterLogicProps),
-    connect((props: SamplingFilterLogicProps) => ({
-        values: [
-            insightVizDataLogic(props.insightProps),
-            ['querySource'],
-            insightLogic(props.insightProps),
-            ['filters'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-        actions: [
-            insightLogic(props.insightProps),
-            ['setFiltersMerge as updateInsightFilters'],
-            globalInsightLogic,
-            ['setGlobalInsightFilters'],
-        ],
+    props({} as InsightLogicProps),
+    connect((props: InsightLogicProps) => ({
+        values: [insightVizDataLogic(props), ['querySource']],
+        actions: [insightVizDataLogic(props), ['updateQuerySource'], globalInsightLogic, ['setGlobalInsightFilters']],
     })),
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
     })),
-    reducers(({ props }) => ({
+    reducers({
         samplingPercentage: [
-            props.initialSamplingPercentage || (null as number | null),
+            null as number | null,
             {
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
@@ -54,7 +32,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 },
             },
         ],
-    })),
+    }),
     selectors(() => ({
         suggestedSamplingPercentage: [
             (s) => [s.samplingPercentage],
@@ -73,24 +51,12 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 return AVAILABLE_SAMPLING_PERCENTAGES[AVAILABLE_SAMPLING_PERCENTAGES.indexOf(samplingPercentage) - 1]
             },
         ],
-        samplingAvailable: [
-            (s) => [s.featureFlags],
-            (featureFlags: Record<string, boolean | string | undefined>): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SAMPLING],
-        ],
     })),
-    listeners(({ props, actions, values }) => ({
+    listeners(({ actions, values }) => ({
         setSamplingPercentage: () => {
-            const mergeFilters = {
-                sampling_factor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
-            }
-
-            if (props.setFilters) {
-                // Experiments and data exploration
-                props.setFilters(mergeFilters)
-            } else {
-                actions.updateInsightFilters(mergeFilters)
-            }
+            actions.updateQuerySource({
+                samplingFactor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
+            })
         },
     })),
     subscriptions(({ values, actions }) => ({
