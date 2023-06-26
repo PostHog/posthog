@@ -12,6 +12,7 @@ import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-c
 import { IngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 import {
+    ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
     kafkaBatchOffsetCommitted,
@@ -234,6 +235,7 @@ function computeKey(pluginEvent: PipelineEvent): string {
 }
 
 async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]) {
+    ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
