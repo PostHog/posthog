@@ -136,7 +136,6 @@ describe('ingester', () => {
         await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
 
         jest.runOnlyPendingTimers() // flush timer
-        jest.advanceTimersByTime(35000) // flush timer
 
         expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
