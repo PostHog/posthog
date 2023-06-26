@@ -302,7 +302,39 @@ export const useExportRuns = (
     return { loading, exportRuns, error, updateCallback }
 }
 
-type BatchExportRunStatus =
+export const useExportRunAction = (
+    teamId: number,
+    exportId: string,
+    exportRunId: string,
+    action: 'reset'
+): {
+    executeExportRunAction: () => Promise<void>
+    loading: boolean
+    error: Error | null
+} => {
+    // Returns a callback to execute an action for the given team, export ID and export run ID.
+    const [state, setState] = useState<{ loading: boolean; error: Error | null }>({ loading: false, error: null })
+
+    const executeExportRunAction = useCallback(() => {
+        setState({ loading: true, error: null })
+        return api
+            .createResponse(`/api/projects/${teamId}/batch_exports/${exportId}/runs/${exportRunId}/${action}`, {})
+            .then((response) => {
+                if (response.ok) {
+                    setState({ loading: false, error: null })
+                } else {
+                    // TODO: parse the error response.
+                    const error = new Error(response.statusText)
+                    setState({ loading: false, error: error })
+                    throw error
+                }
+            })
+    }, [teamId, exportId, action])
+
+    return { executeExportRunAction, ...state }
+}
+
+export type BatchExportRunStatus =
     | 'Cancelled'
     | 'Completed'
     | 'ContinuedAsNew'
@@ -312,9 +344,10 @@ type BatchExportRunStatus =
     | 'Running'
     | 'Starting'
 
-type BatchExportRun = {
+export type BatchExportRun = {
     id: string
     team_id: number
+    batch_export_id: string
     status: BatchExportRunStatus
     opened_at: string
     closed_at: string

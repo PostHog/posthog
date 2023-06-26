@@ -11,6 +11,7 @@ from posthog.batch_exports.service import (
     create_batch_export,
     delete_schedule,
     pause_batch_export,
+    reset_batch_export_run,
     unpause_batch_export,
 )
 from posthog.models import (
@@ -33,6 +34,58 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
         model = BatchExportRun
         fields = "__all__"
         read_only_fields = ["batch_export"]
+
+
+class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = BatchExportRun.objects.all()
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    serializer_class = BatchExportRunSerializer
+
+    def get_queryset(self):
+        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+            raise NotAuthenticated()
+
+        return self.queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"]).order_by(
+            "-created_at"
+        )
+
+    def list(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Get all BatchExportRuns for a BatchExport."""
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
+        runs = self.get_queryset()
+
+        limit = self.request.query_params.get("limit", None)
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
+
+            runs = runs[:limit]
+
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(runs, many=True)
+        return response.Response(serializer.data)
+
+    @action(methods=["POST"], detail=True)
+    def reset(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Reset a BatchExportRun by resetting its associated Temporal Workflow."""
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
+        batch_export_run = self.get_object()
+        temporal = sync_connect()
+
+        scheduled_id = f"{batch_export_run.batch_export.id}-{batch_export_run.data_interval_end:%Y-%m-%dT%H:%M:%SZ}"
+        new_run_id = reset_batch_export_run(temporal, batch_export_id=scheduled_id)
+
+        return response.Response({"new_run_id": new_run_id})
 
 
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
@@ -169,32 +222,6 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Cannot pause a BatchExport that is already paused")
 
         return response.Response({"paused": True})
-
-    @action(methods=["GET"], detail=True)
-    def runs(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Get all BatchExportRuns for a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
-            raise NotAuthenticated()
-
-        batch_export = self.get_object()
-        runs = BatchExportRun.objects.filter(batch_export=batch_export).order_by("-created_at")
-
-        limit = self.request.query_params.get("limit", None)
-        if limit is not None:
-            try:
-                limit = int(limit)
-            except (TypeError, ValueError):
-                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
-
-            runs = runs[:limit]
-
-        page = self.paginate_queryset(runs)
-        if page is not None:
-            serializer = BatchExportRunSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = BatchExportRunSerializer(runs, many=True)
-        return response.Response(serializer.data)
 
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state."""
