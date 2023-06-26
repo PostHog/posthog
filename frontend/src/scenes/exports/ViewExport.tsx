@@ -1,17 +1,19 @@
-import { useValues } from 'kea'
-import { useCurrentTeamId, useExport, useExportRuns, BatchExport } from './api'
 import { dayjs } from 'lib/dayjs'
+import { useValues } from 'kea'
+import { useCurrentTeamId, useExport, useExportRuns, BatchExport, BatchExportRun, useExportRunAction } from './api'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconReplay } from 'lib/lemon-ui/icons'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ExportActionButtons } from './ExportsList'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { router } from 'kea-router'
 import { useState } from 'react'
+import clsx from 'clsx'
 
 export const Export = (): JSX.Element => {
     // Displays a single export. We use the useCurrentTeamId hook to get the
@@ -108,6 +110,38 @@ function ExportHeader({ currentTeamId, export_, loading, updateCallback }: Expor
     )
 }
 
+const ExportRunStatus = ({ exportRun }: { exportRun: BatchExportRun }): JSX.Element => {
+    if (exportRun.status === 'Running') {
+        return (
+            <LemonTag type="primary" className="uppercase">
+                Running
+            </LemonTag>
+        )
+    } else if (exportRun.status === 'Completed') {
+        return (
+            <LemonTag type="success" className="uppercase">
+                Completed
+            </LemonTag>
+        )
+    } else if (exportRun.status === 'Starting') {
+        return (
+            <LemonTag type="default" className="uppercase">
+                Starting
+            </LemonTag>
+        )
+    } else {
+        return (
+            <LemonTag type="danger" className="uppercase">
+                Error
+            </LemonTag>
+        )
+    }
+}
+
+type ExportRunKey = {
+    workflow_id: string
+}
+
 const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
     // Displays a list of export runs for the given export ID. We use the
     // useCurrentTeamId hook to get the current team ID, and then use the
@@ -137,6 +171,22 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
         )
     }
 
+    // I originally tried using only a Map here, but that was /too/ simple for the type checker.
+    // Feel free to change this.
+    const exportRunKeys = new Array<ExportRunKey>()
+    const exportRunsMap = new Map<string, BatchExportRun[]>()
+    exportRuns.forEach((run) => {
+        const key = run.batch_export_id + dayjs(run.data_interval_end).format('YYYY-MM-DDTHH:MM:SSZ')
+        const arr = exportRunsMap.get(key)
+
+        if (!arr) {
+            exportRunKeys.push({ workflow_id: key })
+            exportRunsMap.set(key, [run])
+        } else {
+            arr.push(run)
+        }
+    })
+
     // If we have export runs, show the export runs in a table, showing:
     // - The export run status e.g. running, failed, etc.
     // - The export run start time.
@@ -146,7 +196,6 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
     return (
         <>
             <h1>Export Runs</h1>
-
             <div className="flex gap-2 mb-4">
                 <LemonInput
                     type="number"
@@ -177,41 +226,86 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                     Refresh
                 </LemonButton>
             </div>
-
             <LemonTable
-                dataSource={exportRuns}
+                dataSource={exportRunKeys}
                 defaultSorting={{ columnKey: 'created_at', order: -1 }}
                 loading={loading}
+                expandable={{
+                    expandedRowRender: function renderExpand(exportRunKey) {
+                        const runs = exportRunsMap.get(exportRunKey.workflow_id)
+
+                        if (runs === undefined) {
+                            // Each array will have at least one run (the original).
+                            // So, we should never land here; I am only pleasing the type checker.
+                            return (
+                                <div>
+                                    <p>Error fetching export runs</p>
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <LemonTable
+                                dataSource={runs}
+                                embedded={true}
+                                size="small"
+                                columns={[
+                                    {
+                                        title: 'Status',
+                                        key: 'status',
+                                        render: function RenderStatus(_, run) {
+                                            return <ExportRunStatus exportRun={run} />
+                                        },
+                                    },
+                                    {
+                                        title: 'ID',
+                                        key: 'runId',
+                                        render: function RenderStatus(_, run) {
+                                            return <>{run.id}</>
+                                        },
+                                    },
+                                    {
+                                        title: 'Run start',
+                                        key: 'runStart',
+                                        tooltip: 'Date and time when this BatchExport run started',
+                                        render: function RenderName(_, run) {
+                                            return <>{dayjs(run.created_at).format('YYYY-MM-DD HH:mm:ss z')}</>
+                                        },
+                                    },
+                                ]}
+                            />
+                        )
+                    },
+                }}
                 columns={[
                     {
-                        title: 'Status',
-                        key: 'status',
-                        render: function RenderStatus(_, exportRun) {
-                            return (
-                                <>
-                                    {exportRun.status === 'Running' ? (
-                                        <LemonTag type="primary" className="uppercase">
-                                            Running
-                                        </LemonTag>
-                                    ) : exportRun.status === 'Completed' ? (
-                                        <LemonTag type="success" className="uppercase">
-                                            Completed
-                                        </LemonTag>
-                                    ) : (
-                                        <LemonTag type="danger" className="uppercase">
-                                            Error
-                                        </LemonTag>
-                                    )}
-                                </>
-                            )
+                        title: 'Last status',
+                        key: 'lastStatus',
+                        render: function RenderStatus(_, exportRunKey) {
+                            const runs = exportRunsMap.get(exportRunKey.workflow_id)
+                            if (runs === undefined || runs.length === 0) {
+                                // Each array will have at least one run (the original).
+                                // So, we should never land here; I am only pleasing the type checker.
+                                return <>{null}</>
+                            }
+                            const exportRun = runs[0]
+
+                            return <ExportRunStatus exportRun={exportRun} />
                         },
                     },
-
                     {
-                        title: 'Last run',
-                        key: 'lastRun',
+                        title: 'Last run start',
+                        key: 'lastRunStart',
                         tooltip: 'Date and time when the last run for this batch started',
-                        render: function RenderName(_, exportRun) {
+                        render: function RenderName(_, exportRunKey) {
+                            const runs = exportRunsMap.get(exportRunKey.workflow_id)
+                            if (runs === undefined || runs.length === 0) {
+                                // Each array will have at least one run (the original).
+                                // So, we should never land here; I am only pleasing the type checker.
+                                return <>{null}</>
+                            }
+                            const exportRun = runs[0]
+
                             return <>{dayjs(exportRun.created_at).format('YYYY-MM-DD HH:mm:ss z')}</>
                         },
                     },
@@ -219,7 +313,15 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                         title: 'Data interval start',
                         key: 'dataIntervalStart',
                         tooltip: 'Start of the time range to export',
-                        render: function RenderName(_, exportRun) {
+                        render: function RenderName(_, exportRunKey) {
+                            const runs = exportRunsMap.get(exportRunKey.workflow_id)
+                            if (runs === undefined || runs.length === 0) {
+                                // Each array will have at least one run (the original).
+                                // So, we should never land here; I am only pleasing the type checker.
+                                return <>{null}</>
+                            }
+                            const exportRun = runs[0]
+
                             return <>{dayjs(exportRun.data_interval_start).format('YYYY-MM-DD HH:mm:ss z')}</>
                         },
                     },
@@ -227,8 +329,70 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                         title: 'Data interval end',
                         key: 'dataIntervalEnd',
                         tooltip: 'End of the time range to export',
-                        render: function RenderName(_, exportRun) {
+                        render: function RenderName(_, exportRunKey) {
+                            const runs = exportRunsMap.get(exportRunKey.workflow_id)
+                            if (runs === undefined || runs.length === 0) {
+                                // Each array will have at least one run (the original).
+                                // So, we should never land here; I am only pleasing the type checker.
+                                return <>{null}</>
+                            }
+                            const exportRun = runs[0]
+
                             return <>{dayjs(exportRun.data_interval_end).format('YYYY-MM-DD HH:mm:ss z')}</>
+                        },
+                    },
+                    {
+                        title: 'Actions',
+                        render: function RenderName(_, exportRunKey) {
+                            const runs = exportRunsMap.get(exportRunKey.workflow_id)
+                            if (runs === undefined || runs.length === 0) {
+                                // Each array will have at least one run (the original).
+                                // So, we should never land here; I am only pleasing the type checker.
+                                return <>{null}</>
+                            }
+                            const exportRun = runs.slice(-1)[0]
+
+                            const {
+                                executeExportRunAction: resetExportRun,
+                                loading: restarting,
+                                error: resetError,
+                            } = useExportRunAction(currentTeamId, exportId, exportRun.id, 'reset')
+
+                            return (
+                                <div className={clsx('flex flex-wrap gap-2')}>
+                                    <LemonButton
+                                        status="primary"
+                                        type="secondary"
+                                        onClick={() => {
+                                            resetExportRun()
+                                                .then(() => {
+                                                    updateCallback(undefined, numberOfRuns)
+                                                    lemonToast['success'](
+                                                        <>
+                                                            <b>{exportRun.id}</b> has been restarted
+                                                        </>,
+                                                        {
+                                                            toastId: `restart-export-run-success-${exportRun.id}`,
+                                                        }
+                                                    )
+                                                })
+                                                .catch(() => {
+                                                    lemonToast['error'](
+                                                        <>
+                                                            <b>{exportRun.id}</b> could not be restarted: {resetError}
+                                                        </>,
+                                                        {
+                                                            toastId: `restart-export-run-error-${exportRun.id}`,
+                                                        }
+                                                    )
+                                                })
+                                        }}
+                                        tooltip={'Restart this Batch Export run'}
+                                        disabled={loading || restarting}
+                                        icon={<IconReplay />}
+                                    />
+                                </div>
+                            )
                         },
                     },
                 ]}

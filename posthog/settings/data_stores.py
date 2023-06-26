@@ -231,6 +231,15 @@ if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
         os.getenv("POSTHOG_REDIS_PORT", "6379"),
     )
 
+SESSION_RECORDING_REDIS_URL = REDIS_URL
+
+if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
+    SESSION_RECORDING_REDIS_URL = "redis://{}:{}/".format(
+        os.getenv("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""),
+        os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
+    )
+
+
 if not REDIS_URL:
     raise ImproperlyConfigured(
         "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
