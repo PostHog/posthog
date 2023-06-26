@@ -36,7 +36,7 @@ import { OrganizationManager } from '../../worker/ingestion/organization-manager
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
-import { teardownPluginConfig, teardownPluginConfigPromise } from '../../worker/plugins/teardown'
+import { teardownPluginConfigPromise } from '../../worker/plugins/teardown'
 import { status } from '../status'
 import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -218,17 +218,19 @@ export async function createHub(
         enqueuePluginJob,
         objectStorage: objectStorage,
 
+        // Keep track of plugin configs in a cache so we don't need to fetch
+        // them from the DB for every event. We further need to call teardown if
+        // the plugin is unloaded.
         pluginConfigs: new LRU<number, Promise<PluginConfig>>({
             maxAge: 1000 * 60 * 10,
             dispose: async (_, promise) => {
                 await teardownPluginConfigPromise(hub as Hub, promise)
             },
         }),
+
+        // Kepp around a cache of which plugins are enabled per team.
         pluginConfigsPerTeam: new LRU<number, Promise<PluginConfig[]>>({
             maxAge: 1000 * 60 * 10,
-            dispose: async (_, promises) => {
-                ;(await promises).map((promise) => teardownPluginConfig(hub as Hub, promise))
-            },
         }),
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
