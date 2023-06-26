@@ -5,7 +5,7 @@
   FROM events e
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2012-01-01 00:00:00', 'UTC'), 'UTC')))
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
   '
 ---
@@ -29,7 +29,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toTimeZone(toDateTime('2012-01-01 00:00:00', 'UTC'), 'UTC')))
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,

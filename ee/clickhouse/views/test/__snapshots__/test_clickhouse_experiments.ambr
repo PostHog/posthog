@@ -496,9 +496,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-06 00:00:00', 'UTC'), 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -507,7 +507,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            toStartOfDay(toTimeZone(timestamp, 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
@@ -563,9 +563,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-06 00:00:00', 'UTC'), 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -574,7 +574,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT person_id) as total,
-                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            toStartOfDay(toTimeZone(timestamp, 'UTC')) as day_start,
                             breakdown_value
            FROM
              (SELECT person_id,
@@ -693,9 +693,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 00:00:00', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-06 00:00:00', 'UTC'), 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-01 00:00:00', 'UTC'), 'UTC')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -704,7 +704,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            toStartOfDay(toTimeZone(timestamp, 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
@@ -836,9 +836,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 07:00:00', 'US/Pacific') - number * 86400) as day_start
+             (SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-06 07:00:00', 'US/Pacific'), 'US/Pacific')) - toIntervalDay(number) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 02:10:00', 'US/Pacific')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-01 02:10:00', 'US/Pacific'), 'US/Pacific')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -847,7 +847,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as day_start,
+                            toStartOfDay(toTimeZone(timestamp, 'US/Pacific')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
@@ -903,9 +903,9 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-06 07:00:00', 'US/Pacific') - number * 86400) as day_start
+             (SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-06 07:00:00', 'US/Pacific'), 'US/Pacific')) - toIntervalDay(number) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 02:10:00', 'US/Pacific')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toTimeZone(toDateTime('2020-01-01 02:10:00', 'US/Pacific'), 'US/Pacific')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -914,7 +914,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT person_id) as total,
-                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as day_start,
+                            toStartOfDay(toTimeZone(timestamp, 'US/Pacific')) as day_start,
                             breakdown_value
            FROM
              (SELECT person_id,
