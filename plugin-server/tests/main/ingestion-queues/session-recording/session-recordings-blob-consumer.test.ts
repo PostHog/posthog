@@ -41,6 +41,8 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
     }
 })
 
+jest.setTimeout(1000)
+
 describe('ingester', () => {
     const config: PluginsServerConfig = {
         ...defaultConfig,
@@ -53,6 +55,13 @@ describe('ingester', () => {
     let closeHub: () => Promise<void>
 
     beforeAll(() => {
+        jest.useFakeTimers({
+            // magic is for evil wizards
+            // setInterval in blob consumer doesn't fire
+            // if legacyFakeTimers is false
+            // 🤷
+            legacyFakeTimers: true,
+        })
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
     })
 
@@ -62,7 +71,6 @@ describe('ingester', () => {
 
     afterEach(async () => {
         jest.runOnlyPendingTimers()
-        jest.useRealTimers()
         await deleteKeysWithPrefix(hub, keyPrefix)
         await ingester.stop()
         await closeHub()
@@ -70,6 +78,7 @@ describe('ingester', () => {
 
     afterAll(() => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
+        jest.useRealTimers()
     })
 
     // these tests assume that a flush won't run while they run
@@ -121,22 +130,16 @@ describe('ingester', () => {
     })
 
     // let's get other people's PRs passing before we fix this test
-    it.skip('destroys a session manager if finished', async () => {
-        jest.useFakeTimers()
+    it('destroys a session manager if finished', async () => {
+        const event = createIncomingRecordingMessage()
+        await ingester.consume(event)
+        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+        await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
 
-        try {
-            const event = createIncomingRecordingMessage()
-            await ingester.consume(event)
-            expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-            await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
+        jest.runOnlyPendingTimers() // flush timer
+        jest.advanceTimersByTime(35000) // flush timer
 
-            jest.runOnlyPendingTimers() // flush timer
-
-            expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
-        } finally {
-            jest.runOnlyPendingTimers()
-            jest.useRealTimers()
-        }
+        expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
     })
 
     describe('offset committing', () => {
