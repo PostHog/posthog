@@ -47,6 +47,8 @@ class FeatureFlag(models.Model):
         related_name="analytics_dashboards",
         related_query_name="analytics_dashboard",
     )
+    # whether a feature is sending us rich analytics, like views & interactions.
+    has_enriched_analytics: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)

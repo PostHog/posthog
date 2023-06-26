@@ -44,7 +44,8 @@ export function DataWarehouse(): JSX.Element {
                         <a href="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </a>
-                        . Connect your own tables from S3 to query data from outside posthog
+                        . Connect your own tables from S3 to query data from outside posthog.{' '}
+                        <a href="https://posthog.com/docs/data/data-warehouse">Learn more</a>
                     </div>
                 }
             />
@@ -57,6 +58,7 @@ export function DataWarehouse(): JSX.Element {
                     }
                     action={() => router.actions.push(urls.dataWarehouseTable('new'))}
                     isEmpty={true}
+                    docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}

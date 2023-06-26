@@ -12,7 +12,7 @@ import { uuid } from 'lib/utils'
 import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 import { eventWithTime } from '@rrweb/types'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import { dayjs } from 'lib/dayjs'
 
 export type ExportedSessionRecordingFileV1 = {
@@ -136,9 +136,9 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            const snapshots = values.sessionRecording.snapshots
+            const snapshots = prepareRecordingSnapshots(values.sessionRecording.snapshots)
 
-            dataLogic.actions.loadRecordingSnapshotsSuccess({
+            dataLogic.actions.loadRecordingSnapshotsV2Success({
                 snapshots,
             })
 

@@ -94,7 +94,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <SpinnerOverlay /> : null
+    return showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -134,7 +134,7 @@ function AppScene(): JSX.Element | null {
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <SpinnerOverlay /> : null))
+        (() => (showingDelayedSpinner ? <SpinnerOverlay sceneLevel /> : null))
 
     const toastContainer = (
         <ToastContainer

@@ -1,5 +1,6 @@
 import { Message, ProducerRecord } from 'kafkajs'
 import { HighLevelProducer, LibrdKafkaError, MessageHeader, MessageKey, MessageValue } from 'node-rdkafka-acosom'
+import { Counter } from 'prom-client'
 
 import { disconnectProducer, flushProducer, produce } from '../../kafka/producer'
 import { status } from '../../utils/status'
@@ -39,6 +40,7 @@ export class KafkaProducerWrapper {
         waitForAck?: boolean
     }): Promise<void> {
         try {
+            kafkaProducerMessagesQueuedCounter.labels({ topic_name: topic }).inc()
             return await produce({
                 producer: this.producer,
                 topic: topic,
@@ -47,9 +49,11 @@ export class KafkaProducerWrapper {
                 headers: headers,
                 waitForAck: waitForAck,
             }).then((_) => {
+                kafkaProducerMessagesWrittenCounter.labels({ topic_name: topic }).inc()
                 return // Swallow the returned offsets, and return a void for easier typing
             })
         } catch (error) {
+            kafkaProducerMessagesFailedCounter.labels({ topic_name: topic }).inc()
             status.error('⚠️', 'kafka_produce_error', { error: error, topic: topic })
 
             if ((error as LibrdKafkaError).isRetriable) {
@@ -128,3 +132,21 @@ export const convertKafkaJSHeadersToRdKafkaHeaders = (headers: Message['headers'
               )
               .map(({ key, value }) => ({ [key]: value }))
         : undefined
+
+export const kafkaProducerMessagesQueuedCounter = new Counter({
+    name: 'kafka_producer_messages_queued_total',
+    help: 'Count of messages queued to the Kafka producer, by destination topic.',
+    labelNames: ['topic_name'],
+})
+
+export const kafkaProducerMessagesWrittenCounter = new Counter({
+    name: 'kafka_producer_messages_written_total',
+    help: 'Count of messages written to Kafka, by destination topic.',
+    labelNames: ['topic_name'],
+})
+
+export const kafkaProducerMessagesFailedCounter = new Counter({
+    name: 'kafka_producer_messages_failed_total',
+    help: 'Count of write failures by the Kafka producer, by destination topic.',
+    labelNames: ['topic_name'],
+})

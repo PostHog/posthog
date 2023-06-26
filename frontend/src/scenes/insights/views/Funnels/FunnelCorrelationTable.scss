@@ -11,7 +11,7 @@
     }
 
     .funnel-correlation-header {
-        background: #f2f2f2;
+        background: var(--mid);
         display: flex;
         align-items: center;
         align-self: stretch;
@@ -53,7 +53,15 @@
                 text-transform: uppercase;
                 margin: 5px;
 
-                color: rgba(0, 0, 0, 0.5);
+                color: var(--muted);
+            }
+
+            .LemonCheckbox:not(:last-child) label {
+                border-radius: var(--radius) 0 0 var(--radius);
+                border-right: none;
+            }
+            .LemonCheckbox:last-child label {
+                border-radius: 0 var(--radius) var(--radius) 0;
             }
         }
     }

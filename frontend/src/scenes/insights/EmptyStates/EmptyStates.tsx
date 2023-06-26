@@ -5,7 +5,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { FilterType, InsightLogicProps, InsightType, SavedInsightsTabs } from '~/types'
+import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './EmptyStates.scss'
 import { urls } from 'scenes/urls'
@@ -47,19 +47,14 @@ export function InsightTimeoutState({
     isLoading,
     queryId,
     insightProps,
-    insightType,
 }: {
     isLoading: boolean
     queryId?: string | null
     insightProps: InsightLogicProps
-    insightType?: InsightType
 }): JSX.Element {
-    const _samplingFilterLogic = samplingFilterLogic({ insightType, insightProps })
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
 
-    const { setSamplingPercentage } = useActions(_samplingFilterLogic)
-    const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
-
-    const speedUpBySamplingAvailable = samplingAvailable && suggestedSamplingPercentage
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
@@ -70,13 +65,13 @@ export function InsightTimeoutState({
                     <div className="m-auto text-center">
                         Your query is taking a long time to complete. <b>We're still working on it.</b>
                         <br />
-                        {speedUpBySamplingAvailable ? 'See below some options to speed things up.' : ''}
+                        {suggestedSamplingPercentage ? 'See below some options to speed things up.' : ''}
                         <br />
                     </div>
                 ) : (
                     <h2>Your query took too long to complete</h2>
                 )}
-                {isLoading && speedUpBySamplingAvailable ? (
+                {isLoading && suggestedSamplingPercentage ? (
                     <div>
                         <LemonButton
                             className="mx-auto mt-4"
@@ -94,8 +89,9 @@ export function InsightTimeoutState({
                     </div>
                 ) : null}
                 <p className="m-auto text-center">
-                    In order to improve the performance of the query, you can {speedUpBySamplingAvailable ? 'also' : ''}{' '}
-                    try to reduce the date range of your query, or remove breakdowns.
+                    In order to improve the performance of the query, you can{' '}
+                    {suggestedSamplingPercentage ? 'also' : ''} try to reduce the date range of your query, or remove
+                    breakdowns.
                 </p>
                 {!!queryId ? <div className="text-muted text-xs m-auto text-center">Query ID: {queryId}</div> : null}
             </div>
@@ -296,8 +292,8 @@ export function SavedInsightsEmptyState(): JSX.Element {
                 </h2>
                 {usingFilters ? (
                     <p className="empty-state__description">
-                        Refine your keyword search, or try using other filters such as type, last modified or
-                        created by.
+                        Refine your keyword search, or try using other filters such as type, last modified or created
+                        by.
                     </p>
                 ) : (
                     <p className="empty-state__description">{description}</p>

@@ -12,10 +12,11 @@ import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
-import { surveyLogic } from './surveyLogic'
+import { defaultSurveyAppearance, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
+import { SurveyAppearance } from './SurveyAppearance'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries } = useValues(surveyLogic)
@@ -146,7 +147,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 targetingFlagFilters={survey.targeting_flag?.filters}
                                             />
                                         </div>
-                                        <div className="w-full">
+                                        <div className="w-full flex flex-col items-center">
                                             <LemonCollapse
                                                 className="w-full"
                                                 panels={[
@@ -195,6 +196,14 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     },
                                                 ]}
                                             />
+                                            <div className="mt-6">
+                                                <SurveyAppearance
+                                                    appearance={survey.appearance || defaultSurveyAppearance}
+                                                    question={survey.questions[0].question}
+                                                    readOnly={true}
+                                                    onAppearanceChange={() => {}}
+                                                />
+                                            </div>
                                         </div>
                                     </div>
                                 ),

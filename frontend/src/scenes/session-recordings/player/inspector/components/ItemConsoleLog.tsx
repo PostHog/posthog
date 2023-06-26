@@ -24,7 +24,7 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                     <span
                         className={`bg-${
                             item.highlightColor || 'primary-alt'
-                        } rounded-lg px-1 mx-2 text-inverse text-xs font-semibold`}
+                        } rounded-lg px-1 mx-2 text-white text-xs font-semibold`}
                     >
                         {item.data.count}
                     </span>

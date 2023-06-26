@@ -13,6 +13,7 @@ import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 import { IngestionOverflowMode } from './each-batch-ingestion'
 import {
+    ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
     kafkaBatchOffsetCommitted,
@@ -256,6 +257,7 @@ function computeKey(pluginEvent: PipelineEvent): string {
 }
 
 async function emitToOverflow(queue: KafkaJSIngestionConsumer, kafkaMessages: KafkaMessage[]) {
+    ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.queueMessage(
