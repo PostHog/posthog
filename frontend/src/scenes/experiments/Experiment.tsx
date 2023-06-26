@@ -5,21 +5,26 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } from '~/types'
+import {
+    AvailableFeature,
+    ChartDisplayType,
+    FilterType,
+    FunnelStep,
+    FunnelVizType,
+    InsightShortId,
+    InsightType,
+} from '~/types'
 import './Experiment.scss'
 import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
-import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FunnelLayout } from 'lib/constants'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getSeriesColor } from 'lib/colors'
@@ -40,7 +45,15 @@ import { Field } from 'lib/forms/Field'
 import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { PREVIEW_INSIGHT_ID } from './constants'
+import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Query } from '~/queries/Query/Query'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -80,7 +93,6 @@ export function Experiment(): JSX.Element {
     } = useValues(experimentLogic)
     const {
         launchExperiment,
-        setFilters,
         setEditExperiment,
         endExperiment,
         addExperimentGroup,
@@ -91,27 +103,29 @@ export function Experiment(): JSX.Element {
         resetRunningExperiment,
         loadExperiment,
         setExposureAndSampleSize,
-        setExperimentValue,
         updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const [showWarning, setShowWarning] = useState(true)
 
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: PREVIEW_INSIGHT_ID,
-            disableDataExploration: true,
-        })
-    )
-    const {
-        isStepsEmpty,
-        filterSteps,
-        filters: funnelsFilters,
-        results,
-        conversionMetrics,
-    } = useValues(funnelLogic(insightProps))
-    const { filters: trendsFilters, results: trendResults } = useValues(trendsLogic(insightProps))
+    // insightLogic
+    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
+    const { insightProps } = useValues(logic)
+
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
+
+    // insightVizDataLogic
+    const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    const { conversionMetrics, results } = useValues(funnelDataLogic(insightProps))
+    const { results: trendResults } = useValues(trendsDataLogic(insightProps))
+
+    // calculated properties
+    const filterSteps = series || []
+    const isStepsEmpty = filterSteps.length === 0
 
     // Parameters for creating experiment
     const conversionRate = conversionMetrics.totalRate * 100
@@ -367,13 +381,8 @@ export function Experiment(): JSX.Element {
                                                 const groupTypeIndex =
                                                     rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
 
-                                                setFilters({
-                                                    properties: [],
+                                                updateQuerySource({
                                                     aggregation_group_type_index: groupTypeIndex ?? undefined,
-                                                })
-                                                setExperimentValue('filters', {
-                                                    ...experiment.filters,
-                                                    aggregation_group_type_index: groupTypeIndex,
                                                     // :TRICKY: We reset property filters after changing what you're aggregating by.
                                                     properties: [],
                                                 })
@@ -400,11 +409,7 @@ export function Experiment(): JSX.Element {
                                                     experiment.filters.properties
                                                 )}
                                                 onChange={(anyProperties) => {
-                                                    setFilters({
-                                                        properties: anyProperties.filter(isValidPropertyFilter),
-                                                    })
-                                                    setExperimentValue('filters', {
-                                                        ...experiment.filters,
+                                                    updateQuerySource({
                                                         properties: anyProperties.filter(isValidPropertyFilter),
                                                     })
                                                 }}
@@ -497,68 +502,42 @@ export function Experiment(): JSX.Element {
                                                 </a>
                                             </LemonBanner>
                                         )}
-                                        {experimentInsightType === InsightType.FUNNELS && (
-                                            <ActionFilter
-                                                bordered
-                                                filters={funnelsFilters}
-                                                setFilters={(payload) => {
-                                                    setFilters(payload)
-                                                    setExperimentValue('filters', {
-                                                        ...experiment.filters,
-                                                        ...payload,
-                                                    })
-                                                }}
-                                                typeKey={`experiment-funnel-goal-${JSON.stringify(experiment.filters)}`}
-                                                mathAvailability={MathAvailability.None}
-                                                hideDeleteBtn={filterSteps.length === 1}
-                                                buttonCopy="Add funnel step"
-                                                showSeriesIndicator={!isStepsEmpty}
-                                                seriesIndicatorType="numeric"
-                                                sortable
-                                                showNestedArrow={true}
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Cohorts,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                ]}
-                                            />
-                                        )}
-                                        {experimentInsightType === InsightType.TRENDS && (
-                                            <ActionFilter
-                                                bordered
-                                                filters={trendsFilters}
-                                                setFilters={(payload: Partial<FilterType>) => {
-                                                    setFilters(payload)
-                                                    setExperimentValue('filters', {
-                                                        ...experiment.filters,
-                                                        ...payload,
-                                                    })
-                                                }}
-                                                typeKey={`experiment-trends-goal-${JSON.stringify(experiment.filters)}`}
-                                                buttonCopy="Add graph series"
-                                                showSeriesIndicator
-                                                entitiesLimit={1}
-                                                hideDeleteBtn
-                                                propertiesTaxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.EventProperties,
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                                    TaxonomicFilterGroupType.Cohorts,
-                                                    TaxonomicFilterGroupType.Elements,
-                                                ]}
-                                            />
-                                        )}
+
+                                        <ActionFilter
+                                            bordered
+                                            filters={queryNodeToFilter(querySource as InsightQueryNode)}
+                                            setFilters={(payload: Partial<FilterType>): void => {
+                                                updateQuerySource({
+                                                    series: actionsAndEventsToSeries(payload as any),
+                                                } as TrendsQuery | FunnelsQuery)
+                                            }}
+                                            typeKey={`experiment-${
+                                                isTrends ? InsightType.TRENDS : InsightType.FUNNELS
+                                            }-goal`}
+                                            mathAvailability={isTrends ? undefined : MathAvailability.None}
+                                            hideDeleteBtn={isTrends || filterSteps.length === 1}
+                                            buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
+                                            showSeriesIndicator={isTrends || !isStepsEmpty}
+                                            entitiesLimit={isTrends ? 1 : undefined}
+                                            seriesIndicatorType={isTrends ? undefined : 'numeric'}
+                                            sortable={isTrends ? undefined : true}
+                                            showNestedArrow={isTrends ? undefined : true}
+                                            propertiesTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                                TaxonomicFilterGroupType.Cohorts,
+                                                TaxonomicFilterGroupType.Elements,
+                                            ]}
+                                        />
                                     </Col>
                                     <Col span={12} className="pl-4">
                                         <div className="card-secondary mb-4" data-attr="experiment-preview">
                                             Goal preview
                                         </div>
-                                        <LegacyInsightContainer
-                                            disableHeader={experimentInsightType === InsightType.TRENDS}
-                                            disableTable={true}
-                                        />
+                                        <BindLogic logic={insightLogic} props={insightProps}>
+                                            <Query query={query} context={{ insightProps }} readOnly />
+                                        </BindLogic>
                                     </Col>
                                 </Row>
                                 <Field name="secondary_metrics">
@@ -1075,7 +1054,29 @@ export function Experiment(): JSX.Element {
                                 }}
                             >
                                 <div className="mt-4">
-                                    <LegacyInsightContainer disableHeader={true} disableLastComputation={true} />
+                                    <Query
+                                        query={{
+                                            kind: NodeKind.InsightVizNode,
+                                            source: filtersToQueryNode(
+                                                transformResultFilters(experimentResults.filters)
+                                            ),
+                                            showTable: true,
+                                            showLegendButton: false,
+                                        }}
+                                        context={{
+                                            insightProps: {
+                                                dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
+                                                cachedInsight: {
+                                                    short_id: experimentResults.fakeInsightId as InsightShortId,
+                                                    filters: transformResultFilters(experimentResults.filters),
+                                                    result: experimentResults.insight,
+                                                    disable_baseline: true,
+                                                },
+                                                doNotLoad: true,
+                                            },
+                                        }}
+                                        readOnly
+                                    />
                                 </div>
                             </BindLogic>
                         ) : (
@@ -1106,3 +1107,14 @@ export function Experiment(): JSX.Element {
         </>
     )
 }
+
+const transformResultFilters = (filters: Partial<FilterType>): Partial<FilterType> => ({
+    ...filters,
+    ...(filters.insight === InsightType.FUNNELS && {
+        layout: FunnelLayout.vertical,
+        funnel_viz_type: FunnelVizType.Steps,
+    }),
+    ...(filters.insight === InsightType.TRENDS && {
+        display: ChartDisplayType.ActionsLineGraphCumulative,
+    }),
+})

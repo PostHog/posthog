@@ -1,7 +1,6 @@
 import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,7 +23,6 @@ import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -36,7 +34,12 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { PREVIEW_INSIGHT_ID } from './constants'
+import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightVizNode } from '~/queries/schema'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -75,7 +78,7 @@ export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
         actions: [
             experimentsLogic,
@@ -89,8 +92,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentArchived',
                 'reportExperimentReset',
             ],
+            insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['setQuery'],
+            insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['updateQuerySource'],
         ],
-    }),
+    })),
     actions({
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
@@ -99,7 +106,6 @@ export const experimentLogic = kea<experimentLogicType>([
             sampleSize,
         }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setExperimentResultCalculationError: (error: string) => ({ error }),
@@ -313,15 +319,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
 
-            actions.setExperiment({ filters: newInsightFilters })
-            actions.setFilters(newInsightFilters)
+            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        setFilters: ({ filters }) => {
-            if (values.experimentInsightType === InsightType.FUNNELS) {
-                funnelLogic.findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })?.actions.setFilters(filters)
-            } else {
-                trendsLogic.findMounted({ dashboardItemId: PREVIEW_INSIGHT_ID })?.actions.setFilters(filters)
-            }
+        // sync form value `filters` with query
+        setQuery: ({ query }) => {
+            actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
         },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)

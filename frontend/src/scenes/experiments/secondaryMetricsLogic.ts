@@ -1,16 +1,21 @@
 import { actions, connect, kea, listeners, path, props, key, reducers } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
+import { forms } from 'kea-forms'
+import { dayjs } from 'lib/dayjs'
+
 import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { InsightVizNode } from '~/queries/schema'
+
+import { SEONDARY_METRIC_INSIGHT_ID } from './constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
-import { dayjs } from 'lib/dayjs'
-import { forms } from 'kea-forms'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { PREVIEW_INSIGHT_ID } from './constants'
 
 const DEFAULT_DURATION = 14
 
@@ -38,19 +43,13 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({
-        logic: [
-            insightLogic({
-                dashboardItemId: PREVIEW_INSIGHT_ID,
-                syncWithUrl: false,
-                disableDataExploration: true,
-            }),
-        ],
+        logic: [insightLogic({ dashboardItemId: SEONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
         actions: [
-            trendsLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
-            ['setFilters as setTrendsFilters'],
-            funnelLogic({ dashboardItemId: PREVIEW_INSIGHT_ID }),
-            ['setFilters as setFunnelFilters'],
+            insightDataLogic({ dashboardItemId: SEONDARY_METRIC_INSIGHT_ID }),
+            ['setQuery'],
+            insightVizDataLogic({ dashboardItemId: SEONDARY_METRIC_INSIGHT_ID }),
+            ['updateQuerySource'],
         ],
     }),
     actions({
@@ -71,7 +70,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
 
         // preview insight
         setPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
     }),
     reducers(({ props }) => ({
         isModalOpen: [
@@ -149,15 +147,11 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 })
             }
 
-            actions.setSecondaryMetricModalValue('filters', newInsightFilters)
-            actions.setFilters(newInsightFilters)
+            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        setFilters: ({ filters }) => {
-            if (filters.insight === InsightType.FUNNELS) {
-                actions.setFunnelFilters(filters)
-            } else {
-                actions.setTrendsFilters(filters)
-            }
+        // sync form value `filters` with query
+        setQuery: ({ query }) => {
+            actions.setSecondaryMetricModalValue('filters', queryNodeToFilter((query as InsightVizNode).source))
         },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {

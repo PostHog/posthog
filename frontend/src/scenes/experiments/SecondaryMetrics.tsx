@@ -16,6 +16,7 @@ import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogi
 import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { SEONDARY_METRIC_INSIGHT_ID } from './constants'
 
 export function SecondaryMetrics({
     onMetricsChange,
@@ -27,7 +28,6 @@ export function SecondaryMetrics({
         useValues(logic)
 
     const {
-        setFilters,
         deleteMetric,
         openModalToCreateSecondaryMetric,
         openModalToEditSecondaryMetric,
@@ -153,16 +153,10 @@ export function SecondaryMetrics({
                         <LemonInput />
                     </Field>
                     <Field name="filters" label="Query">
-                        {({ value, onChange }) => (
-                            <MetricSelector
-                                setPreviewInsight={setPreviewInsight}
-                                setFilters={(payload) => {
-                                    setFilters(payload)
-                                    onChange(payload)
-                                }}
-                                filters={value}
-                            />
-                        )}
+                        <MetricSelector
+                            dashboardItemId={SEONDARY_METRIC_INSIGHT_ID}
+                            setPreviewInsight={setPreviewInsight}
+                        />
                     </Field>
                 </Form>
             </LemonModal>

@@ -12,6 +12,7 @@ import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { TZLabel } from 'lib/components/TZLabel'
+import { EXPERIMENT_INSIGHT_ID } from './constants'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -45,7 +46,6 @@ export function ExperimentPreview({
         openExperimentGoalModal,
         closeExperimentGoalModal,
         updateExperimentGoal,
-        setFilters,
         setNewExperimentInsight,
     } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
@@ -353,16 +353,10 @@ export function ExperimentPreview({
                     className="space-y-4"
                 >
                     <Field name="filters">
-                        {({ value, onChange }) => (
-                            <MetricSelector
-                                setPreviewInsight={setNewExperimentInsight}
-                                setFilters={(payload) => {
-                                    setFilters(payload)
-                                    onChange(payload)
-                                }}
-                                filters={value}
-                            />
-                        )}
+                        <MetricSelector
+                            dashboardItemId={EXPERIMENT_INSIGHT_ID}
+                            setPreviewInsight={setNewExperimentInsight}
+                        />
                     </Field>
                 </Form>
             </LemonModal>

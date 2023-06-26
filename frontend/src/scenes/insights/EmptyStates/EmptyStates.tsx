@@ -5,7 +5,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { FilterType, InsightLogicProps, InsightType, SavedInsightsTabs } from '~/types'
+import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
 import './EmptyStates.scss'
@@ -47,15 +47,13 @@ export function InsightTimeoutState({
     isLoading,
     queryId,
     insightProps,
-    insightType,
 }: {
     isLoading: boolean
     queryId?: string | null
     insightProps: InsightLogicProps
-    insightType?: InsightType
 }): JSX.Element {
-    const { setSamplingPercentage } = useActions(samplingFilterLogic({ insightType, insightProps }))
-    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic({ insightType, insightProps }))
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
 
     const { openSupportForm } = useActions(supportLogic)
 
@@ -300,8 +298,8 @@ export function SavedInsightsEmptyState(): JSX.Element {
                 </h2>
                 {usingFilters ? (
                     <p className="empty-state__description">
-                        Refine your keyword search, or try using other filters such as type, last modified or
-                        created by.
+                        Refine your keyword search, or try using other filters such as type, last modified or created
+                        by.
                     </p>
                 ) : (
                     <p className="empty-state__description">{description}</p>
