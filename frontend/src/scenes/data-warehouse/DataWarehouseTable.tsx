@@ -58,6 +58,17 @@ export function TableForm({ id }: { id: string }): JSX.Element {
                         </LemonButton>
                     </div>
                 }
+                caption={
+                    <div>
+                        External tables are supported through object storage systems like S3.{' '}
+                        <a
+                            href="https://posthog.com/docs/data/data-warehouse#step-1-creating-a-bucket-in-s3"
+                            target="_blank"
+                        >
+                            Learn how to set up your data
+                        </a>
+                    </div>
+                }
             />
             <LemonDivider />
             <div className="flex flex-col gap-2 max-w-160">

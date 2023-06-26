@@ -57,7 +57,7 @@ export function Billing(): JSX.Element {
         return (
             <>
                 <BillingPageHeader />
-                <SpinnerOverlay />
+                <SpinnerOverlay sceneLevel />
             </>
         )
     }
@@ -85,6 +85,7 @@ export function Billing(): JSX.Element {
             return ''
         }
         let url = '/api/billing-v2/activation?products='
+        let productsToUpgrade = ''
         for (const product of products) {
             if (product.subscribed || product.contact_support || product.inclusion_only) {
                 continue
@@ -96,20 +97,25 @@ export function Billing(): JSX.Element {
             if (!upgradePlanKey) {
                 continue
             }
-            url += `${product.type}:${upgradePlanKey},`
+            productsToUpgrade += `${product.type}:${upgradePlanKey},`
             if (product.addons?.length) {
                 for (const addon of product.addons) {
-                    url += `${addon.type}:${addon.plans[0].plan_key},`
+                    productsToUpgrade += `${addon.type}:${addon.plans[0].plan_key},`
                 }
             }
         }
         // remove the trailing comma that will be at the end of the url
-        url = url.slice(0, -1)
+        if (!productsToUpgrade) {
+            return ''
+        }
+        url += productsToUpgrade.slice(0, -1)
         if (redirectPath) {
             url += `&redirect_path=${redirectPath}`
         }
         return url
     }
+
+    const upgradeAllProductsLink = getUpgradeAllProductsLink()
 
     return (
         <div ref={ref}>
@@ -241,14 +247,14 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between">
                 <h2>Products</h2>
-                {isOnboarding && (
+                {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={getUpgradeAllProductsLink()}
+                        to={upgradeAllProductsLink}
                         disableClientSideRouting
                     >
-                        Upgrade All
+                        Upgrade all
                     </LemonButton>
                 )}
             </div>

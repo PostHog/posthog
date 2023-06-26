@@ -8,6 +8,7 @@ from posthog.batch_exports.service import update_batch_export_run_status, create
 from posthog.batch_exports.models import afetch_batch_export
 from temporalio import activity
 from asgiref.sync import sync_to_async
+from temporalio import activity
 
 from posthog.temporal.workflows.batch_exports import get_data_interval_from_workflow_inputs
 
@@ -47,9 +48,9 @@ class CreateBatchExportRunInputs:
     """Inputs to the create_export_run activity.
 
     Attributes:
-        batch_export_id: The ID of the BatchExport that this run is for.
-        scheduled_start_time: The time at which the export was scheduled to
-        start. If it's None we assume that it.
+        batch_export_id: The id of the BatchExport this BatchExportRun belongs to.
+        data_interval_start: Start of this BatchExportRun's data interval.
+        data_interval_end: End of this BatchExportRun's data interval.
     """
 
     batch_export_id: str

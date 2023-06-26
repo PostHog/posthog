@@ -1,17 +1,17 @@
 import datetime as dt
 from asgiref.sync import sync_to_async
-from uuid import UUID
 from dataclasses import dataclass, asdict
+from uuid import UUID, uuid4
 
+from asgiref.sync import async_to_sync, sync_to_async
 from rest_framework.exceptions import ValidationError
 
 
 from posthog import settings
 from posthog.batch_exports import models
 from posthog.temporal.client import sync_connect
-from asgiref.sync import async_to_sync
 
-
+from temporalio.api.workflowservice.v1 import ResetWorkflowExecutionRequest
 from temporalio.client import (
     Client,
     Schedule,
@@ -254,3 +254,32 @@ async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> l
     Fetch the BatchExportRuns for a given models.BatchExport.
     """
     return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore
+
+
+@async_to_sync
+async def reset_batch_export_run(temporal, batch_export_id: str | UUID) -> str:
+    """Reset an individual batch export run corresponding to a given batch export.
+
+    Resetting a workflow is considered an "advanced concept" by Temporal, hence it's not exposed
+    cleanly via the SDK, and it requries us to make a raw request.
+
+    Resetting a workflow will create a new run with the same workflow id. The new run will have a
+    reference to the original run_id that we can use to tie up re-runs with their originals.
+
+    Returns:
+        The run_id assigned to the new run.
+    """
+    request = ResetWorkflowExecutionRequest(
+        namespace=settings.TEMPORAL_NAMESPACE,
+        workflow_execution={
+            "workflow_id": str(batch_export_id),
+        },
+        # Any unique identifier for the request would work.
+        request_id=str(uuid4()),
+        # Reset can only happen from 'WorkflowTaskStarted' events. The first one always has id = 3.
+        # In other words, this means "reset from the beginning".
+        workflow_task_finish_event_id=3,
+    )
+    resp = await temporal.workflow_service.reset_workflow_execution(request)
+
+    return resp.run_id
