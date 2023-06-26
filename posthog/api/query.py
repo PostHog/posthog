@@ -122,7 +122,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise e
 
     def handle_column_ch_error(self, error):
-        if error.message:
+        if getattr(error, "message", None):
             match = re.search(r"There's no column.*in table", error.message)
             if match:
                 # TODO: remove once we support all column types

@@ -72,8 +72,7 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
-    @classmethod
-    def add_warehouse_tables(cls, **field_definitions: Any):
+    def add_warehouse_tables(self, **field_definitions: Any):
         new_fields: Dict[str, ModelField] = {}
         new_annotations: Dict[str, Optional[type]] = {}
 
@@ -94,11 +93,11 @@ class Database(BaseModel):
                 new_annotations[f_name] = f_annotation
 
             new_fields[f_name] = ModelField.infer(
-                name=f_name, value=f_value, annotation=f_annotation, class_validators=None, config=cls.__config__
+                name=f_name, value=f_value, annotation=f_annotation, class_validators=None, config=self.__config__
             )
 
-        cls.__fields__.update(new_fields)
-        cls.__annotations__.update(new_annotations)
+        self.__fields__.update(new_fields)
+        self.__annotations__.update(new_annotations)
 
 
 def create_hogql_database(team_id: int) -> Database:
@@ -113,7 +112,7 @@ def create_hogql_database(team_id: int) -> Database:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
     tables = {}
-    for table in DataWarehouseTable.objects.filter(team=team):
+    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
     database.add_warehouse_tables(**tables)
 
