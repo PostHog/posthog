@@ -39,10 +39,12 @@ def join_with_person_overrides_table(from_table: str, to_table: str, requested_f
     join_expr = ast.JoinExpr(table=select_from_person_overrides_table(requested_fields))
     join_expr.join_type = "LEFT OUTER JOIN"
     join_expr.alias = to_table
-    join_expr.constraint = ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=[from_table, "person_id"]),
-        right=ast.Field(chain=[to_table, "old_person_id"]),
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[from_table, "person_id"]),
+            right=ast.Field(chain=[to_table, "old_person_id"]),
+        )
     )
     return join_expr
 

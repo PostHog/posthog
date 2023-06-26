@@ -107,7 +107,6 @@ class _Printer(Visitor):
         self.dialect = dialect
         self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
-        self.in_join_on = False
 
     def visit(self, node: AST):
         self.stack.append(node)
@@ -290,12 +289,12 @@ class _Printer(Visitor):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            # Complex join constraints "ON (subquery)" are not allowed, so _unlikely_ in_join_on will change when visiting
-            self.in_join_on = True
             join_strings.append(f"ON {self.visit(node.constraint)}")
-            self.in_join_on = False
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
+
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return self.visit(node.expr)
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationOp.Add:
@@ -349,14 +348,13 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
         if node.op == ast.CompareOperationOp.Eq:
             if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
                 return "1" if node.left.value == node.right.value else "0"
-            elif (
-                self.in_join_on or self.dialect == "hogql"
-            ):  # TODO: get this info from the stack (needs clause support)
+            elif in_join_constraint or self.dialect == "hogql":
                 return f"equals({left}, {right})"
             elif isinstance(node.right, ast.Constant):
                 if node.right.value is None:
@@ -371,9 +369,7 @@ class _Printer(Visitor):
         elif node.op == ast.CompareOperationOp.NotEq:
             if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
                 return "1" if node.left.value != node.right.value else "0"
-            elif (
-                self.in_join_on or self.dialect == "hogql"
-            ):  # TODO: get this info from the stack (needs clause support)
+            elif in_join_constraint or self.dialect == "hogql":
                 return f"notEquals({left}, {right})"
             elif isinstance(node.right, ast.Constant):
                 if node.right.value is None:
