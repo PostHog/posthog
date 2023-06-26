@@ -6,6 +6,7 @@ from string import Template
 
 import snowflake.connector
 from django.conf import settings
+from snowflake.connector.cursor import SnowflakeCursor
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -73,7 +74,7 @@ class SnowflakeInsertInputs:
     data_interval_end: str
 
 
-def put_file_to_snowflake_table(cursor, file_name: str, table_name: str):
+def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
     """Executes a PUT query using the provided cursor to the provided table_name.
 
     Args:
@@ -209,7 +210,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
                         # Delete the temporary file and create a new one
                         local_results_file.close()
-                        local_results_file = tempfile.NamedTemporaryFile()
+                        local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
 
                 # Flush the file to make sure everything is written
                 local_results_file.flush()
