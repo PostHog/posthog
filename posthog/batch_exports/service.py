@@ -123,13 +123,13 @@ def backfill_export(batch_export_id: str, start_at: dt.datetime | None = None, e
     )
     (workflow, inputs) = DESTINATION_WORKFLOWS[batch_export.destination.type]
     temporal = sync_connect()
+    # TODO: handle passing in run_id rather than explicitly passing
+    # data_interval_end. Note that as it stands this will not work.
     temporal.execute_workflow(
         workflow,
         inputs(
-            team_id=batch_export.pk,
             batch_export_id=batch_export_id,
             data_interval_end=end_at,
-            **batch_export.destination.config,
         ),
         task_queue=settings.TEMPORAL_TASK_QUEUE,
         id=str(backfill_run.pk),
