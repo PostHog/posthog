@@ -178,8 +178,8 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey))
+            if (survey.start_date && survey.id !== 'new') {
+                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
