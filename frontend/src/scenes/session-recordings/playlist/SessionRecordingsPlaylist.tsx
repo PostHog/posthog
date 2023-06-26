@@ -300,7 +300,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                 </span>
                 icon at the top of the list of recordings.
             </LemonBanner>
-            {!personUUID && (shouldShowProductIntroduction || shouldShowEmptyState) && (
+            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName="Session replay"
                     productKey={ProductKey.SESSION_REPLAY}
