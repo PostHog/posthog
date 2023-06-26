@@ -1,30 +1,29 @@
-from collections import deque
+import gzip
 import json
 import re
+from collections import deque
 from typing import TypedDict
 from uuid import uuid4
 
-import gzip
-
-from aiochclient import ChClient
 import pytest
+import responses
+from aiochclient import ChClient
 from django.conf import settings
 from django.test import override_settings
+from requests.models import PreparedRequest
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
+
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
-
+from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity,
 )
-from requests.models import PreparedRequest
-import responses
 
 
 class EventValues(TypedDict):
@@ -120,10 +119,75 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock):
                     "success": True,
                     "data": {
                         "parameters": [],
-                        "rowtype": [],
-                        "rowset": [],
-                        "total": 0,
-                        "returned": 0,
+                        "rowtype": [
+                            {
+                                "name": "source",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "target",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "source_size",
+                                "type": "fixed",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "target_size",
+                                "type": "fixed",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "source_compression",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "target_compression",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "status",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                            {
+                                "name": "message",
+                                "type": "TEXT",
+                                "length": 0,
+                                "precision": None,
+                                "scale": None,
+                                "nullable": True,
+                            },
+                        ],
+                        "rowset": [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")],
+                        "total": 1,
+                        "returned": 1,
                         "queryId": "query-id",
                         "queryResultFormat": "json",
                     },

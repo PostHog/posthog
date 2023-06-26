@@ -189,13 +189,13 @@ def create_batch_export_run(
     return run
 
 
-def update_batch_export_run_status(run_id: UUID, status: str):
+def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str | None):
     """Update the status of an BatchExportRun with given id.
 
     Arguments:
         id: The id of the BatchExportRun to update.
     """
-    updated = BatchExportRun.objects.filter(id=run_id).update(status=status)
+    updated = BatchExportRun.objects.filter(id=run_id).update(status=status, latest_error=latest_error)
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
