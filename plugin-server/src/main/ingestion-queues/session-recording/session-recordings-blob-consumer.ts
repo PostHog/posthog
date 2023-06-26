@@ -268,6 +268,8 @@ export class SessionRecordingBlobIngester {
     public async start(): Promise<void> {
         status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
 
+        status.info('👀', 'a change so the plugin server tests will run')
+
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
         try {
             rmSync(bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY), { recursive: true, force: true })
