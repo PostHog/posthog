@@ -27,7 +27,7 @@ import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
-import { Funnel } from 'scenes/funnels/Funnel'
+import { FunnelDataExploration } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 
@@ -92,7 +92,7 @@ const displayMap: Record<
     },
     FunnelContainer: {
         className: 'funnel',
-        element: Funnel,
+        element: FunnelDataExploration,
     },
     RetentionContainer: {
         className: 'retention',
