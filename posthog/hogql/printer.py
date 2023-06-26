@@ -293,6 +293,9 @@ class _Printer(Visitor):
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return self.visit(node.expr)
+
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
@@ -345,18 +348,40 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
         if node.op == ast.CompareOperationOp.Eq:
-            if isinstance(node.right, ast.Constant) and node.right.value is None:
-                return f"isNull({left})"
-            else:
+            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+                return "1" if node.left.value == node.right.value else "0"
+            elif in_join_constraint or self.dialect == "hogql":
                 return f"equals({left}, {right})"
-        elif node.op == ast.CompareOperationOp.NotEq:
-            if isinstance(node.right, ast.Constant) and node.right.value is None:
-                return f"isNotNull({left})"
+            elif isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNull({left})"
+                return f"ifNull(equals({left}, {right}), 0)"
+            elif isinstance(node.left, ast.Constant) and node.left.value is None:
+                if node.left.value is None:
+                    return f"isNull({right})"
+                return f"ifNull(equals({left}, {right}), 0)"
             else:
+                return f"ifNull(equals({left}, {right}), isNull({left}) and isNull({right}))"
+        elif node.op == ast.CompareOperationOp.NotEq:
+            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+                return "1" if node.left.value != node.right.value else "0"
+            elif in_join_constraint or self.dialect == "hogql":
                 return f"notEquals({left}, {right})"
+            elif isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNotNull({left})"
+                return f"ifNull(notEquals({left}, {right}), 1)"
+            elif isinstance(node.left, ast.Constant) and node.left.value is None:
+                if node.left.value is None:
+                    return f"isNotNull({right})"
+                return f"ifNull(notEquals({left}, {right}), 1)"
+            else:
+                return f"ifNull(notEquals({left}, {right}), isNotNull({left}) or isNotNull({right}))"
+
         elif node.op == ast.CompareOperationOp.Gt:
             return f"greater({left}, {right})"
         elif node.op == ast.CompareOperationOp.GtE:

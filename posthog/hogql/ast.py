@@ -398,6 +398,10 @@ class Call(Expr):
     distinct: Optional[bool] = None
 
 
+class JoinConstraint(Expr):
+    expr: Expr
+
+
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType]
@@ -406,7 +410,7 @@ class JoinExpr(Expr):
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
-    constraint: Optional[Expr] = None
+    constraint: Optional["JoinConstraint"] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 
