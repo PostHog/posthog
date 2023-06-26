@@ -348,8 +348,6 @@ export type BatchExportRun = {
     id: string
     team_id: number
     batch_export_id: string
-    workflow_id: string
-    run_id: string
     status: BatchExportRunStatus
     opened_at: string
     closed_at: string

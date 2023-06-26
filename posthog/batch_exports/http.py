@@ -75,6 +75,7 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def reset(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Reset a BatchExportRun by resetting its associated Temporal Workflow."""
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 
@@ -82,7 +83,7 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
 
         scheduled_id = f"{batch_export_run.batch_export.id}-{batch_export_run.data_interval_end:%Y-%m-%dT%H:%M:%SZ}"
-        new_run_id = reset_batch_export_run(temporal, batch_export_id=scheduled_id, run_id=batch_export_run.run_id)
+        new_run_id = reset_batch_export_run(temporal, batch_export_id=scheduled_id)
 
         return response.Response({"new_run_id": new_run_id})
 

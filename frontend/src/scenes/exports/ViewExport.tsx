@@ -1,6 +1,6 @@
+import { dayjs } from 'lib/dayjs'
 import { useValues } from 'kea'
 import { useCurrentTeamId, useExport, useExportRuns, BatchExport, BatchExportRun, useExportRunAction } from './api'
-import { dayjs } from 'lib/dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -176,7 +176,7 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
     const exportRunKeys = new Array<ExportRunKey>()
     const exportRunsMap = new Map<string, BatchExportRun[]>()
     exportRuns.forEach((run) => {
-        const key = run.workflow_id
+        const key = run.batch_export_id + dayjs(run.data_interval_end).format('YYYY-MM-DDTHH:MM:SSZ')
         const arr = exportRunsMap.get(key)
 
         if (!arr) {

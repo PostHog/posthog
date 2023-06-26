@@ -168,8 +168,6 @@ def create_batch_export_run(
     batch_export_id: UUID,
     data_interval_start: str,
     data_interval_end: str,
-    workflow_id: str,
-    run_id: UUID,
 ):
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -185,8 +183,6 @@ def create_batch_export_run(
         status=BatchExportRun.Status.STARTING,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start),
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        workflow_id=workflow_id,
-        run_id=run_id,
     )
     run.save()
 
@@ -266,7 +262,7 @@ async def afetch_batch_export_runs(batch_export_id: UUID, limit: int = 100) -> l
 
 
 @async_to_sync
-async def reset_batch_export_run(temporal, batch_export_id: str | UUID, run_id: UUID) -> str:
+async def reset_batch_export_run(temporal, batch_export_id: str | UUID) -> str:
     """Reset an individual batch export run corresponding to a given batch export.
 
     Resetting a workflow is considered an "advanced concept" by Temporal, hence it's not exposed
@@ -282,7 +278,6 @@ async def reset_batch_export_run(temporal, batch_export_id: str | UUID, run_id: 
         namespace=settings.TEMPORAL_NAMESPACE,
         workflow_execution={
             "workflow_id": str(batch_export_id),
-            "run_id": str(run_id),
         },
         # Any unique identifier for the request would work.
         request_id=str(uuid4()),

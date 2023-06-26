@@ -1,5 +1,4 @@
 import datetime as dt
-import uuid
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -87,8 +86,6 @@ async def test_create_export_run(activity_environment, team, batch_export):
     inputs = CreateBatchExportRunInputs(
         team_id=team.id,
         batch_export_id=str(batch_export.id),
-        run_id=str(uuid.uuid4()),
-        workflow_id="test-workflow-id",
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
     )
@@ -101,7 +98,6 @@ async def test_create_export_run(activity_environment, team, batch_export):
     run = await sync_to_async(runs.first)()  # type:ignore
     assert run.data_interval_start == start
     assert run.data_interval_end == end
-    assert run.workflow_id == "test-workflow-id"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -114,8 +110,6 @@ async def test_update_export_run_status(activity_environment, team, batch_export
     inputs = CreateBatchExportRunInputs(
         team_id=team.id,
         batch_export_id=str(batch_export.id),
-        run_id=str(uuid.uuid4()),
-        workflow_id="test-workflow-id",
         data_interval_start=start.isoformat(),
         data_interval_end=end.isoformat(),
     )

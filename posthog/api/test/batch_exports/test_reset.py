@@ -78,18 +78,15 @@ def test_can_reset_export_run(client: HttpClient):
         batch_export_runs = wait_for_runs(client, team.pk, batch_export["id"])
         assert batch_export_runs["count"] == 1
 
-        batch_export_run = batch_export_runs["results"][0]
-        first_reset_response = reset_batch_export_run_ok(client, team.pk, batch_export["id"], batch_export_run["id"])
+        first_batch_export_run = batch_export_runs["results"][0]
+        reset_batch_export_run_ok(client, team.pk, batch_export["id"], first_batch_export_run["id"])
 
         batch_export_runs = wait_for_runs(client, team.pk, batch_export["id"], number_of_runs=2)
         assert batch_export_runs["count"] == 2
-        assert batch_export_runs["results"][0]["run_id"] == first_reset_response["new_run_id"]
-        assert batch_export_runs["results"][1] == batch_export_run
+        assert batch_export_runs["results"][1] == first_batch_export_run
 
-        second_reset_response = reset_batch_export_run_ok(client, team.pk, batch_export["id"], batch_export_run["id"])
+        reset_batch_export_run_ok(client, team.pk, batch_export["id"], first_batch_export_run["id"])
 
         batch_export_runs = wait_for_runs(client, team.pk, batch_export["id"], number_of_runs=3)
         assert batch_export_runs["count"] == 3
-        assert batch_export_runs["results"][0]["run_id"] == second_reset_response["new_run_id"]
-        assert batch_export_runs["results"][1]["run_id"] == first_reset_response["new_run_id"]
-        assert batch_export_runs["results"][2] == batch_export_run
+        assert batch_export_runs["results"][2] == first_batch_export_run
