@@ -474,7 +474,7 @@ class _Printer(Visitor):
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
                             else:
-                                args.append(f"toDateTime({self.visit(arg)})")
+                                args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
@@ -506,13 +506,13 @@ class _Printer(Visitor):
                     # must add precision if adding timezone in the next step
                     args.append("6")
 
-                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
+                if node.name in ADD_TIMEZONE_TO_FUNCTIONS and (max_args is None or len(args) < max_args):
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-                    args.append("3" if self._get_week_start_day() == WeekStartDay.MONDAY else "0")
+                    args.insert(1, "3" if self._get_week_start_day() == WeekStartDay.MONDAY else "0")
 
                 return f"{clickhouse_name}({', '.join(args)})"
             else:

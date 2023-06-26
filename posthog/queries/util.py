@@ -95,11 +95,16 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
-def get_start_of_interval_sql(interval: str, hogql_context: HogQLContext, *, source: str = "timestamp") -> str:
+def get_start_of_interval_sql(
+    interval: str, hogql_context: HogQLContext, *, source: str = "timestamp", ensure_datetime: bool = False
+) -> str:
     trunc_func = get_trunc_func_ch(interval)
     raw_sql = translate_hogql(f"{trunc_func}(timestamp)", hogql_context, "clickhouse")
     # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
-    return f"toDateTime({raw_sql.replace('timestamp', f'toDateTime({source})' if source.startswith('%') else source)})"
+    interval_sql = raw_sql.replace(
+        "timestamp", f"toDateTime({source}, %(timezone)s)" if source.startswith("%") else source
+    )
+    return f"toDateTime({interval_sql})" if ensure_datetime else interval_sql
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:

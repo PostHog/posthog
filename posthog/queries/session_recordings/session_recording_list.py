@@ -438,6 +438,7 @@ class SessionRecordingList(EventQuery):
 
     def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
         self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        self._filter.hogql_context.team_id = self._team_id
         query, query_params = self.get_query()
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         session_recordings = self._data_to_return(query_results)

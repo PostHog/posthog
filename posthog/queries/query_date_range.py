@@ -172,7 +172,10 @@ class QueryDateRange(Generic[F]):
             if not (isinstance(self._filter, BaseFilter) and isinstance(self._filter, IntervalMixin)):
                 raise ValueError("Cannot round with a filter that's not based on BaseFilter with IntervalMixin")
             date_expr = get_start_of_interval_sql(
-                self._filter.interval, cast(BaseFilter, self._filter).hogql_context, source=date_expr
+                self._filter.interval,
+                cast(BaseFilter, self._filter).hogql_context,
+                source=date_expr,
+                ensure_datetime=True,
             )
         return f"AND {event_timestamp_expr} {operator} {date_expr}"
 

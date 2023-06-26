@@ -64,6 +64,7 @@ class EventQuery(metaclass=ABCMeta):
         **kwargs,
     ) -> None:
         self._filter = filter
+        self._filter.hogql_context.team_id = team.pk
         self._team_id = team.pk
         self._team = team
         self._extra_event_properties = extra_event_properties
