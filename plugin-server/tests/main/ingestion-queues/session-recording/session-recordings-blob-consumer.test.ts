@@ -129,7 +129,6 @@ describe('ingester', () => {
         expect(ingester.sessions.has('1-session_id_2')).toEqual(true)
     })
 
-    // let's get other people's PRs passing before we fix this test
     it('destroys a session manager if finished', async () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
