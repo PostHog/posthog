@@ -7,6 +7,7 @@ import {
     enablePluginConfig,
     fetchPluginLogEntries,
     getScheduledPluginJob,
+    reloadPlugins,
     schedulePluginJob,
 } from './api'
 import { waitForExpect } from './expectations'
@@ -39,6 +40,8 @@ test.concurrent('graphile-worker does not run jobs for disabled plugins', async 
 
     // Disable the plugin
     await disablePluginConfig(teamId, pluginConfig.id)
+    // await enablePluginConfig(teamId, pluginConfig.id)
+    await reloadPlugins()
 
     // Schedule a task
     const job = await schedulePluginJob({
@@ -49,7 +52,8 @@ test.concurrent('graphile-worker does not run jobs for disabled plugins', async 
         payload: { identifier: 'should not run' },
     })
 
-    // Wait for the task to run, it will become undefined
+    // Wait for the task to run, it will become undefined. On successful
+    // processing graphile will remove the entry
     await waitForExpect(async () => {
         const row = await getScheduledPluginJob(job.id)
         expect(row).not.toBeDefined()
@@ -58,6 +62,7 @@ test.concurrent('graphile-worker does not run jobs for disabled plugins', async 
     // Re-enable the plugin and schedule a task, such that we can watch plugin
     // logs to see what ran.
     await enablePluginConfig(teamId, pluginConfig.id)
+    await reloadPlugins()
 
     // Schedule a task
     const job2 = await schedulePluginJob({
@@ -81,5 +86,5 @@ test.concurrent('graphile-worker does not run jobs for disabled plugins', async 
         return logs
     })
 
-    expect(logs).toContain(JSON.stringify({ identifier: 'should not run' }))
+    expect(logs).not.toContain(JSON.stringify({ identifier: 'should not run' }))
 })

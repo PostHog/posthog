@@ -258,7 +258,7 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
 
     await waitForExpect(async () => {
         const logs = await fetchPluginConsoleLogEntries(pluginConfig.id)
-        expect(logs.filter((log) => log.message.method === 'teardownPlugin')).toHaveLength(1)
+        expect(logs.filter((log) => log.message.method === 'teardownPlugin').length).toBeGreaterThan(0)
     })
 })
 

@@ -287,8 +287,10 @@ export async function loadPluginConfig(hub: Hub, pluginConfig: PluginConfig) {
 async function getPluginConfig(hub: Hub, pluginConfigId: number) {
     // Either get the pluginConfig with VM loaded from the cache, or load it
     // from the database.
+    status.debug('ℹ️', `Getting plugin config ${pluginConfigId}`)
     const pluginConfigCache = hub.pluginConfigs.get(pluginConfigId)
     if (pluginConfigCache) {
+        status.debug('ℹ️', `Using cached plugin config ${pluginConfigId}`)
         return await pluginConfigCache
     }
     const pluginConfig = await initPluginConfig(hub, pluginConfigId)
@@ -297,6 +299,7 @@ async function getPluginConfig(hub: Hub, pluginConfigId: number) {
 }
 
 async function initPluginConfig(hub: Hub, pluginConfigId: number) {
+    status.info('⏳', `Initializing plugin config ${pluginConfigId}`)
     const result = await hub.db.postgresQuery(
         `
         SELECT
@@ -351,7 +354,8 @@ async function initPluginConfig(hub: Hub, pluginConfigId: number) {
         'getPluginConfig'
     )
     if (result.rowCount === 0) {
-        throw new Error(`Plugin config ${pluginConfigId} not found`)
+        status.warn('🔌', `Plugin config ${pluginConfigId} not found`)
+        return null
     }
     const row = result.rows[0]
     const pluginConfig: PluginConfig & { plugin: Plugin } = {
