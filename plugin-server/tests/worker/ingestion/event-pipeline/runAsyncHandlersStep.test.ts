@@ -1,7 +1,7 @@
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
+import { runOnEvent } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -57,7 +57,6 @@ describe('runAsyncHandlersStep()', () => {
         await runAsyncHandlersStep(runner, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-        expect(runOnSnapshot).not.toHaveBeenCalled()
     })
 
     it('still calls onEvent if actions lookup fails', async () => {
