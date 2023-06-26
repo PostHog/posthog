@@ -129,13 +129,30 @@ export async function eachBatchParallelIngestion(
                             const headers: MessageHeader[] = message.headers ?? []
                             headers.push({ ['sentry-event-id']: sentryEventId })
                             headers.push({ ['event-id']: pluginEvent.uuid })
-                            await queue.pluginsServer.kafkaProducer.produce({
-                                topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-                                value: message.value,
-                                key: message.key,
-                                headers: headers,
-                                waitForAck: true,
-                            })
+                            try {
+                                await queue.pluginsServer.kafkaProducer.produce({
+                                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+                                    value: message.value,
+                                    key: message.key,
+                                    headers: headers,
+                                    waitForAck: true,
+                                })
+                            } catch (error) {
+                                // If we can't send to the DLQ and it's not
+                                // retriable, just continue. We'll commit the
+                                // offset and move on.
+                                if (error?.isRetriable === false) {
+                                    status.error('🔥', `Error pushing to DLQ`, {
+                                        stack: error.stack,
+                                        error: error,
+                                    })
+                                    continue
+                                }
+
+                                // If we can't send to the DLQ and it is
+                                // retriable, raise the error.
+                                throw error
+                            }
                         } else {
                             throw error
                         }
