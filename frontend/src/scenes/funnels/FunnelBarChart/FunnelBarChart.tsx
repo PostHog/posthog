@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useFunnelTooltip } from '../useFunnelTooltip'
-import { StepLegendDataExploration } from './StepLegend'
+import { StepLegend } from './StepLegend'
 import { StepBars } from './StepBars'
 import { StepBarLabels } from './StepBarLabels'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -89,7 +89,7 @@ export function FunnelBarChart(props: ChartParams): JSX.Element {
                         <td />
                         {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                             <td key={stepIndex}>
-                                <StepLegendDataExploration
+                                <StepLegend
                                     step={step}
                                     stepIndex={stepIndex}
                                     showTime={showTime}
