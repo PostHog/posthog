@@ -9,7 +9,7 @@ from statshog.defaults.django import statsd
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.api.query import process_query
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
 
@@ -264,7 +264,7 @@ def make_api_call(
         raise ex
 
 
-@timed("csv_exporter")
+@statsd_timed("csv_exporter")
 def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500) -> None:
     if not limit:
         limit = 1000

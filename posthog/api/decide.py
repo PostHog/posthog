@@ -17,7 +17,7 @@ from statshog.defaults.django import statsd
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import execute_with_timeout
@@ -60,7 +60,7 @@ def parse_domain(url: Any) -> Optional[str]:
 
 
 @csrf_exempt
-@timed("posthog_cloud_decide_endpoint")
+@statsd_timed("posthog_cloud_decide_endpoint")
 def get_decide(request: HttpRequest):
     # handle cors request
     if request.method == "OPTIONS":

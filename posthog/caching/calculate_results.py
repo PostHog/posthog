@@ -15,7 +15,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.models import Dashboard, DashboardTile, EventDefinition, Filter, Insight, RetentionFilter, Team
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -160,7 +160,7 @@ def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: 
         return _calculate_by_filter(filter, team, cache_type)
 
 
-@timed("update_cache_item_timer.calculate_by_filter")
+@statsd_timed("update_cache_item_timer.calculate_by_filter")
 def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
@@ -171,7 +171,7 @@ def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) 
     return result
 
 
-@timed("update_cache_item_timer.calculate_funnel")
+@statsd_timed("update_cache_item_timer.calculate_funnel")
 def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()

@@ -28,7 +28,7 @@ from posthog.kafka_client.client import (
     sessionRecordingKafkaProducer,
 )
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
@@ -281,7 +281,7 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
 
 
 @csrf_exempt
-@timed("posthog_cloud_event_endpoint")
+@statsd_timed("posthog_cloud_event_endpoint")
 def get_event(request):
     structlog.contextvars.unbind_contextvars("team_id")
 

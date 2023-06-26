@@ -18,7 +18,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
 from posthog.caching.fetch_from_cache import synchronously_update_cache
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.utils import absolute_uri
@@ -47,6 +47,7 @@ TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 ScreenWidth = Literal[800, 1920]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
+
 
 # NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
@@ -167,7 +168,7 @@ def _screenshot_asset(
             driver.quit()
 
 
-@timed("image_exporter")
+@statsd_timed("image_exporter")
 def export_image(exported_asset: ExportedAsset) -> None:
     with push_scope() as scope:
         scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")

@@ -32,7 +32,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_function
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.models import Cohort, Filter, Person, User, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -156,7 +156,6 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ActorBaseQuery]
 
     if filter.correlation_person_entity and EE_AVAILABLE:
-
         if EE_AVAILABLE:
             from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
@@ -339,7 +338,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if key:
             result = self._get_person_property_values_for_key(key, value)
 
-            for (value, count) in result:
+            for value, count in result:
                 try:
                     # Try loading as json for dicts or arrays
                     flattened.append({"name": convert_property_value(json.loads(value)), "count": count})  # type: ignore
@@ -347,7 +346,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     flattened.append({"name": convert_property_value(value), "count": count})
         return response.Response(flattened)
 
-    @timed("get_person_property_values_for_key_timer")
+    @statsd_timed("get_person_property_values_for_key_timer")
     def _get_person_property_values_for_key(self, key, value):
         try:
             result = get_person_property_values_for_key(key, self.team, value)

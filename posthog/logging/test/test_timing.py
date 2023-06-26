@@ -1,6 +1,6 @@
 from unittest.mock import Mock, call, patch
 
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 
 
 @patch("posthog.logging.timing.statsd.timer")
@@ -8,7 +8,7 @@ def test_wrap_with_timing_calls_statsd(mock_timer) -> None:
     timer_instance = Mock()
     mock_timer.return_value = timer_instance
 
-    @timed(name="test")
+    @statsd_timed(name="test")
     def test_func():
         pass
 

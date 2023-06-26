@@ -2,6 +2,7 @@
     --bar-height: 4px;
     --slider-height: 16px;
     --thumb-size: 15px;
+    --clip-border: 3px;
 
     width: 100%;
     height: var(--slider-height);
@@ -78,6 +79,21 @@
             height: var(--thumb-size);
             border: 2px solid var(--bg-light);
             background-color: var(--recording-seekbar-red);
+            transition: top 150ms ease-in-out;
+        }
+
+        .PlayerSeekbar__clip {
+            z-index: 6;
+            z-index: 5;
+            backface-visibility: hidden;
+            top: calc(var(--bar-height) / 2);
+            margin-top: calc(var(--clip-size) / 2 * -1);
+            position: absolute;
+            border-radius: 4px;
+            width: var(--clip-size / 2);
+            height: var(--clip-size);
+            border: var(--clip-border) solid var(--warning);
+            border-right-color: transparent;
             transition: top 150ms ease-in-out;
         }
     }

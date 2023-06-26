@@ -142,6 +142,8 @@ export function Seekbar(): JSX.Element {
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
+    const clipLeftRef = useRef<HTMLDivElement | null>(null)
+    const clipRightRef = useRef<HTMLDivElement | null>(null)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -188,6 +190,20 @@ export function Seekbar(): JSX.Element {
                         ref={thumbRef}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
+                    />
+
+                    <div
+                        className="PlayerSeekbar__clip PlayerSeekbar__clip--left"
+                        ref={clipLeftRef}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ transform: `translateX(0px)` }}
+                    />
+
+                    <div
+                        className="PlayerSeekbar__clip PlayerSeekbar__clip--right"
+                        ref={clipLeftRef}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ transform: `translateX(0px)` }}
                     />
 
                     <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.durationMs} />

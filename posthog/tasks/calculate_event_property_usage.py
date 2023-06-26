@@ -9,7 +9,7 @@ import structlog
 from django.utils import timezone
 from statshog.defaults.django import statsd
 
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
 from posthog.models.property.property import PropertyIdentifier
@@ -43,7 +43,7 @@ class CountFromZero:
             return count
 
 
-@timed("calculate_event_property_usage")
+@statsd_timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
     teams_to_exclude = recently_calculated_teams(now_in_seconds_since_epoch=time.time())
 
@@ -72,7 +72,7 @@ def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
     }
 
 
-@timed("calculate_event_property_usage_for_team")
+@statsd_timed("calculate_event_property_usage_for_team")
 def calculate_event_property_usage_for_team(team_id: int, *, complete_inference: bool = False) -> None:
     """Calculate Data Management stats for a specific team.
 

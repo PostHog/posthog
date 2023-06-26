@@ -7,7 +7,7 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
@@ -162,7 +162,7 @@ class InsightViewed(models.Model):
     last_viewed_at: models.DateTimeField = models.DateTimeField()
 
 
-@timed("generate_insight_cache_key")
+@statsd_timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         if insight.query is not None:

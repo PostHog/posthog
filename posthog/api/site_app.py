@@ -7,12 +7,12 @@ from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.exceptions import generate_exception_response
-from posthog.logging.timing import timed
+from posthog.logging.timing import statsd_timed
 from posthog.plugins.site import get_site_config_from_schema, get_transpiled_site_source
 
 
 @csrf_exempt
-@timed("posthog_cloud_site_app_endpoint")
+@statsd_timed("posthog_cloud_site_app_endpoint")
 def get_site_app(request: HttpRequest, id: int, token: str, hash: str) -> HttpResponse:
     try:
         source_file = get_transpiled_site_source(id, token) if token else None
