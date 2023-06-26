@@ -33,7 +33,7 @@ import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
-import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 
@@ -140,7 +140,7 @@ export function InsightContainer({
             return (
                 <>
                     <h2 className="my-4 mx-0">Detailed results</h2>
-                    <FunnelStepsTableDataExploration />
+                    <FunnelStepsTable />
                 </>
             )
         }
