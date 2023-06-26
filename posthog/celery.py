@@ -343,7 +343,7 @@ def pg_row_count():
                     pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "person_overrides", "session_recording_events"]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
@@ -496,7 +496,9 @@ def clickhouse_row_count():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = """select count(1) freq from {table};"""
+                QUERY = (
+                    """select count(1) freq from {table} where _timestamp >= toStartOfDay(date_sub(DAY, 2, now()));"""
+                )
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
