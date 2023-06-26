@@ -22,7 +22,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import {
     FunnelInvalidExclusionState,
-    FunnelSingleStepStateDataExploration,
+    FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
@@ -100,9 +100,7 @@ export function InsightContainer({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return (
-                    <FunnelSingleStepStateDataExploration actionable={insightMode === ItemMode.Edit || disableTable} />
-                )
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
