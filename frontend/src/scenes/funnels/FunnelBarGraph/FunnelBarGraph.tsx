@@ -11,7 +11,7 @@ import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMoreDataExploration } from '../FunnelStepMore'
+import { FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
@@ -80,7 +80,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                 {funnelsFilter?.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
-                                <FunnelStepMoreDataExploration stepIndex={stepIndex} />
+                                <FunnelStepMore stepIndex={stepIndex} />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
                                 <div className="text-muted-alt">

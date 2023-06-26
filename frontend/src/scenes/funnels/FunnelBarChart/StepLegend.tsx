@@ -8,7 +8,7 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
-import { FunnelStepMoreDataExploration } from '../FunnelStepMore'
+import { FunnelStepMore } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -57,9 +57,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                 sideIcon={
-                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && (
-                        <FunnelStepMoreDataExploration stepIndex={stepIndex} />
-                    )
+                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
                 }
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
