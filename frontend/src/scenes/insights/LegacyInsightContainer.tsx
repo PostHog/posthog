@@ -1,6 +1,5 @@
 import { Card, Col, Row } from 'antd'
 import { LegacyInsightDisplayConfig } from 'scenes/insights/LegacyInsightDisplayConfig'
-import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -16,7 +15,6 @@ import {
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
@@ -199,25 +197,6 @@ export function LegacyInsightContainer({
                 className="insights-graph-container"
             >
                 <div>
-                    {isFunnelsFilter(filters) ? (
-                        <div
-                            className={clsx(
-                                'insights-graph-header',
-                                {
-                                    funnels: isFunnelsFilter(filters),
-                                },
-                                'justify-between',
-                                'items-center',
-                                'flex',
-                                'flex-row'
-                            )}
-                        >
-                            <div className="flex flex-col">
-                                {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
-                            </div>
-                        </div>
-                    ) : null}
-
                     {!disableLastComputation || !!filters.sampling_factor ? (
                         <Row
                             className="insights-graph-header computation-time-and-sampling-notice"
