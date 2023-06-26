@@ -134,7 +134,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                {get_start_of_interval_sql(self._filter.interval, self._filter.hogql_context, source='%(formatted_date_from)s')} + {interval_func}(number)) AS entrance_period_start
+                {get_start_of_interval_sql(self._filter.interval, self._filter.hogql_context, source='%(formatted_date_from)s')} + {interval_func}(number) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
                 FROM numbers(dateDiff(%(interval)s, {get_start_of_interval_sql(self._filter.interval, self._filter.hogql_context, source='%(formatted_date_from)s')}, {get_start_of_interval_sql(self._filter.interval, self._filter.hogql_context, source='%(formatted_date_to)s')}) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
