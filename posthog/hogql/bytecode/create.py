@@ -75,17 +75,30 @@ class BytecodeBuilder(Visitor):
     def visit_field(self, node: ast.Field):
         chain = []
         for element in reversed(node.chain):
-            chain.extend([Operation.CONSTANT, element])
+            chain.extend([Operation.STRING, element])
         return [*chain, Operation.FIELD, len(node.chain)]
 
     def visit_tuple_access(self, node: ast.TupleAccess):
-        return [Operation.CONSTANT, node.index, Operation.FIELD, 1]
+        return [Operation.INTEGER, node.index, Operation.FIELD, 1]
 
     def visit_array_access(self, node: ast.ArrayAccess):
         return [*self.visit(node.property), Operation.FIELD, 1]
 
     def visit_constant(self, node: ast.Constant):
-        return [Operation.CONSTANT, node.value]
+        if node.value is True:
+            return [Operation.TRUE]
+        elif node.value is False:
+            return [Operation.FALSE]
+        elif node.value is None:
+            return [Operation.NULL]
+        elif isinstance(node.value, int):
+            return [Operation.INTEGER, node.value]
+        elif isinstance(node.value, float):
+            return [Operation.FLOAT, node.value]
+        elif isinstance(node.value, str):
+            return [Operation.STRING, node.value]
+        else:
+            raise NotImplementedException(f"Unsupported constant type: {type(node.value)}")
 
     def visit_call(self, node: ast.Call):
         response = []

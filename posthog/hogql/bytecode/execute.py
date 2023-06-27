@@ -40,8 +40,18 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
         match symbol:
             case None:
                 return stack.pop()
-            case Operation.CONSTANT:
+            case Operation.STRING:
                 stack.append(next(iterator))
+            case Operation.INTEGER:
+                stack.append(next(iterator))
+            case Operation.FLOAT:
+                stack.append(next(iterator))
+            case Operation.TRUE:
+                stack.append(True)
+            case Operation.FALSE:
+                stack.append(False)
+            case Operation.NULL:
+                stack.append(None)
             case Operation.NOT:
                 stack.append(not stack.pop())
             case Operation.AND:

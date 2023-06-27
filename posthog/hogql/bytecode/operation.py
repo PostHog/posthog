@@ -4,7 +4,6 @@ HOGQL_BYTECODE_IDENTIFIER = "_h"
 
 
 class Operation(str, Enum):
-    CONSTANT = 0
     FIELD = 1
     CALL = 2
     AND = 3
@@ -29,3 +28,9 @@ class Operation(str, Enum):
     NOT_IN = 22
     REGEX = 23
     NOT_REGEX = 24
+    TRUE = 25
+    FALSE = 26
+    NULL = 27
+    STRING = 28
+    INTEGER = 29
+    FLOAT = 30

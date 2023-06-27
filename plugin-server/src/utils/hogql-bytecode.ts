@@ -1,5 +1,4 @@
 export enum Operation {
-    CONSTANT = 0,
     FIELD = 1,
     CALL = 2,
     AND = 3,
@@ -24,6 +23,12 @@ export enum Operation {
     NOT_IN = 22,
     REGEX = 23,
     NOT_REGEX = 24,
+    TRUE = 25,
+    FALSE = 26,
+    NULL = 27,
+    STRING = 28,
+    INTEGER = 29,
+    FLOAT = 30,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -60,8 +65,23 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
         switch (bytecode[i]) {
             case undefined:
                 return stack.pop()
-            case Operation.CONSTANT:
+            case Operation.STRING:
                 stack.push(bytecode[++i])
+                break
+            case Operation.FLOAT:
+                stack.push(bytecode[++i])
+                break
+            case Operation.INTEGER:
+                stack.push(bytecode[++i])
+                break
+            case Operation.TRUE:
+                stack.push(true)
+                break
+            case Operation.FALSE:
+                stack.push(false)
+                break
+            case Operation.NULL:
+                stack.push(null)
                 break
             case Operation.NOT:
                 stack.push(!stack.pop())

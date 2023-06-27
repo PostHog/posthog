@@ -22,31 +22,36 @@ The `execute.py` function in this folder acts as the reference implementation.
 To be considered a PostHog HogQL Bytecode Certified Parser, you must implement the following operations:
 
 ```bash
-PLUS = "+"              # [val2, val1, '+']
-MINUS = "-"             # [val2, val1, '-']
-MULTIPLY = "*"          # [val2, val1, '*']
-DIVIDE = "/"            # [val2, val1, '/']
-MOD = "%"               # [val2, val1, '%']
-AND = "and"             # [val3, val2, val1, 'and', 3]
-OR = "or"               # [val3, val2, val1, 'or', 3]
-EQ = "=="               # [val2, val1, '==']
-NOT_EQ = "!="           # [val2, val1, '!=']
-GT = ">"                # [val2, val1, '>']
-GT_EQ = ">="            # [val2, val1, '>=']
-LT = "<"                # [val2, val1, '<']
-LT_EQ = "<="            # [val2, val1, '<=']
-LIKE = "like"           # [val2, val1, 'like']
-ILIKE = "ilike"         # [val2, val1, 'ilike']
-NOT_LIKE = "not like"   # [val2, val1, 'not like']
-NOT_ILIKE = "not ilike" # [val2, val1, 'not ilike']
-IN = "in"               # [val2, val1, 'in']
-NOT_IN = "not in"       # [val2, val1, 'not in']
-REGEX = "=~"            # [val2, val1, '=!']
-NOT_REGEX = "!~"        # [val2, val1, '!=']
-NOT = "not"             # [val, 'not']
-CONSTANT = ""           # ['', constant]
-CALL = "()"             # [arg2, arg1, '()', 'concat', 2]
-FIELD = "."             # [arg3, arg2, arg1, '.', 3]
+FIELD = 1         # [arg3, arg2, arg1, FIELD, 3]       # arg1.arg2.arg3
+CALL = 2          # [arg2, arg1, CALL, 'concat', 2]    # concat(arg1, arg2)
+AND = 3           # [val3, val2, val1, AND, 3]         # val1 and val2 and val3
+OR = 4            # [val3, val2, val1, OR, 3]          # val1 or val2 or val3
+NOT = 5           # [val, NOT]                         # not val
+PLUS = 6          # [val2, val1, PLUS]                 # val1 + val2
+MINUS = 7         # [val2, val1, MINUS]                # val1 - val2
+MULTIPLY = 8      # [val2, val1, MULTIPLY]             # val1 * val2
+DIVIDE = 9        # [val2, val1, DIVIDE]               # val1 / val2
+MOD = 10          # [val2, val1, MOD]                  # val1 % val2
+EQ = 11           # [val2, val1, EQ]                   # val1 == val2
+NOT_EQ = 12       # [val2, val1, NOT_EQ]               # val1 != val2
+GT = 13           # [val2, val1, GT]                   # val1 > val2
+GT_EQ = 14        # [val2, val1, GT_EQ]                # val1 >= val2
+LT = 15           # [val2, val1, LT]                   # val1 < val2
+LT_EQ = 16        # [val2, val1, LT_EQ]                # val1 <= val2
+LIKE = 17         # [val2, val1, LIKE]                 # val1 like val2
+ILIKE = 18        # [val2, val1, ILIKE]                # val1 ilike val2
+NOT_LIKE = 19     # [val2, val1, NOT_LIKE]             # val1 not like val2
+NOT_ILIKE = 20    # [val2, val1, NOT_ILIKE]            # val1 not ilike val2
+IN = 21           # [val2, val1, IN]                   # val1 in val2
+NOT_IN = 22       # [val2, val1, NOT_IN]               # val1 not in val2
+REGEX = 23        # [val2, val1, REGEX]                # val1 =~ val2
+NOT_REGEX = 24    # [val2, val1, NOT_REGEX]            # val1 !~ val2
+TRUE = 25         # [TRUE]                             # true
+FALSE = 26        # [FALSE]                            # false
+NULL = 27         # [NULL]                             # null
+STRING = 28       # [STRING, 'text']                   # 'text'
+INTEGER = 29      # [INTEGER, 123]                     # 123
+FLOAT = 30        # [FLOAT, 123.12]                    # 123.01
 ```
 
 You must also implement the following function calls:
