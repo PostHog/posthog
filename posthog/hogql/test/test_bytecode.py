@@ -24,7 +24,7 @@ class TestBytecode(BaseTest):
         self.assertEqual(to_bytecode("3.14"), [_H, op.FLOAT, 3.14])
         self.assertEqual(to_bytecode("properties.bla"), [_H, op.STRING, "bla", op.STRING, "properties", op.FIELD, 2])
         self.assertEqual(
-            to_bytecode("call('arg', 'another')"), [_H, op.STRING, "another", op.STRING, "arg", op.CALL, "call", 2]
+            to_bytecode("concat('arg', 'another')"), [_H, op.STRING, "another", op.STRING, "arg", op.CALL, "concat", 2]
         )
         self.assertEqual(to_bytecode("1 = 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
         self.assertEqual(to_bytecode("1 == 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.EQ])
