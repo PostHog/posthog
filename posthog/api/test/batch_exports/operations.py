@@ -23,7 +23,11 @@ def pause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int
 
 
 def unpause_batch_export(client: TestClient, team_id: int, batch_export_id: int, backfill: bool = False):
-    return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/unpause?backfill={int(backfill)}")
+    return client.post(
+        f"/api/projects/{team_id}/batch_exports/{batch_export_id}/unpause",
+        {"backfill": backfill},
+        content_type="application/json",
+    )
 
 
 def unpause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int, backfill: bool = False):

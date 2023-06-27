@@ -253,7 +253,7 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
         note = f"Unpause requested by user {user_id} from team {team_id}"
-        backfill = int(self.request.query_params.get("backfill", 0)) == 1
+        backfill = request.data.get("backfill", False)
 
         batch_export = self.get_object()
         temporal = sync_connect()
