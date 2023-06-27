@@ -60,19 +60,31 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
     if (bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
     }
+    function popStack(): any {
+        if (stack.length === 0) {
+            throw new Error('Invalid HogQL bytecode, stack is empty')
+        }
+        return stack.pop()
+    }
 
-    for (let i = 1; i < bytecode.length; i++) {
+    let i = 1
+    function next(): any {
+        if (i >= bytecode.length - 1) {
+            throw new Error('Unexpected end of bytecode')
+        }
+        return bytecode[++i]
+    }
+
+    for (; i < bytecode.length; i++) {
         switch (bytecode[i]) {
-            case undefined:
-                return stack.pop()
             case Operation.STRING:
-                stack.push(bytecode[++i])
+                stack.push(next())
                 break
             case Operation.FLOAT:
-                stack.push(bytecode[++i])
+                stack.push(next())
                 break
             case Operation.INTEGER:
-                stack.push(bytecode[++i])
+                stack.push(next())
                 break
             case Operation.TRUE:
                 stack.push(true)
@@ -84,98 +96,98 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 stack.push(null)
                 break
             case Operation.NOT:
-                stack.push(!stack.pop())
+                stack.push(!popStack())
                 break
             case Operation.AND:
                 stack.push(
-                    Array(bytecode[++i])
+                    Array(next())
                         .fill(null)
-                        .map(() => stack.pop())
+                        .map(() => popStack())
                         .every(Boolean)
                 )
                 break
             case Operation.OR:
                 stack.push(
-                    Array(bytecode[++i])
+                    Array(next())
                         .fill(null)
-                        .map(() => stack.pop())
+                        .map(() => popStack())
                         .some(Boolean)
                 )
                 break
             case Operation.PLUS:
-                stack.push(Number(stack.pop()) + Number(stack.pop()))
+                stack.push(Number(popStack()) + Number(popStack()))
                 break
             case Operation.MINUS:
-                stack.push(Number(stack.pop()) - Number(stack.pop()))
+                stack.push(Number(popStack()) - Number(popStack()))
                 break
             case Operation.DIVIDE:
-                stack.push(Number(stack.pop()) / Number(stack.pop()))
+                stack.push(Number(popStack()) / Number(popStack()))
                 break
             case Operation.MULTIPLY:
-                stack.push(Number(stack.pop()) * Number(stack.pop()))
+                stack.push(Number(popStack()) * Number(popStack()))
                 break
             case Operation.MOD:
-                stack.push(Number(stack.pop()) % Number(stack.pop()))
+                stack.push(Number(popStack()) % Number(popStack()))
                 break
             case Operation.EQ:
-                stack.push(stack.pop() === stack.pop())
+                stack.push(popStack() === popStack())
                 break
             case Operation.NOT_EQ:
-                stack.push(stack.pop() !== stack.pop())
+                stack.push(popStack() !== popStack())
                 break
             case Operation.GT:
-                stack.push(stack.pop() > stack.pop())
+                stack.push(popStack() > popStack())
                 break
             case Operation.GT_EQ:
-                stack.push(stack.pop() >= stack.pop())
+                stack.push(popStack() >= popStack())
                 break
             case Operation.LT:
-                stack.push(stack.pop() < stack.pop())
+                stack.push(popStack() < popStack())
                 break
             case Operation.LT_EQ:
-                stack.push(stack.pop() <= stack.pop())
+                stack.push(popStack() <= popStack())
                 break
             case Operation.LIKE:
-                stack.push(like(stack.pop(), stack.pop()))
+                stack.push(like(popStack(), popStack()))
                 break
             case Operation.ILIKE:
-                stack.push(like(stack.pop(), stack.pop(), true))
+                stack.push(like(popStack(), popStack(), true))
                 break
             case Operation.NOT_LIKE:
-                stack.push(!like(stack.pop(), stack.pop()))
+                stack.push(!like(popStack(), popStack()))
                 break
             case Operation.NOT_ILIKE:
-                stack.push(!like(stack.pop(), stack.pop(), true))
+                stack.push(!like(popStack(), popStack(), true))
                 break
             case Operation.IN:
-                temp = stack.pop()
-                stack.push(stack.pop().includes(temp))
+                temp = popStack()
+                stack.push(popStack().includes(temp))
                 break
             case Operation.NOT_IN:
-                temp = stack.pop()
-                stack.push(!stack.pop().includes(temp))
+                temp = popStack()
+                stack.push(!popStack().includes(temp))
                 break
             case Operation.REGEX:
-                temp = stack.pop()
-                stack.push(new RegExp(stack.pop()).test(temp))
+                temp = popStack()
+                stack.push(new RegExp(popStack()).test(temp))
                 break
             case Operation.NOT_REGEX:
-                temp = stack.pop()
-                stack.push(!new RegExp(stack.pop()).test(temp))
+                temp = popStack()
+                stack.push(!new RegExp(popStack()).test(temp))
                 break
             case Operation.FIELD:
-                const count = bytecode[++i]
+                const count = next()
                 const chain = []
                 for (let i = 0; i < count; i++) {
-                    chain.push(stack.pop())
+                    chain.push(popStack())
                 }
                 stack.push(getNestedValue(fields, chain))
                 break
             case Operation.CALL:
-                const name = bytecode[++i]
-                const args = Array(bytecode[++i])
+                const name = next()
+                const args = Array(next())
                     .fill(null)
-                    .map(() => stack.pop())
+                    .map(() => popStack())
                 if (name === 'concat') {
                     stack.push(args.map((arg) => toConcatArg(arg)).join(''))
                 } else if (name === 'match') {
@@ -197,5 +209,9 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
         }
     }
 
-    return stack.pop() ?? null
+    if (stack.length > 1) {
+        throw new Error('Invalid bytecode. More than one value left on stack')
+    }
+
+    return popStack() ?? null
 }

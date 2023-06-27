@@ -3,7 +3,7 @@ from typing import List, Any
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
-from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
+from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, SUPPORTED_FUNCTIONS
 
 COMPARE_OPERATIONS = {
     ast.CompareOperationOp.Eq: Operation.EQ,
@@ -101,6 +101,8 @@ class BytecodeBuilder(Visitor):
             raise NotImplementedException(f"Unsupported constant type: {type(node.value)}")
 
     def visit_call(self, node: ast.Call):
+        if node.name not in SUPPORTED_FUNCTIONS:
+            raise NotImplementedException(f"Unsupported function: {node.name}")
         response = []
         for expr in reversed(node.args):
             response.extend(self.visit(expr))

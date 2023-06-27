@@ -1,6 +1,7 @@
 from typing import Any
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
@@ -87,3 +88,16 @@ class TestBytecodeExecute(BaseTest):
 
         chain = ["properties", "tuple", 2]
         self.assertEqual(get_nested_value(my_dict, chain), "item3")
+
+    def test_errors(self):
+        with self.assertRaises(Exception) as e:
+            execute_bytecode([_H, op.TRUE, op.CALL, "notAFunction", 1], {})
+        self.assertEqual(str(e.exception), "Unsupported function call: notAFunction")
+
+        with self.assertRaises(Exception) as e:
+            execute_bytecode([_H, op.CALL, "notAFunction", 1], {})
+        self.assertEqual(str(e.exception), "Unexpected end of bytecode")
+
+        with self.assertRaises(Exception) as e:
+            execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
+        self.assertEqual(str(e.exception), "Invalid bytecode. More than one value left on stack")

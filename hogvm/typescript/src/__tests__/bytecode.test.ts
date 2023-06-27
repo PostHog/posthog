@@ -3,8 +3,6 @@ import { executeHogQLBytecode, Operation as op } from '../bytecode'
 describe('HogQL Bytecode', () => {
     test('execution results', () => {
         const fields = { properties: { foo: 'bar' } }
-        expect(executeHogQLBytecode(['_h'], fields)).toBe(null)
-        expect(executeHogQLBytecode(['_h', op.INTEGER], fields)).toBe(null)
         expect(executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, op.PLUS], fields)).toBe(3)
         expect(executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, op.MINUS], fields)).toBe(-1)
         expect(executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 3, op.MULTIPLY], fields)).toBe(6)
@@ -13,14 +11,9 @@ describe('HogQL Bytecode', () => {
         expect(executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, op.AND, 2], fields)).toBe(true)
         expect(executeHogQLBytecode(['_h', op.INTEGER, 0, op.INTEGER, 1, op.OR, 2], fields)).toBe(true)
         expect(executeHogQLBytecode(['_h', op.INTEGER, 0, op.INTEGER, 1, op.AND, 2], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', op.INTEGER, 1, op.INTEGER, 0, op.INTEGER, 1, op.OR, 3], fields)).toBe(true)
         expect(
-            executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, op.INTEGER, 0, op.INTEGER, 1, op.OR, 3], fields)
-        ).toBe(true)
-        expect(
-            executeHogQLBytecode(
-                ['_h', op.INTEGER, 1, op.INTEGER, 0, op.INTEGER, 1, op.AND, 2, op.INTEGER, 1, op.AND, 2],
-                fields
-            )
+            executeHogQLBytecode(['_h', op.INTEGER, 0, op.INTEGER, 1, op.AND, 2, op.INTEGER, 1, op.AND, 2], fields)
         ).toBe(false)
         expect(
             executeHogQLBytecode(
@@ -81,13 +74,20 @@ describe('HogQL Bytecode', () => {
 
     test('error handling', () => {
         const fields = { properties: { foo: 'bar' } }
-
         expect(() => executeHogQLBytecode([], fields)).toThrowError("Invalid HogQL bytecode, must start with '_h'")
+        expect(() => executeHogQLBytecode(['_h'], fields)).toThrowError('Invalid HogQL bytecode, stack is empty')
         expect(() => executeHogQLBytecode(['_h', op.INTEGER, 2, op.INTEGER, 1, 'InvalidOp'], fields)).toThrowError(
             'Unexpected node while running bytecode: InvalidOp'
         )
         expect(() =>
             executeHogQLBytecode(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'invalidFunc', 2], fields)
         ).toThrowError('Unsupported function call: invalidFunc')
+        expect(() => executeHogQLBytecode(['_h', op.INTEGER], fields)).toThrowError('Unexpected end of bytecode')
+        expect(() => executeHogQLBytecode(['_h', op.CALL, 'match', 1], fields)).toThrowError(
+            'Invalid HogQL bytecode, stack is empty'
+        )
+        expect(() => executeHogQLBytecode(['_h', op.TRUE, op.TRUE, op.NOT], fields)).toThrowError(
+            'Invalid bytecode. More than one value left on stack'
+        )
     })
 })
