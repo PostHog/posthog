@@ -5,6 +5,31 @@ from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
 from posthog.hogql.bytecode.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
+COMPARE_OPERATIONS = {
+    ast.CompareOperationOp.Eq: Operation.EQ,
+    ast.CompareOperationOp.NotEq: Operation.NOT_EQ,
+    ast.CompareOperationOp.Gt: Operation.GT,
+    ast.CompareOperationOp.GtE: Operation.GT_EQ,
+    ast.CompareOperationOp.Lt: Operation.LT,
+    ast.CompareOperationOp.LtE: Operation.LT_EQ,
+    ast.CompareOperationOp.Like: Operation.LIKE,
+    ast.CompareOperationOp.ILike: Operation.ILIKE,
+    ast.CompareOperationOp.NotLike: Operation.NOT_LIKE,
+    ast.CompareOperationOp.NotILike: Operation.NOT_ILIKE,
+    ast.CompareOperationOp.In: Operation.IN,
+    ast.CompareOperationOp.NotIn: Operation.NOT_IN,
+    ast.CompareOperationOp.Regex: Operation.REGEX,
+    ast.CompareOperationOp.NotRegex: Operation.NOT_REGEX,
+}
+
+BINARY_OPERATIONS = {
+    ast.BinaryOperationOp.Add: Operation.PLUS,
+    ast.BinaryOperationOp.Sub: Operation.MINUS,
+    ast.BinaryOperationOp.Mult: Operation.MULTIPLY,
+    ast.BinaryOperationOp.Div: Operation.DIVIDE,
+    ast.BinaryOperationOp.Mod: Operation.MOD,
+}
+
 
 def to_bytecode(expr: str) -> List[any]:
     from posthog.hogql.parser import parse_expr
@@ -42,10 +67,10 @@ class BytecodeBuilder(Visitor):
         return [*self.visit(node.expr), Operation.NOT]
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        return [*self.visit(node.right), *self.visit(node.left), node.op]
+        return [*self.visit(node.right), *self.visit(node.left), COMPARE_OPERATIONS[node.op]]
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
-        return [*self.visit(node.right), *self.visit(node.left), node.op]
+        return [*self.visit(node.right), *self.visit(node.left), BINARY_OPERATIONS[node.op]]
 
     def visit_field(self, node: ast.Field):
         chain = []

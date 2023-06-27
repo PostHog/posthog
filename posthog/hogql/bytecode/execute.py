@@ -1,7 +1,6 @@
 import re
 from typing import List, Any, Dict
 
-from posthog.hogql.ast import BinaryOperationOp, CompareOperationOp
 from posthog.hogql.bytecode.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from posthog.hogql.errors import HogQLException
 
@@ -49,44 +48,44 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                 stack.append(all([stack.pop() for _ in range(next(iterator))]))
             case Operation.OR:
                 stack.append(any([stack.pop() for _ in range(next(iterator))]))
-            case BinaryOperationOp.Add:
+            case Operation.PLUS:
                 stack.append(stack.pop() + stack.pop())
-            case BinaryOperationOp.Sub:
+            case Operation.MINUS:
                 stack.append(stack.pop() - stack.pop())
-            case BinaryOperationOp.Div:
+            case Operation.DIVIDE:
                 stack.append(stack.pop() / stack.pop())
-            case BinaryOperationOp.Mult:
+            case Operation.MULTIPLY:
                 stack.append(stack.pop() * stack.pop())
-            case BinaryOperationOp.Mod:
+            case Operation.MOD:
                 stack.append(stack.pop() % stack.pop())
-            case CompareOperationOp.Eq:
+            case Operation.EQ:
                 stack.append(stack.pop() == stack.pop())
-            case CompareOperationOp.NotEq:
+            case Operation.NOT_EQ:
                 stack.append(stack.pop() != stack.pop())
-            case CompareOperationOp.Gt:
+            case Operation.GT:
                 stack.append(stack.pop() > stack.pop())
-            case CompareOperationOp.GtE:
+            case Operation.GT_EQ:
                 stack.append(stack.pop() >= stack.pop())
-            case CompareOperationOp.Lt:
+            case Operation.LT:
                 stack.append(stack.pop() < stack.pop())
-            case CompareOperationOp.LtE:
+            case Operation.LT_EQ:
                 stack.append(stack.pop() <= stack.pop())
-            case CompareOperationOp.Like:
+            case Operation.LIKE:
                 stack.append(like(stack.pop(), stack.pop()))
-            case CompareOperationOp.ILike:
+            case Operation.ILIKE:
                 stack.append(like(stack.pop(), stack.pop(), re.IGNORECASE))
-            case CompareOperationOp.NotLike:
+            case Operation.NOT_LIKE:
                 stack.append(not like(stack.pop(), stack.pop()))
-            case CompareOperationOp.NotILike:
+            case Operation.NOT_ILIKE:
                 stack.append(not like(stack.pop(), stack.pop(), re.IGNORECASE))
-            case CompareOperationOp.In:
+            case Operation.IN:
                 stack.append(stack.pop() in stack.pop())
-            case CompareOperationOp.NotIn:
+            case Operation.NOT_IN:
                 stack.append(stack.pop() not in stack.pop())
-            case CompareOperationOp.Regex:
+            case Operation.REGEX:
                 args = [stack.pop(), stack.pop()]
                 stack.append(bool(re.search(re.compile(args[1]), args[0])))
-            case CompareOperationOp.NotRegex:
+            case Operation.NOT_REGEX:
                 args = [stack.pop(), stack.pop()]
                 stack.append(not bool(re.search(re.compile(args[1]), args[0])))
             case Operation.FIELD:
