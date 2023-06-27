@@ -116,6 +116,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
     destination = BatchExportDestinationSerializer()
+    trigger_immediately = serializers.BooleanField(default=False)
 
     class Meta:
         model = BatchExport
@@ -130,6 +131,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "last_paused_at",
             "start_at",
             "end_at",
+            "trigger_immediately",
         ]
         read_only_fields = [
             "id",
@@ -146,6 +148,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         name = validated_data.pop("name")
         start_at = validated_data.get("start_at", None)
         end_at = validated_data.get("end_at", None)
+        trigger_immediately = validated_data.get("trigger_immediately", False)
 
         return create_batch_export(
             team_id=team_id,
@@ -154,6 +157,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             destination_data=destination_data,
             start_at=start_at,
             end_at=end_at,
+            trigger_immediately=trigger_immediately,
         )
 
     def update(self, instance: BatchExport, validated_data: dict) -> BatchExport:

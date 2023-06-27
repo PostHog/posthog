@@ -259,8 +259,20 @@ def create_batch_export(
     destination_data: dict,
     start_at: dt.datetime | None = None,
     end_at: dt.datetime | None = None,
+    trigger_immediately: bool = False,
 ):
-    """Create a BatchExport and its underlying Schedule."""
+    """Create a BatchExport and its underlying Temporal Schedule.
+
+    Args:
+        team_id: The team this BatchExport belongs to.
+        interval: The time interval the Schedule will use.
+        name: An informative name for the BatchExport.
+        destination_data: Deserialized data for a BatchExportDestination.
+        start_at: No runs will be scheduled before the start_at datetime.
+        end_at: No runs will be scheduled after the end_at datetime.
+        trigger_immediately: Whether a run should be trigger as soon as the Schedule is created
+            or when the next Schedule interval begins.
+    """
     destination = BatchExportDestination.objects.create(**destination_data)
 
     batch_export = BatchExport.objects.create(team_id=team_id, name=name, interval=interval, destination=destination)
@@ -301,7 +313,7 @@ def create_batch_export(
             ),
             state=state,
         ),
-        trigger_immediately=False,
+        trigger_immediately=trigger_immediately,
     )
 
     return batch_export
