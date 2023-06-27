@@ -213,14 +213,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
             for variant in validated_data["parameters"]["feature_flag_variants"]:
                 if (
-                    len(
-                        [
-                            ff_variant
-                            for ff_variant in feature_flag.variants
-                            if ff_variant["key"] == variant["key"]
-                            and ff_variant["rollout_percentage"] == variant["rollout_percentage"]
-                        ]
-                    )
+                    len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
                     != 1
                 ):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
