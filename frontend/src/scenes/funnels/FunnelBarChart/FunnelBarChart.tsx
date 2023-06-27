@@ -18,7 +18,7 @@ interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function FunnelBarChart(props: ChartParams): JSX.Element {
+export function FunnelBarChart({ showPersonsModal: showPersonsModalProp = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -26,7 +26,8 @@ export function FunnelBarChart(props: ChartParams): JSX.Element {
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })
 
-    const showPersonsModal = canOpenPersonModal && !!props.showPersonsModal
+    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
+
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
         seriesCount >= 60

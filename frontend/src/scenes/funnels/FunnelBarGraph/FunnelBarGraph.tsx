@@ -18,19 +18,24 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
-export function FunnelBarGraph(props: ChartParams): JSX.Element {
+export function FunnelBarGraph({
+    inCardView,
+    showPersonsModal: showPersonsModalProp = true,
+}: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(
         funnelDataLogic(insightProps)
     )
 
-    const { isInDashboardContext } = useValues(funnelPersonsModalLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
     const { ref: graphRef, width } = useResizeObserver()
 
     const steps = visibleStepsWithConversionMetrics
     const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+
+    const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
@@ -115,7 +120,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                             converted: true,
                                                         })
                                                     }
-                                                    disabled={isInDashboardContext}
+                                                    disabled={!showPersonsModal}
                                                     popoverTitle={
                                                         // eslint-disable-next-line react/forbid-dom-props
                                                         <div style={{ wordWrap: 'break-word' }}>
@@ -193,7 +198,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 flex: `${1 - breakdownSum / basisStep.count} 1 0`,
-                                                cursor: `${!props.inCardView ? 'pointer' : ''}`,
+                                                cursor: `${!inCardView ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
@@ -203,7 +208,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             percentage={step.conversionRates.fromBasisStep}
                                             name={step.name}
                                             onBarClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={isInDashboardContext}
+                                            disabled={!showPersonsModal}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
                                             popoverMetrics={[
                                                 {
@@ -252,7 +257,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
-                                                cursor: `${!props.inCardView ? 'pointer' : ''}`,
+                                                cursor: `${!inCardView ? 'pointer' : ''}`,
                                             }}
                                         />
                                     </>
@@ -262,7 +267,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                 <div>
                                     <ValueInspectorButton
                                         onClick={
-                                            !isInDashboardContext
+                                            showPersonsModal
                                                 ? () => openPersonsModalForStep({ step, converted: true })
                                                 : undefined
                                         }
@@ -287,7 +292,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <div>
                                         <ValueInspectorButton
                                             onClick={
-                                                !isInDashboardContext
+                                                showPersonsModal
                                                     ? () => openPersonsModalForStep({ step, converted: false })
                                                     : undefined
                                             }
