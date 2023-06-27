@@ -280,7 +280,15 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def filter_queryset_by_parents_lookups(self, queryset):
         try:
-            return queryset.filter(Q(**self.parents_query_dict) | Q(is_global=True))
+            return queryset.filter(
+                Q(**self.parents_query_dict)
+                | Q(is_global=True)
+                | Q(
+                    id__in=PluginConfig.objects.filter(
+                        team__organization_id=self.organization_id, enabled=True
+                    ).values_list("plugin_id")
+                )
+            )
         except ValueError:
             raise NotFound()
 
@@ -436,34 +444,6 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
-
-
-class PluginEnabledSerializer(serializers.ModelSerializer):
-    plugin = serializers.SerializerMethodField()
-
-    class Meta:
-        model = PluginConfig
-        fields = ["plugin"]
-        read_only_fields = ["plugin"]
-
-    def get_plugin(self, plugin_config: PluginConfig):
-        return PluginSerializer(instance=plugin_config.plugin).data
-
-
-class PluginsEnabledViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    queryset = PluginConfig.objects.all()
-    serializer_class = PluginEnabledSerializer
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-        OrganizationMemberPermissions,
-        TeamMemberAccessPermission,
-    ]
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        queryset = queryset.select_related("plugin")
-        return queryset.filter(Q(enabled=True))
 
 
 class PluginConfigSerializer(serializers.ModelSerializer):

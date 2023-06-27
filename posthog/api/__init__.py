@@ -73,7 +73,6 @@ project_plugins_configs_router.register(
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
 )
-projects_router.register(r"enabled_plugins", plugin.PluginsEnabledViewSet, "project_enabled_plugins", ["team_id"])
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(
