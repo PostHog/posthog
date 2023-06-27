@@ -26,6 +26,7 @@ import {
     TimeToSeeDataWaterfallNode,
     TimeToSeeDataJSONNode,
     DatabaseSchemaQuery,
+    InsightNode,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
@@ -74,6 +75,10 @@ export function isPersonsNode(node?: Node | null): node is PersonsNode {
 
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isInsightNode(node?: Node | null): node is InsightNode {
+    return node?.kind === NodeKind.InsightNode
 }
 
 export function isInsightVizNode(node?: Node | null): node is InsightVizNode {

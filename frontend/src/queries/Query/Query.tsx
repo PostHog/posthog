@@ -1,4 +1,4 @@
-import { isDataNode, isDataTableNode, isInsightVizNode, isTimeToSeeDataSessionsNode } from '../utils'
+import { isDataNode, isDataTableNode, isInsightNode, isInsightVizNode, isTimeToSeeDataSessionsNode } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
@@ -10,6 +10,7 @@ import { NotebookNodeType } from '~/types'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { Insight } from '../nodes/Insight/Insight'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -60,6 +61,8 @@ export function Query(props: QueryProps): JSX.Element | null {
         )
     } else if (isDataNode(query)) {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
+    } else if (isInsightNode(query)) {
+        component = <Insight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
         component = <InsightViz query={query} setQuery={setQuery} context={queryContext} />
     } else if (isTimeToSeeDataSessionsNode(query)) {
