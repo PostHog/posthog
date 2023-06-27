@@ -117,6 +117,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
                     }
+
+                    // Then load all the plugins enabled for this team regardless of who owns and is_global setting
+                    const raw_results = await loadPaginatedResults('api/projects/@current/enabled_plugins')
+                    const enabled_results: PluginType[] = raw_results.map((result) => result.plugin)
+                    for (const plugin of enabled_results) {
+                        plugins[plugin.id] = plugin
+                    }
                     return plugins
                 },
                 installPlugin: async ({ pluginUrl, pluginType }) => {
