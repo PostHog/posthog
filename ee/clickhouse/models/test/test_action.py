@@ -8,6 +8,7 @@ from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
 from posthog.models.test.test_event_model import filter_by_actions_factory
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.hogql.bytecode.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 
 
 @dataclasses.dataclass
@@ -222,30 +223,30 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             action1.bytecode,
             [
-                "_h",
+                _H,
                 # toInt(properties.filters_count) > 10
-                "",
+                op.CONSTANT,
                 10,
-                "",
+                op.CONSTANT,
                 "filters_count",
-                "",
+                op.CONSTANT,
                 "properties",
-                ".",
+                op.FIELD,
                 2,
-                "()",
+                op.CALL,
                 "toInt",
                 1,
-                ">",
+                op.GT,
                 # event = 'insight viewed'
-                "",
+                op.CONSTANT,
                 "insight viewed",
-                "",
+                op.CONSTANT,
                 "event",
-                ".",
+                op.FIELD,
                 1,
-                "==",
+                op.EQ,
                 # and
-                "and",
+                op.AND,
                 2,
             ],
         )
