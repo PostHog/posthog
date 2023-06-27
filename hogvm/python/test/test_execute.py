@@ -1,7 +1,7 @@
 from typing import Any
 
-from posthog.hogql.bytecode.create import create_bytecode
-from posthog.hogql.bytecode.execute import execute_bytecode, get_nested_value
+from hogvm.python.execute import execute_bytecode, get_nested_value
+from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
 

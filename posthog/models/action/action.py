@@ -52,7 +52,7 @@ class Action(models.Model):
 
     def generate_bytecode(self) -> List[Any]:
         from posthog.hogql.property import action_to_expr
-        from posthog.hogql.bytecode.create import create_bytecode
+        from posthog.hogql.bytecode import create_bytecode
 
         return create_bytecode(action_to_expr(self))
 

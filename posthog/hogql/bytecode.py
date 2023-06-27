@@ -3,7 +3,7 @@ from typing import List, Any
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
-from posthog.hogql.bytecode.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
+from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
 COMPARE_OPERATIONS = {
     ast.CompareOperationOp.Eq: Operation.EQ,

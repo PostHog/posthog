@@ -1,25 +1,8 @@
-# HogQL bytecode format
+# HogQL bytecode changelog 
 
-You can use the HogQL "bytecode" format to quickly evaluate HogQL expressions locally.
+## 2023-06-27 - First version
 
-## Examples
-
-```
-to_bytecode("1 + 2") == ["_h", "", 2, "", 1, "+"]
-to_bytecode("1 and 2") == ["_h", "", 2, "", 1, "and", 2]
-to_bytecode("1 or 2") == ["_h", "", 2, "", 1, "or", 2]
-to_bytecode("not true") == ["_h", "", True, "not"]
-to_bytecode("properties.bla") == ["_h", "", "bla", "", "properties", ".", 2]
-to_bytecode("call('arg', 'another')") == ["_h", "", "another", "", "arg", "()", "call", 2]
-to_bytecode("1 = 2") == ["_h", "", 2, "", 1, "=="]
-to_bytecode("1 == 2") == ["_h", "", 2, "", 1, "=="]
-```
-
-## Reference implementation
-
-The `execute.py` function in this folder acts as the reference implementation.
-
-To be considered a PostHog HogQL Bytecode Certified Parser, you must implement the following operations:
+### Syntax added
 
 ```bash
 FIELD = 1         # [arg3, arg2, arg1, FIELD, 3]       # arg1.arg2.arg3
@@ -53,18 +36,3 @@ STRING = 28       # [STRING, 'text']                   # 'text'
 INTEGER = 29      # [INTEGER, 123]                     # 123
 FLOAT = 30        # [FLOAT, 123.12]                    # 123.01
 ```
-
-You must also implement the following function calls:
-
-```bash
-concat(...)             # concat('test: ', 1, null, '!') == 'test: 1!'
-match(string, pattern)  # match('fish', '$fi.*') == true
-toString(val)           # toString(true) == 'true'
-toInt(val)              # toInt('123') == 123
-toFloat(val)            # toFloat('123.2') == 123.2
-toUUID(val)             # toUUID('string') == 'string'
-```
-
-## Notable missing features
-
-- As of now, there is no support for `DateTime` comparisons.

@@ -1,10 +1,10 @@
-from posthog.hogql.bytecode.create import to_bytecode
-from posthog.hogql.bytecode.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from posthog.hogql.bytecode import to_bytecode
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.errors import NotImplementedException
 from posthog.test.base import BaseTest
 
 
-class TestBytecodeCreate(BaseTest):
+class TestBytecode(BaseTest):
     def test_bytecode_create(self):
         self.assertEqual(to_bytecode("1 + 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.PLUS])
         self.assertEqual(to_bytecode("1 and 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.AND, 2])
