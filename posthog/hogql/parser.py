@@ -759,3 +759,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
         raise NotImplementedException(f"Unsupported node: EnumValue")
+
+    def visitColumnExprNullish(self, ctx: HogQLParser.ColumnExprNullishContext):
+        return ast.Call(name="ifNull", args=[self.visit(ctx.columnExpr(0)), self.visit(ctx.columnExpr(1))])

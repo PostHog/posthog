@@ -288,6 +288,7 @@ LE: '<=';
 LPAREN: '(';
 LT: '<';
 NOT_EQ: '!=' | '<>';
+NULLISH: '??';
 PERCENT: '%';
 PLUS: '+';
 QUERY: '?';
