@@ -477,6 +477,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 op = ast.CompareOperationOp.NotILike
             else:
                 op = ast.CompareOperationOp.ILike
+        elif ctx.REGEX_SINGLE() or ctx.REGEX_DOUBLE():
+            op = ast.CompareOperationOp.Regex
+        elif ctx.NOT_REGEX():
+            op = ast.CompareOperationOp.NotRegex
+        elif ctx.IREGEX_SINGLE() or ctx.IREGEX_DOUBLE():
+            op = ast.CompareOperationOp.IRegex
+        elif ctx.NOT_IREGEX():
+            op = ast.CompareOperationOp.NotIRegex
         elif ctx.IN():
             if ctx.COHORT():
                 right = ast.Call(name="cohort", args=[right])

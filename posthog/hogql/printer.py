@@ -396,10 +396,10 @@ class _Printer(Visitor):
             return f"lessOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationOp.Like:
             return f"like({left}, {right})"
-        elif node.op == ast.CompareOperationOp.ILike:
-            return f"ilike({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotLike:
             return f"notLike({left}, {right})"
+        elif node.op == ast.CompareOperationOp.ILike:
+            return f"ilike({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotILike:
             return f"notILike({left}, {right})"
         elif node.op == ast.CompareOperationOp.In:
@@ -410,6 +410,10 @@ class _Printer(Visitor):
             return f"match({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotRegex:
             return f"not(match({left}, {right}))"
+        elif node.op == ast.CompareOperationOp.IRegex:
+            return f"match({left}, concat('(?i)', {right}))"
+        elif node.op == ast.CompareOperationOp.NotIRegex:
+            return f"not(match({left}, concat('(?i)', {right})))"
         else:
             raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 

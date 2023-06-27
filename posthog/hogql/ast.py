@@ -344,7 +344,9 @@ class CompareOperationOp(str, Enum):
     In = "in"
     NotIn = "not in"
     Regex = "=~"
+    IRegex = "=~*"
     NotRegex = "!~"
+    NotIRegex = "!~*"
 
 
 class CompareOperation(Expr):
