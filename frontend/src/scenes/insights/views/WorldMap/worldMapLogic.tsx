@@ -43,7 +43,7 @@ export const worldMapLogic = kea<worldMapLogicType>([
             (insightData): Record<string, TrendResult> =>
                 Object.fromEntries(
                     Array.isArray(insightData?.result)
-                        ? insightData.result.map((series: TrendResult) => [series.breakdown_value, series])
+                        ? (insightData?.result as TrendResult[]).map((series) => [series.breakdown_value, series])
                         : []
                 ),
         ],
@@ -51,7 +51,7 @@ export const worldMapLogic = kea<worldMapLogicType>([
             (s) => [s.insightData],
             (insightData) =>
                 Array.isArray(insightData?.result)
-                    ? Math.max(...insightData.result.map((series: TrendResult) => series.aggregated_value))
+                    ? Math.max(...(insightData?.result as TrendResult[]).map((series) => series.aggregated_value))
                     : 0,
         ],
     }),
