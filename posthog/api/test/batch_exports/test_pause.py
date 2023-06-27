@@ -1,5 +1,5 @@
 import datetime as dt
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from django.test.client import Client as HttpClient
@@ -406,6 +406,7 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient):
         start_at = dt.datetime.strptime(data["last_paused_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=dt.timezone.utc)
         end_at = dt.datetime.strptime(data["last_updated_at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=dt.timezone.utc)
         mock_backfill.assert_called_once_with(
+            ANY,
             batch_export["id"],
             start_at,
             end_at,

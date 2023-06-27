@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -127,6 +128,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "created_at",
             "last_updated_at",
             "last_paused_at",
+            "start_at",
+            "end_at",
         ]
         read_only_fields = [
             "id",
@@ -141,8 +144,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
         interval = validated_data.pop("interval")
         name = validated_data.pop("name")
+        start_at = validated_data.get("start_at", None)
+        end_at = validated_data.get("end_at", None)
 
-        return create_batch_export(team_id=team_id, interval=interval, name=name, destination_data=destination_data)
+        return create_batch_export(
+            team_id=team_id,
+            interval=interval,
+            name=name,
+            destination_data=destination_data,
+            start_at=start_at,
+            end_at=end_at,
+        )
 
     def update(self, instance: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
@@ -158,6 +170,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
+
+
+def validate_date_input(date_input: Any) -> dt.datetime:
+    try:
+        # The Right Way (TM) to check this would be by calling isinstance, but that doesn't feel very Pythonic.
+        # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
+        # Read more here: https://github.com/python/mypy/issues/2420.
+        # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
+        parsed = dt.datetime.fromisoformat(date_input)  # type: ignore
+    except (TypeError, ValueError):
+        raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+    return parsed
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -180,14 +204,17 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         start_at_input = request.data.get("start_at", None)
         end_at_input = request.data.get("end_at", None)
 
-        start_at = dt.datetime.fromisoformat(start_at_input) if start_at_input is not None else None
-        end_at = dt.datetime.fromisoformat(end_at_input) if end_at_input is not None else None
+        start_at = validate_date_input(start_at_input)
+        end_at = validate_date_input(end_at_input)
+
+        if start_at >= end_at:
+            raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
         batch_export = self.get_object()
-        run = backfill_export(batch_export.pk, start_at, end_at)
+        temporal = sync_connect()
+        backfill_export(temporal, str(batch_export.pk), start_at, end_at)
 
-        serializer = BatchExportRunSerializer(run)
-        return response.Response(serializer.data)
+        return response.Response()
 
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -207,7 +234,7 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except BatchExportIdError:
             raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
         except BatchExportServiceRPCError as e:
-            raise ValidationError({"message": "Request to pause a BatchExport could not be carried out", "error": e})
+            raise ValidationError(f"Request to pause a BatchExport could not be carried out: {e}")
         except BatchExportServiceError:
             raise
 
@@ -232,7 +259,7 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except BatchExportIdError:
             raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
         except BatchExportServiceRPCError as e:
-            raise ValidationError({"message": "Request to pause a BatchExport could not be carried out", "error": e})
+            raise ValidationError(f"Request to pause a BatchExport could not be carried out: {e}")
         except BatchExportServiceError:
             raise
 
