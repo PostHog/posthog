@@ -57,7 +57,13 @@ class Action(models.Model):
         return create_bytecode(action_to_expr(self))
 
     def refresh_bytecode(self):
-        new_bytecode = self.generate_bytecode()
+        try:
+            new_bytecode = self.generate_bytecode()
+        except Exception:
+            # There are several known cases when bytecode generation can fail. Instead of spamming
+            # Sentry with errors, ignore those cases for now.
+            new_bytecode = None
+
         if new_bytecode != self.bytecode:
             self.bytecode = new_bytecode
             self.save(update_fields=["bytecode"])
