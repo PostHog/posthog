@@ -127,9 +127,9 @@ columnExpr
     | left=columnExpr ( operator=EQ_DOUBLE                                                         // equals
                  | operator=EQ_SINGLE                                                              // equals
                  | operator=NOT_EQ                                                                 // notEquals
-                 | operator=LE                                                                     // lessOrEquals
-                 | operator=GE                                                                     // greaterOrEquals
+                 | operator=LT_EQ                                                                  // lessOrEquals
                  | operator=LT                                                                     // less
+                 | operator=GT_EQ                                                                  // greaterOrEquals
                  | operator=GT                                                                     // greater
                  | operator=NOT? IN COHORT?                                                        // in, notIn; cohort()
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
