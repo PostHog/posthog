@@ -1,3 +1,5 @@
+import assert from 'assert'
+
 import {
     Hub,
     Plugin,
@@ -103,12 +105,16 @@ export async function setPluginCapabilities(
     hub: Hub,
     pluginConfig: PluginConfig,
     capabilities: PluginCapabilities
-): Promise<void> {
-    await hub.db.postgresQuery(
-        'UPDATE posthog_plugin SET capabilities = ($1) WHERE id = $2',
+): Promise<any> {
+    const response = await hub.db.postgresQuery(
+        'UPDATE posthog_plugin SET capabilities = ($1) WHERE id = $2 RETURNING capabilities',
         [capabilities, pluginConfig.plugin_id],
         'setPluginCapabilities'
     )
+
+    assert(response.rows.length === 1, 'Expected exactly one row to be returned')
+
+    return response.rows[0].capabilities
 }
 
 export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {

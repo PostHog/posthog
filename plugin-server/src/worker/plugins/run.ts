@@ -289,8 +289,8 @@ export async function loadPluginConfig(hub: Hub, pluginConfig: PluginConfig) {
             pluginVms.set(pluginConfig.plugin!.id, pluginVM)
         }
         pluginConfig.vm = pluginVM
+        await loadPlugin(hub, pluginConfig)
     }
-    await loadPlugin(hub, pluginConfig)
     return pluginConfig
 }
 
@@ -303,9 +303,9 @@ export async function getPluginConfig(hub: Hub, pluginConfigId: number) {
         status.debug('ℹ️', `Using cached plugin config ${pluginConfigId}`)
         return await pluginConfigCache
     }
-    const pluginConfig = await initPluginConfig(hub, pluginConfigId)
-    hub.pluginConfigs.set(pluginConfigId, Promise.resolve(pluginConfig))
-    return pluginConfig
+    const pluginConfigPromise = initPluginConfig(hub, pluginConfigId)
+    hub.pluginConfigs.set(pluginConfigId, pluginConfigPromise)
+    return await pluginConfigPromise
 }
 
 async function initPluginConfig(hub: Hub, pluginConfigId: number) {
@@ -328,10 +328,15 @@ async function initPluginConfig(hub: Hub, pluginConfigId: number) {
             plugin.from_web as plugin__from_web,
             plugin.error as plugin__error,
             plugin.plugin_type as plugin__plugin_type,
-            plugin.organization_id as plugin__organization_id,
             plugin.capabilities as plugin__capabilities,
             plugin.is_stateless as plugin__is_stateless,
             plugin.log_level as plugin__log_level,
+            
+            -- needed for reading local files
+            plugin.url as plugin__url,
+
+            -- needed for some log output
+            plugin.organization_id as plugin__organization_id,
 
             attachment.key as attachment__key,
             attachment.file_name as attachment__file_name,
@@ -397,6 +402,8 @@ async function initPluginConfig(hub: Hub, pluginConfigId: number) {
             from_web: row.plugin__from_web,
             is_stateless: row.plugin__is_stateless,
             capabilities: row.plugin__capabilities,
+            url: row.plugin__url,
+            organization_id: row.plugin__organization_id,
         },
     }
     await loadPluginConfig(hub, pluginConfig)

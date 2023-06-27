@@ -8,7 +8,6 @@ import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { getPluginConfig, runProcessEvent } from '../../src/worker/plugins/run'
 import { workerTasks } from '../../src/worker/tasks'
 import {
-    commonOrganizationId,
     mockPluginSourceCode,
     mockPluginTempFolder,
     mockPluginWithSourceFiles,
@@ -25,7 +24,7 @@ import {
     resetTestDatabase,
     updatePluginConfig,
 } from '../helpers/sql'
-import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
+import { setPluginCapabilities } from '../helpers/sqlMock'
 
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/utils/status')
@@ -546,6 +545,7 @@ describe('plugins', () => {
         const plugin = await createPlugin(hub.postgres, {
             ...pluginData,
             organization_id: organizationId,
+            source__index_ts: undefined,
         })
         const { id: __, ...pluginConfigData } = pluginConfig39
         const pluginConfigRow = await createPluginConfig(hub.postgres, {
@@ -560,7 +560,7 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfig,
-            `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
+            `Could not load source code for plugin test-maxmind-plugin ID ${plugin.id} (organization ID ${organizationId}). Tried: index.js`
         )
         expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
     })
@@ -766,7 +766,13 @@ describe('plugins', () => {
             organization_id: organizationId,
         })
         const { id: __, ...pluginConfigData } = pluginConfig39
-        await createPluginConfig(hub.postgres, { ...pluginConfigData, plugin_id: plugin.id, team_id: teamId })
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
+
+        await getPluginConfig(hub, pluginConfigRow.id)
 
         const {
             rows: [{ transpiled }],
@@ -787,23 +793,35 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('plugin with frontend source with error', async () => {
-        getPluginRows.mockReturnValueOnce([
-            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}/` },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        await setupPlugins(hub)
+        const localPluginData = { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}/` }
+
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
+
+        await getPluginConfig(hub, pluginConfigRow.id)
+
         const {
-            rows: [plugin],
+            rows: [pluginRow],
         } = await hub.db.postgresQuery(
             `SELECT * FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-            [60, 'frontend.tsx'],
+            [plugin.id, 'frontend.tsx'],
             ''
         )
-        expect(plugin.transpiled).toEqual(null)
-        expect(plugin.status).toEqual('ERROR')
-        expect(plugin.error).toContain(`SyntaxError: /frontend.tsx: Unexpected token (1:24)`)
-        expect(plugin.error).toContain(`export const scene = {}/`)
+        expect(pluginRow.transpiled).toEqual(null)
+        expect(pluginRow.status).toEqual('ERROR')
+        expect(pluginRow.error).toContain(`SyntaxError: /frontend.tsx: Unexpected token (1:24)`)
+        expect(pluginRow.error).toContain(`export const scene = {}/`)
     })
 
     test('getTranspilationLock returns just once', async () => {
@@ -821,20 +839,26 @@ exports.scene = scene;; return exports; }`)
             organization_id: organizationId,
         })
         const { id: __, ...pluginConfigData } = pluginConfig39
-        await createPluginConfig(hub.postgres, { ...pluginConfigData, plugin_id: plugin.id, team_id: teamId })
+        const pluginConfig = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
+
+        await getPluginConfig(hub, pluginConfig.id)
 
         const getStatus = async () =>
             (
                 await hub.db.postgresQuery(
                     `SELECT status FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-                    [60, 'frontend.tsx'],
+                    [plugin.id, 'frontend.tsx'],
                     ''
                 )
             )?.rows?.[0]?.status || null
 
         expect(await getStatus()).toEqual('TRANSPILED')
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+        expect(await hub.db.getPluginTranspilationLock(plugin.id, 'frontend.tsx')).toEqual(false)
+        expect(await hub.db.getPluginTranspilationLock(plugin.id, 'frontend.tsx')).toEqual(false)
 
         await hub.db.postgresQuery(
             'UPDATE posthog_pluginsourcefile SET transpiled = NULL, status = NULL WHERE filename = $1',
@@ -842,8 +866,8 @@ exports.scene = scene;; return exports; }`)
             ''
         )
 
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(true)
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
+        expect(await hub.db.getPluginTranspilationLock(plugin.id, 'frontend.tsx')).toEqual(true)
+        expect(await hub.db.getPluginTranspilationLock(plugin.id, 'frontend.tsx')).toEqual(false)
         expect(await getStatus()).toEqual('LOCKED')
     })
 
