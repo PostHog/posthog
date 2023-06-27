@@ -2,7 +2,7 @@
 
 ## 2023-06-27 - First version
 
-### Syntax added
+### Operations added
 
 ```bash
 FIELD = 1         # [arg3, arg2, arg1, FIELD, 3]       # arg1.arg2.arg3
@@ -35,4 +35,15 @@ NULL = 27         # [NULL]                             # null
 STRING = 28       # [STRING, 'text']                   # 'text'
 INTEGER = 29      # [INTEGER, 123]                     # 123
 FLOAT = 30        # [FLOAT, 123.12]                    # 123.01
+```
+
+### Functions added
+
+```bash
+concat(...)             # concat('test: ', 1, null, '!') == 'test: 1!'
+match(string, pattern)  # match('fish', '$fi.*') == true
+toString(val)           # toString(true) == 'true'
+toInt(val)              # toInt('123') == 123
+toFloat(val)            # toFloat('123.2') == 123.2
+toUUID(val)             # toUUID('string') == 'string'
 ```

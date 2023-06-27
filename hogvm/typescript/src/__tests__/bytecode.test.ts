@@ -74,6 +74,9 @@ describe('HogQL Bytecode', () => {
         expect(executeHogQLBytecode(['_h', op.STRING, '1.2', op.CALL, 'toFloat', 1], fields)).toBe(1.2)
         expect(executeHogQLBytecode(['_h', op.STRING, 'bla', op.CALL, 'toFloat', 1], fields)).toBe(null)
         expect(executeHogQLBytecode(['_h', op.STRING, 'asd', op.CALL, 'toUUID', 1], fields)).toBe('asd')
+
+        expect(executeHogQLBytecode(['_h', op.NULL, op.INTEGER, 1, op.EQ], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], fields)).toBe(true)
     })
 
     test('error handling', () => {

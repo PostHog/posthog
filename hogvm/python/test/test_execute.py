@@ -72,6 +72,8 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run("toFloat('1.2')"), 1.2)
         self.assertEqual(self._run("toFloat('bla')"), None)
         self.assertEqual(self._run("toUUID('asd')"), "asd")
+        self.assertEqual(self._run("1 == null"), False)
+        self.assertEqual(self._run("1 != null"), True)
 
     def test_nested_value(self):
         my_dict = {

@@ -21,6 +21,8 @@ call('arg', 'another') # [_H, op.STRING, "another", op.STRING, "arg", op.CALL, "
 
 The `python/execute.py` function in this folder acts as the reference implementation in case of disputes.
 
+### Operations
+
 To be considered a PostHog HogQL Bytecode Certified Parser, you must implement the following operations:
 
 ```bash
@@ -56,6 +58,8 @@ INTEGER = 29      # [INTEGER, 123]                     # 123
 FLOAT = 30        # [FLOAT, 123.12]                    # 123.01
 ```
 
+### Functions
+
 You must also implement the following function calls:
 
 ```bash
@@ -67,8 +71,19 @@ toFloat(val)            # toFloat('123.2') == 123.2
 toUUID(val)             # toUUID('string') == 'string'
 ```
 
+### Null handling
+
+In HogQL equality comparisons, `null` is treated as any other variable. Its presence will not make functions automatically return `null`, as is the ClickHouse default.
+
+```sql
+1 == null # false
+1 != null # true
+```
+
+Nulls are just ignored in `concat`
+
 ## Known broken features
 
 - **Regular Expression** support is implemented, but NOT GUARANTEED to the same way across platforms. Different implementations (ClickHouse, Python, Node) use different Regexp engines. ClickHouse uses `re2`, the others use `pcre`.
 - **DateTime** comparisons are not supported.
-- A small subset of functions is enabled.
+- Only a small subset of functions is enabled. This list is bound to expand.
