@@ -120,7 +120,7 @@ export function Person(): JSX.Element | null {
     const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (!person) {
-        return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
     }
 
     const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))

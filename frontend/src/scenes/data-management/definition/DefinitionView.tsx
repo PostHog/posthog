@@ -64,7 +64,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (definitionLoading) {
-        return <SpinnerOverlay />
+        return <SpinnerOverlay sceneLevel />
     }
 
     if (definitionMissing) {

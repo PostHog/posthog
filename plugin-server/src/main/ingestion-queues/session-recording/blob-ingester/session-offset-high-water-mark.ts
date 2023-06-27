@@ -22,6 +22,23 @@ const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
  */
 export class SessionOffsetHighWaterMark {
     private topicPartitionWaterMarks: Record<string, Record<string, number>> = {}
+
+    getWatermarkFor(tp: TopicPartition): Record<string, number> {
+        const key = `${tp.topic}-${tp.partition}`
+        if (!this.topicPartitionWaterMarks[key]) {
+            this.topicPartitionWaterMarks[key] = {}
+        }
+        return this.topicPartitionWaterMarks[key]
+    }
+
+    private setWaterMarkFor(tp: TopicPartition, sessionId: string, offset: number) {
+        const key = `${tp.topic}-${tp.partition}`
+        if (!this.topicPartitionWaterMarks[key]) {
+            this.topicPartitionWaterMarks[key] = {}
+        }
+        this.topicPartitionWaterMarks[key][sessionId] = offset
+    }
+
     private getAllPromise: Promise<Record<string, number> | null> | null = null
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
 
@@ -56,7 +73,7 @@ export class SessionOffsetHighWaterMark {
                     offset,
                     updatedCount,
                 })
-                this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`][sessionId] = offset
+                this.setWaterMarkFor(tp, sessionId, offset)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
@@ -134,7 +151,7 @@ export class SessionOffsetHighWaterMark {
                     ...tp,
                     offset,
                 })
-                const currentHighWaterMarks = this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`]
+                const currentHighWaterMarks = this.getWatermarkFor(tp)
                 // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
                 Object.keys(currentHighWaterMarks).forEach((sessionId) => {
                     if (currentHighWaterMarks[sessionId] <= offset) {
@@ -162,6 +179,12 @@ export class SessionOffsetHighWaterMark {
         }
     }
 
+    /**
+     * if there isn't already a high-water mark for this topic partition
+     * then this method calls getAll to get all the high-water marks for this topic partition
+     * it assumes that it has the latest high-water marks for this topic partition
+     * so that callers are safe to drop messages
+     */
     public async isBelowHighWaterMark(tp: TopicPartition, sessionId: string, offset: number): Promise<boolean> {
         if (!this.topicPartitionWaterMarks[tp.partition]) {
             const highWaterMarks = await this.getAll(tp)

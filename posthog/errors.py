@@ -252,7 +252,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     181: ErrorCodeMeta("ILLEGAL_FINAL"),
     182: ErrorCodeMeta("ILLEGAL_PREWHERE"),
     183: ErrorCodeMeta("UNEXPECTED_EXPRESSION"),
-    184: ErrorCodeMeta("ILLEGAL_AGGREGATION"),
+    184: ErrorCodeMeta("ILLEGAL_AGGREGATION", user_safe=True),
     185: ErrorCodeMeta("UNSUPPORTED_MYISAM_BLOCK_TYPE"),
     186: ErrorCodeMeta("UNSUPPORTED_COLLATION_LOCALE"),
     187: ErrorCodeMeta("COLLATION_COMPARISON_FAILED"),

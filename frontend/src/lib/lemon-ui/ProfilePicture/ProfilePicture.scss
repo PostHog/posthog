@@ -73,7 +73,7 @@
     display: flex;
     align-items: center;
     > * {
-        outline: 0.125rem solid #fff;
+        outline: 0.125rem solid var(--bg-light);
     }
     > :not(:first-child) {
         margin-left: -0.125rem;

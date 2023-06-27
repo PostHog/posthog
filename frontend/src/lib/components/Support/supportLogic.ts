@@ -48,6 +48,7 @@ export const TARGET_AREA_TO_NAME = {
     cohorts: 'Cohorts',
     data_integrity: 'Data Integrity',
     data_management: 'Data Management',
+    data_warehouse: 'Data Warehouse',
     ingestion: 'Event Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
@@ -79,6 +80,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     groups: 'data_integrity',
     app: 'apps',
     toolbar: 'analytics',
+    warehouse: 'data_warehouse',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {

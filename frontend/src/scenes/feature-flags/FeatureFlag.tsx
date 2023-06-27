@@ -125,7 +125,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     if (featureFlagLoading) {
         return (
             // TODO: This should be skeleton loaders
-            <SpinnerOverlay />
+            <SpinnerOverlay sceneLevel />
         )
     }
 
@@ -684,7 +684,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4">
+                            <div className="border rounded p-4 mb-4 bg-bg-light">
                                 <Row gutter={16} className="font-semibold">
                                     <Col span={6}>Key</Col>
                                     <Col span={6}>Description</Col>

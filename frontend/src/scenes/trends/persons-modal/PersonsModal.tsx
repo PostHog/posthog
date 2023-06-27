@@ -245,7 +245,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-white">
+        <div className="relative border rounded bg-bg-light">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding

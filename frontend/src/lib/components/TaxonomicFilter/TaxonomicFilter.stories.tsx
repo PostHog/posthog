@@ -33,7 +33,7 @@ export const EventsFree: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(1)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-white">
+        <div className="w-fit border rounded p-2 bg-bg-light">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -79,7 +79,7 @@ Actions.args = {
 
 export const Properties: ComponentStoryFn<typeof TaxonomicFilter> = (args) => {
     return (
-        <div className="w-fit border rounded p-2 bg-white">
+        <div className="w-fit border rounded p-2 bg-bg-light">
             <TaxonomicFilter {...args} />
         </div>
     )
