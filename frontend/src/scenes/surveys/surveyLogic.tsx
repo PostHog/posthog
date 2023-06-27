@@ -200,7 +200,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },
