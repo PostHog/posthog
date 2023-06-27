@@ -399,13 +399,13 @@ class _Printer(Visitor):
         elif node.op == ast.CompareOperationOp.ILike:
             return f"ilike({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotLike:
-            return f"not(like({left}, {right}))"
+            return f"notLike({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotILike:
-            return f"not(ilike({left}, {right}))"
+            return f"notILike({left}, {right})"
         elif node.op == ast.CompareOperationOp.In:
             return f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
-            return f"not(in({left}, {right}))"
+            return f"notIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
             return f"match({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotRegex:
