@@ -237,20 +237,19 @@ export function OverViewTab({
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) &&
-                featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' && (
-                    <ProductIntroduction
-                        productName="Feature flags"
-                        productKey={ProductKey.FEATURE_FLAGS}
-                        thingName="feature flag"
-                        description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-                        docsURL="https://posthog.com/docs/feature-flags/manual"
-                        action={() => router.actions.push(urls.featureFlag('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={FeatureFlagHog}
-                    />
-                )}{' '}
-            {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (
+            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
+                <ProductIntroduction
+                    productName="Feature flags"
+                    productKey={ProductKey.FEATURE_FLAGS}
+                    thingName="feature flag"
+                    description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                    docsURL="https://posthog.com/docs/feature-flags/manual"
+                    action={() => router.actions.push(urls.featureFlag('new'))}
+                    isEmpty={shouldShowEmptyState}
+                    customHog={FeatureFlagHog}
+                />
+            )}{' '}
+            {!shouldShowEmptyState && (
                 <>
                     <div>
                         <div className="flex justify-between mb-4">

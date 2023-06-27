@@ -20,8 +20,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -42,7 +40,6 @@ export function Experiments(): JSX.Element {
     } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportEmptyStateShown } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -193,7 +190,6 @@ export function Experiments(): JSX.Element {
                         ]}
                     />
                     {(shouldShowEmptyState || shouldShowProductIntroduction) &&
-                        featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' &&
                         (tab === ExperimentsTabs.Archived ? (
                             <ProductIntroduction
                                 productName="Experiments"
@@ -215,7 +211,7 @@ export function Experiments(): JSX.Element {
                                 customHog={ExperimentsHog}
                             />
                         ))}
-                    {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (
+                    {!shouldShowEmptyState && (
                         <>
                             <div className="flex justify-between mb-4">
                                 <LemonInput

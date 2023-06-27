@@ -532,10 +532,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        // This is temporary for use with the NEW_EMPTY_STATES experiment and should be removed when that is.
-        reportEmptyStateShown: (product: string) => ({
-            product,
-        }),
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
@@ -1301,11 +1297,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleLanguage: ({ language }) => {
             posthog.capture('flags code example language selected', {
                 language,
-            })
-        },
-        reportEmptyStateShown: ({ product }) => {
-            posthog.capture('product empty state shown', {
-                product,
             })
         },
         reportSurveyCreated: ({ survey }) => {
