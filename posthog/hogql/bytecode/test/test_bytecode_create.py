@@ -37,6 +37,13 @@ class TestBytecodeCreate(BaseTest):
         self.assertEqual(to_bytecode("1 not ilike 2"), [_H, op.CONSTANT, 2, op.CONSTANT, 1, op.NOT_ILIKE])
         self.assertEqual(to_bytecode("1 in 2"), [_H, op.CONSTANT, 2, op.CONSTANT, 1, op.IN])
         self.assertEqual(to_bytecode("1 not in 2"), [_H, op.CONSTANT, 2, op.CONSTANT, 1, op.NOT_IN])
+        self.assertEqual(to_bytecode("'string' ~ 'regex'"), [_H, op.CONSTANT, "regex", op.CONSTANT, "string", op.REGEX])
+        self.assertEqual(
+            to_bytecode("'string' =~ 'regex'"), [_H, op.CONSTANT, "regex", op.CONSTANT, "string", op.REGEX]
+        )
+        self.assertEqual(
+            to_bytecode("'string' !~ 'regex'"), [_H, op.CONSTANT, "regex", op.CONSTANT, "string", op.NOT_REGEX]
+        )
         self.assertEqual(
             to_bytecode("match('test', 'e.*')"), [_H, op.CONSTANT, "e.*", op.CONSTANT, "test", op.CALL, "match", 2]
         )

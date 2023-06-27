@@ -359,11 +359,11 @@ class _Printer(Visitor):
                 return f"notEquals({left}, {right})"
         elif node.op == ast.CompareOperationOp.Gt:
             return f"greater({left}, {right})"
-        elif node.op == ast.CompareOperationOp.GtE:
+        elif node.op == ast.CompareOperationOp.GtEq:
             return f"greaterOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationOp.Lt:
             return f"less({left}, {right})"
-        elif node.op == ast.CompareOperationOp.LtE:
+        elif node.op == ast.CompareOperationOp.LtEq:
             return f"lessOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationOp.Like:
             return f"like({left}, {right})"

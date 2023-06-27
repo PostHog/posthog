@@ -134,9 +134,9 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
             op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationOp.LtE
+            op = ast.CompareOperationOp.LtEq
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationOp.GtE
+            op = ast.CompareOperationOp.GtEq
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
 

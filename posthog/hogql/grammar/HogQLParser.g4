@@ -116,25 +116,26 @@ columnExpr
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
-    | left=columnExpr ( operator=ASTERISK                                                          // multiply
-                 | operator=SLASH                                                                  // divide
-                 | operator=PERCENT                                                                // modulo
+    | left=columnExpr ( operator=ASTERISK                                                          // *
+                 | operator=SLASH                                                                  // /
+                 | operator=PERCENT                                                                // %
                  ) right=columnExpr                                                             # ColumnExprPrecedence1
-    | left=columnExpr ( operator=PLUS                                                              // plus
-                 | operator=DASH                                                                   // minus
-                 | operator=CONCAT                                                                 // concat
+    | left=columnExpr ( operator=PLUS                                                              // +
+                 | operator=DASH                                                                   // -
+                 | operator=CONCAT                                                                 // || (concat)
                  ) right=columnExpr                                                             # ColumnExprPrecedence2
-    | left=columnExpr ( operator=EQ_DOUBLE                                                         // equals
-                 | operator=EQ_SINGLE                                                              // equals
-                 | operator=NOT_EQ                                                                 // notEquals
-                 | operator=LE                                                                     // lessOrEquals
-                 | operator=GE                                                                     // greaterOrEquals
-                 | operator=LT                                                                     // less
-                 | operator=GT                                                                     // greater
-                 | operator=REGEX                                                                  // =~
+    | left=columnExpr ( operator=EQ_DOUBLE                                                         // ==
+                 | operator=EQ_SINGLE                                                              // =
+                 | operator=NOT_EQ                                                                 // !=
+                 | operator=LT_EQ                                                                  // <=
+                 | operator=GT_EQ                                                                  // >=
+                 | operator=LT                                                                     // <
+                 | operator=GT                                                                     // >
+                 | operator=REGEX_SINGLE                                                           // ~
+                 | operator=REGEX_DOUBLE                                                           // =~
                  | operator=NOT_REGEX                                                              // !~
-                 | operator=NOT? IN COHORT?                                                        // in, notIn; cohort()
-                 | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
+                 | operator=NOT? IN COHORT?                                                        // [not] in [cohort]
+                 | operator=NOT? (LIKE | ILIKE)                                                    // [not] like | ilike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
     | NOT columnExpr                                                                      # ColumnExprNot

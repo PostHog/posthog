@@ -459,18 +459,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op = ast.CompareOperationOp.Eq
         elif ctx.NOT_EQ():
             op = ast.CompareOperationOp.NotEq
-        elif ctx.REGEX():
+        elif ctx.REGEX_SINGLE() or ctx.REGEX_DOUBLE():
             op = ast.CompareOperationOp.Regex
         elif ctx.NOT_REGEX():
             op = ast.CompareOperationOp.NotRegex
         elif ctx.LT():
             op = ast.CompareOperationOp.Lt
-        elif ctx.LE():
-            op = ast.CompareOperationOp.LtE
+        elif ctx.LT_EQ():
+            op = ast.CompareOperationOp.LtEq
         elif ctx.GT():
             op = ast.CompareOperationOp.Gt
-        elif ctx.GE():
-            op = ast.CompareOperationOp.GtE
+        elif ctx.GT_EQ():
+            op = ast.CompareOperationOp.GtEq
         elif ctx.LIKE():
             if ctx.NOT():
                 op = ast.CompareOperationOp.NotLike

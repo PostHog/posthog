@@ -234,7 +234,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("1 <= 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtEq
             ),
         )
         self.assertEqual(
@@ -244,7 +244,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("1 >= 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtEq
             ),
         )
 
@@ -289,6 +289,12 @@ class TestParser(BaseTest):
         )
 
     def test_regex_comparison_operations(self):
+        self.assertEqual(
+            self._expr("'asd' ~ 'a.*d'"),
+            ast.CompareOperation(
+                left=ast.Constant(value="asd"), right=ast.Constant(value="a.*d"), op=ast.CompareOperationOp.Regex
+            ),
+        )
         self.assertEqual(
             self._expr("'asd' =~ 'a.*d'"),
             ast.CompareOperation(
