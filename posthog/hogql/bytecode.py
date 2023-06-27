@@ -38,12 +38,9 @@ def to_bytecode(expr: str) -> List[any]:
 
 
 def create_bytecode(expr: ast.Expr) -> List[Any]:
-    try:
-        bytecode = [HOGQL_BYTECODE_IDENTIFIER]
-        bytecode.extend(BytecodeBuilder().visit(expr))
-        return bytecode
-    except NotImplementedException as e:
-        raise NotImplementedException(f"Unsupported HogQL bytecode node: {str(e)}")
+    bytecode = [HOGQL_BYTECODE_IDENTIFIER]
+    bytecode.extend(BytecodeBuilder().visit(expr))
+    return bytecode
 
 
 class BytecodeBuilder(Visitor):
