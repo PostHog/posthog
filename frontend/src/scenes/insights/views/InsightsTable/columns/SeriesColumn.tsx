@@ -11,7 +11,7 @@ type SeriesColumnItemProps = {
     item: IndexedTrendResult
     indexedResults: IndexedTrendResult[]
     canEditSeriesNameInline: boolean
-    compare?: boolean
+    compare?: boolean | null
     handleEditClick: (item: IndexedTrendResult) => void
     hasMultipleSeries?: boolean
 }
