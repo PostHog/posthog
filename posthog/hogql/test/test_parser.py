@@ -619,7 +619,7 @@ class TestParser(BaseTest):
                     next_join=ast.JoinExpr(
                         join_type="JOIN",
                         table=ast.Field(chain=["events2"]),
-                        constraint=ast.Constant(value=1),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
                     ),
                 ),
             ),
@@ -633,7 +633,7 @@ class TestParser(BaseTest):
                     next_join=ast.JoinExpr(
                         join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
-                        constraint=ast.Constant(value=1),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
                     ),
                 ),
             ),
@@ -647,11 +647,11 @@ class TestParser(BaseTest):
                     next_join=ast.JoinExpr(
                         join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
-                        constraint=ast.Constant(value=1),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
                         next_join=ast.JoinExpr(
                             join_type="RIGHT ANY JOIN",
                             table=ast.Field(chain=["events3"]),
-                            constraint=ast.Constant(value=2),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=2)),
                         ),
                     ),
                 ),
@@ -687,19 +687,23 @@ class TestParser(BaseTest):
                         join_type="LEFT JOIN",
                         table=ast.Field(chain=["person_distinct_id"]),
                         alias="pdi",
-                        constraint=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["pdi", "distinct_id"]),
-                            right=ast.Field(chain=["e", "distinct_id"]),
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["pdi", "distinct_id"]),
+                                right=ast.Field(chain=["e", "distinct_id"]),
+                            )
                         ),
                         next_join=ast.JoinExpr(
                             join_type="LEFT JOIN",
                             table=ast.Field(chain=["persons"]),
                             alias="p",
-                            constraint=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["p", "id"]),
-                                right=ast.Field(chain=["pdi", "person_id"]),
+                            constraint=ast.JoinConstraint(
+                                expr=ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["p", "id"]),
+                                    right=ast.Field(chain=["pdi", "person_id"]),
+                                )
                             ),
                         ),
                     ),

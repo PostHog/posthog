@@ -7,7 +7,6 @@ from pydantic import Field as PydanticField
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
-    DatabaseField,
     FieldTraverser,
     LazyJoin,
     StringJSONDatabaseField,
@@ -20,6 +19,8 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     FloatDatabaseField,
+    FieldOrTable,
+    DatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -231,12 +232,18 @@ class FieldType(Type):
     name: str
     table_type: TableOrSelectType
 
-    def resolve_database_field(self) -> Optional[DatabaseField]:
+    def resolve_database_field(self) -> Optional[FieldOrTable]:
         if isinstance(self.table_type, BaseTableType):
             table = self.table_type.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)
         return None
+
+    def is_nullable(self) -> bool:
+        database_field = self.resolve_database_field()
+        if isinstance(database_field, DatabaseField):
+            return database_field.nullable
+        return True
 
     def resolve_constant_type(self) -> ConstantType:
         database_field = self.resolve_database_field()
@@ -398,6 +405,10 @@ class Call(Expr):
     distinct: Optional[bool] = None
 
 
+class JoinConstraint(Expr):
+    expr: Expr
+
+
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType]
@@ -406,7 +417,7 @@ class JoinExpr(Expr):
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
-    constraint: Optional[Expr] = None
+    constraint: Optional["JoinConstraint"] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 

@@ -76,10 +76,12 @@ class TestVisitor(BaseTest):
                         next_join=ast.JoinExpr(
                             join_type="INNER",
                             table=ast.Field(chain=["f"]),
-                            constraint=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["d"]),
-                                right=ast.Field(chain=["e"]),
+                            constraint=ast.JoinConstraint(
+                                expr=ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["d"]),
+                                    right=ast.Field(chain=["e"]),
+                                )
                             ),
                         ),
                         sample=ast.SampleExpr(

@@ -229,6 +229,9 @@ class TraversingVisitor(Visitor):
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         pass
 
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        self.visit(node.expr)
+
 
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -484,3 +487,6 @@ class CloningVisitor(Visitor):
             frame_type=node.frame_type,
             frame_value=node.frame_value,
         )
+
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return ast.JoinConstraint(expr=self.visit(node.expr))

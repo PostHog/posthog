@@ -293,6 +293,9 @@ class _Printer(Visitor):
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return self.visit(node.expr)
+
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
@@ -345,18 +348,44 @@ class _Printer(Visitor):
         return f"{self.visit(node.expr)} {node.order}"
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
+        nullable_left = self._is_nullable(node.left)
+        nullable_right = self._is_nullable(node.right)
+        not_nullable = not nullable_left and not nullable_right
+
         if node.op == ast.CompareOperationOp.Eq:
-            if isinstance(node.right, ast.Constant) and node.right.value is None:
-                return f"isNull({left})"
-            else:
+            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+                return "1" if node.left.value == node.right.value else "0"
+            elif in_join_constraint or self.dialect == "hogql" or not_nullable:
                 return f"equals({left}, {right})"
-        elif node.op == ast.CompareOperationOp.NotEq:
-            if isinstance(node.right, ast.Constant) and node.right.value is None:
-                return f"isNotNull({left})"
+            elif isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNull({left})"
+                return f"ifNull(equals({left}, {right}), 0)"
+            elif isinstance(node.left, ast.Constant):
+                if node.left.value is None:
+                    return f"isNull({right})"
+                return f"ifNull(equals({left}, {right}), 0)"
             else:
+                return f"ifNull(equals({left}, {right}), isNull({left}) and isNull({right}))"
+        elif node.op == ast.CompareOperationOp.NotEq:
+            if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+                return "1" if node.left.value != node.right.value else "0"
+            elif in_join_constraint or self.dialect == "hogql" or not_nullable:
                 return f"notEquals({left}, {right})"
+            elif isinstance(node.right, ast.Constant):
+                if node.right.value is None:
+                    return f"isNotNull({left})"
+                return f"ifNull(notEquals({left}, {right}), 1)"
+            elif isinstance(node.left, ast.Constant):
+                if node.left.value is None:
+                    return f"isNotNull({right})"
+                return f"ifNull(notEquals({left}, {right}), 1)"
+            else:
+                return f"ifNull(notEquals({left}, {right}), isNotNull({left}) or isNotNull({right}))"
+
         elif node.op == ast.CompareOperationOp.Gt:
             return f"greater({left}, {right})"
         elif node.op == ast.CompareOperationOp.GtE:
@@ -792,3 +821,13 @@ class _Printer(Visitor):
 
     def _get_timezone(self):
         return self.context.database.get_timezone() if self.context.database else "UTC"
+
+    def _is_nullable(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Constant):
+            return node.value is None
+        elif isinstance(node.type, ast.PropertyType):
+            return True
+        elif isinstance(node.type, ast.FieldType):
+            return node.type.is_nullable()
+        # we don't know if it's nullable, so we assume it can be
+        return True
