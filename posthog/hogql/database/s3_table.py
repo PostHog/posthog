@@ -9,7 +9,7 @@ class S3Table(FunctionCallTable):
     format: str = "CSVWithNames"
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
-    structure: str = ""
+    structure: Optional[str] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
@@ -19,9 +19,17 @@ class S3Table(FunctionCallTable):
         escaped_format = context.add_value(self.format)
         escaped_structure = context.add_value(self.structure)
 
+        expr = f"s3Cluster('posthog', {escaped_url}"
+
         if self.access_key and self.access_secret:
             escaped_access_key = context.add_value(self.access_key)
             escaped_access_secret = context.add_value(self.access_secret)
 
-            return f"s3Cluster('posthog', {escaped_url}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, {escaped_structure})"
-        return f"s3Cluster('posthog', {escaped_url}, {escaped_format})"
+            expr += f", {escaped_access_key}, {escaped_access_secret}"
+
+        expr += f", {escaped_format}"
+
+        if self.structure:
+            expr += f", {escaped_structure}"
+
+        return f"{expr})"
