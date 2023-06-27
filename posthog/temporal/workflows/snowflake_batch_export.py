@@ -6,6 +6,7 @@ from string import Template
 
 import snowflake.connector
 from django.conf import settings
+from snowflake.connector.cursor import SnowflakeCursor
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -35,6 +36,24 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 
+class SnowflakeFileNotUploadedError(Exception):
+    """Raised when a PUT Snowflake query fails to upload a file."""
+
+    def __init__(self, table_name: str, status: str, message: str):
+        super().__init__(
+            f"Snowflake upload for table '{table_name}' expected status 'UPLOADED' but got '{status}': {message}"
+        )
+
+
+class SnowflakeFileNotLoadedError(Exception):
+    """Raised when a COPY INTO Snowflake query fails to copy a file to a table."""
+
+    def __init__(self, table_name: str, status: str, errors_seen: int, first_error: str):
+        super().__init__(
+            f"Snowflake load for table '{table_name}' expected status 'LOADED' but got '{status}' with {errors_seen} errors: {first_error}"
+        )
+
+
 @dataclass
 class SnowflakeInsertInputs:
     """Inputs for Snowflake."""
@@ -53,6 +72,33 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+
+
+def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
+    """Executes a PUT query using the provided cursor to the provided table_name.
+
+    Args:
+        cursor: A Snowflake cursor to execute the PUT query.
+        file_name: The name of the file to PUT.
+        table_name: The name of the table where to PUT the file.
+
+    Raises:
+        TypeError: If we don't get a tuple back from Snowflake (should never happen).
+        SnowflakeFileNotUploadedError: If the upload status is not 'UPLOADED'.
+    """
+    cursor.execute(
+        f"""
+        PUT file://{file_name} @%"{table_name}"
+        """
+    )
+    result = cursor.fetchone()
+    if not isinstance(result, tuple):
+        # Mostly to appease mypy, as this query should always return a tuple.
+        raise TypeError(f"Expected tuple from Snowflake PUT query but got: '{result.__class__.__name__}'")
+
+    status, message = result[6:8]
+    if status != "UPLOADED":
+        raise SnowflakeFileNotUploadedError(table_name, status, message)
 
 
 @activity.defn
@@ -135,7 +181,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 interval_end=inputs.data_interval_end,
             )
 
-            local_results_file = tempfile.NamedTemporaryFile()
+            local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
             try:
                 while True:
                     try:
@@ -160,27 +206,18 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
                         # Flush the file to make sure everything is written
                         local_results_file.flush()
-                        cursor.execute(
-                            f"""
-                            PUT file://{local_results_file.name} @%"{inputs.table_name}"
-                            """
-                        )
+                        put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
                         # Delete the temporary file and create a new one
                         local_results_file.close()
-                        local_results_file = tempfile.NamedTemporaryFile()
+                        local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
 
                 # Flush the file to make sure everything is written
                 local_results_file.flush()
-                cursor.execute(
-                    f"""
-                    PUT file://{local_results_file.name} @%"{inputs.table_name}"
-                    """
-                )
+                put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
                 # We don't need the file anymore, close (and delete) it.
                 local_results_file.close()
-
                 cursor.execute(
                     f"""
                     COPY INTO "{inputs.table_name}"
@@ -189,6 +226,24 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     PURGE = TRUE
                     """
                 )
+                results = cursor.fetchall()
+
+                for result in results:
+                    if not isinstance(result, tuple):
+                        # Mostly to appease mypy, as this query should always return a tuple.
+                        raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
+
+                    file_name, status = result[0:2]
+
+                    if status != "LOADED":
+                        errors_seen, first_error = result[5:7]
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            status or "NO STATUS",
+                            errors_seen or 0,
+                            first_error or "NO ERROR MESSAGE",
+                        )
+
             finally:
                 local_results_file.close()
         finally:
@@ -270,6 +325,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
+            # Note: This shallows the exception type, but the message should be enough.
+            # If not, swap to repr(e)
+            update_inputs.latest_error = str(e)
             raise
 
         finally:
