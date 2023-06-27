@@ -296,19 +296,19 @@ class _Printer(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        if node.op == ast.BinaryOperationOp.Add:
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Sub:
+        elif node.op == ast.ArithmeticOperationOp.Sub:
             return f"minus({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Mult:
+        elif node.op == ast.ArithmeticOperationOp.Mult:
             return f"multiply({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Div:
+        elif node.op == ast.ArithmeticOperationOp.Div:
             return f"divide({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Mod:
+        elif node.op == ast.ArithmeticOperationOp.Mod:
             return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
         else:
-            raise HogQLException(f"Unknown BinaryOperationOp {node.op}")
+            raise HogQLException(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"

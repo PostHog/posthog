@@ -395,8 +395,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ColumnExprExtract")
 
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
-        return ast.BinaryOperation(
-            op=ast.BinaryOperationOp.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
+        return ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
         )
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
@@ -416,25 +416,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
         if ctx.SLASH():
-            op = ast.BinaryOperationOp.Div
+            op = ast.ArithmeticOperationOp.Div
         elif ctx.ASTERISK():
-            op = ast.BinaryOperationOp.Mult
+            op = ast.ArithmeticOperationOp.Mult
         elif ctx.PERCENT():
-            op = ast.BinaryOperationOp.Mod
+            op = ast.ArithmeticOperationOp.Mod
         else:
             raise NotImplementedException(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
-        return ast.BinaryOperation(left=left, right=right, op=op)
+        return ast.ArithmeticOperation(left=left, right=right, op=op)
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
 
         if ctx.PLUS():
-            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Add)
+            return ast.ArithmeticOperation(left=left, right=right, op=ast.ArithmeticOperationOp.Add)
         elif ctx.DASH():
-            return ast.BinaryOperation(left=left, right=right, op=ast.BinaryOperationOp.Sub)
+            return ast.ArithmeticOperation(left=left, right=right, op=ast.ArithmeticOperationOp.Sub)
         elif ctx.CONCAT():
             args = []
             if isinstance(left, ast.Call) and left.name == "concat":
