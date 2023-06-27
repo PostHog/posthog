@@ -88,6 +88,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if type.startswith("Nullable("):
                 type = type.replace("Nullable(", "")[:-1]
 
+            # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
             if type.startswith("Array("):
                 type = self.remove_named_tuples(type)
 
