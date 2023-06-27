@@ -9,7 +9,7 @@ import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLo
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
-import { funnelLogic } from './funnelLogic'
+import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
@@ -29,7 +29,7 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
             ['loadResultsSuccess'],
             insightVizDataLogic(props),
             ['loadDataSuccess'],
-            funnelLogic(props),
+            funnelPersonsModalLogic(props),
             ['openCorrelationPersonsModal'],
             funnelDataLogic(props),
             ['hideSkewWarning'],

@@ -3,7 +3,6 @@ import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { funnelLogic } from '../funnelLogic'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
@@ -17,6 +16,7 @@ import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 import { Bar } from './Bar'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 export function FunnelBarGraph(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -24,13 +24,13 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
         funnelDataLogic(insightProps)
     )
 
-    const steps = visibleStepsWithConversionMetrics
-    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
-
-    const { isInDashboardContext } = useValues(funnelLogic)
-    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelLogic)
+    const { isInDashboardContext } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
     const { ref: graphRef, width } = useResizeObserver()
+
+    const steps = visibleStepsWithConversionMetrics
+    const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (

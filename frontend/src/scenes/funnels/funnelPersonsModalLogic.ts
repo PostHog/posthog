@@ -1,14 +1,15 @@
-import { kea } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import type { funnelLogicType } from './funnelLogicType'
+import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
-    FunnelsFilterType,
     FunnelStep,
     FunnelStepWithConversionMetrics,
     InsightLogicProps,
 } from '~/types'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from './funnelDataLogic'
 
 import {
     getBreakdownStepValues,
@@ -16,27 +17,32 @@ import {
     parseBreakdownValue,
     parseEventAndProperty,
 } from './funnelUtils'
-import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
-export type OpenPersonsModelProps = {
-    step: FunnelStep
-    stepIndex?: number
-    converted: boolean
-}
+import type { funnelPersonsModalLogicType } from './funnelPersonsModalLogicType'
 
-export const funnelLogic = kea<funnelLogicType>({
-    path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('insight_funnel'),
+const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
-    connect: (props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters as inflightFilters', 'isInDashboardContext']],
-    }),
+export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY)),
+    path((key) => ['scenes', 'funnels', 'funnelPersonsModalLogic', key]),
 
-    actions: () => ({
-        openPersonsModalForStep: ({ step, stepIndex, converted }: OpenPersonsModelProps) => ({
+    connect((props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['isInDashboardContext'], funnelDataLogic(props), ['steps', 'funnelsFilter']],
+    })),
+
+    actions({
+        openPersonsModalForStep: ({
+            step,
+            stepIndex,
+            converted,
+        }: {
+            step: FunnelStep
+            stepIndex?: number
+            converted: boolean
+        }) => ({
             step,
             stepIndex,
             converted,
@@ -54,29 +60,22 @@ export const funnelLogic = kea<funnelLogicType>({
             series,
             converted,
         }),
-
-        // Correlation related actions
         openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
             correlation,
             success,
         }),
     }),
 
-    selectors: () => ({
-        filters: [
-            (s) => [s.inflightFilters],
-            (inflightFilters): Partial<FunnelsFilterType> =>
-                inflightFilters && isFunnelsFilter(inflightFilters) ? inflightFilters : {},
-        ],
+    selectors({
         canOpenPersonModal: [
-            (s) => [s.filters, s.isInDashboardContext],
-            (filters, isInDashboardContext): boolean => {
-                return !isInDashboardContext && !filters.funnel_aggregate_by_hogql
+            (s) => [s.funnelsFilter, s.isInDashboardContext],
+            (funnelsFilter, isInDashboardContext): boolean => {
+                return !isInDashboardContext && !funnelsFilter?.funnel_aggregate_by_hogql
             },
         ],
     }),
 
-    listeners: ({ values }) => ({
+    listeners(({ values }) => ({
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
             if (values.isInDashboardContext) {
                 return
@@ -91,7 +90,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
                     label: step.name,
                     seriesId: step.order,
-                    order_type: values.filters.funnel_order_type,
+                    order_type: values.funnelsFilter?.funnel_order_type,
                 }),
             })
         },
@@ -109,7 +108,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                     label: step.name,
                     seriesId: step.order,
-                    order_type: values.filters.funnel_order_type,
+                    order_type: values.funnelsFilter?.funnel_order_type,
                 }),
             })
         },
@@ -142,5 +141,5 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             }
         },
-    }),
-})
+    })),
+])

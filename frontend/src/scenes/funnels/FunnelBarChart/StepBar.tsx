@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
-import { funnelLogic } from '../funnelLogic'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { percentage } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
@@ -8,6 +7,7 @@ import clsx from 'clsx'
 import { funnelTooltipLogic } from '../funnelTooltipLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -21,9 +21,9 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { openPersonsModalForSeries } = useActions(funnelLogic)
     const { disableFunnelBreakdownBaseline } = useValues(funnelDataLogic(insightProps))
     const { showTooltip, hideTooltip } = useActions(funnelTooltipLogic(insightProps))
+    const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
     const ref = useRef<HTMLDivElement | null>(null)
 

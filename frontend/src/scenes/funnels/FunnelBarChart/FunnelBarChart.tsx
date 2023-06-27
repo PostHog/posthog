@@ -11,6 +11,7 @@ import { StepBars } from './StepBars'
 import { StepBarLabels } from './StepBarLabels'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 interface FunnelBarChartCSSProperties extends React.CSSProperties {
     '--bar-width': string
@@ -19,7 +20,8 @@ interface FunnelBarChartCSSProperties extends React.CSSProperties {
 
 export function FunnelBarChart(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
+    const { visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
     const [scrollRef, scrollableClassNames] = useScrollable()
     const { height } = useResizeObserver({ ref: scrollRef })

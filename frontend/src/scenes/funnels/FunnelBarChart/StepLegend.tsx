@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from '../funnelLogic'
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -13,6 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -22,9 +22,9 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { canOpenPersonModal, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-
-    const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
 
     const convertedCountPresentation = pluralize(

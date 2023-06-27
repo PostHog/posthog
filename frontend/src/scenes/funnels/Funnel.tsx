@@ -1,8 +1,7 @@
 import './Funnel.scss'
-import { BindLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { ChartParams, FunnelVizType } from '~/types'
@@ -25,13 +24,9 @@ export function Funnel(props: ChartParams): JSX.Element {
         return <FunnelHistogram />
     }
 
-    return (
-        <BindLogic logic={funnelLogic} props={insightProps}>
-            {(layout || FunnelLayout.vertical) === FunnelLayout.vertical ? (
-                <FunnelBarChart {...props} />
-            ) : (
-                <FunnelBarGraph {...props} />
-            )}
-        </BindLogic>
-    )
+    if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
+        return <FunnelBarChart {...props} />
+    }
+
+    return <FunnelBarGraph {...props} />
 }

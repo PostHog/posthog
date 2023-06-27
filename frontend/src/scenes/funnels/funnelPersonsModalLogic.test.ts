@@ -1,10 +1,12 @@
-import { funnelLogic } from './funnelLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
 import { router } from 'kea-router'
+import { initKeaTests } from '~/test/init'
+
+import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { InsightLogicProps, InsightShortId, InsightType } from '~/types'
 import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -13,8 +15,8 @@ jest.mock('scenes/trends/persons-modal/PersonsModal')
 
 const Insight123 = '123' as InsightShortId
 
-describe('funnelLogic', () => {
-    let logic: ReturnType<typeof funnelLogic.build>
+describe('funnelPersonsModalLogic', () => {
+    let logic: ReturnType<typeof funnelPersonsModalLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -42,10 +44,10 @@ describe('funnelLogic', () => {
         },
     }
 
-    async function initFunnelLogic(props: InsightLogicProps = defaultProps): Promise<void> {
+    async function initFunnelPersonsModalLogic(props: InsightLogicProps = defaultProps): Promise<void> {
         teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
-        logic = funnelLogic(props)
+        logic = funnelPersonsModalLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -53,7 +55,7 @@ describe('funnelLogic', () => {
     describe('it opens the PersonsModal', () => {
         const props = { dashboardItemId: Insight123 }
         beforeEach(async () => {
-            await initFunnelLogic(props)
+            await initFunnelPersonsModalLogic(props)
         })
 
         test('openPersonsModalForStep calls openPersonsModal', async () => {
