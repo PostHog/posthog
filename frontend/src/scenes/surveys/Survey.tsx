@@ -10,6 +10,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
@@ -314,10 +315,15 @@ export function SurveyReleaseSummary({
                 survey.conditions?.selector ||
                 targetingFlagFilters ? (
                     <>
-                        This survey will be released to users who match <b>all</b> of the following:
+                        This survey {survey.start_date ? 'is' : 'will be'} released to users who match <b>all</b> of the
+                        following:
                     </>
                 ) : (
-                    'This survey will be released to everyone'
+                    <LemonTag type="highlight">
+                        <span className="text-sm">
+                            This survey {survey.start_date ? 'is' : 'will be'} released to everyone
+                        </span>
+                    </LemonTag>
                 )}
             </div>
             {survey.linked_flag_id && (
