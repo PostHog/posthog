@@ -2,11 +2,14 @@ import datetime as dt
 
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, ValidationError
+from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.batch_exports.service import (
+    BatchExportIdError,
+    BatchExportServiceError,
+    BatchExportServiceRPCError,
     backfill_export,
     create_batch_export,
     delete_schedule,
@@ -123,6 +126,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "paused",
             "created_at",
             "last_updated_at",
+            "last_paused_at",
         ]
         read_only_fields = [
             "id",
@@ -193,14 +197,19 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
-        note = f"Unpause requested by user {user_id} from team {team_id}"
+        note = f"Pause requested by user {user_id} from team {team_id}"
 
         batch_export = self.get_object()
         temporal = sync_connect()
+
         try:
             pause_batch_export(temporal, str(batch_export.id), note=note)
-        except ValueError:
-            raise ValidationError("Cannot pause a BatchExport that is already paused")
+        except BatchExportIdError:
+            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
+        except BatchExportServiceRPCError as e:
+            raise ValidationError({"message": "Request to pause a BatchExport could not be carried out", "error": e})
+        except BatchExportServiceError:
+            raise
 
         return response.Response({"paused": True})
 
@@ -213,15 +222,21 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
         note = f"Unpause requested by user {user_id} from team {team_id}"
+        backfill = int(self.request.query_params.get("backfill", 0)) == 1
 
         batch_export = self.get_object()
         temporal = sync_connect()
-        try:
-            unpause_batch_export(temporal, str(batch_export.id), note=note)
-        except ValueError:
-            raise ValidationError("Cannot pause a BatchExport that is already paused")
 
-        return response.Response({"paused": True})
+        try:
+            unpause_batch_export(temporal, str(batch_export.id), note=note, backfill=backfill)
+        except BatchExportIdError:
+            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
+        except BatchExportServiceRPCError as e:
+            raise ValidationError({"message": "Request to pause a BatchExport could not be carried out", "error": e})
+        except BatchExportServiceError:
+            raise
+
+        return response.Response({"paused": False})
 
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state."""

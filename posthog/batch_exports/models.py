@@ -115,3 +115,6 @@ class BatchExport(UUIDModel):
     last_updated_at: models.DateTimeField = models.DateTimeField(
         auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
     )
+    last_paused_at: models.DateTimeField = models.DateTimeField(
+        null=True, help_text="The timestamp at which this BatchExport was last paused."
+    )

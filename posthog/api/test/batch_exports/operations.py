@@ -22,12 +22,12 @@ def pause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int
     return response.json()
 
 
-def unpause_batch_export(client: TestClient, team_id: int, batch_export_id: int):
-    return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/unpause")
+def unpause_batch_export(client: TestClient, team_id: int, batch_export_id: int, backfill: bool = False):
+    return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/unpause?backfill={int(backfill)}")
 
 
-def unpause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int):
-    response = unpause_batch_export(client, team_id, batch_export_id)
+def unpause_batch_export_ok(client: TestClient, team_id: int, batch_export_id: int, backfill: bool = False):
+    response = unpause_batch_export(client, team_id, batch_export_id, backfill)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
 
