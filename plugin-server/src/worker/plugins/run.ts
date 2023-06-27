@@ -280,13 +280,13 @@ async function initPluginsForTeam(hub: Hub, teamId: number) {
 
 export async function loadPluginConfig(hub: Hub, pluginConfig: PluginConfig) {
     const { pluginVms } = hub
-    if (pluginVms.has(pluginConfig.plugin.id)) {
-        pluginConfig.vm = await pluginVms.get(pluginConfig.plugin.id)
+    if (pluginVms.has(pluginConfig.plugin!.id)) {
+        pluginConfig.vm = pluginVms.get(pluginConfig.plugin!.id)
     } else {
         const pluginVM = new LazyPluginVM(hub, pluginConfig)
 
-        if (pluginConfig.plugin.is_stateless) {
-            pluginVms.set(pluginConfig.plugin.id, pluginVM)
+        if (pluginConfig.plugin!.is_stateless) {
+            pluginVms.set(pluginConfig.plugin!.id, pluginVM)
         }
         pluginConfig.vm = pluginVM
     }

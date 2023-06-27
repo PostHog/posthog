@@ -237,7 +237,7 @@ export async function createHub(
         // Keep around stateless plugin vms such that we can reuse them for
         // multiple plugin configs.
 
-        pluginVms: new LRU<number, Promise<LazyPluginVM>>({
+        pluginVms: new LRU<number, LazyPluginVM>({
             maxAge: 1000 * 60 * 10,
         }),
 

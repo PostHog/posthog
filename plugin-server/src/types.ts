@@ -221,7 +221,7 @@ export interface Hub extends PluginsServerConfig {
     // Not we include null here to indicate that the plugin is not enabled
     pluginConfigs: LRU<number, Promise<PluginConfig | null>>
     pluginConfigsPerTeam: LRU<number, Promise<PluginConfig[]>>
-    pluginVms: LRU<number, Promise<LazyPluginVM | null>>
+    pluginVms: LRU<number, LazyPluginVM | null>
     pluginSchedule: Record<string, PluginConfigId[]> | null
     // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
     pluginConfigSecrets: Map<PluginConfigId, string>
