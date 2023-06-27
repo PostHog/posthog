@@ -1,8 +1,8 @@
+import { executeHogQLBytecode } from '@posthog/hogvm'
 import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
-import { executeHogQLBytecode } from 'hogvm'
 import { StatsD } from 'hot-shots'
 import RE2 from 're2'
 

@@ -1,5 +1,9 @@
 lockfileVersion: '6.0'
 
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
 patchedDependencies:
   pg@8.10.0:
     hash: ju7a73s3qkmrf666u3aacfrooi
@@ -42,6 +46,9 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
+  '@posthog/hogvm':
+    specifier: ^1.0.0
+    version: 1.0.0
   '@posthog/plugin-contrib':
     specifier: ^0.0.5
     version: 0.0.5
@@ -3555,6 +3562,10 @@ packages:
   /@posthog/clickhouse@1.7.0:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
+    dev: false
+
+  /@posthog/hogvm@1.0.0:
+    resolution: {integrity: sha512-U5wVK9KpygM1/SEm5DfmGJ+07YZbyRfHBMVmUj4sSMkLLG6HW+1M/o3KaxHaVvCkAJYrUl588HT6pEVbdvhe7g==}
     dev: false
 
   /@posthog/plugin-contrib@0.0.5:
