@@ -1,11 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
+import { loadPluginSchedule } from '../../src/main/graphile-worker/schedule'
 import { Hub, LogLevel } from '../../src/types'
 import { processError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
-import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
 import { getPluginConfig, runProcessEvent } from '../../src/worker/plugins/run'
+import { workerTasks } from '../../src/worker/tasks'
 import {
     commonOrganizationId,
     mockPluginSourceCode,
@@ -22,6 +23,7 @@ import {
     createPluginConfig,
     createTeam,
     resetTestDatabase,
+    updatePluginConfig,
 } from '../helpers/sql'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
 
@@ -846,20 +848,29 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('reloading plugins after config changes', async () => {
-        const makePlugin = (id: number, updated_at = '2020-11-02'): any => ({
-            ...plugin60,
-            id,
-            plugin_type: 'source',
-            source: setOrderCode(60),
-            updated_at,
-        })
-        const makeConfig = (plugin_id: number, id: number, order: number, updated_at = '2020-11-02'): any => ({
-            ...pluginConfig39,
-            plugin_id,
-            id,
-            order,
-            updated_at,
-        })
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+
+        const { id: _, organization_id: ___, ...pluginData } = plugin60
+        const { id: __, plugin_id: ____, ...pluginConfigData } = pluginConfig39
+
+        const makePlugin = async (id: number, updated_at = '2020-11-02') =>
+            await createPlugin(hub.postgres, {
+                ...pluginData,
+                plugin_type: 'source',
+                source__index_ts: setOrderCode(id),
+                updated_at,
+                organization_id: organizationId,
+            })
+
+        const makeConfig = async (plugin_id: number, order: number, updated_at = '2020-11-02') =>
+            await createPluginConfig(hub.postgres, {
+                ...pluginConfigData,
+                plugin_id,
+                order,
+                updated_at,
+                team_id: teamId,
+            })
 
         const setOrderCode = (id: number) => {
             return `
@@ -871,127 +882,80 @@ exports.scene = scene;; return exports; }`)
         `
         }
 
-        getPluginRows.mockReturnValue([makePlugin(60), makePlugin(61), makePlugin(62), makePlugin(63)])
-        getPluginAttachmentRows.mockReturnValue([])
-        getPluginConfigRows.mockReturnValue([
-            makeConfig(60, 39, 0),
-            makeConfig(61, 41, 1),
-            makeConfig(62, 40, 3),
-            makeConfig(63, 42, 2),
-        ])
+        const [plugin1, plugin2, plugin3, plugin4] = [
+            await makePlugin(1),
+            await makePlugin(2),
+            await makePlugin(3),
+            await makePlugin(4),
+        ]
+        const pluginConfig1 = await makeConfig(plugin1.id, 1)
+        await makeConfig(plugin2.id, 2)
+        await makeConfig(plugin3.id, 3)
+        await makeConfig(plugin4.id, 4)
 
-        await setupPlugins(hub)
-        await loadSchedule(hub)
-
-        expect(loadPlugin).toHaveBeenCalledTimes(4)
-        expect(Array.from(hub.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 62, 63]))
-        expect(Array.from(hub.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 40, 41, 42]))
-
-        expect(hub.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
-            [39, 0],
-            [41, 1],
-            [42, 2],
-            [40, 3],
-        ])
-
-        getPluginRows.mockReturnValue([makePlugin(60), makePlugin(61), makePlugin(63, '2021-02-02'), makePlugin(64)])
-        getPluginAttachmentRows.mockReturnValue([])
-        getPluginConfigRows.mockReturnValue([
-            makeConfig(60, 39, 0),
-            makeConfig(61, 41, 3, '2021-02-02'),
-            makeConfig(63, 42, 2),
-            makeConfig(64, 43, 1),
-        ])
-
-        await setupPlugins(hub)
-        await loadSchedule(hub)
-
-        expect(loadPlugin).toHaveBeenCalledTimes(4 + 3)
-        expect(Array.from(hub.plugins.keys())).toEqual(expect.arrayContaining([60, 61, 63, 64]))
-        expect(Array.from(hub.pluginConfigs.keys())).toEqual(expect.arrayContaining([39, 41, 42, 43]))
-
-        expect(hub.pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
-            [39, 0],
-            [43, 1],
-            [42, 2],
-            [41, 3],
-        ])
-    })
-
-    test("capabilities don't reload without changes", async () => {
-        getPluginRows.mockReturnValueOnce([{ ...plugin60 }]).mockReturnValueOnce([
-            {
-                ...plugin60,
-                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
-            },
-        ]) // updated in DB via first `setPluginCapabilities` call.
-        getPluginAttachmentRows.mockReturnValue([pluginAttachment1])
-        getPluginConfigRows.mockReturnValue([pluginConfig39])
-
-        await setupPlugins(hub)
-        const pluginConfig = hub.pluginConfigs.get(39)!
-
-        await pluginConfig.vm?.resolveInternalVm
-        // async loading of capabilities
-        expect(setPluginCapabilities.mock.calls.length).toBe(1)
-
-        pluginConfig.updated_at = new Date().toISOString()
-        // config is changed, but capabilities haven't changed
-
-        await setupPlugins(hub)
-        const newPluginConfig = hub.pluginConfigs.get(39)!
-
-        await newPluginConfig.vm?.resolveInternalVm
-        // async loading of capabilities
-
-        expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
-        expect(setPluginCapabilities.mock.calls.length).toBe(1)
-        expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
-    })
-
-    test.skip('exportEvents automatically sets metrics', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            export function exportEvents() {}
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const pluginConfig = hub.pluginConfigs.get(39)!
-
-        expect(pluginConfig.plugin!.metrics).toEqual({
-            events_delivered_successfully: 'sum',
-            events_seen: 'sum',
-            other_errors: 'sum',
-            retry_errors: 'sum',
-            undelivered_events: 'sum',
+        let event = await runProcessEvent(hub, {
+            event: 'test',
+            properties: {},
+            team_id: teamId,
+            distinct_id: 'test',
+            ip: '10.0.0.1',
+            site_url: 'http://localhost:8000',
+            now: new Date().toISOString(),
+            uuid: 'test',
         })
+        expect(event!.properties!.plugins).toEqual([1, 2, 3, 4])
+
+        workerTasks.reloadPlugins(hub, undefined)
+
+        await updatePluginConfig(hub.postgres, pluginConfig1.id, { order: 5 })
+
+        event = await runProcessEvent(hub, {
+            event: 'test',
+            properties: {},
+            team_id: teamId,
+            distinct_id: 'test',
+            ip: '10.0.0.1',
+            site_url: 'http://localhost:8000',
+            now: new Date().toISOString(),
+            uuid: 'test',
+        })
+        expect(event!.properties!.plugins).toEqual([2, 3, 4, 1])
     })
 
-    describe('loadSchedule()', () => {
-        const mockConfig = (tasks: any) => ({ vm: { getScheduledTasks: () => Promise.resolve(tasks) } })
-
-        const hub = {
-            pluginConfigs: new Map(
-                Object.entries({
-                    1: {},
-                    2: mockConfig({ runEveryMinute: null, runEveryHour: () => 123 }),
-                    3: mockConfig({ runEveryMinute: () => 123, foo: () => 'bar' }),
-                })
-            ),
-        } as any
-
+    describe('loadPluginSchedule()', () => {
         it('sets server.pluginSchedule once all plugins are ready', async () => {
-            const promise = loadSchedule(hub)
-            expect(hub.pluginSchedule).toEqual(null)
+            const organizationId = await createOrganization(hub.postgres)
+            const teamId = await createTeam(hub.postgres, organizationId)
+            const { id: _, ...pluginData } = plugin60
 
-            await promise
+            const pluginHour = await createPlugin(hub.postgres, {
+                ...pluginData,
+                organization_id: organizationId,
+                capabilities: { scheduled_tasks: ['runEveryHour'] },
+            })
+            const pluginMinute = await createPlugin(hub.postgres, {
+                ...pluginData,
+                organization_id: organizationId,
+                capabilities: { scheduled_tasks: ['runEveryMinute'] },
+            })
+            const { id: __, ...pluginConfigData } = pluginConfig39
 
-            expect(hub.pluginSchedule).toEqual({
-                runEveryMinute: ['3'],
-                runEveryHour: ['2'],
+            const pluginConfigHour = await createPluginConfig(hub.postgres, {
+                ...pluginConfigData,
+                plugin_id: pluginHour.id,
+                team_id: teamId,
+            })
+            const pluginConfigMinute = await createPluginConfig(hub.postgres, {
+                ...pluginConfigData,
+                plugin_id: pluginMinute.id,
+                team_id: teamId,
+            })
+
+            const pluginSchedule = await loadPluginSchedule(hub)
+
+            expect(pluginSchedule).toEqual({
+                runEveryMinute: [pluginConfigMinute.id],
+                runEveryHour: [pluginConfigHour.id],
                 runEveryDay: [],
             })
         })

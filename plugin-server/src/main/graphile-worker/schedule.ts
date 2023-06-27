@@ -38,13 +38,16 @@ export async function loadPluginSchedule(hub: Hub): Promise<Hub['pluginSchedule'
     )
 
     // Reduce the rows into a mapping from task type to plugin config ids.
-    const schedule = schedules.rows.reduce((acc, { id, task_types }) => {
-        for (const taskType of task_types) {
-            acc[taskType] = acc[taskType] || []
-            acc[taskType].push(id)
-        }
-        return acc
-    }, {} as { [taskType: string]: number[] })
+    const schedule = schedules.rows.reduce(
+        (acc, { id, task_types }) => {
+            for (const taskType of task_types) {
+                acc[taskType] = acc[taskType] || []
+                acc[taskType].push(id)
+            }
+            return acc
+        },
+        { runEveryMinute: [], runEveryHour: [], runEveryDay: [] } as { [taskType: string]: number[] }
+    )
 
     status.info('📅', 'loaded_plugin_schedule', { schedule })
     return schedule

@@ -1,3 +1,4 @@
+import assert from 'assert'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient } from 'pg'
 
@@ -295,6 +296,7 @@ export async function getErrorForPluginConfig(id: number): Promise<any> {
 
 export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(pgClient, 'posthog_plugin', {
+        capabilities: {},
         ...plugin,
         config_schema: {},
         from_json: false,
@@ -302,7 +304,6 @@ export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) =
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         is_preinstalled: false,
-        capabilities: {},
     })
 }
 
@@ -326,6 +327,24 @@ export const createPluginConfig = async (
     })
 }
 
+export const updatePluginConfig = async (
+    pgClient: Pool,
+    pluginConfigId: number,
+    pluginConfig: Partial<Omit<PluginConfig, 'id'>>
+) => {
+    const query = `
+        UPDATE posthog_pluginconfig 
+        SET ${Object.keys(pluginConfig).map((key, index) => `"${key}" = $${index + 1}`)} 
+        WHERE id = $${Object.keys(pluginConfig).length + 1}
+    `
+
+    const params = [...Object.values(pluginConfig), pluginConfigId]
+
+    const { rowCount } = await pgClient.query(query, params)
+
+    assert(rowCount === 1, `Expected to update one plugin config, updated ${rowCount}: ${query}, ${params}`)
+}
+
 export const createOrganization = async (pgClient: Pool) => {
     const organizationId = new UUIDT().toString()
     await insertRow(pgClient, 'posthog_organization', {
@@ -347,8 +366,6 @@ export const createOrganization = async (pgClient: Pool) => {
 
 export const createTeam = async (pgClient: Pool, organizationId: string, token?: string) => {
     const team = await insertRow(pgClient, 'posthog_team', {
-        // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-        id: Math.round(Math.random() * 1000000000),
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
