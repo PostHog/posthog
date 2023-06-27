@@ -76,7 +76,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     }
                     placement="right"
                 >
-                    {showPersonsModal && !!canOpenPersonModal ? (
+                    {!!showPersonsModal && canOpenPersonModal ? (
                         <ValueInspectorButton
                             onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         >

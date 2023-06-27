@@ -406,12 +406,5 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
-
-        canOpenPersonModal: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): boolean => {
-                return !funnelsFilter?.funnel_aggregate_by_hogql
-            },
-        ],
     })),
 ])
