@@ -1143,3 +1143,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query = f"select a {op} {b} from (select {a} as a)"
             response = execute_hogql_query(query, team=self.team)
             self.assertEqual(response.results, [(res,)], query)
+
+    def test_regex_functions(self):
+        query = """
+            SELECT
+                'kala' ~ '.*',
+                'kala' =~ '.*',
+                'kala' !~ '.*',
+                'kala' =~ 'a',
+                'kala' !~ 'a',
+                'kala' =~ 'A',
+                'kala' !~ 'A',
+                'kala' ~* 'A',
+                'kala' =~* 'A',
+                'kala' !~* 'A'
+        """
+
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+        )
+
+        self.assertEqual(
+            response.results,
+            [(True, True, False, True, False, False, True, True, True, False)],
+        )
