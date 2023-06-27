@@ -25,9 +25,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 
@@ -53,16 +51,9 @@ export function OverViewTab({
     const { user, hasAvailableFeature } = useValues(userLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const { reportEmptyStateShown } = useActions(eventUsageLogic)
     const shouldShowProductIntroduction =
         !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-
-    useEffect(() => {
-        if (shouldShowEmptyState) {
-            reportEmptyStateShown('feature_flags')
-        }
-    }, [shouldShowEmptyState])
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {

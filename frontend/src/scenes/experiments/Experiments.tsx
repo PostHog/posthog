@@ -20,8 +20,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
@@ -40,13 +38,6 @@ export function Experiments(): JSX.Element {
     } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { reportEmptyStateShown } = useActions(eventUsageLogic)
-
-    useEffect(() => {
-        if (shouldShowEmptyState) {
-            reportEmptyStateShown('experiments')
-        }
-    }, [shouldShowEmptyState])
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
         'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
