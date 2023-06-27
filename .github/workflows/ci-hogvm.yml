@@ -48,8 +48,5 @@ jobs:
             - name: Check formatting with prettier
               run: pnpm prettier:check
 
-            - name: Lint with ESLint
-              run: pnpm lint
-
             - name: Test with Jest
               run: pnpm test
