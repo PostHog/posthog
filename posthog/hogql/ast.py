@@ -343,6 +343,8 @@ class CompareOperationOp(str, Enum):
     NotILike = "not ilike"
     In = "in"
     NotIn = "not in"
+    InCohort = "in cohort"
+    NotInCohort = "not in cohort"
     Regex = "=~"
     IRegex = "=~*"
     NotRegex = "!~"

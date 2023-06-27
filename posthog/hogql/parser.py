@@ -487,12 +487,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op = ast.CompareOperationOp.NotIRegex
         elif ctx.IN():
             if ctx.COHORT():
-                right = ast.Call(name="cohort", args=[right])
-
-            if ctx.NOT():
-                op = ast.CompareOperationOp.NotIn
+                if ctx.NOT():
+                    op = ast.CompareOperationOp.NotInCohort
+                else:
+                    op = ast.CompareOperationOp.InCohort
             else:
-                op = ast.CompareOperationOp.In
+                if ctx.NOT():
+                    op = ast.CompareOperationOp.NotIn
+                else:
+                    op = ast.CompareOperationOp.In
         else:
             raise NotImplementedException(f"Unsupported ColumnExprPrecedence3: {ctx.getText()}")
 
