@@ -237,8 +237,8 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             pause_batch_export(temporal, str(batch_export.id), note=note)
         except BatchExportIdError:
             raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
-        except BatchExportServiceRPCError as e:
-            raise ValidationError(f"Request to pause a BatchExport could not be carried out: {e}")
+        except BatchExportServiceRPCError:
+            raise ValidationError("Invalid request to pause a BatchExport could not be carried out")
         except BatchExportServiceError:
             raise
 
@@ -262,8 +262,8 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             unpause_batch_export(temporal, str(batch_export.id), note=note, backfill=backfill)
         except BatchExportIdError:
             raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
-        except BatchExportServiceRPCError as e:
-            raise ValidationError(f"Request to pause a BatchExport could not be carried out: {e}")
+        except BatchExportServiceRPCError:
+            raise ValidationError("Invalid request to unpause a BatchExport could not be carried out")
         except BatchExportServiceError:
             raise
 
