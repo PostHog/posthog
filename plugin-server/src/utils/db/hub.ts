@@ -37,6 +37,7 @@ import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { teardownPluginConfigPromise } from '../../worker/plugins/teardown'
+import { LazyPluginVM } from '../../worker/vm/lazy'
 import { status } from '../status'
 import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -232,6 +233,14 @@ export async function createHub(
         pluginConfigsPerTeam: new LRU<number, Promise<PluginConfig[]>>({
             maxAge: 1000 * 60 * 10,
         }),
+
+        // Keep around stateless plugin vms such that we can reuse them for
+        // multiple plugin configs.
+
+        pluginVms: new LRU<number, Promise<LazyPluginVM>>({
+            maxAge: 1000 * 60 * 10,
+        }),
+
         pluginConfigSecrets: new Map(),
         pluginConfigSecretLookup: new Map(),
 

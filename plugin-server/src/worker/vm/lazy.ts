@@ -122,7 +122,6 @@ export class LazyPluginVM {
     }
 
     async initialize(indexJs: string, logInfo = ''): Promise<PluginConfigVMResponse | null> {
-        console.error('Initializing plugin', logInfo)
         try {
             const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
             this.vmResponseVariable = vm.vmResponseVariable

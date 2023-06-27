@@ -267,6 +267,7 @@ async function initPluginsForTeam(hub: Hub, teamId: number) {
             WHERE 
                 team_id = $1 
                 AND enabled = true
+            ORDER BY config.order
         `,
         [teamId],
         'getPluginConfigsForTeam'
@@ -278,13 +279,22 @@ async function initPluginsForTeam(hub: Hub, teamId: number) {
 }
 
 export async function loadPluginConfig(hub: Hub, pluginConfig: PluginConfig) {
-    const pluginVM = new LazyPluginVM(hub, pluginConfig)
-    pluginConfig.vm = pluginVM
+    const { pluginVms } = hub
+    if (pluginVms.has(pluginConfig.plugin.id)) {
+        pluginConfig.vm = await pluginVms.get(pluginConfig.plugin.id)
+    } else {
+        const pluginVM = new LazyPluginVM(hub, pluginConfig)
+
+        if (pluginConfig.plugin.is_stateless) {
+            pluginVms.set(pluginConfig.plugin.id, pluginVM)
+        }
+        pluginConfig.vm = pluginVM
+    }
     await loadPlugin(hub, pluginConfig)
     return pluginConfig
 }
 
-async function getPluginConfig(hub: Hub, pluginConfigId: number) {
+export async function getPluginConfig(hub: Hub, pluginConfigId: number) {
     // Either get the pluginConfig with VM loaded from the cache, or load it
     // from the database.
     status.debug('ℹ️', `Getting plugin config ${pluginConfigId}`)

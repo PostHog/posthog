@@ -306,17 +306,23 @@ export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) =
     })
 }
 
+export const createPluginAttachment = async (pgClient: Pool, pluginAttachment: Omit<PluginAttachmentDB, 'id'>) => {
+    return await insertRow(pgClient, 'posthog_pluginattachment', {
+        ...pluginAttachment,
+    })
+}
+
 export const createPluginConfig = async (
     pgClient: Pool,
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
     return await insertRow(pgClient, 'posthog_pluginconfig', {
+        order: 0,
+        config: {},
         ...pluginConfig,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         enabled: true,
-        order: 0,
-        config: {},
     })
 }
 

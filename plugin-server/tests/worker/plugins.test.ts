@@ -5,9 +5,7 @@ import { processError } from '../../src/utils/db/error'
 import { createHub } from '../../src/utils/db/hub'
 import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
-import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
-import { runProcessEvent } from '../../src/worker/plugins/run'
-import { setupPlugins } from '../../src/worker/plugins/setup'
+import { getPluginConfig, runProcessEvent } from '../../src/worker/plugins/run'
 import {
     commonOrganizationId,
     mockPluginSourceCode,
@@ -17,7 +15,14 @@ import {
     pluginAttachment1,
     pluginConfig39,
 } from '../helpers/plugins'
-import { resetTestDatabase } from '../helpers/sql'
+import {
+    createOrganization,
+    createPlugin,
+    createPluginAttachment,
+    createPluginConfig,
+    createTeam,
+    resetTestDatabase,
+} from '../helpers/sql'
 import { getPluginAttachmentRows, getPluginConfigRows, getPluginRows, setPluginCapabilities } from '../helpers/sqlMock'
 
 jest.mock('../../src/utils/db/sql')
@@ -44,32 +49,30 @@ describe('plugins', () => {
     })
 
     test('setupPlugins and runProcessEvent', async () => {
-        getPluginRows.mockReturnValueOnce([{ ...plugin60 }])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-
-        await setupPlugins(hub)
-        const { plugins, pluginConfigs } = hub
-
-        expect(getPluginRows).toHaveBeenCalled()
-        expect(getPluginAttachmentRows).toHaveBeenCalled()
-        expect(getPluginConfigRows).toHaveBeenCalled()
-
-        expect(Array.from(pluginConfigs.keys())).toEqual([39])
-
-        const pluginConfig = pluginConfigs.get(39)!
-        expect(pluginConfig.id).toEqual(pluginConfig39.id)
-        expect(pluginConfig.team_id).toEqual(pluginConfig39.team_id)
-        expect(pluginConfig.plugin_id).toEqual(pluginConfig39.plugin_id)
-        expect(pluginConfig.enabled).toEqual(pluginConfig39.enabled)
-        expect(pluginConfig.order).toEqual(pluginConfig39.order)
-        expect(pluginConfig.config).toEqual(pluginConfig39.config)
-        expect(pluginConfig.error).toEqual(pluginConfig39.error)
-
-        expect(pluginConfig.plugin).toEqual({
-            ...plugin60,
-            capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin = await createPlugin(hub.postgres, { ...pluginData, organization_id: organizationId })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
         })
+        const { id: ___, ...pluginAttachmentData } = pluginAttachment1
+        await createPluginAttachment(hub.postgres, {
+            ...pluginAttachmentData,
+            plugin_config_id: pluginConfigRow.id,
+            team_id: teamId,
+        })
+
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
+
+        expect(pluginConfig.plugin).toEqual(
+            expect.objectContaining({
+                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+            })
+        )
 
         expect(pluginConfig.attachments).toEqual({
             maxmindMmdb: {
@@ -92,18 +95,9 @@ describe('plugins', () => {
 
         // async loading of capabilities
         expect(setPluginCapabilities).toHaveBeenCalled()
-        expect(Array.from(plugins.entries())).toEqual([
-            [
-                60,
-                {
-                    ...plugin60,
-                    capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
-                },
-            ],
-        ])
 
         const processEvent = vm!.methods['processEvent']!
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         await processEvent(event)
 
         expect(event.properties!['processed']).toEqual(true)
@@ -116,25 +110,31 @@ describe('plugins', () => {
     })
 
     test('stateless plugins', async () => {
-        const plugin = { ...plugin60, is_stateless: true }
-        getPluginRows.mockReturnValueOnce([plugin])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39, { ...pluginConfig39, id: 40, team_id: 1 }])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const otherTeamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            is_stateless: true,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
+        const otherPluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: otherTeamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const pluginConfigTeam1 = (await getPluginConfig(hub, pluginConfigRow.id))!
+        const pluginConfigTeam2 = (await getPluginConfig(hub, otherPluginConfigRow.id))!
 
-        expect(getPluginRows).toHaveBeenCalled()
-        expect(getPluginAttachmentRows).toHaveBeenCalled()
-        expect(getPluginConfigRows).toHaveBeenCalled()
-
-        expect(Array.from(pluginConfigs.keys())).toEqual([39, 40])
-
-        const pluginConfigTeam1 = pluginConfigs.get(40)!
-        const pluginConfigTeam2 = pluginConfigs.get(39)!
-
-        expect(pluginConfigTeam1.plugin).toEqual(plugin)
-        expect(pluginConfigTeam2.plugin).toEqual(plugin)
+        expect(pluginConfigTeam1.plugin).toEqual(pluginConfigTeam2.plugin)
 
         expect(pluginConfigTeam1.vm).toBeDefined()
         expect(pluginConfigTeam2.vm).toBeDefined()
@@ -143,33 +143,49 @@ describe('plugins', () => {
     })
 
     test('plugin returns null', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles('function processEvent (event, meta) { return null }'),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            source__index_ts: 'function processEvent (event, meta) { return null }',
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        await createPluginConfig(hub.postgres, { ...pluginConfigData, plugin_id: plugin.id, team_id: teamId })
 
-        await setupPlugins(hub)
-
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, event)
 
         expect(returnedEvent).toEqual(null)
     })
 
     test('plugin meta has what it should have', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            function setupPlugin (meta) { meta.global.key = 'value' }
-            function processEvent (event, meta) { event.properties=meta; return event }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            source__index_ts: `
+        function setupPlugin (meta) { meta.global.key = 'value' }
+        function processEvent (event, meta) { event.properties=meta; return event }
+    `,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
+        const { id: ___, ...pluginAttachmentData } = pluginAttachment1
+        await createPluginAttachment(hub.postgres, {
+            ...pluginAttachmentData,
+            plugin_config_id: pluginConfigRow.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, event)
 
         expect(Object.keys(returnedEvent!.properties!).sort()).toEqual([
@@ -201,23 +217,30 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            function setupPlugin (met
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            source__index_ts: `
+                function setupPlugin (met
+            `,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
-        const pluginConfig = pluginConfigs.get(39)!
         pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
         expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
         expect(returnedEvent).toEqual(event)
 
@@ -231,20 +254,29 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        const [plugin, unlink] = mockPluginTempFolder(`function setupPlugin (met`)
-        getPluginRows.mockReturnValueOnce([plugin])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const [localPluginData, unlink] = mockPluginTempFolder(`function setupPlugin (met`)
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        const pluginConfig = pluginConfigs.get(39)!
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
+
         pluginConfig.vm!.totalInitAttemptsCounter = 20 // prevent more retries
         await delay(4000) // processError is called at end of retries
         expect(await pluginConfig.vm!.getScheduledTasks()).toEqual({})
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
         expect(returnedEvent).toEqual(event)
 
@@ -256,38 +288,46 @@ describe('plugins', () => {
     })
 
     test('plugin changing event.team_id throws error', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+        const localPluginData = mockPluginWithSourceFiles(`
             function processEvent (event, meta) {
                 event.team_id = 400
                 return event
             }
-        `),
-        ])
+        `)
 
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, event)
 
         const expectedReturnedEvent = {
             event: '$test',
             properties: {
-                $plugins_failed: ['test-maxmind-plugin (39)'],
+                $plugins_failed: [`test-maxmind-plugin (${pluginConfig.id})`],
                 $plugins_succeeded: [],
                 $plugins_deferred: [],
             },
-            team_id: 2,
+            team_id: teamId,
         }
         expect(returnedEvent).toEqual(expectedReturnedEvent)
 
         expect(processError).toHaveBeenCalledWith(
             hub,
-            pluginConfigs.get(39)!,
+            pluginConfig,
             new IllegalOperationError('Plugin tried to change event.team_id'),
             expectedReturnedEvent
         )
@@ -298,28 +338,37 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+        const localPluginData = mockPluginWithSourceFiles(`
             function processEvent (event) {
                 throw new Error('I always fail!')
             }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        `)
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
+
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
 
         const expectedReturnEvent = {
             ...event,
             properties: {
-                $plugins_failed: ['test-maxmind-plugin (39)'],
+                $plugins_failed: [`test-maxmind-plugin (${pluginConfig.id})`],
                 $plugins_succeeded: [],
                 $plugins_deferred: [],
             },
@@ -332,29 +381,38 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+        const localPluginData = mockPluginWithSourceFiles(`
             function processEvent (event) {
                 return event
             }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        `)
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
+
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
 
         const expectedReturnEvent = {
             ...event,
             properties: {
                 $plugins_failed: [],
-                $plugins_succeeded: ['test-maxmind-plugin (39)'],
+                $plugins_succeeded: [`test-maxmind-plugin (${pluginConfig.id})`],
                 $plugins_deferred: [],
             },
         }
@@ -366,22 +424,31 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+        const localPluginData = mockPluginWithSourceFiles(`
             function onEvent (event) {
                 return event
             }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        `)
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
+
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
 
         const expectedReturnEvent = {
@@ -389,7 +456,7 @@ describe('plugins', () => {
             properties: {
                 $plugins_failed: [],
                 $plugins_succeeded: [],
-                $plugins_deferred: ['test-maxmind-plugin (39)'],
+                $plugins_deferred: [`test-maxmind-plugin (${pluginConfig.id})`],
             },
         }
         expect(returnedEvent).toEqual(expectedReturnEvent)
@@ -400,25 +467,34 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(
-                `function processEvent (event, meta) { event.properties.processed = true; return event }`,
-                '{ broken: "plugin.json" -=- '
-            ),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const localPluginData = mockPluginWithSourceFiles(
+            `function processEvent (event, meta) { event.properties.processed = true; return event }`,
+            '{ broken: "plugin.json" -=- '
+        )
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
+
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
+
+        expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
 
         expect(processError).toHaveBeenCalledWith(
             hub,
-            pluginConfigs.get(39)!,
-            `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin60.id} (organization ID ${commonOrganizationId})`
+            pluginConfig!,
+            `Could not load "plugin.json" for plugin test-maxmind-plugin ID ${plugin.id} (organization ID ${organizationId})`
         )
-
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('local plugin with broken plugin.json does not do much', async () => {
@@ -426,23 +502,33 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        const [plugin, unlink] = mockPluginTempFolder(
+        const [localPluginData, unlink] = mockPluginTempFolder(
             `function processEvent (event, meta) { event.properties.processed = true; return event }`,
             '{ broken: "plugin.json" -=- '
         )
-        getPluginRows.mockReturnValueOnce([plugin])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
+
+        expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
         expect(processError).toHaveBeenCalledWith(
             hub,
-            pluginConfigs.get(39)!,
+            pluginConfig!,
             expect.stringContaining('Could not load "plugin.json" for plugin ')
         )
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
 
         unlink()
     })
@@ -452,69 +538,84 @@ describe('plugins', () => {
         console.log = jest.fn()
         console.error = jest.fn()
 
-        getPluginRows.mockReturnValueOnce([{ ...plugin60, source__index_ts: undefined }])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
-        expect(pluginConfigs.get(39)!.plugin!.url).toContain('https://')
+        expect(pluginConfig!.plugin!.url).toContain('https://')
         expect(processError).toHaveBeenCalledWith(
             hub,
-            pluginConfigs.get(39)!,
+            pluginConfig,
             `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
         )
-        expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
+        expect(await pluginConfig!.vm!.getScheduledTasks()).toEqual({})
     })
 
     test('plugin config order', async () => {
-        getPluginRows.mockReturnValueOnce([
-            {
-                ...plugin60,
-                id: 60,
-                plugin_type: 'source',
-                source__index_ts: `function processEvent(event) {
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = plugin60
+        const plugin1 = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            source__index_ts: `function processEvent(event) {
                 event.properties.plugins = [...(event.properties.plugins || []), 60]
                 return event
               }`,
-            },
-            {
-                ...plugin60,
-                id: 61,
-                plugin_type: 'source',
-                source__index_ts: `function processEvent(event) {
+        })
+
+        const plugin2 = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            source__index_ts: `function processEvent(event) {
                 event.properties.plugins = [...(event.properties.plugins || []), 61]
                 return event
               }`,
-            },
-            {
-                ...plugin60,
-                id: 62,
-                plugin_type: 'source',
-                source__index_ts: `function processEvent(event) {
+        })
+
+        const plugin3 = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+            source__index_ts: `function processEvent(event) {
                 event.properties.plugins = [...(event.properties.plugins || []), 62]
                 return event
               }`,
-            },
-        ])
-        getPluginAttachmentRows.mockReturnValueOnce([])
-        getPluginConfigRows.mockReturnValueOnce([
-            { ...pluginConfig39, order: 2 },
-            { ...pluginConfig39, plugin_id: 61, id: 40, order: 1 },
-            { ...pluginConfig39, plugin_id: 62, id: 41, order: 3 },
-        ])
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigsPerTeam } = hub
+        const { id: __, ...pluginConfigData } = pluginConfig39
 
-        expect(pluginConfigsPerTeam.get(pluginConfig39.team_id)?.map((c) => [c.id, c.order])).toEqual([
-            [40, 1],
-            [39, 2],
-            [41, 3],
-        ])
+        await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin1.id,
+            team_id: teamId,
+            order: 2,
+        })
+        await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin2.id,
+            team_id: teamId,
+            order: 1,
+        })
+        await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin3.id,
+            team_id: teamId,
+            order: 3,
+        })
 
-        const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
+        const event = { event: '$test', properties: {}, team_id: teamId } as PluginEvent
 
         const returnedEvent1 = await runProcessEvent(hub, { ...event, properties: { ...event.properties } })
         expect(returnedEvent1!.properties!.plugins).toEqual([61, 60, 62])
@@ -524,19 +625,24 @@ describe('plugins', () => {
     })
 
     test('plugin with source files loads capabilities', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = mockPluginWithSourceFiles(`
             function setupPlugin (meta) { meta.global.key = 'value' }
             function processEvent (event, meta) { event.properties={"x": 1}; return event }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        `)
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        const pluginConfig = pluginConfigs.get(39)!
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
         await pluginConfig.vm?.resolveInternalVm
         // async loading of capabilities
@@ -547,8 +653,9 @@ describe('plugins', () => {
     })
 
     test('plugin with source files loads all capabilities, no random caps', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = mockPluginWithSourceFiles(`
             export function processEvent (event, meta) { event.properties={"x": 1}; return event }
             export function randomFunction (event, meta) { return event}
             export function onEvent (event, meta) { return event }
@@ -558,15 +665,19 @@ describe('plugins', () => {
             export const jobs = {
                 x: (event, meta) => console.log(event)
             }
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        `)
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        const pluginConfig = pluginConfigs.get(39)!
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
         await pluginConfig.vm?.resolveInternalVm
         // async loading of capabilities
@@ -577,20 +688,27 @@ describe('plugins', () => {
     })
 
     test('plugin with source file loads capabilities', async () => {
-        const [plugin, unlink] = mockPluginTempFolder(`
-        function processEvent (event, meta) { event.properties={"x": 1}; return event }
-        function randomFunction (event, meta) { return event}
-        function onEvent (event, meta) { return event }
-    `)
+        const [localPluginData, unlink] = mockPluginTempFolder(`
+            function processEvent (event, meta) { event.properties={"x": 1}; return event }
+            function randomFunction (event, meta) { return event}
+            function onEvent (event, meta) { return event }
+        `)
 
-        getPluginRows.mockReturnValueOnce([plugin])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
-
-        const pluginConfig = pluginConfigs.get(39)!
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
         await pluginConfig.vm?.resolveInternalVm
         // async loading of capabilities
@@ -603,22 +721,29 @@ describe('plugins', () => {
     })
 
     test('plugin with source code loads capabilities', async () => {
-        getPluginRows.mockReturnValueOnce([
-            {
-                ...mockPluginSourceCode(),
-                source__index_ts: `
+        const localPluginData = {
+            ...mockPluginSourceCode(),
+            source__index_ts: `
         function processEvent (event, meta) { event.properties={"x": 1}; return event }
         function randomFunction (event, meta) { return event}
         function onSnapshot (event, meta) { return event }`,
-            },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        }
 
-        await setupPlugins(hub)
-        const { pluginConfigs } = hub
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        const pluginConfigRow = await createPluginConfig(hub.postgres, {
+            ...pluginConfigData,
+            plugin_id: plugin.id,
+            team_id: teamId,
+        })
 
-        const pluginConfig = pluginConfigs.get(39)!
+        const pluginConfig = (await getPluginConfig(hub, pluginConfigRow.id))!
 
         await pluginConfig.vm?.resolveInternalVm
         // async loading of capabilities
@@ -629,17 +754,23 @@ describe('plugins', () => {
     })
 
     test('plugin with frontend source transpiles it', async () => {
-        getPluginRows.mockReturnValueOnce([
-            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}` },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        await setupPlugins(hub)
+        const localPluginData = { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}` }
+
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        await createPluginConfig(hub.postgres, { ...pluginConfigData, plugin_id: plugin.id, team_id: teamId })
+
         const {
             rows: [{ transpiled }],
         } = await hub.db.postgresQuery(
             `SELECT transpiled FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-            [60, 'frontend.tsx'],
+            [plugin.id, 'frontend.tsx'],
             ''
         )
         expect(transpiled).toEqual(`"use strict";
@@ -674,17 +805,22 @@ exports.scene = scene;; return exports; }`)
     })
 
     test('getTranspilationLock returns just once', async () => {
-        getPluginRows.mockReturnValueOnce([
-            {
-                ...mockPluginSourceCode(),
-                source__index_ts: `function processEvent (event, meta) { event.properties={"x": 1}; return event }`,
-                source__frontend_tsx: `export const scene = {}`,
-            },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
+        const localPluginData = {
+            ...mockPluginSourceCode(),
+            source__index_ts: `function processEvent (event, meta) { event.properties={"x": 1}; return event }`,
+            source__frontend_tsx: `export const scene = {}`,
+        }
 
-        await setupPlugins(hub)
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
+        const { id: _, ...pluginData } = localPluginData
+        const plugin = await createPlugin(hub.postgres, {
+            ...pluginData,
+            organization_id: organizationId,
+        })
+        const { id: __, ...pluginConfigData } = pluginConfig39
+        await createPluginConfig(hub.postgres, { ...pluginConfigData, plugin_id: plugin.id, team_id: teamId })
+
         const getStatus = async () =>
             (
                 await hub.db.postgresQuery(
