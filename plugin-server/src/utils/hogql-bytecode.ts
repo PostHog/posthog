@@ -1,35 +1,29 @@
-export enum BinaryOperationOp {
-    Add = '+',
-    Sub = '-',
-    Mult = '*',
-    Div = '/',
-    Mod = '%',
-}
-
-export enum CompareOperationOp {
-    Eq = '==',
-    NotEq = '!=',
-    Gt = '>',
-    GtE = '>=',
-    Lt = '<',
-    LtE = '<=',
-    Like = 'like',
-    ILike = 'ilike',
-    NotLike = 'not like',
-    NotILike = 'not ilike',
-    In = 'in',
-    NotIn = 'not in',
-    Regex = '=~',
-    NotRegex = '!~',
-}
-
 export enum Operation {
-    AND = 'and',
-    OR = 'or',
-    NOT = 'not',
-    CONSTANT = '',
-    CALL = '()',
-    FIELD = '.',
+    CONSTANT = 0,
+    FIELD = 1,
+    CALL = 2,
+    AND = 3,
+    OR = 4,
+    NOT = 5,
+    PLUS = 6,
+    MINUS = 7,
+    MULTIPLY = 8,
+    DIVIDE = 9,
+    MOD = 10,
+    EQ = 11,
+    NOT_EQ = 12,
+    GT = 13,
+    GT_EQ = 14,
+    LT = 15,
+    LT_EQ = 16,
+    LIKE = 17,
+    ILIKE = 18,
+    NOT_LIKE = 19,
+    NOT_ILIKE = 20,
+    IN = 21,
+    NOT_IN = 22,
+    REGEX = 23,
+    NOT_REGEX = 24,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -57,25 +51,24 @@ function toConcatArg(arg: any): string {
 export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any>): any {
     let temp: any
     const stack: any[] = []
-    const iterator = bytecode[Symbol.iterator]()
 
-    if (iterator.next().value !== '_h') {
+    if (bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
     }
 
-    for (const symbol of iterator) {
-        switch (symbol) {
+    for (let i = 1; i < bytecode.length; i++) {
+        switch (bytecode[i]) {
             case undefined:
                 return stack.pop()
             case Operation.CONSTANT:
-                stack.push(iterator.next().value)
+                stack.push(bytecode[++i])
                 break
             case Operation.NOT:
                 stack.push(!stack.pop())
                 break
             case Operation.AND:
                 stack.push(
-                    Array(iterator.next().value)
+                    Array(bytecode[++i])
                         .fill(null)
                         .map(() => stack.pop())
                         .every(Boolean)
@@ -83,75 +76,75 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 break
             case Operation.OR:
                 stack.push(
-                    Array(iterator.next().value)
+                    Array(bytecode[++i])
                         .fill(null)
                         .map(() => stack.pop())
                         .some(Boolean)
                 )
                 break
-            case BinaryOperationOp.Add:
+            case Operation.PLUS:
                 stack.push(Number(stack.pop()) + Number(stack.pop()))
                 break
-            case BinaryOperationOp.Sub:
+            case Operation.MINUS:
                 stack.push(Number(stack.pop()) - Number(stack.pop()))
                 break
-            case BinaryOperationOp.Div:
+            case Operation.DIVIDE:
                 stack.push(Number(stack.pop()) / Number(stack.pop()))
                 break
-            case BinaryOperationOp.Mult:
+            case Operation.MULTIPLY:
                 stack.push(Number(stack.pop()) * Number(stack.pop()))
                 break
-            case BinaryOperationOp.Mod:
+            case Operation.MOD:
                 stack.push(Number(stack.pop()) % Number(stack.pop()))
                 break
-            case CompareOperationOp.Eq:
+            case Operation.EQ:
                 stack.push(stack.pop() === stack.pop())
                 break
-            case CompareOperationOp.NotEq:
+            case Operation.NOT_EQ:
                 stack.push(stack.pop() !== stack.pop())
                 break
-            case CompareOperationOp.Gt:
+            case Operation.GT:
                 stack.push(stack.pop() > stack.pop())
                 break
-            case CompareOperationOp.GtE:
+            case Operation.GT_EQ:
                 stack.push(stack.pop() >= stack.pop())
                 break
-            case CompareOperationOp.Lt:
+            case Operation.LT:
                 stack.push(stack.pop() < stack.pop())
                 break
-            case CompareOperationOp.LtE:
+            case Operation.LT_EQ:
                 stack.push(stack.pop() <= stack.pop())
                 break
-            case CompareOperationOp.Like:
+            case Operation.LIKE:
                 stack.push(like(stack.pop(), stack.pop()))
                 break
-            case CompareOperationOp.ILike:
+            case Operation.ILIKE:
                 stack.push(like(stack.pop(), stack.pop(), true))
                 break
-            case CompareOperationOp.NotLike:
+            case Operation.NOT_LIKE:
                 stack.push(!like(stack.pop(), stack.pop()))
                 break
-            case CompareOperationOp.NotILike:
+            case Operation.NOT_ILIKE:
                 stack.push(!like(stack.pop(), stack.pop(), true))
                 break
-            case CompareOperationOp.In:
+            case Operation.IN:
                 temp = stack.pop()
                 stack.push(stack.pop().includes(temp))
                 break
-            case CompareOperationOp.NotIn:
+            case Operation.NOT_IN:
                 temp = stack.pop()
                 stack.push(!stack.pop().includes(temp))
                 break
-            case CompareOperationOp.Regex:
+            case Operation.REGEX:
                 temp = stack.pop()
                 stack.push(new RegExp(stack.pop()).test(temp))
                 break
-            case CompareOperationOp.NotRegex:
+            case Operation.NOT_REGEX:
                 temp = stack.pop()
                 stack.push(!new RegExp(stack.pop()).test(temp))
                 break
             case Operation.FIELD:
-                const count = iterator.next().value
+                const count = bytecode[++i]
                 const chain = []
                 for (let i = 0; i < count; i++) {
                     chain.push(stack.pop())
@@ -159,8 +152,8 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 stack.push(getNestedValue(fields, chain))
                 break
             case Operation.CALL:
-                const name = iterator.next().value
-                const args = Array(iterator.next().value)
+                const name = bytecode[++i]
+                const args = Array(bytecode[++i])
                     .fill(null)
                     .map(() => stack.pop())
                 if (name === 'concat') {
@@ -180,7 +173,7 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 }
                 break
             default:
-                throw new Error(`Unexpected node while running bytecode: ${symbol}`)
+                throw new Error(`Unexpected node while running bytecode: ${bytecode[i]}`)
         }
     }
 
