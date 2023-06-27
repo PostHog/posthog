@@ -330,7 +330,7 @@ function SavedInsightsGrid(): JSX.Element {
                 {insightsLoading && (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ minHeight: '30rem' }}>
-                        <SpinnerOverlay />
+                        <SpinnerOverlay sceneLevel />
                     </div>
                 )}
             </div>

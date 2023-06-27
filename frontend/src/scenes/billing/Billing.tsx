@@ -57,7 +57,7 @@ export function Billing(): JSX.Element {
         return (
             <>
                 <BillingPageHeader />
-                <SpinnerOverlay />
+                <SpinnerOverlay sceneLevel />
             </>
         )
     }

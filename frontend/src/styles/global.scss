@@ -111,7 +111,7 @@ ul {
 }
 
 mark {
-    background-color: var(--mark-color) !important;
+    background-color: var(--mark) !important;
     border-radius: var(--radius);
 }
 
@@ -142,7 +142,7 @@ input::-ms-clear {
 
 @keyframes highlight {
     0% {
-        background-color: var(--mark-color);
+        background-color: var(--mark);
     }
 
     100% {
@@ -219,16 +219,6 @@ input::-ms-clear {
 
 .Toastify__progress-bar {
     height: var(--radius);
-}
-
-// Card styles
-
-.ant-card-body > :first-child {
-    margin-top: 0;
-}
-
-.card-elevated {
-    box-shadow: var(--shadow-elevation);
 }
 
 // Horizontal scrollability indication
@@ -312,28 +302,6 @@ input::-ms-clear {
 
 .btn-close {
     color: var(--muted);
-}
-
-.ant-btn-sm {
-    font-size: 12px !important;
-}
-
-.ant-btn-primary.btn-danger {
-    background-color: var(--danger) !important;
-    border-color: var(--danger) !important;
-
-    &:disabled {
-        background-color: var(--danger-light) !important;
-        color: lighten(#fff, 20%) !important;
-        border-color: var(--danger-light) !important;
-    }
-}
-
-.ant-btn-md {
-    // Size between `small` & `default`
-    font-size: 13px !important;
-    height: 28px !important;
-    padding: 0px 10px !important;
 }
 
 .info-indicator {
@@ -510,7 +478,7 @@ input::-ms-clear {
     font-weight: bold;
 
     &.or {
-        background-color: var(--primary-extralight);
+        background-color: #d2dbff;
         text-align: center;
         max-width: 50px;
     }
@@ -528,7 +496,7 @@ input::-ms-clear {
     }
 
     &.and {
-        background-color: var(--mark-color);
+        background-color: var(--mark);
         color: var(--primary-alt);
     }
 
@@ -584,29 +552,35 @@ input::-ms-clear {
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
-    &[theme='light'] {
+    &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
         --muted-3000: var(--muted-3000-light);
         --trace-3000: var(--trace-3000-light);
         --primary-3000: var(--primary-3000-light);
+        --primary-3000-hover: var(--primary-3000-hover-light);
         --secondary-3000: var(--secondary-3000-light);
+        --secondary-3000-hover: var(--secondary-3000-hover-light);
         --accent-3000: var(--accent-3000-light);
         --bg-3000: var(--bg-3000-light);
         --border-3000: var(--border-3000-light);
+        --border-bold-3000: var(--border-bold-3000-light);
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
     }
 
-    &[theme='dark'] {
+    &.posthog-3000[theme='dark'] {
         --text-3000: var(--text-3000-dark);
         --muted-3000: var(--muted-3000-dark);
         --trace-3000: var(--trace-3000-dark);
         --primary-3000: var(--primary-3000-dark);
+        --primary-3000-hover: var(--primary-3000-hover-dark);
         --secondary-3000: var(--secondary-3000-dark);
+        --secondary-3000-hover: var(--secondary-3000-hover-dark);
         --accent-3000: var(--accent-3000-dark);
         --bg-3000: var(--bg-3000-dark);
         --border-3000: var(--border-3000-dark);
+        --border-bold-3000: var(--border-bold-3000-dark);
         --glass-bg-3000: var(--glass-bg-3000-dark);
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
@@ -617,9 +591,11 @@ body {
         --default: var(--text-3000);
         --muted: var(--muted-3000);
         --muted-alt: var(--muted-3000);
+        --primary-alt: var(--text-3000);
         --border: var(--border-3000);
-        --inverse: var(--bg-3000);
+        --border-bold: var(--border-bold-3000);
         --mid: var(--bg-3000);
+        --side: var(--bg-3000);
         background: var(--bg-3000);
         user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
@@ -678,6 +654,7 @@ body {
 
     .ant-dropdown {
         border-radius: var(--radius);
+        color: var(--default);
     }
 
     .ant-dropdown-menu {
@@ -703,6 +680,14 @@ body {
 
     .ant-picker-dropdown {
         z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-card-bordered {
+        border-color: var(--border);
+    }
+
+    .ant-card-body > :first-child {
+        margin-top: 0;
     }
 
     .ant-form-item-label {
@@ -731,6 +716,18 @@ body {
 
     .ant-tooltip {
         max-width: 350px;
+    }
+
+    .ant-table-thead > tr > th,
+    .ant-table-small .ant-table-thead > tr > th {
+        background: var(--mid);
+    }
+    .ant-table-tbody > tr > td {
+        border-bottom-color: var(--border);
+    }
+
+    .ant-table-tbody > tr.ant-table-placeholder:hover > td {
+        background: inherit;
     }
 }
 

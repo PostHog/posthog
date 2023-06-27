@@ -304,8 +304,11 @@ export function FunnelBarGraphComponent({
                             <div className="funnel-conversion-metadata funnel-step-metadata">
                                 <div>
                                     <ValueInspectorButton
-                                        onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                        disabled={isInDashboardContext}
+                                        onClick={
+                                            !isInDashboardContext
+                                                ? () => openPersonsModalForStep({ step, converted: true })
+                                                : undefined
+                                        }
                                     >
                                         <IconTrendingFlat
                                             style={{ color: 'var(--success)' }}
@@ -326,8 +329,11 @@ export function FunnelBarGraphComponent({
                                 {stepIndex > 0 && (
                                     <div>
                                         <ValueInspectorButton
-                                            onClick={() => openPersonsModalForStep({ step, converted: false })}
-                                            disabled={isInDashboardContext}
+                                            onClick={
+                                                !isInDashboardContext
+                                                    ? () => openPersonsModalForStep({ step, converted: false })
+                                                    : undefined
+                                            }
                                         >
                                             <IconTrendingFlatDown
                                                 style={{ color: 'var(--danger)' }}

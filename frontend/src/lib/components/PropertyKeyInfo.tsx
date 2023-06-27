@@ -215,6 +215,14 @@ export const KEY_MAPPING: KeyMappingInterface = {
             ),
             examples: ['beta-feature'],
         },
+        $feature_view: {
+            label: 'Feature View',
+            description: 'When a user views a feature.',
+        },
+        $feature_interaction: {
+            label: 'Feature Interaction',
+            description: 'When a user interacts with a feature.',
+        },
         $capture_metrics: {
             label: 'Capture Metrics',
             description: 'Metrics captured with values pertaining to your systems at a specific point in time',
@@ -780,6 +788,15 @@ export function getKeyMapping(
             return {
                 label: `Feature Enrollment: ${featureFlagKey}`,
                 description: `Whether the user has opted into the "${featureFlagKey}" beta program.`,
+                examples: ['true', 'false'],
+            }
+        }
+    } else if (value.startsWith('$feature_interaction/')) {
+        const featureFlagKey = value.replace(/^\$feature_interaction\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature Interaction: ${featureFlagKey}`,
+                description: `Whether the user has interacted with "${featureFlagKey}".`,
                 examples: ['true', 'false'],
             }
         }

@@ -629,12 +629,39 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
+export type EncodedRecordingSnapshot = {
+    windowId: string
+    data: eventWithTime[]
+}
+
+export interface SessionRecordingSnapshotSource {
+    source: 'blob' | 'realtime'
+    start_timestamp?: string
+    end_timestamp?: string
+    blob_key?: string
+    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotResponse {
+    // Future interface
+    sources?: SessionRecordingSnapshotSource[]
+    snapshots?: EncodedRecordingSnapshot[]
+
+    // legacy interface
+    next?: string
+    // When loaded from S3
+    blob_keys?: string[]
+    // When loaded from Clickhouse (legacy)
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+}
+
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
 
 export interface SessionPlayerSnapshotData {
-    snapshots: RecordingSnapshot[]
+    snapshots?: RecordingSnapshot[]
+    sources?: SessionRecordingSnapshotSource[]
     next?: string
     blob_keys?: string[]
 }
@@ -1990,8 +2017,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -2029,9 +2054,9 @@ export enum SurveyType {
 }
 
 export interface SurveyAppearance {
-    background_color?: string
-    button_color?: string
-    text_color?: string
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
 }
 
 export interface SurveyQuestion {
