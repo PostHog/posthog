@@ -98,12 +98,23 @@
 ---
 # name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.13
   '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='organization_resource_access-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/resource_access/%3F%24'*/
+  '
+---
+# name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.14
+  '
   SELECT COUNT(*) AS "__count"
   FROM "ee_organizationresourceaccess"
   WHERE "ee_organizationresourceaccess"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid /*controller='organization_resource_access-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/resource_access/%3F%24'*/
   '
 ---
-# name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.14
+# name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.15
   '
   SELECT "ee_organizationresourceaccess"."id",
          "ee_organizationresourceaccess"."resource",
