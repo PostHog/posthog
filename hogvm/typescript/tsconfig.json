@@ -13,14 +13,11 @@
         "baseUrl": "src/",
         "rootDir": "src/",
         "outDir": "dist/",
-        "types": ["node", "jest", "long"],
+        "types": ["node", "jest"],
         "resolveJsonModule": true,
         "strict": true,
         "noImplicitAny": true,
-        "useUnknownInCatchVariables": false,
-        "paths": {
-            "hogvm": ["../hogvm/typescript/src/bytecode.ts"]
-        }
+        "useUnknownInCatchVariables": false
     },
     "include": ["src"],
     "exclude": ["node_modules", "dist", "bin"]

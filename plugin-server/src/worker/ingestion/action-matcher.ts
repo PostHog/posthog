@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
+import { executeHogQLBytecode } from 'hogvm'
 import { StatsD } from 'hot-shots'
 import RE2 from 're2'
 
@@ -22,7 +23,6 @@ import {
 import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
-import { executeHogQLBytecode } from '../../utils/hogql-bytecode'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 

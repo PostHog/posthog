@@ -1,4 +1,4 @@
-import { executeHogQLBytecode, Operation as op } from '../../src/utils/hogql-bytecode'
+import { executeHogQLBytecode, Operation as op } from '../bytecode'
 
 describe('HogQL Bytecode', () => {
     test('execution results', () => {
