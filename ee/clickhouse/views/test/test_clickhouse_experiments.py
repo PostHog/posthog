@@ -905,8 +905,7 @@ class TestExperimentCRUD(APILicensedTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # ensure cache doesn't change either
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
