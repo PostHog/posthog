@@ -32,3 +32,5 @@
 !plugin-server/.eslintrc.js
 !plugin-server/.prettierrc
 !share/GeoLite2-City.mmdb
+!hogvm/python
+!hogvm/typescript/src
