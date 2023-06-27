@@ -32,7 +32,7 @@ EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
 
 
 def _calculate_experiment_results(experiment: Experiment):
-    filter = Filter(experiment.filters)
+    filter = Filter(experiment.filters, team=experiment.team)
 
     experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
         ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
@@ -46,7 +46,7 @@ def _calculate_experiment_results(experiment: Experiment):
 
 
 def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int):
-    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
+    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
 
     # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
     calculate_func = lambda: ClickhouseSecondaryExperimentResult(
@@ -161,9 +161,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "groups": [{"properties": properties, "rollout_percentage": None}],
             "multivariate": {"variants": variants or default_variants},
         }
-
-        if validated_data["filters"].get("aggregation_group_type_index") is not None:
-            filters["aggregation_group_type_index"] = validated_data["filters"]["aggregation_group_type_index"]
 
         feature_flag_serializer = FeatureFlagSerializer(
             data={
