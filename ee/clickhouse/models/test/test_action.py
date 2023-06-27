@@ -225,11 +225,11 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             [
                 _H,
                 # toInt(properties.filters_count) > 10
-                op.CONSTANT,
+                op.INTEGER,
                 10,
-                op.CONSTANT,
+                op.STRING,
                 "filters_count",
-                op.CONSTANT,
+                op.STRING,
                 "properties",
                 op.FIELD,
                 2,
@@ -238,9 +238,9 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 1,
                 op.GT,
                 # event = 'insight viewed'
-                op.CONSTANT,
+                op.STRING,
                 "insight viewed",
-                op.CONSTANT,
+                op.STRING,
                 "event",
                 op.FIELD,
                 1,
