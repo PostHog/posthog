@@ -124,6 +124,7 @@ export class LazyPluginVM {
     async initialize(indexJs: string, logInfo = ''): Promise<PluginConfigVMResponse | null> {
         try {
             const vm = createPluginConfigVM(this.hub, this.pluginConfig, indexJs)
+            this.resolveInternalVm = Promise.resolve(vm)
             this.vmResponseVariable = vm.vmResponseVariable
 
             if (!this.pluginConfig.plugin) {
@@ -144,7 +145,6 @@ export class LazyPluginVM {
             }
             status.debug('🔌', `Loaded ${logInfo}.`)
             await this.createLogEntry(`Plugin loaded (instance ID ${this.hub.instanceId}).`, PluginLogEntryType.Debug)
-            this.resolveInternalVm = Promise.resolve(vm)
             return vm
         } catch (error) {
             status.warn('⚠️', `Failed to load ${logInfo}. ${error}`)

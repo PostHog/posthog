@@ -48,6 +48,7 @@ describe('runPluginTask()', () => {
                     },
                 ],
             ]),
+            pluginVms: new Map([]),
             appMetrics: {
                 queueMetric: jest.fn(),
                 queueError: jest.fn(),
