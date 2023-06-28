@@ -13,7 +13,7 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import SessionRecordingSerializer
-from posthog.models import SharingConfiguration
+from posthog.models import SharingConfiguration, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
@@ -263,9 +263,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                     "dashboard": resource.dashboard.pk if resource.dashboard else None,
                     "export_format": "image/png",
                 },
-                context={"team_id": resource.team.pk, "request": self.request},
+                context={"team_id": cast(Team, resource.team).pk, "request": self.request},
             )
             serializer.is_valid(raise_exception=True)
-            export_asset = serializer.opengraph_synthetic_create()
+            export_asset = serializer.opengraph_synthetic_create("opengraph image")
             ExportedAssetSerializer.generate_export_sync(export_asset)
+
             return export_asset

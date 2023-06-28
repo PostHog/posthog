@@ -55,7 +55,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def opengraph_synthetic_create(self, *args: Any, **kwargs: Any) -> ExportedAsset:
+    def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
         validated_data = self.validated_data
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = None
@@ -77,7 +77,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     user=None,
                     item_id=insight_id,  # Type: ignore
                     scope="Insight",
-                    activity="exported for opengraph link",
+                    activity="exported for " + reason,
                     detail=Detail(
                         name=insight.name if insight.name else insight.derived_name,
                         short_id=insight.short_id,
