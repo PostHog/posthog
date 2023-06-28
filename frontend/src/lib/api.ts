@@ -39,6 +39,7 @@ import {
     DashboardTemplateEditorType,
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
+    SessionRecordingSnapshotResponse,
     Survey,
     NotebookType,
     DashboardTemplateListParams,
@@ -57,6 +58,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { encodeParams } from 'kea-router'
 
@@ -1113,8 +1115,21 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+        async listSnapshots(
+            recordingId: SessionRecordingType['id'],
+            params: string
+        ): Promise<SessionRecordingSnapshotResponse> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+        },
+
+        async getBlobSnapshots(recordingId: SessionRecordingType['id'], blobKey: string): Promise<string[]> {
+            const response = await new ApiRequest()
+                .recording(recordingId)
+                .withAction('snapshots')
+                .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
+                .getResponse()
+            const contentBuffer = new Uint8Array(await response.arrayBuffer())
+            return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
         async updateRecording(

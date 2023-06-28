@@ -25,7 +25,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.person(id)}
             resizeable={false}
         >
-            <div className="border bg-inverse rounded">
+            <div className="border bg-bg-light rounded">
                 <div className="p-4">
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />

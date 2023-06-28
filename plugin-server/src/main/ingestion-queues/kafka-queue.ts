@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka-acosom'
+import { Counter } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
@@ -324,7 +325,9 @@ export const instrumentEachBatch = async (
     statsd?: StatsD
 ): Promise<void> => {
     try {
+        kafkaConsumerMessagesReadCounter.labels({ topic_name: topic }).inc(messages.length)
         await eachBatch(messages)
+        kafkaConsumerMessagesProcessedCounter.labels({ topic_name: topic }).inc(messages.length)
     } catch (error) {
         const eventCount = messages.length
         statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
@@ -342,7 +345,9 @@ export const instrumentEachBatchKafkaJS = async (
     statsd?: StatsD
 ): Promise<void> => {
     try {
+        kafkaConsumerMessagesReadCounter.labels({ topic_name: topic }).inc(payload.batch.messages.length)
         await eachBatch(payload)
+        kafkaConsumerMessagesProcessedCounter.labels({ topic_name: topic }).inc(payload.batch.messages.length)
     } catch (error) {
         const eventCount = payload.batch.messages.length
         statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
@@ -375,3 +380,15 @@ export const instrumentEachBatchKafkaJS = async (
         throw error
     }
 }
+
+export const kafkaConsumerMessagesReadCounter = new Counter({
+    name: 'kafka_consumer_messages_read_total',
+    help: 'Count of messages read Kafka consumer for processing, by source topic.',
+    labelNames: ['topic_name'],
+})
+
+export const kafkaConsumerMessagesProcessedCounter = new Counter({
+    name: 'kafka_consumer_messages_processed_total',
+    help: 'Count of messages successfully processed by Kafka consumer, by source topic.',
+    labelNames: ['topic_name'],
+})

@@ -12,7 +12,7 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { IconFilter, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -134,18 +134,6 @@ export function RecordingsLists({
                                 </Tooltip>
                             ) : null}
 
-                            <LemonButton
-                                noPadding
-                                status={showFilters ? 'primary' : 'primary-alt'}
-                                type={showFilters ? 'primary' : 'tertiary'}
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
-                                }
-                                onClick={() => setShowFilters(!showFilters)}
-                            />
-
                             <Tooltip
                                 title={
                                     <div className="text-center">
@@ -157,6 +145,7 @@ export function RecordingsLists({
                             >
                                 <span>
                                     <LemonSwitch
+                                        aria-label="Autoplay next recording"
                                         checked={!!autoplayDirection}
                                         onChange={toggleAutoplayDirection}
                                         handleContent={
@@ -174,6 +163,20 @@ export function RecordingsLists({
                                     />
                                 </span>
                             </Tooltip>
+
+                            <LemonButton
+                                tooltip={'filter recordings'}
+                                size="small"
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'tertiary' : 'tertiary'}
+                                active={showFilters}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconMagnifier />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
                         </>
                     }
                     subheader={
@@ -273,12 +276,14 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
+        useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowProductIntroduction =
+        !sessionRecordingsResponseLoading &&
         !user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
@@ -290,10 +295,10 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     return (
         <>
             {/* This was added around Jun 23 so at some point can just be removed */}
-            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-4 leading-7">
                 <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
                 <span className="mx-1 text-lg">
-                    <IconFilter />
+                    <IconMagnifier />
                 </span>
                 icon at the top of the list of recordings.
             </LemonBanner>

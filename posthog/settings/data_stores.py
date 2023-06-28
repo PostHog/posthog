@@ -195,7 +195,7 @@ KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bo
 
 SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
     "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
-    1024 * 1024 * 0.95,  # a little less than 1MB to account for overhead
+    1024 * 1024,  # 1MB
     type_cast=int,
 )
 
@@ -230,6 +230,15 @@ if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
         os.getenv("POSTHOG_REDIS_HOST", ""),
         os.getenv("POSTHOG_REDIS_PORT", "6379"),
     )
+
+SESSION_RECORDING_REDIS_URL = REDIS_URL
+
+if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
+    SESSION_RECORDING_REDIS_URL = "redis://{}:{}/".format(
+        os.getenv("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""),
+        os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
+    )
+
 
 if not REDIS_URL:
     raise ImproperlyConfigured(

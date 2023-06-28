@@ -809,28 +809,6 @@ export const insightLogic = kea<insightLogicType>([
             }
 
             actions.reportInsightViewed(values.insight, filters, previousFilters)
-
-            const backendFilterChanged = !objectsEqual(
-                Object.assign({}, values.filters, {
-                    layout: undefined,
-                    hidden_legend_keys: undefined,
-                    funnel_advanced: undefined,
-                    show_legend: undefined,
-                }),
-                Object.assign({}, values.loadedFilters, {
-                    layout: undefined,
-                    hidden_legend_keys: undefined,
-                    funnel_advanced: undefined,
-                    show_legend: undefined,
-                })
-            )
-
-            // (Re)load results when filters have changed or if there's no result yet
-            if (backendFilterChanged || !values.insight?.result) {
-                if (props.disableDataExploration && !values.insight?.query) {
-                    actions.loadResults()
-                }
-            }
         },
         reportInsightViewedForRecentInsights: async () => {
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
@@ -1087,10 +1065,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-            // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (props.disableDataExploration && !insight.result && !insight.query && values.filters) {
-                actions.loadResults()
-            }
         },
         toggleInsightLegend: () => {
             const newFilters: Partial<TrendsFilterType> = {

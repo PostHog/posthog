@@ -58,7 +58,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: #fff;
+                background-color: var(--bg-light);
                 opacity: 0.5;
 
                 &--active {
@@ -100,7 +100,7 @@
                 padding: 0.25rem 0.4rem;
                 font-size: 0.8rem;
                 font-weight: 600;
-                color: var(--white);
+                color: #fff;
                 background-color: var(--muted-dark);
 
                 transform: translateX(-50%);
@@ -164,7 +164,7 @@
                 border-radius: 0.25rem;
                 transform: translateX(-50%);
                 white-space: nowrap;
-                color: var(--white);
+                color: #fff;
                 margin-bottom: 0.25rem;
                 opacity: 0;
                 visibility: hidden;

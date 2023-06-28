@@ -8,7 +8,6 @@ import EXAMPLE_TRENDS_HORIZONTAL_BAR from './__mocks__/trendsHorizontalBar.json'
 import EXAMPLE_TRENDS_TABLE from './__mocks__/trendsTable.json'
 import EXAMPLE_TRENDS_PIE from './__mocks__/trendsPie.json'
 import EXAMPLE_TRENDS_WORLD_MAP from './__mocks__/trendsWorldMap.json'
-import EXAMPLE_TRENDS_BOLD_NUMBER from './__mocks__/trendsBoldNumber.json'
 import EXAMPLE_FUNNEL from './__mocks__/funnel.json'
 import EXAMPLE_RETENTION from './__mocks__/retention.json'
 import EXAMPLE_PATHS from './__mocks__/paths.json'
@@ -23,7 +22,6 @@ const examples = [
     EXAMPLE_TRENDS_TABLE,
     EXAMPLE_TRENDS_PIE,
     EXAMPLE_TRENDS_WORLD_MAP,
-    EXAMPLE_TRENDS_BOLD_NUMBER,
     EXAMPLE_FUNNEL,
     EXAMPLE_RETENTION,
     EXAMPLE_PATHS,

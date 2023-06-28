@@ -17,7 +17,10 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
+)
 from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:

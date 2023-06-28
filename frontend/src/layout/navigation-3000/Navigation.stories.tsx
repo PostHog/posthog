@@ -32,20 +32,20 @@ export default {
 } as Meta
 
 export function LightMode(): JSX.Element {
-    const { syncDarkModePreference } = useActions(themeLogic)
+    const { overrideTheme } = useActions(themeLogic)
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
-        syncDarkModePreference(false)
+        overrideTheme(false)
     }, [])
 
     return <App />
 }
 
 export function DarkMode(): JSX.Element {
-    const { syncDarkModePreference } = useActions(themeLogic)
+    const { overrideTheme } = useActions(themeLogic)
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
-        syncDarkModePreference(true)
+        overrideTheme(true)
     }, [])
 
     return <App />
