@@ -31,6 +31,29 @@ from posthog.permissions import (
 from posthog.temporal.client import sync_connect
 
 
+def validate_date_input(date_input: Any) -> dt.datetime:
+    """Parse any datetime input as a proper dt.datetime.
+
+    Args:
+        date_input: The datetime input to parse.
+
+    Raises:
+        ValidationError: If the input cannot be parsed.
+
+    Returns:
+        The parsed dt.datetime.
+    """
+    try:
+        # The Right Way (TM) to check this would be by calling isinstance, but that doesn't feel very Pythonic.
+        # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
+        # Read more here: https://github.com/python/mypy/issues/2420.
+        # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
+        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))  # type: ignore
+    except (TypeError, ValueError):
+        raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+    return parsed
+
+
 class BatchExportRunSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExportRun model."""
 
@@ -45,21 +68,33 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     serializer_class = BatchExportRunSerializer
 
-    def get_queryset(self):
+    def get_queryset(self, date_range: tuple[dt.datetime, dt.datetime] | None = None):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
             raise NotAuthenticated()
 
-        return self.queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"]).order_by(
-            "-created_at"
-        )
+        if date_range:
+            return self.queryset.filter(
+                batch_export_id=self.kwargs["parent_lookup_batch_export_id"], created_at__range=date_range
+            ).order_by("-created_at")
+        else:
+            return self.queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"]).order_by(
+                "-created_at"
+            )
 
     def list(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Get all BatchExportRuns for a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
 
-        runs = self.get_queryset()
+        after = self.request.query_params.get("after", None)
+        before = self.request.query_params.get("before", None)
+        date_range = None
+        if after is not None and before is not None:
+            after_datetime = validate_date_input(after)
+            before_datetime = validate_date_input(before)
+            date_range = (after_datetime, before_datetime)
 
+        runs = self.get_queryset(date_range=date_range)
         limit = self.request.query_params.get("limit", None)
         if limit is not None:
             try:
@@ -174,18 +209,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
-
-
-def validate_date_input(date_input: Any) -> dt.datetime:
-    try:
-        # The Right Way (TM) to check this would be by calling isinstance, but that doesn't feel very Pythonic.
-        # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
-        # Read more here: https://github.com/python/mypy/issues/2420.
-        # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input)  # type: ignore
-    except (TypeError, ValueError):
-        raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
-    return parsed
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
