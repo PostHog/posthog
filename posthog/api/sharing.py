@@ -284,6 +284,5 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             )
             serializer.is_valid(raise_exception=True)
             export_asset = serializer.synthetic_create("opengraph image")
-            ExportedAssetSerializer.generate_export_sync(export_asset)
 
             return export_asset
