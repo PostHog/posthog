@@ -300,7 +300,7 @@ class Alias(Expr):
     expr: Expr
 
 
-class BinaryOperationOp(str, Enum):
+class ArithmeticOperationOp(str, Enum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -308,10 +308,10 @@ class BinaryOperationOp(str, Enum):
     Mod = "%"
 
 
-class BinaryOperation(Expr):
+class ArithmeticOperation(Expr):
     left: Expr
     right: Expr
-    op: BinaryOperationOp
+    op: ArithmeticOperationOp
 
 
 class And(Expr):
@@ -334,17 +334,21 @@ class CompareOperationOp(str, Enum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"
-    GtE = ">="
+    GtEq = ">="
     Lt = "<"
-    LtE = "<="
+    LtEq = "<="
     Like = "like"
     ILike = "ilike"
     NotLike = "not like"
     NotILike = "not ilike"
     In = "in"
     NotIn = "not in"
+    InCohort = "in cohort"
+    NotInCohort = "not in cohort"
     Regex = "=~"
+    IRegex = "=~*"
     NotRegex = "!~"
+    NotIRegex = "!~*"
 
 
 class CompareOperation(Expr):
