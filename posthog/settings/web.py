@@ -1,5 +1,4 @@
 # Web app specific settings/middleware/apps setup
-# :NOTE: posthog-cloud modifies some of these values
 import os
 from datetime import timedelta
 from typing import List
@@ -318,3 +317,5 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1] + [float("inf")]
+
+SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")

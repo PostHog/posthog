@@ -9,11 +9,12 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconArrowRight, IconDelete, IconEllipsis, IconExport } from 'lib/lemon-ui/icons'
+import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { notebooksListLogic } from './Notebook/notebooksListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -62,13 +63,15 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-white z-10">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-light z-10">
                 <div className="flex gap-2 items-center">
                     {notebook?.is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>
 
                 <div className="flex gap-2 items-center">
+                    <NotebookSyncInfo shortId={notebookId} />
+
                     <LemonMenu
                         items={[
                             {
@@ -97,7 +100,16 @@ export function NotebookScene(): JSX.Element {
                     >
                         <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
                     </LemonMenu>
-                    <NotebookSyncInfo shortId={notebookId} />
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconHelpOutline />}
+                        onClick={() => {
+                            selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
+                            setNotebookSideBarShown(true)
+                        }}
+                    >
+                        Guide
+                    </LemonButton>
                     <NotebookExpandButton type="secondary" />
                     <LemonButton
                         type="secondary"

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType, ReplayTabs } from '~/types'
+import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
@@ -12,18 +12,23 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
-import { IconChevronLeft, IconChevronRight, IconFilter, IconPause, IconPlay, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { openSessionRecordingSettingsDialog } from '../settings/SessionRecordingSettings'
+import { teamLogic } from 'scenes/teamLogic'
+import { router } from 'kea-router'
+import { userLogic } from 'scenes/userLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -45,7 +50,6 @@ export function RecordingsLists({
     const {
         filters,
         hasNext,
-        hasPrev,
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
@@ -55,23 +59,11 @@ export function RecordingsLists({
         totalFiltersCount,
         listingVersion,
     } = useValues(logic)
-    const {
-        setSelectedRecordingId,
-        loadNext,
-        loadPrev,
-        setFilters,
-        maybeLoadSessionRecordings,
-        setShowFilters,
-        resetFilters,
-    } = useActions(logic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
+        useActions(logic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const infiniteScrollerEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_INFINITE_LIST]
-
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
-    const offset = filters.offset ?? 0
-    const nextLength = offset + (sessionRecordingsResponseLoading ? RECORDINGS_LIMIT : sessionRecordings.length)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
@@ -80,26 +72,6 @@ export function RecordingsLists({
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
-
-    const paginationControls = nextLength ? (
-        <div className="flex items-center gap-1 mx-2">
-            <span>{`${offset + 1} - ${nextLength}`}</span>
-            <LemonButton
-                icon={<IconChevronLeft />}
-                status="stealth"
-                size="small"
-                disabled={!hasPrev}
-                onClick={() => loadPrev()}
-            />
-            <LemonButton
-                icon={<IconChevronRight />}
-                status="stealth"
-                disabled={!hasNext}
-                size="small"
-                onClick={() => loadNext()}
-            />
-        </div>
-    ) : null
 
     return (
         <>
@@ -144,39 +116,23 @@ export function RecordingsLists({
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
                         <>
-                            {infiniteScrollerEnabled ? (
-                                sessionRecordings.length ? (
-                                    <Tooltip
-                                        placement="bottom"
-                                        title={
-                                            <>
-                                                Showing {sessionRecordings.length} results.
-                                                <br />
-                                                Scrolling to the bottom or the top of the list will load older or newer
-                                                recordings respectively.
-                                            </>
-                                        }
-                                    >
-                                        <span>
-                                            <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
-                                        </span>
-                                    </Tooltip>
-                                ) : null
-                            ) : (
-                                paginationControls
-                            )}
-
-                            <LemonButton
-                                noPadding
-                                status={showFilters ? 'primary' : 'primary-alt'}
-                                type={showFilters ? 'primary' : 'tertiary'}
-                                icon={
-                                    <IconWithCount count={totalFiltersCount}>
-                                        <IconFilter />
-                                    </IconWithCount>
-                                }
-                                onClick={() => setShowFilters(!showFilters)}
-                            />
+                            {sessionRecordings.length ? (
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Showing {sessionRecordings.length} results.
+                                            <br />
+                                            Scrolling to the bottom or the top of the list will load older or newer
+                                            recordings respectively.
+                                        </>
+                                    }
+                                >
+                                    <span>
+                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                    </span>
+                                </Tooltip>
+                            ) : null}
 
                             <Tooltip
                                 title={
@@ -189,6 +145,7 @@ export function RecordingsLists({
                             >
                                 <span>
                                     <LemonSwitch
+                                        aria-label="Autoplay next recording"
                                         checked={!!autoplayDirection}
                                         onChange={toggleAutoplayDirection}
                                         handleContent={
@@ -206,6 +163,20 @@ export function RecordingsLists({
                                     />
                                 </span>
                             </Tooltip>
+
+                            <LemonButton
+                                tooltip={'filter recordings'}
+                                size="small"
+                                status={showFilters ? 'primary' : 'primary-alt'}
+                                type={showFilters ? 'tertiary' : 'tertiary'}
+                                active={showFilters}
+                                icon={
+                                    <IconWithCount count={totalFiltersCount}>
+                                        <IconMagnifier />
+                                    </IconWithCount>
+                                }
+                                onClick={() => setShowFilters(!showFilters)}
+                            />
                         </>
                     }
                     subheader={
@@ -249,30 +220,25 @@ export function RecordingsLists({
                         </div>
                     }
                     activeRecordingId={activeSessionRecording?.id}
-                    onScrollToEnd={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('older') : undefined}
-                    onScrollToStart={infiniteScrollerEnabled ? () => maybeLoadSessionRecordings('newer') : undefined}
+                    onScrollToEnd={() => maybeLoadSessionRecordings('older')}
+                    onScrollToStart={() => maybeLoadSessionRecordings('newer')}
                     footer={
-                        infiniteScrollerEnabled ? (
-                            <>
-                                <LemonDivider />
-                                <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                                    {sessionRecordingsResponseLoading ? (
-                                        <>
-                                            <Spinner monocolor /> Loading older recordings
-                                        </>
-                                    ) : hasNext ? (
-                                        <LemonButton
-                                            status="primary"
-                                            onClick={() => maybeLoadSessionRecordings('older')}
-                                        >
-                                            Load more
-                                        </LemonButton>
-                                    ) : (
-                                        'No more results'
-                                    )}
-                                </div>
-                            </>
-                        ) : null
+                        <>
+                            <LemonDivider />
+                            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                                {sessionRecordingsResponseLoading ? (
+                                    <>
+                                        <Spinner monocolor /> Loading older recordings
+                                    </>
+                                ) : hasNext ? (
+                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                        Load more
+                                    </LemonButton>
+                                ) : (
+                                    'No more results'
+                                )}
+                            </div>
+                        </>
                     }
                     draggableHref={urls.replay(ReplayTabs.Recent, filters)}
                 />
@@ -310,7 +276,16 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
+        useValues(logic)
+    const { currentTeam } = useValues(teamLogic)
+    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowProductIntroduction =
+        !sessionRecordingsResponseLoading &&
+        !user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -320,13 +295,47 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
     return (
         <>
             {/* This was added around Jun 23 so at some point can just be removed */}
-            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-2">
+            <LemonBanner dismissKey="replay-filter-change" type="info" className="mb-4 leading-7">
                 <b>Filters have moved!</b> You can now find all filters including time and duration by clicking the{' '}
                 <span className="mx-1 text-lg">
-                    <IconFilter />
+                    <IconMagnifier />
                 </span>
                 icon at the top of the list of recordings.
             </LemonBanner>
+            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
+                <ProductIntroduction
+                    productName="Session replay"
+                    productKey={ProductKey.SESSION_REPLAY}
+                    thingName="recording"
+                    titleOverride="Record your first session"
+                    description={`Session replay allows you to watch how real users use your product.
+                    ${
+                        recordingsDisabled
+                            ? 'Enable recordings to get started.'
+                            : 'Install the PostHog snippet on your website to start capturing recordings.'
+                    }`}
+                    isEmpty={shouldShowEmptyState}
+                    docsURL="https://posthog.com/docs/session-replay/manual"
+                    actionElementOverride={
+                        recordingsDisabled ? (
+                            <LemonButton
+                                type="primary"
+                                sideIcon={<IconSettings />}
+                                onClick={() => openSessionRecordingSettingsDialog()}
+                            >
+                                Enable recordings
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => router.actions.push(urls.projectSettings() + '#snippet')}
+                            >
+                                Get the PostHog snippet
+                            </LemonButton>
+                        )
+                    }
+                />
+            )}
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"

@@ -98,6 +98,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "tags",
             "usage_dashboard",
             "analytics_dashboards",
+            "has_enriched_analytics",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -416,7 +417,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
                         cohort = Cohort.objects.get(id=id)
-                        cohorts[cohort.pk] = cohort.properties.to_dict()
+                        if not cohort.is_static:
+                            cohorts[cohort.pk] = cohort.properties.to_dict()
 
         # Add request for analytics
         increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)

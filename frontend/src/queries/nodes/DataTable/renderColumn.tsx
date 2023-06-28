@@ -15,6 +15,7 @@ import ReactJson from 'react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 
 export function renderColumn(
     key: string,
@@ -58,6 +59,16 @@ export function renderColumn(
         }
         if (typeof value === 'object') {
             if (Array.isArray(value)) {
+                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
+                    const object: Record<string, any> = {}
+                    for (let i = 0; i < value.length; i += 2) {
+                        object[value[i]] = value[i + 1]
+                    }
+                    if ('results' in object && Array.isArray(object.results)) {
+                        return <TableCellSparkline data={object.results} />
+                    }
+                }
+
                 return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
             return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

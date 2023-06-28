@@ -3,11 +3,17 @@ from unittest.mock import MagicMock, patch
 from freezegun import freeze_time, configure, config  # type: ignore
 import pytest
 from posthog.constants import FlagRequestType
-from posthog.models.feature_flag.flag_analytics import increment_request_count, capture_team_decide_usage
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.feature_flag.flag_analytics import (
+    find_flags_with_enriched_analytics,
+    increment_request_count,
+    capture_team_decide_usage,
+)
 from posthog.test.base import BaseTest
 from posthog import redis
 import datetime
 import concurrent.futures
+from posthog.test.base import _create_event, flush_persons_and_events
 
 
 class TestFeatureFlagAnalytics(BaseTest):
@@ -441,3 +447,110 @@ class TestFeatureFlagAnalytics(BaseTest):
             # and no extra requests were counted
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{team_id}"), {b"165192620": b"8"})
             self.assertEqual(client.hgetall(f"posthog:decide_requests:{other_team_id}"), {})
+
+
+class TestEnrichedAnalytics(BaseTest):
+    def test_find_flags_with_enriched_analytics(self):
+        f1 = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="test_flag",
+            created_by=self.user,
+            ensure_experience_continuity=False,
+        )
+        f2 = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+            ensure_experience_continuity=True,
+        )
+        f3 = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature2",
+            created_by=self.user,
+        )
+        f4 = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature3",
+            created_by=self.user,
+        )
+
+        # create some enriched analytics events
+        _create_event(
+            team=self.team,
+            distinct_id="test",
+            event="$feature_view",
+            properties={"feature_flag": "test_flag"},
+            timestamp="2021-01-01T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="test2",
+            event="$feature_view",
+            properties={"feature_flag": "test_flag"},
+            timestamp="2021-01-01T22:05:00Z",
+        )
+        # out of bounds
+        _create_event(
+            team=self.team,
+            distinct_id="test3",
+            event="$feature_view",
+            properties={"feature_flag": "test_flag"},
+            timestamp="2021-01-12T12:00:10Z",
+        )
+        # different flag
+        _create_event(
+            team=self.team,
+            distinct_id="test4",
+            event="$feature_view",
+            properties={"feature_flag": "beta-feature"},
+            timestamp="2021-01-01T12:00:00Z",
+        )
+        # non-existing flag
+        _create_event(
+            team=self.team,
+            distinct_id="test5",
+            event="$feature_view",
+            properties={"feature_flag": "non-existing-flag"},
+            timestamp="2021-01-01T12:10:00Z",
+        )
+        # incorrect event
+        _create_event(
+            team=self.team,
+            distinct_id="test6",
+            event="$pageview",
+            properties={"feature_flag": "beta-feature2"},
+            timestamp="2021-01-01T12:20:00Z",
+        )
+        # incorrect property
+        _create_event(
+            team=self.team,
+            distinct_id="test7",
+            event="$feature_view",
+            properties={"$$feature_flag": "beta-feature3"},
+            timestamp="2021-01-01T12:30:00Z",
+        )
+
+        flush_persons_and_events()
+
+        start = datetime.datetime(2021, 1, 1, 0, 0, 0)
+        end = datetime.datetime(2021, 1, 2, 0, 0, 0)
+
+        find_flags_with_enriched_analytics(start, end)
+
+        f1.refresh_from_db()
+        f2.refresh_from_db()
+        f3.refresh_from_db()
+        f4.refresh_from_db()
+
+        self.assertEqual(f1.has_enriched_analytics, True)
+        self.assertEqual(f2.has_enriched_analytics, True)
+        self.assertEqual(f3.has_enriched_analytics, False)
+        self.assertEqual(f4.has_enriched_analytics, False)

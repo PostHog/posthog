@@ -21,6 +21,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ListHog } from 'lib/components/hedgehogs'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -172,6 +173,7 @@ export function Cohorts(): JSX.Element {
                     isEmpty={cohorts.length == 0}
                     docsURL="https://posthog.com/docs/data/cohorts"
                     action={() => router.actions.push(urls.cohort('new'))}
+                    customHog={ListHog}
                 />
             )}
             {!shouldShowEmptyState && (

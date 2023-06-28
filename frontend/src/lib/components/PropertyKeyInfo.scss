@@ -1,16 +1,16 @@
 .PropertyKeyInfo {
     display: inline-flex !important; // NOTE: This is needed as antd horribly overrides this in places
-    white-space: nowrap;
     gap: 0.25rem;
     align-items: center;
-    vertical-align: middle;
+    vertical-align: bottom;
     overflow: hidden;
     max-width: 100%;
 
     .PropertyKeyInfo__text {
         display: inline;
 
-        &.PropertyKeyInfo__text--elipsis {
+        &.PropertyKeyInfo__text--ellipsis {
+            white-space: nowrap;
             text-overflow: ellipsis;
             overflow: hidden;
         }

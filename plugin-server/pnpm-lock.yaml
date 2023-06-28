@@ -1,5 +1,10 @@
 lockfileVersion: '6.0'
 
+patchedDependencies:
+  pg@8.10.0:
+    hash: ju7a73s3qkmrf666u3aacfrooi
+    path: patches/pg@8.10.0.patch
+
 dependencies:
   '@aws-sdk/client-s3':
     specifier: ^3.315.0
@@ -114,7 +119,7 @@ dependencies:
     version: 2.1.1
   pg:
     specifier: ^8.6.0
-    version: 8.10.0
+    version: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
   pino:
     specifier: ^8.6.0
     version: 8.11.0
@@ -6980,7 +6985,7 @@ packages:
       chokidar: 3.5.3
       cosmiconfig: 7.1.0
       json5: 2.2.3
-      pg: 8.10.0
+      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
       tslib: 2.5.0
       yargs: 16.2.0
     transitivePeerDependencies:
@@ -9382,7 +9387,7 @@ packages:
     peerDependencies:
       pg: '>=8.0'
     dependencies:
-      pg: 8.10.0
+      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
     dev: false
 
   /pg-protocol@1.6.0:
@@ -9398,7 +9403,7 @@ packages:
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
 
-  /pg@8.10.0:
+  /pg@8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi):
     resolution: {integrity: sha512-ke7o7qSTMb47iwzOSaZMfeR7xToFdkE71ifIipOAAaLIM0DYzfOAXlgFFmYUIE2BcJtvnVlGCID84ZzCegE8CQ==}
     engines: {node: '>= 8.0.0'}
     peerDependencies:
@@ -9415,6 +9420,7 @@ packages:
       pg-types: 2.2.0
       pgpass: 1.0.5
     dev: false
+    patched: true
 
   /pgpass@1.0.5:
     resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}

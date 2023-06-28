@@ -4,9 +4,12 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.database.database import Database
+from posthog.hogql.constants import HOGQL_FUNCTIONS
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
 from posthog.hogql.errors import ResolverException
+from posthog.hogql.functions.cohort import cohort
+from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
@@ -41,18 +44,21 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ResolverException(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types(node: ast.Expr, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None) -> ast.Expr:
-    return Resolver(scopes=scopes, database=database).visit(node)
+def resolve_types(
+    node: ast.Expr, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None
+) -> ast.Expr:
+    return Resolver(scopes=scopes, context=context).visit(node)
 
 
 class Resolver(CloningVisitor):
     """The Resolver visits an AST and 1) resolves all fields, 2) assigns types to nodes, 3) expands all CTEs."""
 
-    def __init__(self, database: Database, scopes: Optional[List[ast.SelectQueryType]] = None):
+    def __init__(self, context: HogQLContext, scopes: Optional[List[ast.SelectQueryType]] = None):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQueryType] = scopes or []
-        self.database = database
+        self.context = context
+        self.database = context.database
         self.cte_counter = 0
 
     def visit(self, node: ast.Expr, tag: Optional[str] = None) -> ast.Expr:
@@ -273,6 +279,10 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
+        if node.name in HOGQL_FUNCTIONS:
+            if node.name == "sparkline":
+                return self.visit(sparkline(node=node, args=node.args))
+
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
         for arg in node.args:
@@ -288,7 +298,8 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType()
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None)
+
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
 
@@ -431,6 +442,23 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op == ast.CompareOperationOp.InCohort:
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=node.left,
+                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                )
+            )
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=node.left,
+                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                )
+            )
+
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
         return node
@@ -449,6 +477,10 @@ def lookup_field_by_name(scope: ast.SelectQueryType, name: str) -> Optional[ast.
             raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name)
+
+        if scope.parent:
+            return lookup_field_by_name(scope.parent, name)
+
         return None
 
 

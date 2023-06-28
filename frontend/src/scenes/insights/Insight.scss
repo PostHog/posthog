@@ -23,10 +23,6 @@
         margin: 1rem 0;
     }
 
-    .ant-card-bordered {
-        @extend %mixin-base-bordered-card;
-    }
-
     .ant-tabs-tab {
         .hotkey {
             margin-bottom: 0;
@@ -40,7 +36,7 @@
 
             .hotkey {
                 margin-bottom: 0;
-                background-color: var(--inverse) !important;
+                background-color: var(--white) !important;
                 border-color: var(--border) !important;
                 color: var(--muted);
             }
@@ -61,7 +57,7 @@
 
         .deprecated {
             .hotkey {
-                background-color: var(--inverse) !important;
+                background-color: var(--white) !important;
             }
         }
     }
@@ -92,7 +88,6 @@
     }
 
     .insights-graph-container {
-        background: #fff;
         margin-bottom: 1rem;
 
         .ant-card-head {
@@ -200,7 +195,6 @@
 }
 
 .funnel-insights-container {
-    background-color: var(--funnel-canvas-background);
     border-radius: 0 0 var(--radius) var(--radius);
 
     &.non-empty-state {

@@ -310,7 +310,7 @@ function SavedInsightsGrid(): JSX.Element {
 
     return (
         <>
-            <div className="saved-insights-grid">
+            <div className="saved-insights-grid mb-2">
                 {paginationState.dataSourcePage.map((insight: InsightModel) => (
                     <InsightCard
                         key={insight.short_id}
@@ -330,11 +330,11 @@ function SavedInsightsGrid(): JSX.Element {
                 {insightsLoading && (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ minHeight: '30rem' }}>
-                        <SpinnerOverlay />
+                        <SpinnerOverlay sceneLevel />
                     </div>
                 )}
             </div>
-            <PaginationControl {...paginationState} nouns={['insight', 'insights']} />
+            <PaginationControl {...paginationState} nouns={['insight', 'insights']} bordered />
         </>
     )
 }
@@ -505,7 +505,7 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters />
-                    <LemonDivider />
+                    <LemonDivider className="my-4" />
                     <div className="flex justify-between mb-4 mt-2 items-center">
                         <span className="text-muted-alt">
                             {count

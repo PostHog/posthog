@@ -2896,6 +2896,133 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response_json["result"][0][1]["breakdown_value"], ["there is no fish"])
             self.assertEqual(response_json["timezone"], "UTC")
 
+    def test_insight_funnels_hogql_aggregating_steps(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Chrome"})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Firefox"})
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"$browser": "Chrome"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "insight": "FUNNELS",
+                    "entity_type": "events",
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0, "math": "total"},
+                        {"id": "user did things", "type": "events", "order": 1, "math": "total"},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(person.properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_aggregate_by_hogql": "properties.$browser",
+                    "funnel_viz_type": "steps",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(len(response_json["result"]), 2)
+            self.assertEqual(response_json["result"][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0]["count"], 2)
+            self.assertEqual(response_json["result"][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][1]["count"], 1)
+            self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_funnels_hogql_aggregating_time_to_convert(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-15T04:01:36.500Z"):
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Firefox"})
+        with freeze_time("2012-01-15T04:01:38.200Z"):
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-16T04:01:38.200Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "insight": "FUNNELS",
+                    "entity_type": "events",
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0, "math": "total"},
+                        {"id": "user did things", "type": "events", "order": 1, "math": "total"},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(person.properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_aggregate_by_hogql": "properties.$browser",
+                    "funnel_viz_type": "time_to_convert",
+                    "date_from": "-14d",
+                    "date_to": None,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(response_json["result"]["bins"], [[4.0, 1], [64.0, 0]])
+            self.assertEqual(response_json["result"]["average_conversion_time"], 4.0)
+            self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_funnels_hogql_aggregating_trends(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"int_value": 1})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-15T04:01:36.500Z"):
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"$browser": "Firefox"})
+        with freeze_time("2012-01-15T04:01:38.200Z"):
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"$browser": "Chrome"})
+        with freeze_time("2012-01-16T04:01:38.200Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "insight": "FUNNELS",
+                    "entity_type": "events",
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0},
+                        {"id": "user did things", "type": "events", "order": 1},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(person.properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_aggregate_by_hogql": "properties.$browser",
+                    "funnel_viz_type": "trends",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(len(response_json["result"]), 1)
+            self.assertEqual(response_json["result"][0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0])
+            self.assertEqual(
+                response_json["result"][0]["days"],
+                [
+                    "2012-01-09",
+                    "2012-01-10",
+                    "2012-01-11",
+                    "2012-01-12",
+                    "2012-01-13",
+                    "2012-01-14",
+                    "2012-01-15",
+                    "2012-01-16",
+                ],
+            )
+            self.assertEqual(
+                response_json["result"][0]["labels"],
+                [
+                    "9-Jan-2012",
+                    "10-Jan-2012",
+                    "11-Jan-2012",
+                    "12-Jan-2012",
+                    "13-Jan-2012",
+                    "14-Jan-2012",
+                    "15-Jan-2012",
+                    "16-Jan-2012",
+                ],
+            )
+            self.assertEqual(response_json["timezone"], "UTC")
+
     def test_insight_retention_hogql(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
             _create_person(
