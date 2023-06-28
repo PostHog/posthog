@@ -135,8 +135,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         return instance
 
-    @classmethod
-    def generate_export_sync(cls, instance: ExportedAsset) -> None:
+    @staticmethod
+    def generate_export_sync(instance: ExportedAsset) -> None:
         task = exporter.export_asset.delay(instance.id)
         try:
             task.get(timeout=10)
