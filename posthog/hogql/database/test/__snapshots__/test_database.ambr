@@ -335,6 +335,10 @@
               "type": "integer"
           },
           {
+              "key": "size",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -437,6 +441,10 @@
           },
           {
               "key": "console_error_count",
+              "type": "integer"
+          },
+          {
+              "key": "size",
               "type": "integer"
           },
           {
@@ -579,6 +587,12 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "whatever": [
+          {
+              "key": "id",
+              "type": "string"
           }
       ]
   }
@@ -916,6 +930,10 @@
               "type": "integer"
           },
           {
+              "key": "size",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -1018,6 +1036,10 @@
           },
           {
               "key": "console_error_count",
+              "type": "integer"
+          },
+          {
+              "key": "size",
               "type": "integer"
           },
           {
@@ -1160,6 +1182,12 @@
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "whatever": [
+          {
+              "key": "id",
+              "type": "string"
           }
       ]
   }

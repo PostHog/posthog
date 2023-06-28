@@ -32,7 +32,7 @@ class TableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "format", "created_by", "created_at", "url_pattern", "credential", "columns"]
+        fields = ["id", "deleted", "name", "format", "created_by", "created_at", "url_pattern", "credential", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
     def get_columns(self, table: DataWarehouseTable) -> Dict[str, str]:
@@ -72,9 +72,12 @@ class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
             raise NotAuthenticated()
 
-        return (
-            self.queryset.filter(team_id=self.team_id)
-            .exclude(deleted=True)
-            .prefetch_related("created_by")
-            .order_by(self.ordering)
-        )
+        if self.action == "list":
+            return (
+                self.queryset.filter(team_id=self.team_id)
+                .exclude(deleted=True)
+                .prefetch_related("created_by")
+                .order_by(self.ordering)
+            )
+
+        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)

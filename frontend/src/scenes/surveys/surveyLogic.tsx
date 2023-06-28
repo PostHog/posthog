@@ -67,20 +67,21 @@ export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (surveyId: string): DataTableNode => {
+export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
             select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
-            event: 'survey sent',
+            where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+            after: survey.created_at,
             properties: [
                 {
                     type: PropertyFilterType.Event,
                     key: '$survey_id',
                     operator: PropertyOperator.Exact,
-                    value: surveyId,
+                    value: survey.id,
                 },
             ],
         },
@@ -177,8 +178,8 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey.id))
+            if (survey.start_date && survey.id !== 'new') {
+                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
@@ -199,7 +200,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },
