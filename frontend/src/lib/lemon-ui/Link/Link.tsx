@@ -85,7 +85,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {...props}
             >
                 {children}
-                {target === '_blank' ? <IconOpenInNew className="ml-0.5" /> : null}
+                {typeof children === 'string' && target === '_blank' ? <IconOpenInNew className="ml-0.5" /> : null}
             </a>
         ) : (
             <button ref={ref as any} className={clsx('Link', className)} onClick={onClick} type="button" {...props}>
