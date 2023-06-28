@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
@@ -95,8 +95,30 @@ def create_hogql_database(team_id: int) -> Database:
     return database
 
 
-def serialize_database(database: Database) -> dict:
-    tables: Dict[str, List[Dict[str, Any]]] = {}
+class _SerialiedFieldBase(TypedDict):
+    key: str
+    type: Literal[
+        "integer",
+        "float",
+        "string",
+        "datetime",
+        "date",
+        "boolean",
+        "json",
+        "lazy_table",
+        "virtual_table",
+        "field_traverser",
+    ]
+
+
+class SerialiedField(_SerialiedFieldBase, total=False):
+    fields: List[str]
+    table: str
+    chain: List[str]
+
+
+def serialize_database(database: Database) -> Dict[str, List[SerialiedField]]:
+    tables: Dict[str, List[SerialiedField]] = {}
 
     for table_key in database.__fields__.keys():
         field_input: Dict[str, Any] = {}
@@ -106,14 +128,14 @@ def serialize_database(database: Database) -> dict:
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[Dict[str, Any]] = serialize_fields(field_input)
+        field_output: List[SerialiedField] = serialize_fields(field_input)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[Dict[str, Any]]:
-    field_output: List[Dict[str, Any]] = []
+def serialize_fields(field_input) -> List[SerialiedField]:
+    field_output: List[SerialiedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
             pass

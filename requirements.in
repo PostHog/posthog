@@ -80,3 +80,4 @@ mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
+openai==0.27.8

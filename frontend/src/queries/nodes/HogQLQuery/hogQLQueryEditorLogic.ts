@@ -5,6 +5,7 @@ import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 import { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import { Monaco } from '@monaco-editor/react'
+import api from 'lib/api'
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface ModelMarker extends editor.IMarkerData {}
@@ -30,10 +31,20 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
         setModelMarkers: (markers: ModelMarker[]) => ({ markers }),
+        setPrompt: (prompt: string) => ({ prompt }),
+        setPromptError: (error: string | null) => ({ error }),
+        draftFromPrompt: true,
+        draftFromPromptComplete: true,
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
         modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
+        prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
+        promptError: [
+            null as string | null,
+            { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
+        ],
+        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
     })),
     selectors({
         hasErrors: [(s) => [s.modelMarkers], (modelMarkers) => !!modelMarkers?.length],
@@ -48,6 +59,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {
             const query = values.queryInput
+            // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
             props.setQuery?.({ ...props.query, query })
         },
@@ -82,6 +94,17 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 actions.setModelMarkers(markers)
             } else {
                 actions.setModelMarkers([])
+            }
+        },
+        draftFromPrompt: async () => {
+            try {
+                const result = await api.get(`api/projects/@current/query/draft_sql/?prompt=${values.prompt}`)
+                const { sql } = result
+                actions.setQueryInput(sql)
+            } catch (e) {
+                actions.setPromptError(e.detail)
+            } finally {
+                actions.draftFromPromptComplete()
             }
         },
         setModelMarkers: ({ markers }) => {

@@ -506,6 +506,7 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
 HOGQL_AGGREGATIONS = {
     # Standard aggregate functions
     "count": (0, 1),
+    "COUNT": (0, 1),
     "countIf": (1, 2),
     "min": 1,
     "minIf": 2,
