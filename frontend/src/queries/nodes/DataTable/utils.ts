@@ -33,6 +33,12 @@ export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
     return query.columns ?? getDataNodeDefaultColumns(query.source)
 }
 
+/**
+ * Extracts the comment and/or alias from a query. For display only!
+ *
+ * This is a rather naive implementation using basic string operations.
+ * Its output is not cleaned for usage in queries!
+ */
 export function extractCommentOrAlias(query: string): string {
     if (query.match(/ as (`[^`]+`|"[^"]+"|[a-zA-Z$][a-zA-Z0-9_$]*)\s*$/)) {
         const comment = query.split(' as ').pop()?.trim() || query
@@ -47,6 +53,12 @@ export function extractCommentOrAlias(query: string): string {
     return query
 }
 
+/**
+ * Removes the comment and/or alias from a query, keeping just the SQL. For display only!
+ *
+ * This is a rather naive implementation using basic string operations.
+ * Its output is not cleaned for usage in queries!
+ */
 export function removeCommentOrAlias(query: string): string {
     if (query.includes('--')) {
         query = query.split('--').slice(0, -1).join('--').trim()
