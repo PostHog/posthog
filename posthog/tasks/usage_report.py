@@ -288,7 +288,7 @@ def capture_event(
 ) -> None:
     if timestamp and isinstance(timestamp, str):
         try:
-            timestamp = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
+            timestamp = parser.isoparse(timestamp)
         except ValueError:
             timestamp = None
 
