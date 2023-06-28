@@ -6,18 +6,18 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
     TypedDict,
     Union,
     cast,
-    Literal,
 )
 
-import dateutil
 import requests
 import structlog
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
@@ -38,8 +38,8 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day, get_instance_region
+from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
@@ -286,6 +286,12 @@ def capture_event(
     properties: Dict[str, Any],
     timestamp: Optional[datetime] = None,
 ) -> None:
+    if timestamp and isinstance(timestamp, str):
+        try:
+            timestamp = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            timestamp = None
+
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
@@ -520,7 +526,7 @@ def send_all_org_usage_reports(
 ) -> List[dict]:  # Dict[str, OrgReport]:
     capture_event_name = capture_event_name or "organization usage report"
 
-    at_date = dateutil.parser.parse(at) if at else None
+    at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
