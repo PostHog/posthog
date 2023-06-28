@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, cast, Any
 
 from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
@@ -168,7 +168,7 @@ def _unwrap_pydantic(response: BaseModel | list) -> Dict | list:
             for item in response
         ]
 
-    returned = {}
+    returned: Dict[str, Any] = {}
     for key in response.__fields__.keys():
         if isinstance(getattr(response, key), list):
             returned[key] = [
@@ -182,6 +182,10 @@ def _unwrap_pydantic(response: BaseModel | list) -> Dict | list:
     return returned
 
 
+def _unwrap_pydantic_dict(response: BaseModel) -> Dict:
+    return cast(Dict, _unwrap_pydantic(response))
+
+
 def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
     # query_json has been parsed by QuerySchemaParser
     # it _should_ be impossible to end up in here with a "bad" query
@@ -192,17 +196,17 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     if query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
         response = run_events_query(query=events_query, team=team, default_limit=default_limit)
-        return _unwrap_pydantic(response)
+        return _unwrap_pydantic_dict(response)
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.parse_obj(query_json)
         response = execute_hogql_query(
             query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
         )
-        return _unwrap_pydantic(response)
+        return _unwrap_pydantic_dict(response)
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.parse_obj(query_json)
         response = get_hogql_metadata(query=metadata_query, team=team)
-        return _unwrap_pydantic(response)
+        return _unwrap_pydantic_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
