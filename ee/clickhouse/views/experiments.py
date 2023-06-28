@@ -152,6 +152,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         properties = validated_data["filters"].get("properties", [])
 
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
+
         default_variants = [
             {"key": "control", "name": "Control Group", "rollout_percentage": 50},
             {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
@@ -215,23 +218,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 ):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
 
-        feature_flag_properties = validated_data.get("filters", {}).get("properties")
-        serialized_data_filters = {**feature_flag.filters}
-        if feature_flag_properties is not None:
-            serialized_data_filters = {**serialized_data_filters, "groups": [{"properties": feature_flag_properties}]}
-
-        feature_flag_group_type_index = validated_data.get("filters", {}).get("aggregation_group_type_index")
-        # Only update the group type index when filters are sent
-        if validated_data.get("filters"):
-            serialized_data_filters = {
-                **serialized_data_filters,
-                "aggregation_group_type_index": feature_flag_group_type_index,
-            }
-            serializer = FeatureFlagSerializer(
-                feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
+        properties = validated_data.get("filters", {}).get("properties")
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

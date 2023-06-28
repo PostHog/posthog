@@ -108,6 +108,7 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
             <div className="mt-4 space-y-4">
