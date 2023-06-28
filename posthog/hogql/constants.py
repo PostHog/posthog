@@ -134,7 +134,8 @@ CLICKHOUSE_FUNCTIONS: Dict[str, Tuple[str, int | None, int | None]] = {
     "toStartOfMonth": ("toStartOfMonth", 1, 1),
     "toLastDayOfMonth": ("toLastDayOfMonth", 1, 1),
     "toMonday": ("toMonday", 1, 1),
-    "toStartOfWeek": ("toStartOfWeek", 1, 1),
+    "toStartOfWeek": ("toStartOfWeek", 1, 2),
+    "toLastDayOfWeek": ("toLastDayOfWeek", 1, 2),
     "toStartOfDay": ("toStartOfDay", 1, 1),
     "toStartOfHour": ("toStartOfHour", 1, 1),
     "toStartOfMinute": ("toStartOfMinute", 1, 1),
@@ -673,7 +674,16 @@ HOGQL_AGGREGATIONS = {
     "maxIntersectionsPosition": 2,
     "maxIntersectionsPositionIf": 3,
 }
+HOGQL_FUNCTIONS = {
+    "sparkline": 1,
+    "cohort": 1,
+}
+
 ADD_TIMEZONE_TO_FUNCTIONS = ("now", "NOW", "toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+# Functions where we use a -OrNull variant by default
+ADD_OR_NULL_DATETIME_FUNCTIONS = ("toDateTime", "parseDateTime", "parseDateTimeBestEffort")
+# Functions where the first argument needs to be DateTime and not DateTime64
+FIRST_ARG_DATETIME_FUNCTIONS = ("tumble", "tumbleStart", "tumbleEnd", "hop", "hopStart", "hopEnd")
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 

@@ -1,12 +1,10 @@
 @import '../../../styles/mixins';
 
 $label_position_offset: 8px;
-$series_container_width: 2rem;
-$glyph_margin_top: 10px;
-$glyph_height: 22px;
+$series_container_width: 1.5rem;
+$glyph_height: 23px; // Based on .funnel-step-glyph
 
 .funnel-bar-graph {
-    background-color: var(--funnel-canvas-background);
     min-height: 100%;
     padding: 1rem;
 
@@ -33,11 +31,12 @@ $glyph_height: 22px;
 
     .funnel-step {
         position: relative;
-        padding-left: $series_container_width;
-
-        .step-stat {
-            display: flex;
-            align-items: baseline;
+        padding-left: $series_container_width + 0.5rem;
+        &:not(:first-child) {
+            &,
+            .funnel-series-container {
+                padding-top: 0.75rem;
+            }
         }
 
         .graph-series-glyph {
@@ -50,15 +49,12 @@ $glyph_height: 22px;
             justify-content: space-between;
 
             .funnel-inspect-button {
-                padding: 0 4px 0 0;
+                line-height: 1.5rem;
                 .value-inspector-button-icon {
                     font-size: 1.5rem;
                     margin-right: 0.25rem;
-                    vertical-align: -0.25em;
+                    vertical-align: bottom;
                 }
-            }
-            .conversion-metadata-caption {
-                padding-left: 3px;
             }
         }
 
@@ -73,7 +69,6 @@ $glyph_height: 22px;
             align-items: center;
 
             .graph-series-glyph {
-                margin-top: $glyph_margin_top;
                 user-select: none;
             }
 
@@ -86,13 +81,13 @@ $glyph_height: 22px;
 
                 &.before {
                     top: 0;
-                    height: calc(#{$glyph_margin_top} + #{$glyph_height} / 2);
+                    height: calc(#{$glyph_height} / 2);
                 }
 
                 &.after {
                     bottom: 0;
-                    top: calc(#{$glyph_margin_top} + #{$glyph_height} / 2);
-                    height: calc(100% - #{$glyph_margin_top} - #{$glyph_height} / 2);
+                    top: calc(#{$glyph_height} / 2);
+                    height: calc(100% - #{$glyph_height} / 2);
                 }
             }
         }
@@ -101,76 +96,24 @@ $glyph_height: 22px;
             // .funnel-step-metadata reusable class for components that contain metadata for the funnel (e.g. time to convert or conversion steps)
             display: flex;
             flex-wrap: wrap;
-
-            .ant-btn.funnel-inspect-button {
-                color: var(--primary);
-
-                .anticon {
-                    color: var(--primary-alt);
-                }
-
-                .funnel-inspect-label {
-                    color: inherit;
-                }
-
-                &:hover .funnel-inspect-label {
-                    color: inherit;
-                    text-decoration: none;
-                }
-
-                &:disabled {
-                    color: var(--default);
-                    cursor: initial;
-
-                    .anticon {
-                        color: var(--muted-alt);
-                    }
-
-                    .funnel-inspect-label {
-                        text-decoration: none;
-                    }
-                }
-
-                &:last-child {
-                    padding-right: 0;
-                }
-            }
-        }
-
-        .center-flex {
-            display: flex;
-            align-items: center;
         }
 
         header,
         footer {
-            min-height: 32px;
+            line-height: $glyph_height;
             display: flex;
             align-items: center;
         }
 
         header {
-            padding-top: 4px;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
             position: relative;
 
             .funnel-step-title {
                 @extend %mixin-text-ellipsis;
                 font-weight: bold;
-            }
-
-            .funnel-time-metadata {
-                display: flex;
-                flex-grow: 1;
-                flex-wrap: wrap;
-                position: absolute;
-                bottom: 0;
-
-                &.vertical {
-                    left: 0;
-                }
-                &.horizontal {
-                    right: 0;
-                }
             }
 
             button {

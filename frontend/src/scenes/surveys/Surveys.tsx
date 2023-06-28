@@ -1,4 +1,4 @@
-import { LemonButton, LemonTable, LemonDivider, Link, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonDivider, Link, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -6,7 +6,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { ProductKey, Survey } from '~/types'
+import { ProductKey, ProgressStatus, Survey } from '~/types'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -113,8 +113,8 @@ export function Surveys(): JSX.Element {
                                         const statusColors = {
                                             running: 'success',
                                             draft: 'default',
-                                            complete: 'purple',
-                                        }
+                                            complete: 'completion',
+                                        } as Record<ProgressStatus, LemonTagType>
                                         const status = getSurveyStatus(survey)
                                         return (
                                             <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>

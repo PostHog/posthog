@@ -27,7 +27,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                 {[100, 66, 33].map((height) => (
                     <div
                         key={height}
-                        className="border border-border-light rounded-2xl overflow-hidden flex flex-col justify-end"
+                        className="border border-border-light rounded overflow-hidden flex flex-col justify-end"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ width: '15%', height: '80%' }}
                     >
@@ -83,22 +83,20 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
         <div className="EmptyDashboard">
             {!loading && (
                 <div className="EmptyDashboard__cta">
-                    <div className="border rounded p-6 shadow bg-white">
-                        <h3 className="l3">Dashboard empty</h3>
-                        <p>This dashboard sure would look better with some graphs!</p>
-                        <div className="mt-4 text-center">
-                            <LemonButton
-                                data-attr="dashboard-add-graph-header"
-                                to={urls.insightNew(undefined, dashboard?.id)}
-                                type="primary"
-                                icon={<IconPlus />}
-                                center
-                                fullWidth
-                                disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
-                            >
-                                Add insight
-                            </LemonButton>
-                        </div>
+                    <h3 className="l3">Dashboard empty</h3>
+                    <p>This dashboard sure would look better with some graphs!</p>
+                    <div className="mt-4 text-center">
+                        <LemonButton
+                            data-attr="dashboard-add-graph-header"
+                            to={urls.insightNew(undefined, dashboard?.id)}
+                            type="primary"
+                            icon={<IconPlus />}
+                            center
+                            fullWidth
+                            disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
+                        >
+                            Add insight
+                        </LemonButton>
                     </div>
                 </div>
             )}

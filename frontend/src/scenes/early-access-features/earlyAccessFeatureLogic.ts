@@ -4,7 +4,13 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { Breadcrumb, EarlyAccessFeatureStage, EarlyAccessFeatureType, NewEarlyAccessFeatureType } from '~/types'
+import {
+    Breadcrumb,
+    EarlyAccessFeatureStage,
+    EarlyAccessFeatureTabs,
+    EarlyAccessFeatureType,
+    NewEarlyAccessFeatureType,
+} from '~/types'
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -37,6 +43,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         editFeature: (editing: boolean) => ({ editing }),
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
+        setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
     }),
     loaders(({ props }) => ({
         earlyAccessFeature: {
@@ -86,6 +93,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             false,
             {
                 toggleImplementOptInInstructionsModal: (state) => !state,
+            },
+        ],
+        activeTab: [
+            EarlyAccessFeatureTabs.OptedIn as EarlyAccessFeatureTabs,
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
             },
         ],
     }),

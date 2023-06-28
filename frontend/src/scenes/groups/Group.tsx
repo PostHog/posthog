@@ -57,7 +57,7 @@ export function Group(): JSX.Element {
     const { setGroupTab, setGroupEventsQuery } = useActions(groupLogic)
 
     if (!groupData) {
-        return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
+        return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
     return (

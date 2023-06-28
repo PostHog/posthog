@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { ActionType } from '~/types'
-import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
@@ -43,14 +42,6 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                         <h2 className="subtitle">Matching events</h2>
                         <p>
                             This is the list of <strong>recent</strong> events that match this action.
-                            {action?.last_calculated_at ? (
-                                <>
-                                    {' '}
-                                    Last calculated: <b>{dayjs(action.last_calculated_at).fromNow()}</b>.
-                                </>
-                            ) : (
-                                ''
-                            )}
                         </p>
                         <div className="pt-4 border-t" />
                         <Query

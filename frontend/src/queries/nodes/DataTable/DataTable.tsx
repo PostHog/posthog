@@ -358,7 +358,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full h-full space-y-4">
+                <div className="relative w-full flex flex-col gap-4 flex-1">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
@@ -372,7 +372,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             ) : null}
                         </div>
                     )}
-                    {showFirstRow && showSecondRow && <LemonDivider />}
+                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}
@@ -475,13 +475,15 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 'DataTable__row--category_row': !!label,
                                 'border border-danger-dark bg-danger-highlight':
                                     result && result[0] && result[0]['event'] === '$exception',
-                                [`row-type-${result?.[0]?.event}`]: result && result[0] && result[0]['event'],
                             })
                         }
+                        footer={
+                            canLoadNextData &&
+                            ((response as any).results.length > 0 || !responseLoading) && (
+                                <LoadNext query={query.source} />
+                            )
+                        }
                     />
-                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
-                        <LoadNext query={query.source} />
-                    )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />

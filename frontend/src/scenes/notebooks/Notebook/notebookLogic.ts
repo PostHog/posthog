@@ -1,19 +1,7 @@
-import {
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
@@ -21,8 +9,6 @@ import { JSONContent, Editor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 const SYNC_DELAY = 1000
@@ -88,9 +74,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
-                        if (response) {
-                            response.is_template = true
-                        }
                     } else {
                         response = await api.notebooks.get(props.shortId)
                     }
@@ -136,17 +119,25 @@ export const notebookLogic = kea<notebookLogicType>([
                         return
                     }
 
+                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
                     const response = await api.notebooks.create({
-                        content: values.notebook.content,
-                        title: values.notebook.title,
+                        content: values.content || values.notebook.content,
+                        title: values.title || values.notebook.title,
                     })
 
                     posthog.capture(`notebook duplicated`, {
                         short_id: response.short_id,
                     })
 
-                    lemonToast.success('Notebook created from template!')
-                    router.actions.push(urls.notebookEdit(response.short_id))
+                    const source = values.notebook.short_id === 'scratchpad' ? 'Scratchpad' : 'Template'
+                    lemonToast.success(`Notebook created from ${source}!`)
+
+                    if (values.notebook.short_id === 'scratchpad') {
+                        // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
+                        actions.clearLocalContent()
+                    }
+
+                    handleNotebookCreation(response)
 
                     return response
                 },
@@ -245,12 +236,4 @@ export const notebookLogic = kea<notebookLogicType>([
             downloadFile(file)
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadNotebook()
-        // Gives a chance for the notebook to appear before we actually render the content
-        setTimeout(() => {
-            actions.setReady()
-        }, 500)
-    }),
 ])

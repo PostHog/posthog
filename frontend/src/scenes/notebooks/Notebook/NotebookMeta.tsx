@@ -71,6 +71,8 @@ export const NotebookExpandButton = (props: LemonButtonProps): JSX.Element => {
             {...props}
             onClick={() => setIsExpanded(!isExpanded)}
             icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
+            tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            tooltipPlacement="left"
         />
     )
 }

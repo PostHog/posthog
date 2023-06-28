@@ -9,13 +9,13 @@ import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
-import { PathStepPickerDataExploration } from 'scenes/insights/views/Paths/PathStepPicker'
+import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { FunnelBinsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
-import { ValueOnSeriesFilterDataExploration } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
+import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -69,7 +69,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showPaths && (
                     <ConfigFilter>
-                        <PathStepPickerDataExploration />
+                        <PathStepPicker />
                     </ConfigFilter>
                 )}
 
@@ -81,7 +81,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showValueOnSeries && (
                     <ConfigFilter>
-                        <ValueOnSeriesFilterDataExploration />
+                        <ValueOnSeriesFilter />
                     </ConfigFilter>
                 )}
             </div>
@@ -100,13 +100,13 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showFunnelDisplayLayout && (
                     <ConfigFilter>
-                        <FunnelDisplayLayoutPickerDataExploration />
+                        <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
 
                 {showFunnelBins && (
                     <ConfigFilter>
-                        <FunnelBinsPickerDataExploration />
+                        <FunnelBinsPicker />
                     </ConfigFilter>
                 )}
             </div>
