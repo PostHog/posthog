@@ -121,11 +121,6 @@ runs:
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
 
-        - name: Show docker compose log
-          if: ${{ always() }}
-          shell: bash
-          run: docker compose -f docker-compose.dev.yml logs --tail=5000
-
         # Post-tests
 
         - name: Upload updated timing data as artifacts

@@ -34,7 +34,7 @@ from posthog.api.capture import (
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
-from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -48,6 +48,11 @@ def mocked_get_ingest_context_from_token(_: Any) -> None:
 
 parser = ResolvingParser(url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"), strict=True)
 openapi_spec = cast(Dict[str, Any], parser.specification)
+
+
+large_data_array = [
+    random.choice(string.ascii_letters) for _ in range(700 * 1024)
+]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
 
 
 class TestCapture(BaseTest):
@@ -1241,12 +1246,37 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_large_is_split_into_multiple_messages(self, kafka_produce) -> None:
-        data = [
-            random.choice(string.ascii_letters) for _ in range(700 * 1024)
-        ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
-        self._send_session_recording_event(event_data=data)
+        self._send_session_recording_event(event_data=large_data_array)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
-        self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
+
+        assert topic_counter == Counter({KAFKA_SESSION_RECORDING_EVENTS: 3})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_write_to_blob_ingestion_topic_with_usual_size_limit(self, kafka_produce) -> None:
+        with self.settings(
+            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=512,
+        ):
+            self._send_session_recording_event(event_data=large_data_array)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+
+            # this fake data doesn't split, so we send one huge message to the item events topic
+            assert topic_counter == Counter(
+                {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
+            )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_write_to_blob_ingestion_topic(self, kafka_produce) -> None:
+        with self.settings(
+            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+        ):
+            self._send_session_recording_event(event_data=large_data_array)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+
+            assert topic_counter == Counter(
+                {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
+            )
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
@@ -1259,9 +1289,8 @@ class TestCapture(BaseTest):
             SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
             SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL="SSL",
             REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
-            SESSION_RECORDING_KAFKA_MAX_MESSAGE_BYTES="1234",
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=1234,
         ):
-
             # avoid logs from being printed because the mock is None
             session_recording_producer_singleton_mock.return_value = KafkaProducer()
 
@@ -1275,7 +1304,7 @@ class TestCapture(BaseTest):
                     "a-fourth.server:9092",
                 ],
                 kafka_security_protocol="SSL",
-                max_message_bytes="1234",
+                max_request_size=1234,
             )
 
     @patch("posthog.api.capture.sessionRecordingKafkaProducer")

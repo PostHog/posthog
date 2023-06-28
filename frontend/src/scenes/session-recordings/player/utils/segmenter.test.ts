@@ -49,7 +49,7 @@ describe('segmenter', () => {
                 kind: 'window',
                 startTimestamp: 1672531200000,
                 windowId: 'A',
-                isActive: false,
+                isActive: true,
                 endTimestamp: 1672531200100,
                 durationMs: 100,
             },

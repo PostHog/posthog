@@ -286,7 +286,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             })}
             ref={ref}
         >
-            <div className="border border-border rounded w-full bg-white">
+            <div className="border border-border rounded w-full bg-bg-light">
                 <div className="border-b border-border bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {product.image_url ? (
@@ -319,7 +319,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         type="primary"
                                         to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
                                     >
-                                        Contact support
+                                        Get in touch
                                     </LemonButton>
                                 </>
                             ) : (
@@ -535,45 +535,53 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
                                 You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
                             </h4>
-                            <p className="ml-0 max-w-200">
-                                {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
-                            </p>
-                            <div>
-                                {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
-                                    return (
-                                        i < 3 && (
+                            {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
+                                <>
+                                    <p className="ml-0 max-w-200">
+                                        {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
+                                    </p>
+                                    <div>
+                                        {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
+                                            return (
+                                                i < 3 && (
+                                                    <div className="flex gap-x-2 items-center mb-2">
+                                                        <IconCheckCircleOutline className="text-success" />
+                                                        <Tooltip key={feature.key} title={feature.description}>
+                                                            <b>{feature.name} </b>
+                                                        </Tooltip>
+                                                    </div>
+                                                )
+                                            )
+                                        })}
+                                        {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
                                                 <IconCheckCircleOutline className="text-success" />
-                                                <Tooltip key={feature.key} title={feature.description}>
-                                                    <b>{feature.name} </b>
+                                                <Tooltip
+                                                    title={
+                                                        'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
+                                                    }
+                                                >
+                                                    <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>
-                                        )
-                                    )
-                                })}
-                                {!billing?.has_active_subscription && (
-                                    <div className="flex gap-x-2 items-center mb-2">
-                                        <IconCheckCircleOutline className="text-success" />
-                                        <Tooltip
-                                            title={
-                                                'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
-                                            }
-                                        >
-                                            <b>Upgraded platform features</b>
-                                        </Tooltip>
+                                        )}
+                                        <div className="flex gap-x-2 items-center mb-2">
+                                            <IconCheckCircleOutline className="text-success" />
+                                            {product.subscribed ? (
+                                                <b>And more</b>
+                                            ) : (
+                                                <Link onClick={toggleIsPlanComparisonModalOpen}>
+                                                    <b>And more...</b>
+                                                </Link>
+                                            )}
+                                        </div>
                                     </div>
-                                )}
-                                <div className="flex gap-x-2 items-center mb-2">
-                                    <IconCheckCircleOutline className="text-success" />
-                                    {product.subscribed ? (
-                                        <b>And more</b>
-                                    ) : (
-                                        <Link onClick={toggleIsPlanComparisonModalOpen}>
-                                            <b>And more...</b>
-                                        </Link>
-                                    )}
-                                </div>
-                            </div>
+                                </>
+                            ) : (
+                                <p className="ml-0 max-w-200">
+                                    You've got access to all the features we offer for {product.name}.
+                                </p>
+                            )}
                             {upgradePlan?.tiers?.[0].unit_amount_usd &&
                                 parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
                                     <p className="ml-0 mb-0 mt-4">

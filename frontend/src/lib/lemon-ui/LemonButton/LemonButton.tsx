@@ -139,8 +139,13 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
 
             const ButtonComponent = to ? Link : 'button'
-
-            const linkOnlyProps = to ? { disableClientSideRouting } : {}
+            const linkDependentProps = to
+                ? {
+                      disableClientSideRouting,
+                      target: targetBlank ? '_blank' : undefined,
+                      to: !disabled ? to : undefined,
+                  }
+                : { type: htmlType }
 
             if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
                 buttonProps['aria-label'] = tooltip
@@ -148,7 +153,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             let workingButton = (
                 <ButtonComponent
-                    type={htmlType}
                     ref={ref as any}
                     className={clsx(
                         'LemonButton',
@@ -166,9 +170,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         className
                     )}
                     disabled={disabled || loading}
-                    to={disabled ? undefined : to}
-                    target={targetBlank ? '_blank' : undefined}
-                    {...linkOnlyProps}
+                    {...linkDependentProps}
                     {...buttonProps}
                 >
                     {icon ? <span className="LemonButton__icon">{icon}</span> : null}

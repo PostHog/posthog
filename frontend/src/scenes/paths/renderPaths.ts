@@ -93,7 +93,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
     dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
 
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', '#fff')
+    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
 }
 
 const appendPathLinks = (
