@@ -15,6 +15,7 @@ describe('DataTable utils', () => {
         expect(extractCommentOrAlias('asd as `hello`')).toBe('hello')
         expect(extractCommentOrAlias('asd as "hello world"')).toBe('hello world')
         expect(extractCommentOrAlias('asd as $bandana')).toBe('$bandana')
+        expect(extractCommentOrAlias('asd as $bandana -- bla')).toBe('bla')
     })
 
     it('removeCommentOrAlias', () => {
@@ -25,6 +26,7 @@ describe('DataTable utils', () => {
         expect(removeCommentOrAlias('asd as `hello`')).toBe('asd')
         expect(removeCommentOrAlias('asd as "hello world"')).toBe('asd')
         expect(removeCommentOrAlias('asd as $bandana')).toBe('asd')
+        expect(removeCommentOrAlias('asd as $bandana -- bla')).toBe('asd')
     })
 
     it('getColumnsForQuery', () => {

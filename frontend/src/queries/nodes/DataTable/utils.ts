@@ -48,11 +48,11 @@ export function extractCommentOrAlias(query: string): string {
 }
 
 export function removeCommentOrAlias(query: string): string {
-    if (query.match(/ as (`[^`]+`|"[^"]+"|[a-zA-Z\$][a-zA-Z0-9\_\$]*)$/)) {
-        return query.split(' as ').slice(0, -1).join(' as ').trim()
-    }
     if (query.includes('--')) {
-        return query.split('--').slice(0, -1).join('--').trim()
+        query = query.split('--').slice(0, -1).join('--').trim()
+    }
+    if (query.match(/ as (`[^`]+`|"[^"]+"|[a-zA-Z\$][a-zA-Z0-9\_\$]*)$/)) {
+        query = query.split(' as ').slice(0, -1).join(' as ').trim()
     }
     return query.trim()
 }
