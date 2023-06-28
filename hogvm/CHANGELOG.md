@@ -1,5 +1,14 @@
 # HogQL bytecode changelog 
 
+## 2023-06-28 - In Cohort
+
+### New async operations
+
+```bash
+IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
+NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
+```
+
 ## 2023-06-28 - First version
 
 ### Operations added
