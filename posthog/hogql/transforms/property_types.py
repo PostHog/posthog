@@ -130,13 +130,13 @@ class PropertySwapper(CloningVisitor):
 
     def _add_type_to_string_field(self, node: ast.Field, type: str):
         if type == "DateTime":
-            self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type DateTime.")
+            self._add_notice(node=node, message=f"Property '{node.chain[-1]}' is of type 'DateTime'.")
             return ast.Call(name="toDateTime", args=[node])
         if type == "Numeric":
-            self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type Float.")
+            self._add_notice(node=node, message=f"Property '{node.chain[-1]}' is of type 'Float'.")
             return ast.Call(name="toFloat", args=[node])
         if type == "Boolean":
-            self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type Boolean.")
+            self._add_notice(node=node, message=f"Property '{node.chain[-1]}' is of type 'Boolean'.")
             return parse_expr("{node} = 'true'", {"node": node})
-        self._add_notice(node=node, message=f"Property {node.chain[-1]} is of type String.")
+        self._add_notice(node=node, message=f"Property '{node.chain[-1]}' is of type 'String'.")
         return node
