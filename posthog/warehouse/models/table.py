@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
+import re
 
 ClickhouseHogqlMapping = {
     "String": StringDatabaseField,
@@ -82,9 +83,16 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
         fields = {}
+        structure = []
         for column, type in self.columns.items():
             if type.startswith("Nullable("):
                 type = type.replace("Nullable(", "")[:-1]
+
+            # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
+            if type.startswith("Array("):
+                type = self.remove_named_tuples(type)
+
+            structure.append(f"{column} {type}")
             type = type.partition("(")[0]
             type = ClickhouseHogqlMapping[type]
             fields[column] = type(name=column)
@@ -96,7 +104,20 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             fields=fields,
+            structure=", ".join(structure),
         )
+
+    def remove_named_tuples(self, type):
+        """Remove named tuples from query"""
+        tokenified_type = re.split(r"(\W)", type)
+        filtered_tokens = [
+            token
+            for token in tokenified_type
+            if token == "Nullable"
+            or (len(token) == 1 and not token.isalnum())
+            or token in ClickhouseHogqlMapping.keys()
+        ]
+        return "".join(filtered_tokens)
 
     def _safe_expose_ch_error(self, err):
         err = wrap_query_error(err)

@@ -40,7 +40,7 @@ class TraversingVisitor(Visitor):
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         self.visit(node.left)
         self.visit(node.right)
 
@@ -229,6 +229,9 @@ class TraversingVisitor(Visitor):
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         pass
 
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        self.visit(node.expr)
+
 
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -259,8 +262,8 @@ class CloningVisitor(Visitor):
             expr=self.visit(node.expr),
         )
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        return ast.BinaryOperation(
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        return ast.ArithmeticOperation(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
@@ -484,3 +487,6 @@ class CloningVisitor(Visitor):
             frame_type=node.frame_type,
             frame_value=node.frame_value,
         )
+
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return ast.JoinConstraint(expr=self.visit(node.expr))

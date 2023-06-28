@@ -55,17 +55,22 @@ describe('ingester', () => {
     let closeHub: () => Promise<void>
 
     beforeAll(() => {
+        jest.useFakeTimers({
+            // magic is for evil wizards
+            // setInterval in blob consumer doesn't fire
+            // if legacyFakeTimers is false
+            // 🤷
+            legacyFakeTimers: true,
+        })
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
     })
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        jest.useFakeTimers()
     })
 
     afterEach(async () => {
         jest.runOnlyPendingTimers()
-        jest.useRealTimers()
         await deleteKeysWithPrefix(hub, keyPrefix)
         await ingester.stop()
         await closeHub()
@@ -73,6 +78,7 @@ describe('ingester', () => {
 
     afterAll(() => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
+        jest.useRealTimers()
     })
 
     // these tests assume that a flush won't run while they run

@@ -2017,8 +2017,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {

@@ -14,6 +14,8 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 
 
 class TestCohort(BaseTest):
+    maxDiff = None
+
     def _create_random_events(self) -> str:
         random_uuid = str(UUIDT())
         _create_person(

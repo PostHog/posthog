@@ -1,9 +1,9 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.settings import EE_AVAILABLE
-
 from posthog.batch_exports import http as batch_exports
+from posthog.settings import EE_AVAILABLE
+from posthog.warehouse.api import table
 
 from . import (
     activity_log,
@@ -14,7 +14,6 @@ from . import (
     dead_letter_queue,
     early_access_feature,
     event_definition,
-    survey,
     exports,
     feature_flag,
     ingestion_warnings,
@@ -34,6 +33,7 @@ from . import (
     property_definition,
     query,
     sharing,
+    survey,
     tagged_item,
     team,
     uploaded_media,
@@ -41,7 +41,6 @@ from . import (
 )
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
-from posthog.warehouse.api import table
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -133,6 +132,7 @@ app_metrics_router.register(
 batch_exports_router = projects_router.register(
     r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
 )
+batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"])
 
 projects_router.register(r"warehouse_table", table.TableViewSet, "warehouse_api", ["team_id"])
 
