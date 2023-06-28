@@ -30,7 +30,6 @@ import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
-import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { status } from '../status'
 import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
@@ -165,7 +164,6 @@ export async function createHub(
     const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
@@ -214,7 +212,6 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
-        siteUrlManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
@@ -223,7 +220,7 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {

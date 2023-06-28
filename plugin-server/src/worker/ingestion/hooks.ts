@@ -8,7 +8,6 @@ import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
-import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
 
 export enum WebhookType {
@@ -236,23 +235,22 @@ export class HookCommander {
     db: DB
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
+    siteUrl: string
 
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
-    constructor(
-        db: DB,
-        teamManager: TeamManager,
-        organizationManager: OrganizationManager,
-        siteUrlManager: SiteUrlManager,
-        statsd?: StatsD
-    ) {
+    constructor(db: DB, teamManager: TeamManager, organizationManager: OrganizationManager, statsd?: StatsD) {
         this.db = db
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.siteUrlManager = siteUrlManager
+        if (process.env.SITE_URL) {
+            this.siteUrl = process.env.SITE_URL
+        } else {
+            status.warn('⚠️', 'SITE_URL env is not set for webhooks')
+            this.siteUrl = ''
+        }
         this.statsd = statsd
     }
 
@@ -304,8 +302,7 @@ export class HookCommander {
         team: Team
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
-        const siteUrl = await this.siteUrlManager.getSiteUrl()
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, siteUrl || '', webhookType)
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {
