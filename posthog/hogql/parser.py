@@ -186,7 +186,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ProjectionOrderByClause")
 
     def visitLimitAndOffsetClauseClause(self, ctx: HogQLParser.LimitAndOffsetClauseContext):
-        raise Exception(f"Parsed as part of SelectStmt, can't parse directly.")
+        raise Exception(f"Parsed as part of SelectStmt, can't parse directly")
 
     def visitSettingsClause(self, ctx: HogQLParser.SettingsClauseContext):
         raise NotImplementedException(f"Unsupported node: SettingsClause")
@@ -387,11 +387,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.STRING_LITERAL():
             alias = parse_string_literal(ctx.STRING_LITERAL())
         else:
-            raise NotImplementedException(f"Must specify an alias.")
+            raise NotImplementedException(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
 
         if alias in RESERVED_KEYWORDS:
-            raise HogQLException(f"Alias '{alias}' is a reserved keyword.")
+            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
 
         return ast.Alias(expr=expr, alias=alias)
 
@@ -706,7 +706,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias = self.visit(ctx.alias() or ctx.identifier())
         if alias in RESERVED_KEYWORDS:
-            raise HogQLException(f"Alias '{alias}' is a reserved keyword.")
+            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
         return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):

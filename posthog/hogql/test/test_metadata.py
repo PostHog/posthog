@@ -22,9 +22,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "select 1",
                 "inputSelect": None,
-                "error": "extraneous input '1' expecting <EOF>",
-                "errorStart": 7,
-                "errorEnd": 8,
+                "errors": [{"message": "extraneous input '1' expecting <EOF>", "start": 7, "end": 8, "fix": None}],
             },
         )
 
@@ -36,7 +34,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": True,
                 "inputExpr": None,
                 "inputSelect": "select 1",
-                "error": None,
+                "errors": [],
             },
         )
 
@@ -48,7 +46,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": True,
                 "inputExpr": "timestamp",
                 "inputSelect": None,
-                "error": None,
+                "errors": [],
             },
         )
 
@@ -60,9 +58,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": None,
                 "inputSelect": "timestamp",
-                "error": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
-                "errorStart": 0,
-                "errorEnd": 9,
+                "errors": [
+                    {
+                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                        "start": 0,
+                        "end": 9,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -75,9 +78,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "1 as true",
                 "inputSelect": None,
-                "error": "Alias 'true' is a reserved keyword.",
-                "errorStart": 0,
-                "errorEnd": 9,
+                "errors": [
+                    {
+                        "message": "Alias 'true' is a reserved keyword",
+                        "start": 0,
+                        "end": 9,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -90,9 +98,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "1 + no_field",
                 "inputSelect": None,
-                "error": "Unable to resolve field: no_field",
-                "errorStart": 4,
-                "errorEnd": 12,
+                "errors": [
+                    {
+                        "message": "Unable to resolve field: no_field",
+                        "start": 4,
+                        "end": 12,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -111,7 +124,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": query,
                 "notices": [
                     {
-                        "message": "Field 'person_id' is of type 'String'.",
+                        "message": "Field 'person_id' is of type 'String'",
                         "start": 7,
                         "end": 16,
                         "fix": None,
@@ -123,19 +136,19 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "fix": f"'{cohort.name}'",
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'.",
+                        "message": "Field 'person_id' is of type 'String'",
                         "start": 33 + len(str(cohort.pk)),
                         "end": 42 + len(str(cohort.pk)),
                         "fix": None,
                     },
                     {
-                        "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
+                        "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
                     },
                     {
-                        "message": "Field 'person_id' is of type 'String'.",
+                        "message": "Field 'person_id' is of type 'String'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
@@ -157,13 +170,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": None,
                 "notices": [
                     {
-                        "message": "Property 'string' is of type 'String'.",
+                        "message": "Property 'string' is of type 'String'",
                         "start": 11,
                         "end": 17,
                         "fix": None,
                     },
                     {
-                        "message": "Property 'number' is of type 'Float'.",
+                        "message": "Property 'number' is of type 'Float'",
                         "start": 32,
                         "end": 38,
                         "fix": None,

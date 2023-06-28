@@ -353,7 +353,7 @@ class Resolver(CloningVisitor):
             cte = lookup_cte_by_name(self.scopes, name)
             if cte:
                 if len(node.chain) > 1:
-                    raise ResolverException(f"Cannot access fields on CTE {cte.name} yet.")
+                    raise ResolverException(f"Cannot access fields on CTE {cte.name} yet")
                 # SubQuery CTEs ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 if cte.cte_type == "subquery":
@@ -387,7 +387,7 @@ class Resolver(CloningVisitor):
                 HogQLNotice(
                     start=node.start,
                     end=node.end,
-                    message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'.",
+                    message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'",
                 )
             )
 
