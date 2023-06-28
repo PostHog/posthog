@@ -93,7 +93,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
         SITE_URL: null,
-        MAX_PENDING_PROMISES_PER_WORKER: 100,
+        // We should not need to defer promises with this, and it results in
+        // long delays that are e.g. longer than the Kafka session timeout, so
+        // we set it to 1. TODO: refactor to not use promise manager but handle
+        // concurrency in a more deliberate way, less abstract way.
+        MAX_PENDING_PROMISES_PER_WORKER: 1,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: 5,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
