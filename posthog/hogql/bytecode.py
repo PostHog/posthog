@@ -20,6 +20,8 @@ COMPARE_OPERATIONS = {
     ast.CompareOperationOp.NotIn: Operation.NOT_IN,
     ast.CompareOperationOp.Regex: Operation.REGEX,
     ast.CompareOperationOp.NotRegex: Operation.NOT_REGEX,
+    ast.CompareOperationOp.IRegex: Operation.IREGEX,
+    ast.CompareOperationOp.NotIRegex: Operation.NOT_IREGEX,
 }
 
 ARITHMETIC_OPERATIONS = {

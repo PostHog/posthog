@@ -100,6 +100,12 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                 case Operation.NOT_REGEX:
                     args = [stack.pop(), stack.pop()]
                     stack.append(not bool(re.search(re.compile(args[1]), args[0])))
+                case Operation.IREGEX:
+                    args = [stack.pop(), stack.pop()]
+                    stack.append(bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
+                case Operation.NOT_IREGEX:
+                    args = [stack.pop(), stack.pop()]
+                    stack.append(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
                 case Operation.FIELD:
                     chain = [stack.pop() for _ in range(next(iterator))]
                     stack.append(get_nested_value(fields, chain))

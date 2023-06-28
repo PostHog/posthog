@@ -23,12 +23,17 @@ export const enum Operation {
     NOT_IN = 22,
     REGEX = 23,
     NOT_REGEX = 24,
-    TRUE = 25,
-    FALSE = 26,
-    NULL = 27,
-    STRING = 28,
-    INTEGER = 29,
-    FLOAT = 30,
+    IREGEX = 25,
+    NOT_IREGEX = 26,
+    IN_COHORT = 27,
+    NOT_IN_COHORT = 28,
+
+    TRUE = 29,
+    FALSE = 30,
+    NULL = 31,
+    STRING = 32,
+    INTEGER = 33,
+    FLOAT = 34,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -174,6 +179,14 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
             case Operation.NOT_REGEX:
                 temp = popStack()
                 stack.push(!new RegExp(popStack()).test(temp))
+                break
+            case Operation.IREGEX:
+                temp = popStack()
+                stack.push(new RegExp(popStack(), 'i').test(temp))
+                break
+            case Operation.NOT_IREGEX:
+                temp = popStack()
+                stack.push(!new RegExp(popStack(), 'i').test(temp))
                 break
             case Operation.FIELD:
                 const count = next()

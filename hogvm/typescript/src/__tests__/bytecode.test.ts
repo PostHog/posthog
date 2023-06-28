@@ -41,6 +41,12 @@ describe('HogQL Bytecode', () => {
         expect(executeHogQLBytecode(['_h', op.STRING, 'b', op.STRING, 'a', op.REGEX], fields)).toBe(false)
         expect(executeHogQLBytecode(['_h', op.STRING, '.*', op.STRING, 'a', op.NOT_REGEX], fields)).toBe(false)
         expect(executeHogQLBytecode(['_h', op.STRING, 'b', op.STRING, 'a', op.NOT_REGEX], fields)).toBe(true)
+        expect(executeHogQLBytecode(['_h', op.STRING, '.*', op.STRING, 'kala', op.IREGEX], fields)).toBe(true)
+        expect(executeHogQLBytecode(['_h', op.STRING, 'b', op.STRING, 'kala', op.IREGEX], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', op.STRING, 'AL', op.STRING, 'kala', op.IREGEX], fields)).toBe(true)
+        expect(executeHogQLBytecode(['_h', op.STRING, '.*', op.STRING, 'kala', op.NOT_IREGEX], fields)).toBe(false)
+        expect(executeHogQLBytecode(['_h', op.STRING, 'b', op.STRING, 'kala', op.NOT_IREGEX], fields)).toBe(true)
+        expect(executeHogQLBytecode(['_h', op.STRING, 'AL', op.STRING, 'kala', op.NOT_IREGEX], fields)).toBe(false)
         expect(executeHogQLBytecode(['_h', op.STRING, 'bla', op.STRING, 'properties', op.FIELD, 2], fields)).toBe(null)
         expect(executeHogQLBytecode(['_h', op.STRING, 'foo', op.STRING, 'properties', op.FIELD, 2], fields)).toBe('bar')
         expect(executeHogQLBytecode(['_h', op.STRING, 'another', op.STRING, 'arg', op.CALL, 'concat', 2], fields)).toBe(
