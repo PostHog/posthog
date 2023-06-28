@@ -1,7 +1,9 @@
 import json
+from datetime import timedelta, datetime
 from typing import Any, Dict, Optional, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
+from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -243,6 +245,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             team_for_public_context=resource.team,
         )
 
+    def _exported_asset_is_stale(self, exported_asset: ExportedAsset | None) -> bool:
+        if not exported_asset:
+            return True
+
+        return now() - cast(datetime, exported_asset.created_at) > timedelta(hours=3)
+
     def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
         target = resource.insight or resource.dashboard
         if not target:
@@ -254,7 +262,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             dashboard=resource.dashboard or None,
         )
 
-        if exported_asset_matches.exists():
+        has_usable_matches = exported_asset_matches.exists() and not self._exported_asset_is_stale(
+            exported_asset_matches.first()
+        )
+
+        if has_usable_matches:
             return exported_asset_matches.first()
         else:
             serializer = ExportedAssetSerializer(
@@ -266,7 +278,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 context={"team_id": cast(Team, resource.team).pk, "request": self.request},
             )
             serializer.is_valid(raise_exception=True)
-            export_asset = serializer.opengraph_synthetic_create("opengraph image")
+            export_asset = serializer.synthetic_create("opengraph image")
             ExportedAssetSerializer.generate_export_sync(export_asset)
 
             return export_asset
