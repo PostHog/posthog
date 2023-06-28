@@ -135,6 +135,7 @@ columnExpr
                  | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
                  ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
+    | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr
