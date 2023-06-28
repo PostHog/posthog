@@ -64,6 +64,15 @@ IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
 NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
 ```
 
+### Async Operations
+
+Some operations aren't resolved directly, but asked back to the caller. These include:
+
+```bash
+IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
+NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
+```
+
 ### Functions
 
 A PostHog HogQL Bytecode Certified Parser must also implement the following function calls:
