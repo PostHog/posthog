@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Optional, cast, Any
+from typing import Dict, Optional, cast, Any, List
 
 from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
@@ -161,29 +161,30 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return query
 
 
-def _unwrap_pydantic(response: BaseModel | list) -> Dict | list:
+def _unwrap_pydantic(response: Any) -> Dict | List:
     if isinstance(response, list):
         return [
             _unwrap_pydantic(item) if isinstance(item, list) or isinstance(item, BaseModel) else item
             for item in response
         ]
 
-    returned: Dict[str, Any] = {}
-    for key in response.__fields__.keys():
-        if isinstance(getattr(response, key), list):
-            returned[key] = [
-                _unwrap_pydantic(item) if isinstance(item, list) or isinstance(item, BaseModel) else item
-                for item in getattr(response, key)
-            ]
-        elif isinstance(getattr(response, key), BaseModel):
-            returned[key] = _unwrap_pydantic(getattr(response, key))
-        else:
-            returned[key] = getattr(response, key)
-    return returned
+    elif isinstance(response, BaseModel):
+        resp1: Dict[str, Any] = {}
+        for key in response.__fields__.keys():
+            resp1[key] = _unwrap_pydantic(getattr(response, key))
+        return resp1
+
+    elif isinstance(response, dict):
+        resp2: Dict[str, Any] = {}
+        for key in response.keys():
+            resp2[key] = _unwrap_pydantic(response.get(key))
+        return resp2
+
+    return response
 
 
-def _unwrap_pydantic_dict(response: BaseModel) -> Dict:
-    return cast(Dict, _unwrap_pydantic(response))
+def _unwrap_pydantic_dict(response: Any) -> Dict:
+    return cast(dict, _unwrap_pydantic(response))
 
 
 def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
