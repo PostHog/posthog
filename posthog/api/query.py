@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Dict, Optional, cast, Any, List
 
 from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
@@ -161,11 +161,30 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return query
 
 
-def _response_to_dict(response: BaseModel) -> Dict:
-    dict = {}
-    for key in response.__fields__.keys():
-        dict[key] = getattr(response, key)
-    return dict
+def _unwrap_pydantic(response: Any) -> Dict | List:
+    if isinstance(response, list):
+        return [
+            _unwrap_pydantic(item) if isinstance(item, list) or isinstance(item, BaseModel) else item
+            for item in response
+        ]
+
+    elif isinstance(response, BaseModel):
+        resp1: Dict[str, Any] = {}
+        for key in response.__fields__.keys():
+            resp1[key] = _unwrap_pydantic(getattr(response, key))
+        return resp1
+
+    elif isinstance(response, dict):
+        resp2: Dict[str, Any] = {}
+        for key in response.keys():
+            resp2[key] = _unwrap_pydantic(response.get(key))
+        return resp2
+
+    return response
+
+
+def _unwrap_pydantic_dict(response: Any) -> Dict:
+    return cast(dict, _unwrap_pydantic(response))
 
 
 def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = None) -> Dict:
@@ -178,17 +197,17 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     if query_kind == "EventsQuery":
         events_query = EventsQuery.parse_obj(query_json)
         response = run_events_query(query=events_query, team=team, default_limit=default_limit)
-        return _response_to_dict(response)
+        return _unwrap_pydantic_dict(response)
     elif query_kind == "HogQLQuery":
         hogql_query = HogQLQuery.parse_obj(query_json)
         response = execute_hogql_query(
             query=hogql_query.query, team=team, query_type="HogQLQuery", default_limit=default_limit
         )
-        return _response_to_dict(response)
+        return _unwrap_pydantic_dict(response)
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.parse_obj(query_json)
         response = get_hogql_metadata(query=metadata_query, team=team)
-        return _response_to_dict(response)
+        return _unwrap_pydantic_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
