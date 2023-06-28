@@ -2,7 +2,7 @@
 
 ## 2023-06-28 - In Cohort
 
-### Operations added
+### New async operations
 
 ```bash
 IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
