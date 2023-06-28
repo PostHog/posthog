@@ -292,6 +292,7 @@ class PathType(str, Enum):
     field_pageview = "$pageview"
     field_screen = "$screen"
     custom_event = "custom_event"
+    hogql = "hogql"
 
 
 class PathsFilter(BaseModel):
