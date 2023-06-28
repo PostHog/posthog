@@ -266,6 +266,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 context={"team_id": resource.team.pk, "request": self.request},
             )
             serializer.is_valid(raise_exception=True)
-            export_asset = serializer.save()
+            export_asset = serializer.opengraph_synthetic_create()
             ExportedAssetSerializer.generate_export_sync(export_asset)
             return export_asset
