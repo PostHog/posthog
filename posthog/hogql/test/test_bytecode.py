@@ -39,10 +39,17 @@ class TestBytecode(BaseTest):
         self.assertEqual(to_bytecode("1 not ilike 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_ILIKE])
         self.assertEqual(to_bytecode("1 in 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.IN])
         self.assertEqual(to_bytecode("1 not in 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_IN])
+        self.assertEqual(to_bytecode("1 in cohort 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.IN_COHORT])
+        self.assertEqual(to_bytecode("1 not in cohort 2"), [_H, op.INTEGER, 2, op.INTEGER, 1, op.NOT_IN_COHORT])
         self.assertEqual(to_bytecode("'string' ~ 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.REGEX])
         self.assertEqual(to_bytecode("'string' =~ 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.REGEX])
         self.assertEqual(
             to_bytecode("'string' !~ 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.NOT_REGEX]
+        )
+        self.assertEqual(to_bytecode("'string' ~* 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.IREGEX])
+        self.assertEqual(to_bytecode("'string' =~* 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.IREGEX])
+        self.assertEqual(
+            to_bytecode("'string' !~* 'regex'"), [_H, op.STRING, "regex", op.STRING, "string", op.NOT_IREGEX]
         )
         self.assertEqual(
             to_bytecode("match('test', 'e.*')"), [_H, op.STRING, "e.*", op.STRING, "test", op.CALL, "match", 2]

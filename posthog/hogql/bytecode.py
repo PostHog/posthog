@@ -18,6 +18,8 @@ COMPARE_OPERATIONS = {
     ast.CompareOperationOp.NotILike: Operation.NOT_ILIKE,
     ast.CompareOperationOp.In: Operation.IN,
     ast.CompareOperationOp.NotIn: Operation.NOT_IN,
+    ast.CompareOperationOp.InCohort: Operation.IN_COHORT,
+    ast.CompareOperationOp.NotInCohort: Operation.NOT_IN_COHORT,
     ast.CompareOperationOp.Regex: Operation.REGEX,
     ast.CompareOperationOp.NotRegex: Operation.NOT_REGEX,
     ast.CompareOperationOp.IRegex: Operation.IREGEX,
