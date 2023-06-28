@@ -137,12 +137,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                     },
                     {
                         "message": "Field 'person_id' is of type 'String'",
-                        "start": 33 + len(str(cohort.pk)),
-                        "end": 42 + len(str(cohort.pk)),
+                        "start": 35,
+                        "end": 44,
                         "fix": None,
                     },
                     {
-                        "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming",
+                        "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
