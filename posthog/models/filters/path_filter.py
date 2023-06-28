@@ -34,6 +34,7 @@ from posthog.models.filters.mixins.paths import (
     StartPointMixin,
     TargetEventDerivedMixin,
     TargetEventsMixin,
+    PathsHogQLExpressionMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
@@ -52,6 +53,7 @@ class PathFilter(
     DateMixin,
     BreakdownMixin,
     EntitiesMixin,
+    PathsHogQLExpressionMixin,
     PathStepLimitMixin,
     FunnelPathsMixin,
     TargetEventsMixin,

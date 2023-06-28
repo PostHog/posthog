@@ -1358,7 +1358,7 @@
             "type": "object"
         },
         "PathType": {
-            "enum": ["$pageview", "$screen", "custom_event"],
+            "enum": ["$pageview", "$screen", "custom_event", "hogql"],
             "type": "string"
         },
         "PathsFilter": {
@@ -1421,6 +1421,9 @@
                 },
                 "path_type": {
                     "$ref": "#/definitions/PathType"
+                },
+                "paths_hogql_expression": {
+                    "type": "string"
                 },
                 "start_point": {
                     "type": "string"

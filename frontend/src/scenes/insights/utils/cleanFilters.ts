@@ -249,6 +249,7 @@ export function cleanFilters(
             // TODO: use FF for path_type undefined
             path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
             include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
+            paths_hogql_expression: filters.paths_hogql_expression || undefined,
             path_groupings: filters.path_groupings || [],
             exclude_events: filters.exclude_events || [],
             ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
