@@ -87,6 +87,21 @@ class UUIDT(uuid.UUID):
         return 0 <= int(hex, 16) < 1 << 128
 
 
+class CreatedMetaFields(models.Model):
+    created_by: models.ForeignKey = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        abstract = True
+
+
+class DeletedMetaFields(models.Model):
+    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+
 class UUIDModel(models.Model):
     """Base Django Model with default autoincremented ID field replaced with UUIDT."""
 

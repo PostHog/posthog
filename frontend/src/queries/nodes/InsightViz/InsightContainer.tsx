@@ -15,10 +15,10 @@ import { AnimationType } from 'lib/animations/animations'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
-import { FunnelCanvasLabelDataExploration } from 'scenes/funnels/FunnelCanvasLabel'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { PathsDataExploration } from 'scenes/paths/Paths'
+import { Paths } from 'scenes/paths/Paths'
 import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import {
     FunnelInvalidExclusionState,
@@ -43,7 +43,7 @@ const VIEW_MAP = {
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
     [`${InsightType.FUNNELS}`]: <FunnelInsightDataExploration />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <PathsDataExploration />,
+    [`${InsightType.PATHS}`]: <Paths />,
 }
 
 export function InsightContainer({
@@ -51,6 +51,7 @@ export function InsightContainer({
     disableTable,
     disableCorrelationTable,
     disableLastComputation,
+    disableLegendButton,
     insightMode,
     context,
 }: {
@@ -58,6 +59,7 @@ export function InsightContainer({
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
+    disableLegendButton?: boolean
     insightMode?: ItemMode
     context?: QueryContext
 }): JSX.Element {
@@ -120,7 +122,6 @@ export function InsightContainer({
                     isLoading={insightDataLoading}
                     queryId={timedOutQueryId}
                     insightProps={insightProps}
-                    insightType={activeView}
                 />
             )
         }
@@ -225,9 +226,9 @@ export function InsightContainer({
                         )}
 
                         <div>
-                            {isFunnels ? <FunnelCanvasLabelDataExploration /> : null}
+                            {isFunnels ? <FunnelCanvasLabel /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
-                            <InsightLegendButtonDataExploration />
+                            {!disableLegendButton && <InsightLegendButtonDataExploration />}
                         </div>
                     </div>
                     {!!BlockingEmptyState ? (

@@ -203,7 +203,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             .all()
         )
 
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(request=request, team=self.team)
         filter = filter.shallow_clone(
             {SESSION_RECORDINGS_FILTER_IDS: json.dumps([x.recording_id for x in playlist_items])}
         )

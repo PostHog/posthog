@@ -192,9 +192,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (s) => [s.activeNavbarItemId],
             (activeNavbarItemId): SidebarNavbarItem | null => {
                 const item = NAVBAR_ITEM_ID_TO_ITEM[activeNavbarItemId]
-                return item && 'pointer' in item && typeof item.pointer !== 'string'
-                    ? (item as SidebarNavbarItem)
-                    : null
+                return item && 'logic' in item ? (item as SidebarNavbarItem) : null
             },
         ],
         searchTerm: [
@@ -204,7 +202,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         sidebarContentsFlattened: [
-            (s) => [(state) => s.activeNavbarItem(state)?.pointer.findMounted()?.selectors.contents(state)],
+            (s) => [(state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.contents(state)],
             (sidebarContents): BasicListItem[] | ExtendedListItem[] =>
                 sidebarContents ? sidebarContents.flatMap((item) => ('items' in item ? item.items : item)) : [],
         ],

@@ -43,6 +43,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -60,6 +61,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -78,8 +80,8 @@
          "posthog_action"."deleted",
          "posthog_action"."post_to_slack",
          "posthog_action"."slack_message_format",
-         "posthog_action"."is_calculating",
          "posthog_action"."updated_at",
+         "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
@@ -186,6 +188,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -203,6 +206,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -273,8 +277,8 @@
          "posthog_action"."deleted",
          "posthog_action"."post_to_slack",
          "posthog_action"."slack_message_format",
-         "posthog_action"."is_calculating",
          "posthog_action"."updated_at",
+         "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
@@ -410,8 +414,8 @@
          "posthog_action"."deleted",
          "posthog_action"."post_to_slack",
          "posthog_action"."slack_message_format",
-         "posthog_action"."is_calculating",
          "posthog_action"."updated_at",
+         "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
@@ -494,6 +498,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."autocapture_opt_out",
          "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -511,6 +516,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"

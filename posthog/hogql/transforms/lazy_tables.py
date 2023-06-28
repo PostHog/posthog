@@ -37,7 +37,7 @@ class LazyTableResolver(TraversingVisitor):
         if isinstance(type, ast.TableType):
             return select.get_alias_for_table_type(type)
         elif isinstance(type, ast.LazyTableType):
-            return type.table.hogql_table()
+            return type.table.to_printed_hogql()
         elif isinstance(type, ast.TableAliasType):
             return type.alias
         elif isinstance(type, ast.SelectQueryAliasType):
@@ -47,7 +47,7 @@ class LazyTableResolver(TraversingVisitor):
         elif isinstance(type, ast.VirtualTableType):
             return f"{self._get_long_table_name(select, type.table_type)}__{type.field}"
         else:
-            raise HogQLException("Should not be reachable")
+            raise HogQLException(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.joined_subquery is not None:
@@ -97,6 +97,23 @@ class LazyTableResolver(TraversingVisitor):
         ]
         sorted_properties: List[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
 
+        # Look for tables without requested fields to support cases like `select count() from table`
+        join = node.select_from
+        while join:
+            if isinstance(join.table.type, ast.LazyTableType):
+                fields = []
+                for field_or_property in field_collector:
+                    if isinstance(field_or_property, ast.FieldType):
+                        if field_or_property.table_type == join.table.type:
+                            fields.append(field_or_property)
+                    elif isinstance(field_or_property, ast.PropertyType):
+                        if field_or_property.field_type.table_type == join.table.type:
+                            fields.append(field_or_property)
+                if len(fields) == 0:
+                    table_name = join.alias or self._get_long_table_name(select_type, join.table.type)
+                    tables_to_add[table_name] = TableToAdd(fields_accessed={}, lazy_table=join.table.type.table)
+            join = join.next_join
+
         for field_or_property in sorted_properties:
             if isinstance(field_or_property, ast.FieldType):
                 property = None
@@ -105,7 +122,7 @@ class LazyTableResolver(TraversingVisitor):
                 property = field_or_property
                 field = property.field_type
             else:
-                raise Exception("Should not be reachable")
+                raise HogQLException("Should not be reachable")
             table_type = field.table_type
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
@@ -170,7 +187,7 @@ class LazyTableResolver(TraversingVisitor):
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed)
-            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context.database, [node.type]))
+            subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, [node.type]))
             old_table_type = select_type.tables[table_name]
             select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
 
@@ -188,7 +205,7 @@ class LazyTableResolver(TraversingVisitor):
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
                 join_scope.from_table, join_scope.to_table, join_scope.fields_accessed
             )
-            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context.database, [node.type]))
+            join_to_add = cast(ast.JoinExpr, resolve_types(join_to_add, self.context, [node.type]))
             select_type.tables[to_table] = join_to_add.type
 
             join_ptr = node.select_from
@@ -220,7 +237,7 @@ class LazyTableResolver(TraversingVisitor):
             elif isinstance(field_or_property, ast.PropertyType):
                 table_type = field_or_property.field_type.table_type
             else:
-                raise Exception("Should not be reachable")
+                raise HogQLException("Should not be reachable")
 
             table_name = self._get_long_table_name(select_type, table_type)
             table_type = select_type.tables[table_name]

@@ -78,6 +78,7 @@ import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { PostHogFeature } from 'posthog-js/react'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -124,7 +125,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     if (featureFlagLoading) {
         return (
             // TODO: This should be skeleton loaders
-            <SpinnerOverlay />
+            <SpinnerOverlay sceneLevel />
         )
     }
 
@@ -173,10 +174,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
-                                This feature flag is linked to an experiment. It's recommended to only make changes to
-                                this flag{' '}
+                                This feature flag is linked to an experiment. Edit settings here only for advanced
+                                functionality. If unsure, go back to{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                    using the experiment creation screen.
+                                    the experiment creation screen.
                                 </Link>
                             </LemonBanner>
                         )}
@@ -539,7 +540,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             }
                                             key="analysis"
                                         >
-                                            <AnalysisTab id={id} featureFlag={featureFlag} />
+                                            <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
+                                                <AnalysisTab id={id} featureFlag={featureFlag} />
+                                            </PostHogFeature>
                                         </Tabs.TabPane>
                                     )}
 
@@ -681,7 +684,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4">
+                            <div className="border rounded p-4 mb-4 bg-bg-light">
                                 <Row gutter={16} className="font-semibold">
                                     <Col span={6}>Key</Col>
                                     <Col span={6}>Description</Col>
@@ -753,6 +756,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     {
                                         label: 'Release toggle (boolean)',
                                         value: false,
+                                        disabled: !!(
+                                            featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                        ),
                                     },
                                     {
                                         label: (
@@ -937,6 +943,13 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     data-attr={`delete-prop-filter-${index}`}
                                                     noPadding
                                                     onClick={() => removeVariant(index)}
+                                                    disabledReason={
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                            ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="topRight"
                                                 />
                                             )}
                                         </Row>
@@ -958,6 +971,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 focusVariantKeyField(newIndex)
                             }}
                             icon={<IconPlus />}
+                            disabledReason={
+                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                    ? 'Cannot add variants to a feature flag that is part of an experiment'
+                                    : undefined
+                            }
+                            tooltipPlacement="topLeft"
                             center
                         >
                             Add variant

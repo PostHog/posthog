@@ -31,7 +31,7 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { beginResize, setIsSearchShown } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { contents } = useValues(navbarItem.pointer)
+    const { contents } = useValues(navbarItem.logic)
 
     const title =
         contents.length !== 1 || contents[0].title === navbarItem.label
@@ -70,11 +70,11 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
                         tooltipPlacement="bottom"
                     />
                 </div>
-                {navbarItem?.pointer && isSearchShown && (
-                    <SidebarSearchBar activeSidebarLogic={navbarItem.pointer} inputElementRef={inputElementRef} />
+                {navbarItem?.logic && isSearchShown && (
+                    <SidebarSearchBar activeSidebarLogic={navbarItem.logic} inputElementRef={inputElementRef} />
                 )}
                 <div className="Sidebar3000__lists">
-                    {navbarItem?.pointer && <SidebarContent activeSidebarLogic={navbarItem.pointer} />}
+                    {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
                 </div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
             </div>
@@ -176,7 +176,7 @@ function SidebarContent({
                     loading={accordion.loading}
                     collapsed={accordionCollapseMapping[accordion.key]}
                     toggle={() => toggleAccordion(accordion.key)}
-                    activeItemKey={normalizedActiveItemKey}
+                    activeItemKey={normalizedActiveItemKey ?? null}
                 />
             ))}
         </>
@@ -187,7 +187,7 @@ function SidebarContent({
             items={contents[0].items}
             remote={contents[0].remote}
             loading={contents[0].loading}
-            activeItemKey={normalizedActiveItemKey}
+            activeItemKey={normalizedActiveItemKey ?? null}
         />
     )
 }

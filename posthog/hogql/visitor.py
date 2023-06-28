@@ -1,20 +1,21 @@
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import HogQLException
 
 
-def clone_expr(expr: ast.Expr, clear_types=False, clear_locations=False) -> ast.Expr:
+def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
     """Clone an expression node."""
     return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
 
 
-def clear_locations(expr: ast.Expr) -> ast.Expr:
+def clear_locations(expr: Expr) -> Expr:
     return CloningVisitor(clear_locations=True).visit(expr)
 
 
 class Visitor(object):
-    def visit(self, node: ast.AST):
+    def visit(self, node: AST):
         if node is None:
             return node
 
@@ -30,7 +31,7 @@ class Visitor(object):
 class TraversingVisitor(Visitor):
     """Visitor that traverses the AST tree without returning anything"""
 
-    def visit_expr(self, node: ast.Expr):
+    def visit_expr(self, node: Expr):
         raise HogQLException("Can not visit generic Expr node")
 
     def visit_cte(self, node: ast.CTE):
@@ -39,7 +40,7 @@ class TraversingVisitor(Visitor):
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         self.visit(node.left)
         self.visit(node.right)
 
@@ -228,6 +229,9 @@ class TraversingVisitor(Visitor):
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         pass
 
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        self.visit(node.expr)
+
 
 class CloningVisitor(Visitor):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -236,7 +240,7 @@ class CloningVisitor(Visitor):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
 
-    def visit_expr(self, node: ast.Expr):
+    def visit_expr(self, node: Expr):
         raise HogQLException("Can not visit generic Expr node")
 
     def visit_cte(self, node: ast.CTE):
@@ -258,8 +262,8 @@ class CloningVisitor(Visitor):
             expr=self.visit(node.expr),
         )
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        return ast.BinaryOperation(
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        return ast.ArithmeticOperation(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
@@ -483,3 +487,6 @@ class CloningVisitor(Visitor):
             frame_type=node.frame_type,
             frame_value=node.frame_value,
         )
+
+    def visit_join_constraint(self, node: ast.JoinConstraint):
+        return ast.JoinConstraint(expr=self.visit(node.expr))

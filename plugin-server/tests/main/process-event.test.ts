@@ -1222,6 +1222,10 @@ const sessionReplayEventTestCases: {
         | 'first_timestamp'
         | 'last_timestamp'
         | 'active_milliseconds'
+        | 'console_log_count'
+        | 'console_warn_count'
+        | 'console_error_count'
+        | 'size'
     >
 }[] = [
     {
@@ -1234,6 +1238,10 @@ const sessionReplayEventTestCases: {
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 136,
         },
     },
     {
@@ -1246,6 +1254,66 @@ const sessionReplayEventTestCases: {
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 136,
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [
+                { timestamp: 1682449093469, type: 3, data: { source: 5 }, windowId: '1' },
+                {
+                    type: 6,
+                    data: { plugin: 'rrweb/console@1', payload: { level: 'log' } },
+                    timestamp: 1682449093469,
+                    windowId: '1',
+                },
+                {
+                    type: 6,
+                    data: { plugin: 'rrweb/console@1', payload: { level: 'log' } },
+                    timestamp: 1682449093469,
+                    windowId: '1',
+                },
+                {
+                    type: 6,
+                    data: { plugin: 'rrweb/console@1', payload: { level: 'warn' } },
+                    timestamp: 1682449093469,
+                    windowId: '1',
+                },
+                {
+                    type: 6,
+                    data: { plugin: 'rrweb/console@1', payload: { level: 'warn' } },
+                    timestamp: 1682449093469,
+                    windowId: '1',
+                },
+                {
+                    type: 6,
+                    data: { plugin: 'rrweb/console@1', payload: { level: 'warn' } },
+                    timestamp: 1682449093469,
+                    windowId: '1',
+                },
+                {
+                    type: 6,
+                    data: { plugin: 'rrweb/console@1', payload: { level: 'error' } },
+                    timestamp: 1682449093469,
+                    windowId: '1',
+                },
+            ],
+        },
+        expected: {
+            click_count: 0,
+            keypress_count: 1,
+            mouse_activity_count: 1,
+            first_url: undefined,
+            first_timestamp: '2023-04-25 18:58:13.469',
+            last_timestamp: '2023-04-25 18:58:13.469',
+            active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
+            console_log_count: 2,
+            console_warn_count: 3,
+            console_error_count: 1,
+            size: 825,
         },
     },
     {
@@ -1280,6 +1348,10 @@ const sessionReplayEventTestCases: {
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.693',
             active_milliseconds: 0, // no data.source, so no activity
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 276,
         },
     },
     {
@@ -1303,6 +1375,10 @@ const sessionReplayEventTestCases: {
             first_timestamp: '2023-04-25 18:58:13.000',
             last_timestamp: '2023-04-25 18:58:19.000',
             active_milliseconds: 6000, // can sum up the activity across windows
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 496,
         },
     },
 ]

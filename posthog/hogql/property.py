@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
@@ -17,7 +18,7 @@ from posthog.models.property_definition import PropertyType
 from posthog.schema import PropertyOperator
 
 
-def has_aggregation(expr: ast.AST) -> bool:
+def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
     finder.visit(expr)
     return finder.has_aggregation
@@ -133,9 +134,9 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
             op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationOp.LtE
+            op = ast.CompareOperationOp.LtEq
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationOp.GtE
+            op = ast.CompareOperationOp.GtEq
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
 
@@ -202,18 +203,25 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+
         cohort = Cohort.objects.get(team=team, id=property.value)
-
-        if cohort.is_static:
-            sql = "person_id in (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
-        else:
-            sql = "person_id in (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-
-        return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
+        return ast.CompareOperation(
+            left=ast.Field(chain=["person_id"]),
+            op=ast.CompareOperationOp.In,
+            right=cohort_subquery(cohort.pk, cohort.is_static),
+        )
 
     # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
 
     raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
+
+
+def cohort_subquery(cohort_id, is_static) -> ast.Expr:
+    if is_static:
+        sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+    else:
+        sql = "(SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)})
 
 
 def action_to_expr(action: Action) -> ast.Expr:

@@ -28,7 +28,6 @@ from typing import (
     cast,
 )
 from urllib.parse import urljoin, urlparse
-from django.db import DEFAULT_DB_ALIAS, connections
 
 import lzstring
 import posthoganalytics
@@ -759,22 +758,6 @@ def compact_number(value: Union[int, float]) -> str:
     return f"{value:f}".rstrip("0").rstrip(".") + ["", "K", "M", "B", "T", "P", "E", "Z", "Y"][magnitude]
 
 
-@lru_cache(maxsize=1)
-def is_postgres_connected_cached_check(_ttl: int) -> bool:
-    """
-    The setting will change way less frequently than it will be called
-    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
-    """
-    # Uses the same check as in the healthcheck
-    try:
-        with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
-            cursor.execute("SELECT 1")
-        return True
-    except Exception:
-        logger.exception("postgres_connection_failure")
-        return False
-
-
 def is_postgres_alive() -> bool:
     from posthog.models import User
 
@@ -936,10 +919,10 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(i: Union[List, Tuple]) -> Generator:
+def flatten(i: Union[List, Tuple], max_depth=10) -> Generator:
     for el in i:
-        if isinstance(el, list):
-            yield from flatten(el)
+        if isinstance(el, list) and max_depth > 0:
+            yield from flatten(el, max_depth=max_depth - 1)
         else:
             yield el
 
