@@ -1168,3 +1168,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response.results,
             [(True, True, False, True, False, False, True, True, True, False)],
         )
+
+    def test_nullish_coalescing(self):
+        query = """
+            SELECT
+                null ?? 1,
+                null ?? null ?? 2,
+                3 ?? null,
+                null ?? 'string',
+                1 + (null ?? 2) + 3,
+                1 + null ?? 2 + 3,
+                10 ?? true ? 20 : 30,
+                10 ?? 5 + 10
+        """
+
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+        )
+
+        self.assertEqual(
+            response.results,
+            [(1, 2, 3, "string", 6, 5, 20, 10)],
+        )

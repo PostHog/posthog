@@ -292,6 +292,7 @@ LT: '<';
 NOT_EQ: '!=' | '<>';
 NOT_IREGEX: '!~*';
 NOT_REGEX: '!~';
+NULLISH: '??';
 PERCENT: '%';
 PLUS: '+';
 QUERY: '?';
