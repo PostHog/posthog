@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta, datetime
+from datetime import datetime
 from typing import Any, Dict, Optional, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -249,7 +249,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if not exported_asset:
             return True
 
-        return now() - cast(datetime, exported_asset.created_at) > timedelta(hours=3)
+        export_age = now() - cast(datetime, exported_asset.created_at)
+        return export_age.total_seconds() > 3600 * 3
 
     def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
         target = resource.insight or resource.dashboard
@@ -265,6 +266,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         has_usable_matches = exported_asset_matches.exists() and not self._exported_asset_is_stale(
             exported_asset_matches.first()
         )
+
+        if exported_asset_matches.exists() and not has_usable_matches:
+            exported_asset_matches.delete()
+            has_usable_matches = False
 
         if has_usable_matches:
             return exported_asset_matches.first()

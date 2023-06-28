@@ -156,15 +156,18 @@ class TestSharing(APIBaseTest):
         assert response.headers.get("Content-Type") == "image/png"
         assert response.content == b"the image bytes"
 
+    @parameterized.expand(["insights", "dashboards"])
     @patch("posthog.models.exported_asset.object_storage.read_bytes")
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_shared_insight_can_generate_open_graph_image(
-        self, patched_exporter_task: Mock, patched_object_storage: Mock
+    def test_shared_thing_can_generate_open_graph_image(
+        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
     ) -> None:
         patched_object_storage.return_value = b"the image bytes"
 
+        target = self.insight if type == "insights" else self.dashboard
+
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.id}/sharing", {"enabled": True}
         )
         access_token = share_response.json()["access_token"]
 
@@ -186,15 +189,18 @@ class TestSharing(APIBaseTest):
         assert item_opengraph_image.headers["Content-Type"] == "image/png"
         assert item_opengraph_image.content == b"the image bytes"
 
+    @parameterized.expand(["insights", "dashboards"])
     @patch("posthog.models.exported_asset.object_storage.read_bytes")
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_shared_insight_can_reuse_existing_generated_open_graph_image(
-        self, patched_exporter_task: Mock, patched_object_storage: Mock
+    def test_shared_thing_can_reuse_existing_generated_open_graph_image(
+        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
     ) -> None:
         patched_object_storage.return_value = b"the image bytes"
 
+        target = self.insight if type == "insights" else self.dashboard
+
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.id}/sharing", {"enabled": True}
         )
         access_token = share_response.json()["access_token"]
 
@@ -203,7 +209,8 @@ class TestSharing(APIBaseTest):
             export_format=ExportedAsset.ExportFormat.PNG,
             content=None,
             content_location="existing object url",
-            insight=self.insight,
+            insight=self.insight if type == "insights" else None,
+            dashboard=self.dashboard if type == "dashboards" else None,
         )
         assert ExportedAsset.objects.count() == 1
 
@@ -216,27 +223,33 @@ class TestSharing(APIBaseTest):
         assert item_opengraph_image.headers["Content-Type"] == "image/png"
         assert item_opengraph_image.content == b"the image bytes"
 
+    @parameterized.expand(["insights", "dashboards"])
     @patch("posthog.models.exported_asset.object_storage.read_bytes")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_shared_insight_can_regenerate_stale_existing_generated_open_graph_image(
-        self, patched_exporter_task: Mock, patched_object_storage: Mock
+        self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
     ) -> None:
         patched_object_storage.return_value = b"the image bytes"
 
+        target = self.insight if type == "insights" else self.dashboard
+
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.id}/sharing", {"enabled": True}
         )
         access_token = share_response.json()["access_token"]
 
         # the existing asset is stale because it is more than 3 hours old
-        ExportedAsset.objects.create(
+        time_in_the_past = now() - timedelta(hours=4)
+        asset = ExportedAsset.objects.create(
             team_id=self.team.id,
             export_format=ExportedAsset.ExportFormat.PNG,
             content=None,
             content_location="existing object url",
-            insight=self.insight,
-            created_at=now() - timedelta(hours=4),
+            insight=self.insight if type == "insights" else None,
+            dashboard=self.dashboard if type == "dashboards" else None,
         )
+        asset.created_at = time_in_the_past
+        asset.save()
 
         def add_content_location_on_task_run(*args, **kwargs):
             asset = ExportedAsset.objects.get(team_id=self.team.id)
@@ -251,13 +264,9 @@ class TestSharing(APIBaseTest):
 
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
 
-        assert ExportedAsset.objects.count() == 2
+        assert ExportedAsset.objects.count() == 1
+        assert ExportedAsset.objects.first().id != asset.id
+
         assert item_opengraph_image.status_code == 200
         assert item_opengraph_image.headers["Content-Type"] == "image/png"
         assert item_opengraph_image.content == b"the image bytes"
-
-    def test_shared_dashboard_can_generate_open_graph_image(self) -> None:
-        pass
-
-    def test_shared_dashboard_can_reuse_existing_generated_open_graph_image(self) -> None:
-        pass
