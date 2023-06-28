@@ -368,6 +368,45 @@ describe('summarizing insights', () => {
             ).toEqual('User paths based on all events')
         })
 
+        it('summarizes a Paths insight based on all events and HogQL expression', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent, PathType.HogQL],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on all events and HogQL expression')
+        })
+
+        it('summarizes a Paths insight based on page views and HogQL expression', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.PageView, PathType.HogQL],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on page views and HogQL expression')
+        })
+
+        it('summarizes a Paths insight based on HogQL expression', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.HogQL],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on HogQL expression')
+        })
+
         it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
             expect(
                 summarizeInsight(

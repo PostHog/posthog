@@ -58,10 +58,26 @@ NULL = 31          # [NULL]                             # null
 STRING = 32        # [STRING, 'text']                   # 'text'
 INTEGER = 33       # [INTEGER, 123]                     # 123
 FLOAT = 34         # [FLOAT, 123.12]                    # 123.01
+```
 
-# Added for completion, but not yet implemented. Stay tuned!
+### Async Operations
+
+Some operations can't be computed directly, and are thus asked back to the caller. These include:
+
+```bash
 IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
 NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
+```
+
+The arguments for these instructions will be passed on to the provided `async_operation(*args)` in reverse:
+
+```python
+def async_operation(*args):
+    if args[0] == op.IN_COHORT:
+        return db.queryInCohort(args[1], args[2])
+    return False
+
+execute_bytecode(to_bytecode("'user_id' in cohort 2"), {}, async_operation)
 ```
 
 ### Functions
@@ -87,6 +103,7 @@ In HogQL equality comparisons, `null` is treated as any other variable. Its pres
 ```
 
 Nulls are just ignored in `concat`
+
 
 ## Known broken features
 

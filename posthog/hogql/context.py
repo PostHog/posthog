@@ -2,8 +2,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional, Any
 
 from posthog.hogql.database.database import Database
-from posthog.utils import PersonOnEventsMode
 from posthog.schema import HogQLNotice
+from posthog.utils import PersonOnEventsMode
 
 
 @dataclass

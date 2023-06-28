@@ -1,5 +1,5 @@
 import { kea, path, props, key, connect, selectors, actions, listeners } from 'kea'
-import { InsightLogicProps, FilterType, PathType, PathsFilterType, InsightType } from '~/types'
+import { InsightLogicProps, PathType, PathsFilterType, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -16,24 +16,7 @@ import { InsightQueryNode } from '~/queries/schema'
 
 export const DEFAULT_STEP_LIMIT = 5
 
-export const pathOptionsToLabels = {
-    [PathType.PageView]: 'Page views (Web)',
-    [PathType.Screen]: 'Screen views (Mobile)',
-    [PathType.CustomEvent]: 'Custom events',
-}
-
-export const pathOptionsToProperty = {
-    [PathType.PageView]: '$current_url',
-    [PathType.Screen]: '$screen_name',
-    [PathType.CustomEvent]: 'custom_event',
-}
-
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
-export interface PathResult {
-    paths: PathNode[]
-    filter: Partial<FilterType>
-    error?: boolean
-}
 
 export interface PathNode {
     target: string
