@@ -301,7 +301,7 @@ def log_activity(
                 "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
-                user_id=user.id,
+                user_id=user.id if user else None,
                 scope=scope,
             )
             return

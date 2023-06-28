@@ -167,7 +167,7 @@ class TestSharing(APIBaseTest):
         target = self.insight if type == "insights" else self.dashboard
 
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/{type}/{target.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
         )
         access_token = share_response.json()["access_token"]
 
@@ -200,7 +200,7 @@ class TestSharing(APIBaseTest):
         target = self.insight if type == "insights" else self.dashboard
 
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/{type}/{target.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
         )
         access_token = share_response.json()["access_token"]
 
@@ -234,7 +234,7 @@ class TestSharing(APIBaseTest):
         target = self.insight if type == "insights" else self.dashboard
 
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/{type}/{target.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
         )
         access_token = share_response.json()["access_token"]
 
@@ -265,7 +265,9 @@ class TestSharing(APIBaseTest):
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
 
         assert ExportedAsset.objects.count() == 1
-        assert ExportedAsset.objects.first().id != asset.id
+        final_asset = ExportedAsset.objects.first()
+        assert final_asset is not None
+        assert final_asset.id != asset.id
 
         assert item_opengraph_image.status_code == 200
         assert item_opengraph_image.headers["Content-Type"] == "image/png"
