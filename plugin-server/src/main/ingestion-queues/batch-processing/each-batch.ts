@@ -48,7 +48,7 @@ export async function eachBatch(
 
             const lastBatchMessage = messageBatch[messageBatch.length - 1]
             await Promise.all(
-                messageBatch.map((message: KafkaMessage) => eachMessage(message, queue).then(() => heartbeat()))
+                messageBatch.map((message: KafkaMessage) => eachMessage(message, queue).finally(() => heartbeat()))
             )
 
             // this if should never be false, but who can trust computers these days
