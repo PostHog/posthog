@@ -1,6 +1,6 @@
 # HogQL bytecode changelog 
 
-## 2023-06-27 - First version
+## 2023-06-28 - First version
 
 ### Operations added
 
@@ -31,14 +31,16 @@ REGEX = 23         # [val2, val1, REGEX]                # val1 =~ val2
 NOT_REGEX = 24     # [val2, val1, NOT_REGEX]            # val1 !~ val2
 IREGEX = 25        # [val2, val1, IREGEX]               # val1 =~* val2
 NOT_IREGEX = 26    # [val2, val1, NOT_IREGEX]           # val1 !~* val2
-IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
-NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
 TRUE = 29          # [TRUE]                             # true
 FALSE = 30         # [FALSE]                            # false
 NULL = 31          # [NULL]                             # null
 STRING = 32        # [STRING, 'text']                   # 'text'
 INTEGER = 33       # [INTEGER, 123]                     # 123
 FLOAT = 34         # [FLOAT, 123.12]                    # 123.01
+
+# Added for completion, but not yet implemented. Stay tuned!
+IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
+NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
 ```
 
 ### Functions added
