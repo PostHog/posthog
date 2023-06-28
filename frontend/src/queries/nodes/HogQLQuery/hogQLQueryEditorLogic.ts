@@ -25,7 +25,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     props({} as HogQLQueryEditorLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.query.query !== oldProps.query.query) {
+        if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
             actions.setQueryInput(props.query.query)
         }
     }),
@@ -39,13 +39,18 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
     })),
     selectors({
-        hasErrors: [(s) => [s.modelMarkers], (modelMarkers) => !!modelMarkers?.length],
+        hasErrors: [
+            (s) => [s.modelMarkers],
+            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === MarkerSeverity.Error).length,
+        ],
         error: [
             (s) => [s.hasErrors, s.modelMarkers],
-            (hasErrors, modelMarkers) =>
-                hasErrors && modelMarkers[0]
-                    ? `Error on line ${modelMarkers[0].startLineNumber}, column ${modelMarkers[0].startColumn}`
-                    : null,
+            (hasErrors, modelMarkers) => {
+                const firstError = modelMarkers.find((e) => e.severity === MarkerSeverity.Error)
+                return hasErrors && firstError
+                    ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
+                    : null
+            },
         ],
     }),
     listeners(({ actions, props, values }) => ({

@@ -24,8 +24,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     )
     const [monaco, editor] = monacoAndEditor ?? []
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
-    const { queryInput, hasErrors, error } = useValues(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
-    const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
+    const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
+    const { queryInput, hasErrors, error } = useValues(logic)
+    const { setQueryInput, saveQuery } = useActions(logic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
