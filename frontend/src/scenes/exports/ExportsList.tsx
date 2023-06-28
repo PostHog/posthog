@@ -28,10 +28,10 @@ export function ExportActionButtons({
     currentTeamId,
     export_,
     loading,
-    updateCallback,
     buttonFullWidth,
     buttonType,
     dividerVertical,
+    updateCallback,
 }: ExportActionButtonsProps): JSX.Element {
     const { executeExportAction: pauseExport, error: pauseError } = useExportAction(currentTeamId, export_.id, 'pause')
     const { executeExportAction: resumeExport, error: resumeError } = useExportAction(
@@ -176,12 +176,19 @@ export function ExportActionButtons({
     )
 }
 
+export interface SubExportActionButtonsProps {
+    currentTeamId: number
+    export_: BatchExport
+    loading: boolean
+    updateCallback: (signal: AbortSignal | undefined) => void
+}
+
 export function InlineExportActionButtons({
     currentTeamId,
     export_,
     loading,
     updateCallback,
-}: ExportActionButtonsProps): JSX.Element {
+}: SubExportActionButtonsProps): JSX.Element {
     return (
         <div className={clsx('flex flex-wrap gap-2')}>
             <ExportActionButtons
@@ -202,7 +209,7 @@ export function NestedExportActionButtons({
     export_,
     loading,
     updateCallback,
-}: ExportActionButtonsProps): JSX.Element {
+}: SubExportActionButtonsProps): JSX.Element {
     return (
         <More
             overlay={
