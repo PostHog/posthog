@@ -104,9 +104,9 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
 
     We pass the call to the underlying Temporal Schedule.
     """
-    batch_export = BatchExport.objects.get(id=batch_export_id)
-
-    if not batch_export:
+    try:
+        batch_export = BatchExport.objects.get(id=batch_export_id)
+    except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
     if batch_export.paused is True:
@@ -146,9 +146,9 @@ def unpause_batch_export(
     Raises:
         BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
     """
-    batch_export = BatchExport.objects.get(id=batch_export_id)
-
-    if not batch_export:
+    try:
+        batch_export = BatchExport.objects.get(id=batch_export_id)
+    except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
     if batch_export.paused is False:
@@ -200,9 +200,9 @@ def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetim
         start_at: From when to backfill.
         end_at: Up to when to backfill.
     """
-    batch_export = BatchExport.objects.get(id=batch_export_id)
-
-    if not batch_export:
+    try:
+        BatchExport.objects.get(id=batch_export_id)
+    except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
     schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=ScheduleOverlapPolicy.ALLOW_ALL)
