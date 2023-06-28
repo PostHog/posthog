@@ -3,6 +3,7 @@ from typing import Dict, Set
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField
+from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.schema import HogQLNotice
@@ -120,9 +121,11 @@ class PropertySwapper(CloningVisitor):
         return node
 
     def _add_notice(self, node: ast.Field, message: str):
+        # Only highlight the last part of the chain
+        start = max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1])))
         self.context.notices.append(
             HogQLNotice(
-                start=node.start,
+                start=start,
                 end=node.end,
                 message=message,
             )

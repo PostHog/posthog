@@ -12,6 +12,7 @@ from posthog.hogql.functions.cohort import cohort
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
+from posthog.schema import HogQLNotice
 
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
@@ -380,6 +381,16 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+
+        if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
+            self.context.notices.append(
+                HogQLNotice(
+                    start=node.start,
+                    end=node.end,
+                    message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'.",
+                )
+            )
+
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):

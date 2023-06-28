@@ -13,9 +13,9 @@ from posthog.hogql.parse_string import parse_string, parse_string_literal
 from posthog.hogql.placeholders import replace_placeholders
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, start: Optional[int] = 0) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
-    node = HogQLParseTreeConverter().visit(parse_tree)
+    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
     return node
@@ -72,12 +72,16 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
+    def __init__(self, start: Optional[int] = 0):
+        super().__init__()
+        self.start = start
+
     def visit(self, ctx: ParserRuleContext):
         start = ctx.start.start if ctx.start else None
         end = ctx.stop.stop + 1 if ctx.stop else None
         try:
             node = super().visit(ctx)
-            if isinstance(node, AST):
+            if isinstance(node, AST) and self.start is not None:
                 node.start = start
                 node.end = end
             return node

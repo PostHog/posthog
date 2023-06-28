@@ -111,16 +111,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "inputSelect": query,
                 "notices": [
                     {
+                        "message": "Field 'person_id' is of type 'String'.",
+                        "start": 7,
+                        "end": 16,
+                        "fix": None,
+                    },
+                    {
                         "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
                         "start": 55,
                         "end": 55 + len(str(cohort.pk)),
                         "fix": f"'{cohort.name}'",
                     },
                     {
-                        "message": f"Searching for cohort by name. Replace with numeric id {cohort.pk} to protect against renaming.",
+                        "message": "Field 'person_id' is of type 'String'.",
+                        "start": 33 + len(str(cohort.pk)),
+                        "end": 42 + len(str(cohort.pk)),
+                        "fix": None,
+                    },
+                    {
+                        "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
+                    },
+                    {
+                        "message": "Field 'person_id' is of type 'String'.",
+                        "start": 59 + len(str(cohort.pk)),
+                        "end": 68 + len(str(cohort.pk)),
+                        "fix": None,
                     },
                 ],
             },
@@ -140,13 +158,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "notices": [
                     {
                         "message": "Property 'string' is of type 'String'.",
-                        "start": 0,
+                        "start": 11,
                         "end": 17,
                         "fix": None,
                     },
                     {
                         "message": "Property 'number' is of type 'Float'.",
-                        "start": 21,
+                        "start": 32,
                         "end": 38,
                         "fix": None,
                     },
