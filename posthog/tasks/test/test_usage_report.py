@@ -922,7 +922,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         }
 
     @patch("posthog.tasks.usage_report.Client")
-    def test_capture_event_called_with_string_timestamp(self, mock_client) -> None:
+    def test_capture_event_called_with_string_timestamp(self, mock_client: MagicMock) -> None:
         organization = Organization.objects.create()
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog

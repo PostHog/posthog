@@ -284,7 +284,7 @@ def capture_event(
     name: str,
     organization_id: str,
     properties: Dict[str, Any],
-    timestamp: Optional[datetime] = None,
+    timestamp: Optional[Union[datetime, str]] = None,
 ) -> None:
     if timestamp and isinstance(timestamp, str):
         try:
