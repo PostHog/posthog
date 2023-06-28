@@ -23,7 +23,7 @@ import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-interface InsightsTableProps {
+export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
     isLegend?: boolean
     /** Whether this is table is embedded in another card or whether it should be a card of its own. Default: false. */
