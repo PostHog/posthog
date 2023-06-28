@@ -227,11 +227,7 @@ export function FilterBasedCardContent({
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
-                    <InsightTimeoutState
-                        isLoading={false}
-                        insightProps={{ dashboardItemId: undefined }}
-                        insightType={insight.filters.insight}
-                    />
+                    <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
                 ) : apiErrored && !loading ? (
                     <InsightErrorState excludeDetail />
                 ) : (

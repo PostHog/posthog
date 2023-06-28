@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useValues } from 'kea'
 import { databaseSceneLogic, DatabaseSceneRow } from 'scenes/data-management/database/databaseSceneLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -9,15 +9,37 @@ import { DatabaseTable } from './DatabaseTable'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseSceneLogic)
-    return <DatabaseTables tables={filteredTables} loading={databaseLoading} />
+    return (
+        <DatabaseTables
+            tables={filteredTables}
+            loading={databaseLoading}
+            renderRow={(row: DatabaseSceneRow) => {
+                return (
+                    <div className="px-4 py-3">
+                        <div className="mt-2">
+                            <span className="card-secondary">Columns</span>
+                            <DatabaseTable table={row.name} tables={filteredTables} />
+                        </div>
+                    </div>
+                )
+            }}
+        />
+    )
 }
 
-interface DatabaseTablesProps {
-    tables: DatabaseSceneRow[]
+interface DatabaseTablesProps<T extends Record<string, any>> {
+    tables: T[]
     loading: boolean
+    renderRow: (row: T) => JSX.Element
+    extraColumns?: LemonTableColumns<T>
 }
 
-export function DatabaseTables({ tables, loading }: DatabaseTablesProps): JSX.Element {
+export function DatabaseTables<T extends DatabaseSceneRow>({
+    tables,
+    loading,
+    renderRow,
+    extraColumns = [],
+}: DatabaseTablesProps<T>): JSX.Element {
     return (
         <>
             <LemonTable
@@ -28,7 +50,7 @@ export function DatabaseTables({ tables, loading }: DatabaseTablesProps): JSX.El
                         title: 'Table',
                         key: 'name',
                         dataIndex: 'name',
-                        render: function RenderTable(table, obj: DatabaseSceneRow) {
+                        render: function RenderTable(table, obj: T) {
                             const query: DataTableNode = {
                                 kind: NodeKind.DataTableNode,
                                 full: true,
@@ -61,15 +83,10 @@ export function DatabaseTables({ tables, loading }: DatabaseTablesProps): JSX.El
                             )
                         },
                     },
+                    ...extraColumns,
                 ]}
                 expandable={{
-                    expandedRowRender: function renderExpand(row) {
-                        return (
-                            <div className="px-4 py-3">
-                                <DatabaseTable table={row.name} tables={tables} />
-                            </div>
-                        )
-                    },
+                    expandedRowRender: renderRow,
                     rowExpandable: () => true,
                     noIndent: true,
                 }}

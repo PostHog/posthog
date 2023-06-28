@@ -45,7 +45,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                         {index > 0 && <div className="condition-set-separator">OR</div>}
                         {rollback_condition.threshold_type === 'insight' &&
                         rollback_condition.threshold_metric?.events?.[0]?.name ? (
-                            <div className="mb-4 border rounded p-4">
+                            <div className="mb-4 border rounded p-4 bg-bg-light">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
                                 <Row align="middle">
@@ -64,7 +64,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                 </Row>
                             </div>
                         ) : (
-                            <div className="mb-4 border rounded p-4">
+                            <div className="mb-4 border rounded p-4 bg-bg-light">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
                                 <Row align="middle">
@@ -80,7 +80,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                 featureFlag.rollback_conditions.map((_, index) => (
                     <>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
-                        <div className="mb-4 border rounded p-4">
+                        <div className="mb-4 border rounded p-4 bg-bg-light">
                             <Group name={['rollback_conditions', index]}>
                                 <Row align="middle" justify="space-between">
                                     <Row>

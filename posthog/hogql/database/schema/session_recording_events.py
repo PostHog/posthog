@@ -32,8 +32,8 @@ class SessionRecordingEvents(Table):
         "click_count": IntegerDatabaseField(name="click_count"),
         "keypress_count": IntegerDatabaseField(name="keypress_count"),
         "timestamps_summary": DateTimeDatabaseField(name="timestamps_summary", array=True),
-        "first_event_timestamp": DateTimeDatabaseField(name="first_event_timestamp"),
-        "last_event_timestamp": DateTimeDatabaseField(name="last_event_timestamp"),
+        "first_event_timestamp": DateTimeDatabaseField(name="first_event_timestamp", nullable=True),
+        "last_event_timestamp": DateTimeDatabaseField(name="last_event_timestamp", nullable=True),
         "urls": StringDatabaseField(name="urls", array=True),
         "pdi": LazyJoin(
             from_field="distinct_id",

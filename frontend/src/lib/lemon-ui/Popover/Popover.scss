@@ -92,7 +92,7 @@
     width: 0.5rem;
     height: 0.5rem;
     transform: rotate(45deg);
-    background: #fff;
+    background: var(--bg-light);
 
     &--top {
         border-top: 1px solid var(--border);

@@ -10,6 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductKey } from '~/types'
+import { ReadingHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: IngestionWarningsView,
@@ -193,6 +194,7 @@ export function IngestionWarningsView(): JSX.Element {
                     isEmpty={true}
                     description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
+                    customHog={ReadingHog}
                 />
             )}
         </div>

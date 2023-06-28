@@ -11,6 +11,8 @@ import {
     FeatureFlagFilters,
     FeatureFlagGroupType,
     PluginType,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
     SurveyQuestionType,
     SurveyType,
@@ -36,10 +38,13 @@ export interface NewSurvey
         | 'linked_flag'
         | 'targeting_flag'
         | 'archived'
+        | 'appearance'
     > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
+
+export const defaultSurveyAppearance = { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' }
 
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
@@ -55,24 +60,30 @@ const NEW_SURVEY: NewSurvey = {
     end_date: null,
     conditions: null,
     archived: false,
+    appearance: defaultSurveyAppearance,
 }
 
-export const getSurveyEventName = (surveyName: string): string => {
-    return `${surveyName} survey sent`
-}
+export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
+export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
-            select: ['*', 'event', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
+            select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
-            after: '-30d',
-            limit: 100,
-            event: getSurveyEventName(surveyName),
+            where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+            after: survey.created_at,
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: survey.id,
+                },
+            ],
         },
         propertiesViaUrl: true,
         showExport: true,
@@ -84,9 +95,9 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     return surveyDataQuery
 }
 
-export const getSurveyMetricsQueries = (surveyId: string, surveyName: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == '${surveyName} survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == '${surveyName} survey dismissed' and properties.$survey_id == '${surveyId}'`
+export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
+    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,
@@ -167,9 +178,9 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey.name))
-                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id, survey.name))
+            if (survey.start_date && survey.id !== 'new') {
+                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
+                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
@@ -189,7 +200,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },

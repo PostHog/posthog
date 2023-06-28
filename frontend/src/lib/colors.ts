@@ -100,7 +100,7 @@ export function gradateColor(
     hsl: [number, number, number],
     strength: number,
     floor: number = 0
-): `hsl(${number} ${number}% ${number}%)` {
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
     const saturation = floor + (1 - floor) * strength
-    return `hsl(${hsl[0]} ${hsl[1]}% ${100 - (100 - hsl[2]) * saturation}%)`
+    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
 }

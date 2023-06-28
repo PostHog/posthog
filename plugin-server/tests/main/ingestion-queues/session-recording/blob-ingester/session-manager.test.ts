@@ -5,6 +5,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
+import { now } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createIncomingRecordingMessage } from '../fixtures'
 
 jest.mock('fs', () => {
@@ -13,7 +14,7 @@ jest.mock('fs', () => {
         writeFileSync: jest.fn(),
         createReadStream: jest.fn().mockImplementation(() => {
             return {
-                pipe: jest.fn(),
+                pipe: () => ({ close: jest.fn() }),
             }
         }),
     }
@@ -47,11 +48,28 @@ describe('session-manager', () => {
         send: jest.fn(),
     }
 
+    const mockRealtimeManager: any = {
+        clearAllMessages: jest.fn(),
+        onSubscriptionEvent: jest.fn(() => jest.fn()),
+        clearMessages: jest.fn(),
+        addMessage: jest.fn(),
+        addMessagesFromBuffer: jest.fn(),
+    }
+
     beforeEach(() => {
         // it's always May 25
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
-        sessionManager = new SessionManager(defaultConfig, mockS3Client, 1, 'session_id_1', 1, 'topic', mockFinish)
+        sessionManager = new SessionManager(
+            defaultConfig,
+            mockS3Client,
+            mockRealtimeManager,
+            1,
+            'session_id_1',
+            1,
+            'topic',
+            mockFinish
+        )
         mockFinish.mockClear()
     })
 
@@ -62,7 +80,7 @@ describe('session-manager', () => {
     })
 
     it('adds a message', async () => {
-        const timestamp = DateTime.now().toMillis() - 10000
+        const timestamp = now() - 10000
         const event = createIncomingRecordingMessage({
             metadata: {
                 timestamp: timestamp,
@@ -74,10 +92,12 @@ describe('session-manager', () => {
         expect(sessionManager.buffer).toEqual({
             count: 1,
             oldestKafkaTimestamp: timestamp,
+            newestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
             size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
+            createdAt: now(),
             eventsRange: {
                 firstTimestamp: 1679568314158,
                 lastTimestamp: 1679568314158,
@@ -123,6 +143,8 @@ describe('session-manager', () => {
                 },
             ],
             metadata: {
+                // the highest offset doesn't have to be received first!
+                offset: 12345,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
             } as any,
         })
@@ -135,6 +157,7 @@ describe('session-manager', () => {
                 },
             ],
             metadata: {
+                offset: 12344,
                 timestamp: DateTime.now().minus({ milliseconds: flushThreshold }).toMillis(),
             } as any,
         })
@@ -142,7 +165,7 @@ describe('session-manager', () => {
         await sessionManager.add(eventOne)
         await sessionManager.add(eventTwo)
 
-        await sessionManager.flushIfSessionBufferIsOld(DateTime.now().toMillis(), flushThreshold)
+        await sessionManager.flushIfSessionBufferIsOld(now(), flushThreshold)
 
         // as a proxy for flush having been called or not
         expect(createReadStream).toHaveBeenCalled()
@@ -176,6 +199,26 @@ describe('session-manager', () => {
 
         // as a proxy for flush having been called or not
         expect(createReadStream).not.toHaveBeenCalled()
+    })
+
+    it('does flush if lagging but nonetheless too old', async () => {
+        const aDayInMilliseconds = 24 * 60 * 60 * 1000
+        const now = DateTime.now()
+
+        const event = createIncomingRecordingMessage({
+            metadata: {
+                timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
+            } as any,
+        })
+
+        await sessionManager.add(event)
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        expect(createReadStream).not.toHaveBeenCalled()
+
+        // Manually modify the date to simulate this being idle for too long
+        sessionManager.buffer.createdAt = now.minus({ milliseconds: 3000 }).toMillis()
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        expect(createReadStream).toHaveBeenCalled()
     })
 
     it('flushes messages', async () => {

@@ -225,6 +225,7 @@ function Pages(): JSX.Element {
                             identifier={Scene.DataWarehouse}
                             title={'Data Warehouse'}
                             to={urls.dataWarehouse()}
+                            highlight="beta"
                         />
                     )}
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />

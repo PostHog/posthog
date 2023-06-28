@@ -121,7 +121,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
-        SESSION_RECORDING_KAFKA_HOSTS: 'kafka:9092',
+        SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: Change this to 'all' when we release it fully
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
@@ -131,6 +131,20 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
+        SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
+        POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
+        POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+    }
+}
+
+export const sessionRecordingBlobConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
+    // When running the blob consumer we override a bunch of settings to use the session recording ones if available
+    return {
+        ...config,
+        KAFKA_HOSTS: config.SESSION_RECORDING_KAFKA_HOSTS || config.KAFKA_HOSTS,
+        KAFKA_SECURITY_PROTOCOL: config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || config.KAFKA_SECURITY_PROTOCOL,
+        POSTHOG_REDIS_HOST: config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.POSTHOG_REDIS_HOST,
+        POSTHOG_REDIS_PORT: config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.POSTHOG_REDIS_PORT,
     }
 }
 
