@@ -11,7 +11,7 @@ import { IconReplay } from 'lib/lemon-ui/icons'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
-import { ExportActionButtons } from './ExportsList'
+import { InlineExportActionButtons } from './ExportsList'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -100,7 +100,7 @@ function ExportHeader({ currentTeamId, export_, loading, updateCallback }: Expor
                     </div>
                 }
                 buttons={
-                    <ExportActionButtons
+                    <InlineExportActionButtons
                         currentTeamId={currentTeamId}
                         export_={export_}
                         loading={loading}
