@@ -6,6 +6,7 @@ from posthog.constants import (
     FUNNEL_PATH_BETWEEN_STEPS,
     PAGEVIEW_EVENT,
     SCREEN_EVENT,
+    HOGQL,
 )
 from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.path_filter import PathFilter
@@ -59,8 +60,10 @@ class PathEventQuery(EventQuery):
             for field in self._extra_event_properties
         ]
 
-        event_hogql = self._filter.paths_hogql_expression or "event"
+        event_hogql = "event"
 
+        if self._should_query_hogql():
+            event_hogql = self._filter.paths_hogql_expression or event_hogql
         if self._should_query_url():
             event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})"
         if self._should_query_screen():
@@ -194,6 +197,9 @@ class PathEventQuery(EventQuery):
         if self._filter.include_all_custom_events:
             or_conditions.append(f"NOT event LIKE '$%%'")
 
+        if self._filter.include_hogql:
+            or_conditions.append(f"1 = 1")
+
         if self._filter.custom_events:
             or_conditions.append(f"event IN %(custom_events)s")
             params["custom_events"] = self._filter.custom_events
@@ -226,6 +232,16 @@ class PathEventQuery(EventQuery):
         ) and SCREEN_EVENT not in self._filter.exclude_events:
             return True
         elif self._filter.include_screenviews:
+            return True
+
+        return False
+
+    def _should_query_hogql(self) -> bool:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and HOGQL not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_hogql:
             return True
 
         return False

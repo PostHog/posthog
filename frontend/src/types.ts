@@ -1523,6 +1523,7 @@ export enum PathType {
     PageView = '$pageview',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+    HogQL = 'hogql',
 }
 
 export enum FunnelPathType {

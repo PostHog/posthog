@@ -96,6 +96,7 @@ SCREEN_EVENT = "$screen"
 AUTOCAPTURE_EVENT = "$autocapture"
 PAGEVIEW_EVENT = "$pageview"
 CUSTOM_EVENT = "custom_event"
+HOGQL = "hogql"
 
 
 DATE_FROM = "date_from"

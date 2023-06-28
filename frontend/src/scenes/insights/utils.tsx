@@ -165,7 +165,11 @@ export function humanizePathsEventTypes(include_event_types: PathsFilterType['in
             matchCount++
         }
         if (include_event_types.includes(PathType.CustomEvent)) {
-            humanEventTypes.push('custom HogQL expression')
+            humanEventTypes.push('custom events')
+            matchCount++
+        }
+        if (include_event_types.includes(PathType.HogQL)) {
+            humanEventTypes.push('HogQL')
             matchCount++
         }
         if (matchCount === 0 || matchCount === Object.keys(PathType).length) {

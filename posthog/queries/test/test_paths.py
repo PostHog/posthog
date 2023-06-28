@@ -267,7 +267,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id="person_4", event="custom_event_2", team=self.team, properties={"a": "!"}),
 
         filter = PathFilter(
-            data={"path_type": "custom_event", "paths_hogql_expression": "event || properties.a"}, team=self.team
+            data={"path_type": "hogql", "paths_hogql_expression": "event || properties.a"}, team=self.team
         )
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
