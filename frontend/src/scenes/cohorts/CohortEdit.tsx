@@ -32,7 +32,7 @@ import { pluralize } from 'lib/utils'
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery } = useActions(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateToStaticCohort } = useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
@@ -128,6 +128,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     )}
                 </div>
+                {!isNewCohort && !cohort.is_static && (
+                    <LemonButton
+                        onClick={duplicateToStaticCohort}
+                        type="secondary"
+                        className="mt-4"
+                        disabledReason={cohort.is_calculating ? 'Cohort is still calculating' : undefined}
+                    >
+                        Duplicate as static cohort
+                    </LemonButton>
+                )}
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">
                         <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
