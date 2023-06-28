@@ -34,7 +34,7 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                         expr: values.localValue,
                     })
                     breakpoint()
-                    if (response?.errors) {
+                    if (response && Array.isArray(response.errors) && response.errors.length > 0) {
                         const textArea = props.textareaRef?.current
                         if (
                             textArea &&
