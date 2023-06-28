@@ -718,7 +718,7 @@ class TestResolver(BaseTest):
     def test_ctes_field_access(self):
         with self.assertRaises(ResolverException) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("Cannot access fields on CTE cte yet.", str(e.exception))
+        self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
 
     def test_ctes_subqueries(self):
         self.assertEqual(
