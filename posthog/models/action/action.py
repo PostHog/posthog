@@ -24,8 +24,10 @@ class Action(models.Model):
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
     slack_message_format: models.CharField = models.CharField(default="", max_length=600, blank=True)
-    is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+
+    # DEPRECATED: these were used before ClickHouse was our database
+    is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
     def __str__(self):

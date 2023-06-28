@@ -51,3 +51,5 @@ playwright/e2e-vrt/**/*-darwin.png
 # antlr4 generated temp files when "npm run grammar:build" crashes
 gen
 upgrade/
+hogvm/typescript/dist
+

@@ -25,6 +25,7 @@ from posthog.client import sync_execute
 from posthog.constants import (
     CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
+    INSIGHT_LIFECYCLE,
     INSIGHT_PATHS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
@@ -38,6 +39,7 @@ from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
@@ -45,6 +47,7 @@ from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
+from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
@@ -122,7 +125,6 @@ class CohortSerializer(serializers.ModelSerializer):
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
     def validate_filters(self, request_filters: Dict):
-
         if isinstance(request_filters, dict) and "properties" in request_filters:
             if self.context["request"].method == "PATCH":
                 parsed_filter = Filter(data=request_filters)
@@ -353,6 +355,9 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         elif insight_type == INSIGHT_PATHS:
             path_filter = PathFilter(data=filter_data, team=cohort.team)
             query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
+        elif insight_type == INSIGHT_LIFECYCLE:
+            lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
+            query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
         else:
             if settings.DEBUG:
                 raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
