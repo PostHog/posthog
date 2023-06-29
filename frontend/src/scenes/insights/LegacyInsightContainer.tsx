@@ -1,41 +1,22 @@
 import { Card, Col, Row } from 'antd'
 import { LegacyInsightDisplayConfig } from 'scenes/insights/LegacyInsightDisplayConfig'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, ExporterFormat, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import {
-    FunnelInvalidExclusionState,
-    FunnelSingleStepState,
-    InsightEmptyState,
-    InsightErrorState,
-    InsightTimeoutState,
-} from 'scenes/insights/EmptyStates'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { InsightErrorState, InsightTimeoutState } from 'scenes/insights/EmptyStates'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
-import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
-
-const VIEW_MAP = {
-    [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
-    [`${InsightType.STICKINESS}`]: <>not supported for legacy component</>,
-    [`${InsightType.LIFECYCLE}`]: <>not supported for legacy component</>,
-    [`${InsightType.FUNNELS}`]: <FunnelInsight />,
-    [`${InsightType.RETENTION}`]: <>not supported for legacy component</>,
-    [`${InsightType.PATHS}`]: <>not supported for legacy component</>,
-}
 
 export function LegacyInsightContainer({
     disableHeader,
@@ -61,8 +42,6 @@ export function LegacyInsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
-
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightLoading && timedOutQueryId === null) {
@@ -71,18 +50,6 @@ export function LegacyInsightContainer({
                     <Animation type={AnimationType.LaptopHog} />
                 </div>
             )
-        }
-        // Insight specific empty states - note order is important here
-        if (activeView === InsightType.FUNNELS) {
-            if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
-            }
-            if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionState />
-            }
-            if (!hasFunnelResults && !insightLoading) {
-                return <InsightEmptyState />
-            }
         }
 
         // Insight agnostic empty states
@@ -99,23 +66,6 @@ export function LegacyInsightContainer({
     })()
 
     function renderTable(): JSX.Element | null {
-        if (
-            isFunnelsFilter(filters) &&
-            erroredQueryId === null &&
-            timedOutQueryId === null &&
-            isFunnelWithEnoughSteps &&
-            hasFunnelResults &&
-            filters.funnel_viz_type === FunnelVizType.Steps &&
-            !disableTable
-        ) {
-            return (
-                <>
-                    <h2 className="my-4 mx-0">Detailed results</h2>
-                    <FunnelStepsTable />
-                </>
-            )
-        }
-
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.
         // Exclusions:
         // 1. Table view. Because table is already loaded anyway in `Trends.tsx` as the main component.
@@ -163,10 +113,8 @@ export function LegacyInsightContainer({
         return null
     }
 
-    if (!isFunnelsFilter(filters) && !isTrendsFilter(filters)) {
-        // The legacy InsightContainer should only be used in Experiments,
-        // where we only have funnel and trend insights, allowing us already
-        // to gradually remove the other insight types here
+    if (!isTrendsFilter(filters)) {
+        // This legacy component is being removed, don't use it
         throw new Error('Unsupported insight type')
     }
 
@@ -215,8 +163,6 @@ export function LegacyInsightContainer({
                             </Col>
 
                             <Col>
-                                {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
-
                                 <InsightLegendButton />
                             </Col>
                         </Row>
@@ -226,13 +172,15 @@ export function LegacyInsightContainer({
                         BlockingEmptyState
                     ) : isFilterWithDisplay(filters) && filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
-                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                            <Col className="insights-graph-container-row-left">
+                                <TrendInsight view={InsightType.TRENDS} />
+                            </Col>
                             <Col className="insights-graph-container-row-right">
                                 <InsightLegend />
                             </Col>
                         </Row>
                     ) : (
-                        VIEW_MAP[activeView]
+                        <TrendInsight view={InsightType.TRENDS} />
                     )}
                 </div>
             </Card>

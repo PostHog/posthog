@@ -25,7 +25,6 @@ import {
 } from '~/types'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -52,6 +51,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -277,7 +277,7 @@ function InsightCardInternal(
         insightLogic(insightLogicProps)
     )
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelLogic(insightLogicProps)
+        funnelDataLogic(insightLogicProps)
     )
 
     let tooFewFunnelSteps = false

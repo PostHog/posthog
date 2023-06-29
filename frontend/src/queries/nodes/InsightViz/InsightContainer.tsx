@@ -22,7 +22,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import {
     FunnelInvalidExclusionState,
-    FunnelSingleStepStateDataExploration,
+    FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
@@ -32,8 +32,8 @@ import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
-import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
-import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
+import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 
@@ -41,7 +41,7 @@ const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.FUNNELS}`]: <FunnelInsightDataExploration />,
+    [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <Paths />,
 }
@@ -100,9 +100,7 @@ export function InsightContainer({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return (
-                    <FunnelSingleStepStateDataExploration actionable={insightMode === ItemMode.Edit || disableTable} />
-                )
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
@@ -142,7 +140,7 @@ export function InsightContainer({
             return (
                 <>
                     <h2 className="my-4 mx-0">Detailed results</h2>
-                    <FunnelStepsTableDataExploration />
+                    <FunnelStepsTable />
                 </>
             )
         }
