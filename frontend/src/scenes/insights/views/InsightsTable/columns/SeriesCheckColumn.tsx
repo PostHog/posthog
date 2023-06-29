@@ -52,7 +52,7 @@ export function SeriesCheckColumnItem({
 }: SeriesCheckColumnItemProps): JSX.Element {
     return (
         <LemonCheckbox
-            color={getSeriesColor(item.seriesIndex, compare)}
+            color={getSeriesColor(item.seriesIndex, compare || false)}
             checked={!hiddenLegendKeys[item.id]}
             onChange={() => toggleVisibility(item.id)}
             disabled={!canCheckUncheckSeries}
