@@ -3,7 +3,7 @@ import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType, ProductKey } from '~/types'
+import { AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -30,6 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
+import { Noun, groupsModel } from '~/models/groupsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -46,6 +47,8 @@ export function OverViewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters, shouldShowEmptyState } =
         useValues(flagLogic)
@@ -121,8 +124,8 @@ export function OverViewTab({
             title: 'Release conditions',
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                const releaseText = groupFilters(featureFlag.filters.groups)
-                return releaseText == '100% of all users' ? (
+                const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
+                return typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
                     <LemonTag type="highlight">{releaseText}</LemonTag>
                 ) : (
                     releaseText
@@ -389,18 +392,36 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: true): string
-export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: false): JSX.Element | string
-export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: boolean): JSX.Element | string {
+export function groupFilters(
+    filters: FeatureFlagFilters,
+    stringOnly?: true,
+    aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): string
+export function groupFilters(
+    filters: FeatureFlagFilters,
+    stringOnly?: false,
+    aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): JSX.Element | string
+export function groupFilters(
+    filters: FeatureFlagFilters,
+    stringOnly?: boolean,
+    aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): JSX.Element | string {
+    const aggregationTargetName =
+        aggregationLabel && filters.aggregation_group_type_index != null
+            ? aggregationLabel(filters.aggregation_group_type_index).plural
+            : 'users'
+    const groups = filters.groups || []
+
     if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
         // There are no rollout groups or all are at 0%
-        return 'No users'
+        return `No ${aggregationTargetName}`
     }
     if (
         groups.some((group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage))
     ) {
         // There's some group without filters that has 100% rollout
-        return '100% of all users'
+        return `100% of all ${aggregationTargetName}`
     }
 
     if (groups.length === 1) {
@@ -415,10 +436,10 @@ export function groupFilters(groups: FeatureFlagGroupType[], stringOnly?: boolea
                 </div>
             )
         } else if (rollout_percentage !== null) {
-            return `${rollout_percentage}% of all users`
+            return `${rollout_percentage}% of all ${aggregationTargetName}`
         } else {
             console.error('A group with full rollout was not detected early')
-            return '100% of all users'
+            return `100% of all ${aggregationTargetName}`
         }
     }
     return 'Multiple groups'
