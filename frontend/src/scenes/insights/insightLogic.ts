@@ -755,7 +755,7 @@ export const insightLogic = kea<insightLogicType>([
             actions.setFilters(values.savedInsight.filters || {})
         },
     })),
-    events(({ props, values, actions }) => ({
+    events(({ props, actions }) => ({
         afterMount: () => {
             if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
                 return
@@ -775,11 +775,6 @@ export const insightLogic = kea<insightLogicType>([
 
             if (!props.doNotLoad) {
                 actions.loadInsight(props.dashboardItemId as InsightShortId)
-            }
-        },
-        beforeUnmount: () => {
-            if (values.timeout) {
-                clearTimeout(values.timeout)
             }
         },
     })),

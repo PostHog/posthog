@@ -7,7 +7,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { useMocks } from '~/mocks/jest'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 import { insightDataLogic } from '../insightDataLogic'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
@@ -115,25 +115,6 @@ describe('insightNavLogic', () => {
                     builtInsightLogic.actions.loadInsightSuccess({ filters: { insight: InsightType.FUNNELS } })
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('sets view from loadResultsSuccess', async () => {
-                await expectLogic(logic, () => {
-                    builtInsightLogic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('sets QUERY view from loadResultsSuccess', async () => {
-                await expectLogic(logic, () => {
-                    builtInsightLogic.actions.loadResultsSuccess({
-                        filters: {},
-                        query: { kind: NodeKind.DataTableNode } as DataTableNode,
-                    })
-                }).toMatchValues({
-                    activeView: InsightType.JSON,
                 })
             })
         })
