@@ -14,8 +14,8 @@ import {
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { combineUrl, router } from 'kea-router'
+import api, { getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
     filterTrendsClientSideParams,
@@ -139,6 +139,7 @@ export const insightLogic = kea<insightLogicType>([
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        fetchResultFromNumericInsightApi: (id: number) => ({ id }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -257,6 +258,13 @@ export const insightLogic = kea<insightLogicType>([
                         },
                     })
                     return updatedInsight
+                },
+                fetchResultFromNumericInsightApi: async ({ id }) => {
+                    const apiUrl = combineUrl(`api/projects/${values.currentTeamId}/insights/${id}`, {
+                        refresh: true,
+                    }).url
+                    const fetchResponse = await api.getResponse(apiUrl)
+                    return await getJSONOrThrow(fetchResponse)
                 },
             },
         ],
@@ -756,6 +764,10 @@ export const insightLogic = kea<insightLogicType>([
                 actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                 if (insight?.result) {
                     actions.reportInsightViewed(insight, insight.filters || {})
+                } else {
+                    // TODO: Consolidate backend side caching behaviour with a smart refreshing
+                    // heuristic, then remove this special handling.
+                    actions.fetchResultFromNumericInsightApi(insight.id)
                 }
                 return
             }
