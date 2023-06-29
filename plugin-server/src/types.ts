@@ -441,7 +441,8 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
+    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
+    runWebhooksHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 

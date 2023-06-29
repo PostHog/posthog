@@ -22,7 +22,10 @@ describe('Event Pipeline integration test', () => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
-        return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
+        return Promise.all([
+            runner.runAppsOnEventPipeline(postIngestionEvent),
+            runner.runWebhooksEventPipeline(postIngestionEvent),
+        ])
     }
 
     beforeEach(async () => {

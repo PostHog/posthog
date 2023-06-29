@@ -4,15 +4,21 @@ import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-to
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
+import {
+    eachBatchAppsOnEventHandlers,
+    eachBatchAsyncHandlers,
+    eachBatchWebhooksHandlers,
+} from './batch-processing/each-batch-async-handlers'
 import { KafkaJSIngestionConsumer } from './kafka-queue'
 
-export const startOnEventHandlerConsumer = async ({
+export const startAsyncHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
     piscina,
+    kind,
 }: {
     hub: Hub
     piscina: Piscina
+    kind: 'onEvent' | 'webhooks' | 'async'
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -23,9 +29,16 @@ export const startOnEventHandlerConsumer = async ({
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
     */
-    status.info('🔁', 'Starting onEvent handler consumer')
+    status.info('🔁', `Starting ${kind} handler consumer`)
 
-    const queue = buildOnEventIngestionConsumer({ hub, piscina })
+    let queue: KafkaJSIngestionConsumer
+    if (kind == 'onEvent') {
+        queue = buildOnEventIngestionConsumer({ hub, piscina })
+    } else if (kind == 'webhooks') {
+        queue = buildWebhooksIngestionConsumer({ hub, piscina })
+    } else {
+        queue = buildAsyncIngestionConsumer({ hub, piscina })
+    }
 
     await queue.start()
 
@@ -38,13 +51,34 @@ export const startOnEventHandlerConsumer = async ({
     return { queue, isHealthy: () => isHealthy() }
 }
 
-export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
+// TODO: remove once we've migrated
+export const buildAsyncIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
     return new KafkaJSIngestionConsumer(
         hub,
         piscina,
         KAFKA_EVENTS_JSON,
         `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
         eachBatchAsyncHandlers
+    )
+}
+
+export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
+    return new KafkaJSIngestionConsumer(
+        hub,
+        piscina,
+        KAFKA_EVENTS_JSON,
+        `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
+        eachBatchAppsOnEventHandlers
+    )
+}
+
+export const buildWebhooksIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
+    return new KafkaJSIngestionConsumer(
+        hub,
+        piscina,
+        KAFKA_EVENTS_JSON,
+        `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
+        eachBatchWebhooksHandlers
     )
 }
 
