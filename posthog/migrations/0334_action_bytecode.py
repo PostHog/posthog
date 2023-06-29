@@ -15,4 +15,9 @@ class Migration(migrations.Migration):
             name="bytecode",
             field=models.JSONField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="action",
+            name="bytecode_error",
+            field=models.TextField(blank=True, null=True),
+        ),
     ]
