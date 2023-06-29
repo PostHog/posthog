@@ -787,8 +787,8 @@ def send_all_org_usage_reports(
 
         # First capture the events to PostHog
         if not skip_capture_event:
-            at_date = at_date.isoformat() if at_date else None
-            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
+            at_date_str = at_date.isoformat() if at_date else None
+            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
 
         # Then capture the events to Billing
         if has_non_zero_usage(full_report):
