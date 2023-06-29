@@ -25,9 +25,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { Noun, groupsModel } from '~/models/groupsModel'
@@ -56,16 +54,9 @@ export function OverViewTab({
     const { user, hasAvailableFeature } = useValues(userLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const { reportEmptyStateShown } = useActions(eventUsageLogic)
     const shouldShowProductIntroduction =
         !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
-
-    useEffect(() => {
-        if (shouldShowEmptyState) {
-            reportEmptyStateShown('feature_flags')
-        }
-    }, [shouldShowEmptyState])
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -240,20 +231,19 @@ export function OverViewTab({
 
     return (
         <>
-            {(shouldShowEmptyState || shouldShowProductIntroduction) &&
-                featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' && (
-                    <ProductIntroduction
-                        productName="Feature flags"
-                        productKey={ProductKey.FEATURE_FLAGS}
-                        thingName="feature flag"
-                        description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-                        docsURL="https://posthog.com/docs/feature-flags/manual"
-                        action={() => router.actions.push(urls.featureFlag('new'))}
-                        isEmpty={shouldShowEmptyState}
-                        customHog={FeatureFlagHog}
-                    />
-                )}{' '}
-            {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (
+            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
+                <ProductIntroduction
+                    productName="Feature flags"
+                    productKey={ProductKey.FEATURE_FLAGS}
+                    thingName="feature flag"
+                    description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                    docsURL="https://posthog.com/docs/feature-flags/manual"
+                    action={() => router.actions.push(urls.featureFlag('new'))}
+                    isEmpty={shouldShowEmptyState}
+                    customHog={FeatureFlagHog}
+                />
+            )}{' '}
+            {!shouldShowEmptyState && (
                 <>
                     <div>
                         <div className="flex justify-between mb-4">
