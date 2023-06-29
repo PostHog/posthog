@@ -29,7 +29,7 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
+import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
@@ -226,7 +226,7 @@ export function InsightContainer({
                         <div>
                             {isFunnels ? <FunnelCanvasLabel /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
-                            {!disableLegendButton && <InsightLegendButtonDataExploration />}
+                            {!disableLegendButton && <InsightLegendButton />}
                         </div>
                     </div>
                     {!!BlockingEmptyState ? (
