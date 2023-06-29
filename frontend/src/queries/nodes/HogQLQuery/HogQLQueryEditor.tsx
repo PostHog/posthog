@@ -79,7 +79,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     monaco.languages.registerCodeActionProvider('mysql', {
                                         provideCodeActions: (model, _range, context) => {
                                             if (logic.isMounted()) {
-                                                // Moncao gives us a list of markers that we're looking at, but without the quick fixes.
+                                                // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
                                                 const markersFromMonaco = context.markers
                                                 // We have a list of _all_ markers returned from the HogQL metadata query
                                                 const markersFromMetadata = logic.values.modelMarkers
