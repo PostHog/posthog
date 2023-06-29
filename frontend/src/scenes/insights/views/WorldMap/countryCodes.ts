@@ -279,4 +279,13 @@ export const countryCodeToName = {
     MQ: 'Martinique',
     AX: 'Åland Islands',
     BQ: 'Caribbean Netherlands',
+    AQ: 'Antarctica',
+    BV: 'Bouvet Island',
+    CC: 'Cocos (Keeling) Islands',
+    CX: 'Christmas Island',
+    HM: 'Heard Island and McDonald Islands',
+    NF: 'Norfolk Island',
+    SJ: 'Svalbard and Jan Mayen',
+    UM: 'United States Minor Outlying Islands',
+    YT: 'Mayotte',
 }

@@ -10,8 +10,8 @@ import { TrendsFilter } from '~/queries/schema'
 type ValueColumnTitleProps = {
     index: number
     indexedResults: IndexedTrendResult[]
-    compare?: boolean
-    interval?: IntervalType
+    compare?: boolean | null
+    interval?: IntervalType | null
 }
 
 export function ValueColumnTitle({ index, indexedResults, compare, interval }: ValueColumnTitleProps): JSX.Element {

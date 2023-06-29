@@ -5,19 +5,13 @@ import { INSIGHT_TYPES_METADATA, InsightTypeMetadata } from 'scenes/saved-insigh
 import { ReactNode } from 'react'
 import { insightTypeURL } from 'scenes/insights/utils'
 
-function insightTypesForMenu(isUsingDataExplorationQueryTab: boolean): [string, InsightTypeMetadata][] {
+function insightTypesForMenu(): [string, InsightTypeMetadata][] {
     // never show JSON InsightType in the menu
-    let menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(([insightType]) => insightType !== InsightType.JSON)
-
-    if (!isUsingDataExplorationQueryTab) {
-        menuEntries = menuEntries.filter(([insightType]) => insightType !== InsightType.SQL)
-    }
-
-    return menuEntries
+    return Object.entries(INSIGHT_TYPES_METADATA).filter(([insightType]) => insightType !== InsightType.JSON)
 }
 
-export function overlayForNewInsightMenu(dataAttr: string, isUsingDataExplorationQuery: boolean): ReactNode[] {
-    const menuEntries = insightTypesForMenu(isUsingDataExplorationQuery)
+export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
+    const menuEntries = insightTypesForMenu()
     return menuEntries.map(
         ([listedInsightType, listedInsightTypeMetadata]) =>
             listedInsightTypeMetadata.inMenu && (

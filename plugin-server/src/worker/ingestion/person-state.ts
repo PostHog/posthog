@@ -594,7 +594,7 @@ export class PersonState {
     private async handleTablesDependingOnPersonID(
         sourcePerson: Person,
         targetPerson: Person,
-        client?: PoolClient
+        client: PoolClient
     ): Promise<void> {
         // When personIDs change, update places depending on a person_id foreign key
 
@@ -607,7 +607,12 @@ export class PersonState {
         )
 
         // For FeatureFlagHashKeyOverrides
-        await this.db.addFeatureFlagHashKeysForMergedPerson(sourcePerson.team_id, sourcePerson.id, targetPerson.id)
+        await this.db.addFeatureFlagHashKeysForMergedPerson(
+            sourcePerson.team_id,
+            sourcePerson.id,
+            targetPerson.id,
+            client
+        )
     }
 }
 

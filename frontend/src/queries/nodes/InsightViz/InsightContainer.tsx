@@ -19,7 +19,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -174,7 +174,7 @@ export function InsightContainer({
                         </div>
                     )}
 
-                    <InsightsTableDataExploration
+                    <InsightsTable
                         isLegend
                         filterKey="trends_TRENDS"
                         canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
