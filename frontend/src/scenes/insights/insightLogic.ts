@@ -364,6 +364,9 @@ export const insightLogic = kea<insightLogicType>([
                 loadInsight: () => true,
                 loadInsightSuccess: () => false,
                 loadInsightFailure: () => false,
+                fetchResultFromNumericInsightApi: () => true,
+                fetchResultFromNumericInsightApiSuccess: () => false,
+                fetchResultFromNumericInsightApiFailure: () => false,
             },
         ],
         /*
