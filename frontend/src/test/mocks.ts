@@ -132,8 +132,6 @@ export const mockActionDefinition = {
     ],
     created_at: '2022-01-24T21:32:38.360176Z',
     deleted: false,
-    is_calculating: false,
-    last_calculated_at: '2022-01-24T21:32:38.359756Z',
     team_id: 1,
     created_by: null,
 }

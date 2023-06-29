@@ -59,7 +59,6 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
-    is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
 
     class Meta:
@@ -75,15 +74,10 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "created_at",
             "created_by",
             "deleted",
-            "is_calculating",
-            "last_calculated_at",
             "team_id",
             "is_action",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
-
-    def get_is_calculating(self, action: Action) -> bool:
-        return False
 
     def validate(self, attrs):
         instance = cast(Action, self.instance)
@@ -124,7 +118,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
-
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps

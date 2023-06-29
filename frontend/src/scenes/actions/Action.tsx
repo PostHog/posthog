@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { EventsTable } from 'scenes/events'
 import { urls } from 'scenes/urls'
 import { ActionType } from '~/types'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 import { Query } from '~/queries/Query/Query'
@@ -24,7 +23,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     const { push } = useActions(router)
 
-    const { action, isComplete } = useValues(actionLogic)
+    const { action } = useValues(actionLogic)
     const { loadAction } = useActions(actionLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -44,47 +43,38 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                     }}
                 />
             )}
-            {id &&
-                (isComplete ? (
-                    <div>
-                        <h2 className="subtitle">Matching events</h2>
-                        <p>
-                            This is the list of <strong>recent</strong> events that match this action.
-                        </p>
-                        <div className="pt-4 border-t" />
-                        {featureDataExploration ? (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        actionId: id,
-                                    },
-                                    full: true,
-                                    showEventFilter: false,
-                                    showPropertyFilter: false,
-                                }}
-                            />
-                        ) : (
-                            <EventsTable
-                                fixedFilters={fixedFilters}
-                                sceneUrl={urls.action(id)}
-                                fetchMonths={3}
-                                pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
-                                showEventFilter={false}
-                            />
-                        )}
-                    </div>
-                ) : (
-                    <div>
-                        <h2 className="subtitle">Matching events</h2>
-                        <div className="flex items-center">
-                            <Spinner className="mr-4" />
-                            Calculating action, please hold on.
-                        </div>
-                    </div>
-                ))}
+            {id && (
+                <div>
+                    <h2 className="subtitle">Matching events</h2>
+                    <p>
+                        This is the list of <strong>recent</strong> events that match this action.
+                    </p>
+                    <div className="pt-4 border-t" />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                    actionId: id,
+                                },
+                                full: true,
+                                showEventFilter: false,
+                                showPropertyFilter: false,
+                            }}
+                        />
+                    ) : (
+                        <EventsTable
+                            fixedFilters={fixedFilters}
+                            sceneUrl={urls.action(id)}
+                            fetchMonths={3}
+                            pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
+                            showEventFilter={false}
+                        />
+                    )}
+                </div>
+            )}
         </>
     )
 }

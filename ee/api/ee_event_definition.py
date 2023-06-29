@@ -13,8 +13,6 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     created_by = UserBasicSerializer(read_only=True)
     is_action = serializers.SerializerMethodField(read_only=True)
     action_id = serializers.IntegerField(read_only=True)
-    is_calculating = serializers.BooleanField(read_only=True)
-    last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
 
@@ -39,8 +37,6 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             # Action fields
             "is_action",
             "action_id",
-            "is_calculating",
-            "last_calculated_at",
             "created_by",
             "post_to_slack",
         )
@@ -58,8 +54,6 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             # Action fields
             "is_action",
             "action_id",
-            "is_calculating",
-            "last_calculated_at",
             "created_by",
         ]
 

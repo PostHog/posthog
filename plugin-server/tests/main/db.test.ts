@@ -58,9 +58,7 @@ describe('DB', () => {
                 deleted: false,
                 post_to_slack: true,
                 slack_message_format: '',
-                is_calculating: false,
                 updated_at: new Date().toISOString(),
-                last_calculated_at: new Date().toISOString(),
             })
         })
 
@@ -76,7 +74,6 @@ describe('DB', () => {
                         deleted: false,
                         post_to_slack: true,
                         slack_message_format: '',
-                        is_calculating: false,
                         steps: [],
                         hooks: [],
                     },
@@ -112,7 +109,6 @@ describe('DB', () => {
                         deleted: false,
                         post_to_slack: true,
                         slack_message_format: '',
-                        is_calculating: false,
                         steps: [
                             {
                                 id: 913,
@@ -180,7 +176,6 @@ describe('DB', () => {
                         deleted: false,
                         post_to_slack: false,
                         slack_message_format: '',
-                        is_calculating: false,
                         steps: [],
                         hooks: [
                             {

@@ -33,7 +33,6 @@ describe('ActionManager', () => {
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',
-            is_calculating: false,
             steps: [
                 {
                     id: ACTION_STEP_ID,
@@ -69,7 +68,6 @@ describe('ActionManager', () => {
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',
-            is_calculating: false,
             steps: [
                 {
                     id: ACTION_STEP_ID,
@@ -105,7 +103,6 @@ describe('ActionManager', () => {
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',
-            is_calculating: false,
             steps: [
                 {
                     id: ACTION_STEP_ID,

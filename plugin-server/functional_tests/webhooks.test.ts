@@ -45,8 +45,6 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
                 slack_message_format:
                     '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
                 created_by_id: user.id,
-                is_calculating: false,
-                last_calculated_at: new Date().toISOString(),
             },
             [
                 {
@@ -134,8 +132,6 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
                 slack_message_format:
                     '[event.name] with [event.properties.name] was triggered by [person.properties.email]',
                 created_by_id: user.id,
-                is_calculating: false,
-                last_calculated_at: new Date().toISOString(),
             },
             [
                 {

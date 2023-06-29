@@ -27,8 +27,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["is_calculating"], False)
-        self.assertIn("last_calculated_at", response.json())
         action = Action.objects.get()
         self.assertEqual(action.name, "user signed up")
         self.assertEqual(action.description, "Test description")
@@ -156,7 +154,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_update_action_remove_all_steps(self, *args):
-
         action = Action.objects.create(name="user signed up", team=self.team)
         ActionStep.objects.create(action=action, text="sign me up!")
 

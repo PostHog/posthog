@@ -22,7 +22,6 @@
             "created_at": "2021-02-04T21:52:56.683767Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -47,7 +46,6 @@
             "created_at": "2021-02-04T21:52:56.496410Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -72,7 +70,6 @@
             "created_at": "2021-02-04T21:52:55.723072Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -97,7 +94,6 @@
             "created_at": "2021-02-04T21:52:55.685788Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -122,7 +118,6 @@
             "created_at": "2021-02-04T21:52:55.649648Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -147,7 +142,6 @@
             "created_at": "2021-02-04T21:52:55.168537Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -172,7 +166,6 @@
             "created_at": "2021-02-04T21:52:55.126776Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         },
         {
@@ -197,7 +190,6 @@
             "created_at": "2021-02-04T21:52:55.072061Z",
             "deleted": false,
             "count": null,
-            "is_calculating": false,
             "created_by": null
         }
     ]

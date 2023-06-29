@@ -1222,9 +1222,7 @@ export class DB {
                     deleted,
                     post_to_slack,
                     slack_message_format,
-                    is_calculating,
-                    updated_at,
-                    last_calculated_at
+                    updated_at
                 FROM posthog_action
                 WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
             `,
