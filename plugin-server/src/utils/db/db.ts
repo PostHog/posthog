@@ -1225,7 +1225,8 @@ export class DB {
                     is_calculating,
                     updated_at,
                     last_calculated_at,
-                    bytecode
+                    bytecode,
+                    bytecode_error
                 FROM posthog_action
                 WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
             `,
