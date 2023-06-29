@@ -1250,11 +1250,11 @@ describe('ActionMatcher', () => {
 
         it('executes bytecode if present', async () => {
             // properties.foo like '%bar%'
-            const fooLikeBar = ['', '%bar%', '', 'foo', '', 'properties', '.', 2, 'like']
-            const viewportWidth = ['', '$viewport_width', '', 'properties', '.', 2]
-            const viewportHeight = ['', '$viewport_height', '', 'properties', '.', 2]
-            const portraitMode = [...viewportHeight, ...viewportWidth, '<'] // w < h; args are reversed
-            const bytecode = ['_h', ...fooLikeBar, ...portraitMode, 'or', 2]
+            const fooLikeBar = [32, '%bar%', 32, 'foo', 32, 'properties', 1, 2, 17]
+            const viewportWidth = [32, '$viewport_width', 32, 'properties', 1, 2]
+            const viewportHeight = [32, '$viewport_height', 32, 'properties', 1, 2]
+            const portraitMode = [...viewportHeight, ...viewportWidth, 15] // w < h; args are reversed
+            const bytecode = ['_h', ...fooLikeBar, ...portraitMode, 4, 2]
 
             const actionDefinitionOpIsSet: Action = await createTestAction(
                 [
