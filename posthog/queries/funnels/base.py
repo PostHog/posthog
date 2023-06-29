@@ -447,14 +447,9 @@ class ClickhouseFunnelBase(ABC):
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
-        breakdown_select_prop = self._get_breakdown_select_prop()
-
-        if breakdown_select_prop:
-            all_step_cols.append(breakdown_select_prop)
-
         extra_join = ""
-
         if self._filter.breakdown:
+            all_step_cols.append(self._get_breakdown_select_prop())
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
             else:
@@ -707,9 +702,8 @@ class ClickhouseFunnelBase(ABC):
         raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> str:
-        basic_prop_selector = ""
         if not self._filter.breakdown:
-            return basic_prop_selector
+            raise ValueError("Breakdown filter is required here")
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
@@ -767,6 +761,8 @@ class ClickhouseFunnelBase(ABC):
             else:
                 expression = translate_hogql(cast(str, breakdown), self._filter.hogql_context)
             basic_prop_selector = f"{expression} AS prop_basic"
+        else:
+            raise ValueError(f'Unsupported breakdown type "{self._filter.breakdown_type}"')
 
         # TODO: simplify once array and string breakdowns are sorted
         if self._filter.breakdown_attribution_type == BreakdownAttributionType.STEP:
