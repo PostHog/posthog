@@ -11,6 +11,7 @@ import {
     RawAction,
     StringMatching,
 } from '../../../src/types'
+import { chainToElements } from '../../../src/utils/db/elements-chain'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
@@ -1352,6 +1353,59 @@ describe('ActionMatcher', () => {
             })
             expect(await actionMatcher.match(eventExamplePersonOk)).toEqual([actionDefinition])
             expect(await actionMatcher.match(eventExamplePersonNotOk)).toEqual([])
+        })
+
+        it('bytecode element handling works', async () => {
+            const actionDefinition: Action = await createTestAction(
+                [
+                    {
+                        // bytecode takes precedence, setting value to -1 here
+                        properties: [{ type: 'cohort', key: 'id', value: -1 }],
+                    },
+                ],
+                [
+                    '_h',
+                    /* STRING */ 32,
+                    '.*?data-attr="menu-item-featureflags".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))',
+                    /* STRING */ 32,
+                    'elements_chain',
+                    /* FIELD */ 1,
+                    /* arg_count */ 1,
+                    /* REGEX */ 23,
+                    /* STRING */ 32,
+                    '$autocapture',
+                    /* STRING */ 32,
+                    'event',
+                    /* FIELD */ 1,
+                    /* arg_count */ 1,
+                    /* EQ */ 11,
+                    /* AND */ 3,
+                    /* arg_count */ 2,
+                ]
+            )
+
+            const event = createTestEvent({
+                event: '$autocapture',
+                properties: {
+                    $os: 'Mac OS X',
+                    $os_version: '10.15.7',
+                    $browser: 'Chrome',
+                    $device_type: 'Desktop',
+                    $current_url: 'http://localhost:8000/data-management/actions/1',
+                    $host: 'localhost:8000',
+                    $pathname: '/data-management/actions/1',
+                    $browser_version: 114,
+                    $viewport_height: 1046,
+                    $viewport_width: 771,
+                    $lib: 'web',
+                    $ip: '127.0.0.1',
+                },
+                elementsList: chainToElements(
+                    'span.grow.text-default:attr__class="text-default grow"attr__href="/feature_flags"href="/feature_flags"nth-child="1"nth-of-type="1"text="Feature Flags";span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--status-stealth.LemonButton--tertiary.Link:attr__class="Link LemonButton LemonButton--tertiary LemonButton--status-stealth LemonButton--full-width LemonButton--has-icon"attr__data-attr="menu-item-featureflags"attr__href="/feature_flags"href="/feature_flags"nth-child="1"nth-of-type="1"text="Feature Flags";li:nth-child="9"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.SideBar__slider__content:attr__class="SideBar__slider__content"nth-child="1"nth-of-type="1";div.SideBar__slider:attr__class="SideBar__slider"nth-child="1"nth-of-type="1";div.SideBar:attr__class="SideBar"nth-child="4"nth-of-type="3";div.flex.flex-col.h-screen:attr__class="h-screen flex flex-col"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="4"nth-of-type="1";body:attr__theme="light"nth-child="2"nth-of-type="1"',
+                    2
+                ),
+            })
+            expect(await actionMatcher.match(event)).toEqual([actionDefinition])
         })
     })
 })

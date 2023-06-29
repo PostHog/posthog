@@ -21,7 +21,7 @@ import {
     StringMatching,
 } from '../../types'
 import { DB } from '../../utils/db/db'
-import { extractElements } from '../../utils/db/elements-chain'
+import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
@@ -172,8 +172,23 @@ export class ActionMatcher {
     ): Promise<boolean> {
         if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
             try {
+                const eventProxy = new Proxy(event, {
+                    get: (target, prop) => {
+                        return prop === 'person'
+                            ? {
+                                  properties: target['person_properties'],
+                                  id: target['person_id'],
+                                  created_at: target['person_created_at'],
+                              }
+                            : prop === 'elements_chain'
+                            ? target.elementsList?.length
+                                ? elementsToString(target.elementsList)
+                                : ''
+                            : (target as any)[prop]
+                    },
+                })
                 return Boolean(
-                    await executeHogQLBytecode(action.bytecode, event, async (...args: any[]) => {
+                    await executeHogQLBytecode(action.bytecode, eventProxy, async (...args: any[]) => {
                         if (args.length === 3 && (args[0] == /*IN_COHORT*/ 27 || args[0] == /*NOT_IN_COHORT*/ 28)) {
                             const response = await this.checkEventAgainstCohortFilter(args[1], event.teamId, {
                                 type: 'cohort',
