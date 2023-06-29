@@ -385,7 +385,7 @@ class Resolver(CloningVisitor):
     def visit_array_access(self, node: ast.ArrayAccess):
 
         # Unwrap only if "properties", otherwise keep as array type
-        is_properties = "properties" in node.array.chain
+        is_properties = isinstance(node.array, ast.Field) and "properties" in node.array.chain
         node = super().visit_array_access(node)
 
         if (
@@ -408,13 +408,20 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_tuple_access(self, node: ast.TupleAccess):
+
+        # Unwrap only if "properties", otherwise keep as tuple type
+        is_properties = isinstance(node.tuple, ast.Field) and "properties" in node.tuple.chain
         node = super().visit_tuple_access(node)
 
-        if isinstance(node.tuple, ast.Field) and (
-            (isinstance(node.tuple.type, ast.PropertyType))
-            or (
-                isinstance(node.tuple.type, ast.FieldType)
-                and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+        if (
+            is_properties
+            and isinstance(node.tuple, ast.Field)
+            and (
+                (isinstance(node.tuple.type, ast.PropertyType))
+                or (
+                    isinstance(node.tuple.type, ast.FieldType)
+                    and isinstance(node.tuple.type.resolve_database_field(), StringJSONDatabaseField)
+                )
             )
         ):
             node.tuple.chain.append(node.index)
