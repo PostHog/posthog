@@ -127,8 +127,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     if (experiment.filters) {
-                        const newFilters = { ...state.filters, ...experiment.filters }
-                        return { ...state, ...experiment, filters: newFilters }
+                        return { ...state, ...experiment, filters: experiment.filters }
                     }
 
                     // assuming setExperiment isn't called with new filters & parameters at the same time
