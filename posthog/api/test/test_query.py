@@ -452,7 +452,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response.get("results", [])), 10)
 
-    def test_property_definition_annotation_not_included(self):
+    def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
 
         with freeze_time("2020-01-10 12:14:00"):
@@ -461,11 +461,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query_json={
                     "kind": "EventsQuery",
                     "select": ["event"],
+                    # This used to cause query failure when tried to add an annotation for a node without location
+                    # (which properties.$browser is in this case)
                     "properties": [{"type": "event", "key": "$browser", "operator": "is_not", "value": "Foo"}],
                 },
             )
-
-        self.assertEqual(len(response.get("results", [])), 10)
+        self.assertEqual(response.get("columns"), ["event"])
 
     def test_invalid_recent_performance_pageviews(self):
         api_response = self.client.post(
