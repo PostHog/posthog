@@ -34,7 +34,7 @@ def join_with_person_overrides_table(from_table: str, to_table: str, requested_f
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from person_distinct_ids.")
+        raise HogQLException("No fields requested from person_distinct_ids")
 
     join_expr = ast.JoinExpr(table=select_from_person_overrides_table(requested_fields))
     join_expr.join_type = "LEFT OUTER JOIN"
