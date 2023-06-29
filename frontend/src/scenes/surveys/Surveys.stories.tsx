@@ -7,7 +7,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { Survey, SurveyType } from '~/types'
+import { PropertyFilterType, PropertyOperator, Survey, SurveyType } from '~/types'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -82,14 +82,16 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
                     properties: [
                         {
                             key: 'email',
-                            type: 'person',
+                            type: PropertyFilterType.Person,
                             value: ['li@posthog.com'],
-                            operator: 'exact',
+                            operator: PropertyOperator.Exact,
                         },
                     ],
                     rollout_percentage: 100,
                 },
             ],
+            multivariate: null,
+            payloads: {},
         },
         deleted: false,
         active: true,
