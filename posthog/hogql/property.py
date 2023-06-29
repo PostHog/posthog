@@ -207,8 +207,8 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         cohort = Cohort.objects.get(team=team, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["person_id"]),
-            op=ast.CompareOperationOp.In,
-            right=cohort_subquery(cohort.pk, cohort.is_static),
+            op=ast.CompareOperationOp.InCohort,
+            right=ast.Constant(value=cohort.pk),
         )
 
     # TODO: Add support for these types "group", "recording", "behavioral", and "session" types

@@ -68,7 +68,10 @@ class BytecodeBuilder(Visitor):
         return [*self.visit(node.expr), Operation.NOT]
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        return [*self.visit(node.right), *self.visit(node.left), COMPARE_OPERATIONS[node.op]]
+        operation = COMPARE_OPERATIONS[node.op]
+        if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
+            raise NotImplementedException("Cohort operations not possible")
+        return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         return [*self.visit(node.right), *self.visit(node.left), ARITHMETIC_OPERATIONS[node.op]]

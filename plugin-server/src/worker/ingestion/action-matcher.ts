@@ -188,19 +188,7 @@ export class ActionMatcher {
                             : (target as any)[prop]
                     },
                 })
-                byteCodeResponse = Boolean(
-                    await executeHogQLBytecode(action.bytecode, eventProxy, async (...args: any[]) => {
-                        if (args.length === 3 && (args[0] == /*IN_COHORT*/ 27 || args[0] == /*NOT_IN_COHORT*/ 28)) {
-                            const response = await this.checkEventAgainstCohortFilter(args[1], event.teamId, {
-                                type: 'cohort',
-                                key: 'id',
-                                value: args[2],
-                            })
-                            return args[0] == /*IN_COHORT*/ 27 ? response : !response
-                        }
-                        return false
-                    })
-                )
+                byteCodeResponse = Boolean(await executeHogQLBytecode(action.bytecode, eventProxy, () => false))
             } catch (error) {
                 // log error and fallback to previous matching
                 captureException(error, {
