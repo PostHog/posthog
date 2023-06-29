@@ -188,7 +188,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
-    [NodeKind.InsightNode]: {
+    [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights',
         icon: IconBarChart,

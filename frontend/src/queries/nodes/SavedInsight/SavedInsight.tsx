@@ -2,19 +2,19 @@ import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Query } from '~/queries/Query/Query'
-import { InsightNode, NodeKind, QueryContext } from '~/queries/schema'
+import { SavedInsightNode, NodeKind, QueryContext } from '~/queries/schema'
 import { InsightLogicProps, InsightModel } from '~/types'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 interface InsightProps {
-    query: InsightNode
+    query: SavedInsightNode
     cachedResults?: Partial<InsightModel> | null
     context?: QueryContext
 }
 
-export function Insight({ query, context, cachedResults }: InsightProps): JSX.Element {
+export function SavedInsight({ query, context, cachedResults }: InsightProps): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: query.shortId, cachedInsight: cachedResults }
     const { insight, insightLoading } = useValues(insightLogic(insightProps))
 

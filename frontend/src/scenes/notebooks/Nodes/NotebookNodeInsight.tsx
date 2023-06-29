@@ -13,7 +13,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     return (
         <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
-            <Query query={{ kind: NodeKind.InsightNode, shortId: props.node.attrs.id }} />
+            <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
         </NodeWrapper>
     )
 }

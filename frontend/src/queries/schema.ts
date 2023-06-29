@@ -46,7 +46,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
-    InsightNode = 'InsightNode',
+    SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
     // New queries, not yet implemented
@@ -85,7 +85,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
-    | InsightNode
+    | SavedInsightNode
     | InsightVizNode
 
     // New queries, not yet implemented
@@ -312,10 +312,10 @@ export interface DataTableNode extends Node {
     showOpenEditorButton?: boolean
 }
 
-// Insight node
+// Saved insight node
 
-export interface InsightNode extends Node {
-    kind: NodeKind.InsightNode
+export interface SavedInsightNode extends Node {
+    kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
 
