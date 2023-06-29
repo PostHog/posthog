@@ -588,12 +588,6 @@
               "key": "version",
               "type": "integer"
           }
-      ],
-      "whatever": [
-          {
-              "key": "id",
-              "type": "string"
-          }
       ]
   }
   '
@@ -1182,12 +1176,6 @@
           {
               "key": "version",
               "type": "integer"
-          }
-      ],
-      "whatever": [
-          {
-              "key": "id",
-              "type": "string"
           }
       ]
   }
