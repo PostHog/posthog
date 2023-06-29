@@ -118,12 +118,7 @@ export const insightLogic = kea<insightLogicType>([
             filters,
             previousFilters,
         }),
-        markInsightTimedOut: (timedOutQueryId: string | null) => ({ timedOutQueryId }),
-        markInsightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
-        setTimeout: (timeout: number | null) => ({ timeout }),
-        setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
-        setNextAllowedRefresh: (nextAllowedRefresh: string | null) => ({ nextAllowedRefresh }),
         setNotFirstLoad: true,
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
@@ -136,7 +131,6 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
-        fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
             shortId,
         }),
@@ -359,36 +353,6 @@ export const insightLogic = kea<insightLogicType>([
                     ...insight,
                     filters: cleanFilters(insight.filters || {}),
                 }),
-            },
-        ],
-        timedOutQueryId: [null as string | null, { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
-        maybeShowTimeoutMessage: [
-            false,
-            {
-                // Only show timeout message if timer is still running
-                markInsightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
-            },
-        ],
-        erroredQueryId: [null as string | null, { markInsightErrored: (_, { erroredQueryId }) => erroredQueryId }],
-        maybeShowErrorMessage: [
-            false,
-            {
-                loadInsightFailure: (_, { errorObject }) => errorObject?.status === 0,
-            },
-        ],
-        timeout: [null as number | null, { setTimeout: (_, { timeout }) => timeout }],
-        lastRefresh: [
-            null as string | null,
-            {
-                setLastRefresh: (_, { lastRefresh }) => lastRefresh,
-                loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
-            },
-        ],
-        nextAllowedRefresh: [
-            null as string | null,
-            {
-                setNextAllowedRefresh: (_, { nextAllowedRefresh }) => nextAllowedRefresh,
-                loadInsightSuccess: (_, { insight }) => insight.next_allowed_client_refresh || null,
             },
         ],
         insightLoading: [
