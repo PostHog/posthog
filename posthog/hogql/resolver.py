@@ -383,10 +383,14 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):
+
+        # Unwrap only if "properties", otherwise keep as array type
+        is_properties = "properties" in node.array.chain
         node = super().visit_array_access(node)
 
         if (
-            isinstance(node.array, ast.Field)
+            is_properties
+            and isinstance(node.array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
