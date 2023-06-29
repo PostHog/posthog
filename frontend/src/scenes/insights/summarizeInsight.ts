@@ -308,9 +308,12 @@ function summariseQuery(query: Node): string {
         if (!!query.columns) {
             selected = [...query.columns]
         }
-        return `${selected
-            .filter((c) => !(query.hiddenColumns || []).includes(c))
-            .join(', ')} from ${source} into a data table.`
+        if (!source && !query.columns?.length) {
+            return ''
+        }
+        return `${selected.filter((c) => !(query.hiddenColumns || []).includes(c)).join(', ')}${
+            source ? ` from ${source}` : ''
+        } into a data table.`
     }
 
     if (isTimeToSeeDataSessionsNode(query)) {
