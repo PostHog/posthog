@@ -1,13 +1,5 @@
 import { Card, Select } from 'antd'
-import {
-    IconGolang,
-    IconJavascript,
-    IconNodeJS,
-    IconOpenInNew,
-    IconPHP,
-    IconPython,
-    IconRuby,
-} from 'lib/lemon-ui/icons'
+import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 import { CaretDownOutlined } from '@ant-design/icons'
@@ -145,9 +137,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
             <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
 
             <Link to={selectedOption.documentationLink} target="_blank">
-                <div className="flex items-center">
-                    See the docs for more implementation information. <IconOpenInNew className="ml-1" />
-                </div>
+                See the docs for more implementation information.
             </Link>
         </Card>
     )

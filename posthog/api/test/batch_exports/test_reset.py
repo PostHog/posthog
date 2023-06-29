@@ -61,6 +61,7 @@ def test_can_reset_export_run(client: HttpClient):
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "trigger_immediately": True,
     }
 
     organization = create_organization("Test Org")

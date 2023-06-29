@@ -22,6 +22,7 @@ class DatabaseField(FieldOrTable):
 
     name: str
     array: Optional[bool]
+    nullable: Optional[bool]
 
 
 class IntegerDatabaseField(DatabaseField):

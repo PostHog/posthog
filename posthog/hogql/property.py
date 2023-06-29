@@ -134,9 +134,9 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
             op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationOp.LtE
+            op = ast.CompareOperationOp.LtEq
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationOp.GtE
+            op = ast.CompareOperationOp.GtEq
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
 
@@ -221,7 +221,7 @@ def cohort_subquery(cohort_id, is_static) -> ast.Expr:
         sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
     else:
         sql = "(SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)})
+    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None)  # clear the source start position
 
 
 def action_to_expr(action: Action) -> ast.Expr:

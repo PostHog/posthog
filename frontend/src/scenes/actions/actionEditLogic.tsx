@@ -112,6 +112,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     // reload actions so they are immediately available throughout the app
                     actions.loadEventDefinitions(null)
                     actions.loadActions()
+                    actions.loadActionCount()
                     actions.loadTags() // reload tags in case new tags are being saved
                     return action
                 },
