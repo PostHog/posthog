@@ -294,7 +294,7 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
     else:
         raise NotImplementedException(f"element_href_to_expr not implemented for operator {operator}")
 
-    regex = f'{key}="{value}"'
+    regex = f'({key}="{value}")'
     if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:
         expr = parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(regex))})
     else:
