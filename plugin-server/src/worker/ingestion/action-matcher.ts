@@ -170,31 +170,30 @@ export class ActionMatcher {
         elements: Element[] | undefined,
         action: Action
     ): Promise<boolean> {
-        for (const step of action.steps) {
-            if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
-                try {
-                    return Boolean(
-                        await executeHogQLBytecode(action.bytecode, event, async (...args: any[]) => {
-                            if (args.length === 3 && (args[0] == /*IN_COHORT*/ 27 || args[0] == /*NOT_IN_COHORT*/ 28)) {
-                                const response = await this.checkEventAgainstCohortFilter(args[1], event.teamId, {
-                                    type: 'cohort',
-                                    key: 'id',
-                                    value: args[0] == /*IN_COHORT*/ 27 ? args[2] : !args[2],
-                                })
-                                return response
-                            }
-                            return false
-                        })
-                    )
-                } catch (error) {
-                    // log error and fallback to previous matching
-                    captureException(error, {
-                        tags: { team_id: action.team_id },
-                        extra: { event, elements, action },
+        if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
+            try {
+                return Boolean(
+                    await executeHogQLBytecode(action.bytecode, event, async (...args: any[]) => {
+                        if (args.length === 3 && (args[0] == /*IN_COHORT*/ 27 || args[0] == /*NOT_IN_COHORT*/ 28)) {
+                            const response = await this.checkEventAgainstCohortFilter(args[1], event.teamId, {
+                                type: 'cohort',
+                                key: 'id',
+                                value: args[2],
+                            })
+                            return args[0] == /*IN_COHORT*/ 27 ? response : !response
+                        }
+                        return false
                     })
-                }
+                )
+            } catch (error) {
+                // log error and fallback to previous matching
+                captureException(error, {
+                    tags: { team_id: action.team_id },
+                    extra: { event, elements, action },
+                })
             }
-
+        }
+        for (const step of action.steps) {
             try {
                 if (await this.checkStep(event, elements, step)) {
                     return true
