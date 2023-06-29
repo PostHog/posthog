@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SurveyQuestionType } from 'posthog-js'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -21,7 +22,7 @@ const MOCK_BASIC_SURVEY: Survey = {
         first_name: 'Employee 427',
         email: 'test2@posthog.com',
     },
-    questions: [{ question: 'question 1?', type: 'open' }],
+    questions: [{ question: 'question 1?', type: SurveyQuestionType.Open }],
     conditions: null,
     linked_flag: null,
     linked_flag_id: null,
@@ -45,7 +46,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         first_name: 'Employee 427',
         email: 'test2@posthog.com',
     },
-    questions: [{ question: 'question 2?', type: 'open' }],
+    questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
     appearance: null,
     conditions: { url: 'posthog' },
     linked_flag: {
@@ -99,6 +100,48 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     archived: false,
 }
 
+// const MOCK_SURVEY_DISMISSED = {
+//     "clickhouse": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
+//     "columns": [
+//         "survey dismissed"
+//     ],
+//     "hogql": "SELECT count() AS `survey dismissed` FROM events WHERE and(equals(event, 'survey dismissed'), equals(properties.$survey_id, '0188e637-3b72-0000-f407-07a338652af9')) LIMIT 100",
+//     "query": "select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '0188e637-3b72-0000-f407-07a338652af9'",
+//     "results": [
+//         [
+//             0
+//         ]
+//     ],
+//     "types": [
+//         [
+//             "survey dismissed",
+//             "UInt64"
+//         ]
+//     ]
+// }
+
+const MOCK_SURVEY_SHOWN = {
+    clickhouse:
+        "SELECT count() AS `survey shown` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
+    columns: ['survey shown'],
+    hogql: "SELECT count() AS `survey shown` FROM events WHERE and(equals(event, 'survey shown'), equals(properties.$survey_id, '0188e637-3b72-0000-f407-07a338652af9')) LIMIT 100",
+    query: "select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '0188e637-3b72-0000-f407-07a338652af9'",
+    results: [[0]],
+    types: [['survey shown', 'UInt64']],
+}
+
+const MOCK_SURVEY_RESULTS = {
+    columns: ['*', 'properties.$survey_response', 'timestamp', 'person'],
+    hasMore: false,
+    results: [],
+    types: [
+        "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'))",
+        'Nullable(String)',
+        "DateTime64(6, 'UTC')",
+        'String',
+    ],
+}
+
 export default {
     title: 'Scenes-App/Surveys',
     parameters: {
@@ -119,6 +162,14 @@ export default {
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+            },
+            post: {
+                '/api/projects/:team_id/query/': (req) => {
+                    if ((req.body as any).kind == 'EventsQuery') {
+                        return MOCK_SURVEY_RESULTS
+                    }
+                    return MOCK_SURVEY_SHOWN
+                },
             },
         }),
     ],
