@@ -192,6 +192,7 @@ describe('DB', () => {
                             },
                         ],
                         bytecode: null,
+                        bytecode_error: null,
                     },
                 },
             })
