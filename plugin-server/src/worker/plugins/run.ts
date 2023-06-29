@@ -246,7 +246,7 @@ export async function runPluginTask(
     return response
 }
 
-async function getPluginMethodsForTeam<M extends keyof VMMethods>(
+export async function getPluginMethodsForTeam<M extends keyof VMMethods>(
     hub: Hub,
     teamId: number,
     method: M
