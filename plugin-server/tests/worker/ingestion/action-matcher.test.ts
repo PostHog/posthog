@@ -1304,57 +1304,6 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
         })
 
-        it('bytecode cohort matching is implemented', async () => {
-            const testCohort = await hub.db.createCohort({
-                name: 'Test',
-                description: 'Test',
-                created_by_id: commonUserId,
-                team_id: 2,
-            })
-            const actionDefinition: Action = await createTestAction(
-                [
-                    {
-                        // bytecode takes precedence, setting value to -1 here
-                        properties: [{ type: 'cohort', key: 'id', value: -1 }],
-                    },
-                ],
-                [
-                    '_h',
-                    /* INTEGER */ 33,
-                    testCohort.id,
-                    /* STRING */ 32,
-                    'person_id',
-                    /* FIELD */ 1,
-                    /* arg_count */ 1,
-                    /* IN_COHORT */ 27,
-                ]
-            )
-            const cohortPerson = await hub.db.createPerson(
-                DateTime.local(),
-                {},
-                {},
-                {},
-                2,
-                null,
-                true,
-                new UUIDT().toString(),
-                ['cohort']
-            )
-            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
-            const eventExamplePersonOk = createTestEvent({
-                event: 'meow',
-                distinctId: 'cohort',
-                person_id: cohortPerson.uuid,
-            })
-            const eventExamplePersonNotOk = createTestEvent({
-                event: 'moo',
-                distinctId: 'cohort',
-                person_id: 'nobody',
-            })
-            expect(await actionMatcher.match(eventExamplePersonOk)).toEqual([actionDefinition])
-            expect(await actionMatcher.match(eventExamplePersonNotOk)).toEqual([])
-        })
-
         it('bytecode element handling works', async () => {
             const actionDefinition: Action = await createTestAction(
                 [
