@@ -46,7 +46,7 @@ def get_breakdown_prop_values(
     """
     Returns the top N breakdown prop values for event/person breakdown
 
-    e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
+    e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox']
 
     When dealing with a histogram though, buckets are returned instead of values.
     """
@@ -198,28 +198,30 @@ def get_breakdown_prop_values(
             **entity_format_params,
         )
 
-    return insight_sync_execute(
-        elements_query,
-        {
-            "key": filter.breakdown,
-            "limit": filter.breakdown_limit_or_default,
-            "team_id": team.pk,
-            "offset": filter.offset,
-            "timezone": team.timezone,
-            **prop_filter_params,
-            **entity_params,
-            **person_join_params,
-            **groups_join_params,
-            **sessions_join_params,
-            **extra_params,
-            **date_params,
-            **sampling_params,
-            **filter.hogql_context.values,
-        },
-        query_type="get_breakdown_prop_values",
-        filter=filter,
-        team_id=team.pk,
-    )[0][0]
+    return list(
+        insight_sync_execute(
+            elements_query,
+            {
+                "key": filter.breakdown,
+                "limit": filter.breakdown_limit_or_default,
+                "team_id": team.pk,
+                "offset": filter.offset,
+                "timezone": team.timezone,
+                **prop_filter_params,
+                **entity_params,
+                **person_join_params,
+                **groups_join_params,
+                **sessions_join_params,
+                **extra_params,
+                **date_params,
+                **sampling_params,
+                **filter.hogql_context.values,
+            },
+            query_type="get_breakdown_prop_values",
+            filter=filter,
+            team_id=team.pk,
+        )[0][0]
+    )
 
 
 def _to_value_expression(
