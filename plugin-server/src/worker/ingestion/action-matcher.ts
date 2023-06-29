@@ -188,7 +188,7 @@ export class ActionMatcher {
                             : (target as any)[prop]
                     },
                 })
-                byteCodeResponse = Boolean(await executeHogQLBytecode(action.bytecode, eventProxy, () => false))
+                byteCodeResponse = Boolean(executeHogQLBytecode(action.bytecode, eventProxy))
             } catch (error) {
                 // log error and fallback to previous matching
                 captureException(error, {

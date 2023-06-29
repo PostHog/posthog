@@ -47,8 +47,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/hogvm':
-    specifier: 1.0.1
-    version: 1.0.1
+    specifier: 1.0.2
+    version: 1.0.2
   '@posthog/plugin-contrib':
     specifier: ^0.0.5
     version: 0.0.5
@@ -3564,8 +3564,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.1:
-    resolution: {integrity: sha512-4CbdAjGXEetalilJDavnlFryUu7zTndIAqpZGzaO3u5jnexcEJXgFBYxM8+JkIg9ghXrY2KuOnbjVZwhhdB7CQ==}
+  /@posthog/hogvm@1.0.2:
+    resolution: {integrity: sha512-ZWmed62UGaCkMh9/DRA6mi8J0TaAchJBxjYtpVE4Qffxrs4N1wGAqK3bgFYAnaO2xjoOmNJHCy50BB1gDnzCiw==}
     dev: false
 
   /@posthog/plugin-contrib@0.0.5:
