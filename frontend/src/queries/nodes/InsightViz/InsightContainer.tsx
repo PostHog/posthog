@@ -105,7 +105,7 @@ export function InsightContainer({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!hasFunnelResults && !insightDataLoading) {
+            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
         }
