@@ -1114,14 +1114,11 @@
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
-                "error": {
-                    "type": "string"
-                },
-                "errorEnd": {
-                    "type": "number"
-                },
-                "errorStart": {
-                    "type": "number"
+                "errors": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
                 },
                 "inputExpr": {
                     "type": "string"
@@ -1131,8 +1128,40 @@
                 },
                 "isValid": {
                     "type": "boolean"
+                },
+                "notices": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
                 }
             },
+            "required": ["errors", "warnings", "notices"],
+            "type": "object"
+        },
+        "HogQLNotice": {
+            "additionalProperties": false,
+            "properties": {
+                "end": {
+                    "type": "number"
+                },
+                "fix": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "number"
+                }
+            },
+            "required": ["message"],
             "type": "object"
         },
         "HogQLPropertyFilter": {
@@ -1221,6 +1250,9 @@
                     "$ref": "#/definitions/LifecycleQuery"
                 }
             ]
+        },
+        "InsightShortId": {
+            "type": "string"
         },
         "InsightVizNode": {
             "additionalProperties": false,
@@ -1358,7 +1390,7 @@
             "type": "object"
         },
         "PathType": {
-            "enum": ["$pageview", "$screen", "custom_event"],
+            "enum": ["$pageview", "$screen", "custom_event", "hogql"],
             "type": "string"
         },
         "PathsFilter": {
@@ -1421,6 +1453,9 @@
                 },
                 "path_type": {
                     "$ref": "#/definitions/PathType"
+                },
+                "paths_hogql_expression": {
+                    "type": "string"
                 },
                 "start_point": {
                     "type": "string"
@@ -1641,6 +1676,9 @@
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
+                    "$ref": "#/definitions/SavedInsightNode"
+                },
+                {
                     "$ref": "#/definitions/InsightVizNode"
                 },
                 {
@@ -1793,6 +1831,20 @@
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "SavedInsightNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SavedInsightNode",
+                    "type": "string"
+                },
+                "shortId": {
+                    "$ref": "#/definitions/InsightShortId"
+                }
+            },
+            "required": ["kind", "shortId"],
+            "type": "object"
         },
         "SessionPropertyFilter": {
             "additionalProperties": false,

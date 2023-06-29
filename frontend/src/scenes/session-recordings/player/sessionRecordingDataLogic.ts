@@ -30,6 +30,7 @@ import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog from 'posthog-js'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -225,8 +226,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
-                // We got the snapshot response for realtime and it was empty, so we fallback to the old API
-                // Until we migrate over we need to fallback to the old API if the new one returns no snapshots
+                // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
+                // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
                 actions.loadRecordingSnapshots()
                 return
             }
@@ -363,6 +364,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             response.snapshot_data_by_window_id,
                             nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : []
                         )
+
+                        posthog.capture('recording_snapshot_loaded', {
+                            source: 'clickhouse',
+                        })
+
                         return {
                             snapshots,
                             next: response.next,
@@ -418,6 +424,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     if (source) {
                         source.loaded = true
+
+                        posthog.capture('recording_snapshot_loaded', {
+                            source: source.source,
+                        })
                     }
 
                     return data

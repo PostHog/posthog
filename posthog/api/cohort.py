@@ -25,6 +25,7 @@ from posthog.client import sync_execute
 from posthog.constants import (
     CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
+    INSIGHT_LIFECYCLE,
     INSIGHT_PATHS,
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
@@ -32,12 +33,14 @@ from posthog.constants import (
     OFFSET,
 )
 from posthog.event_usage import report_user_action
+from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.person.sql import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
@@ -45,6 +48,7 @@ from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
+from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
@@ -118,7 +122,6 @@ class CohortSerializer(serializers.ModelSerializer):
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
     def validate_filters(self, request_filters: Dict):
-
         if isinstance(request_filters, dict) and "properties" in request_filters:
             if self.context["request"].method == "PATCH":
                 parsed_filter = Filter(data=request_filters)
@@ -298,22 +301,31 @@ def insert_cohort_people_into_pg(cohort: Cohort):
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     insight_type = filter_data.get("insight")
     query_builder: ActorBaseQuery
+    context: HogQLContext
 
     if insight_type == INSIGHT_TRENDS:
         filter = Filter(data=filter_data, team=cohort.team)
         entity = get_target_entity(filter)
         query_builder = TrendsActors(cohort.team, entity, filter)
+        context = filter.hogql_context
     elif insight_type == INSIGHT_STICKINESS:
         stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
         entity = get_target_entity(stickiness_filter)
         query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
+        context = stickiness_filter.hogql_context
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data, team=cohort.team)
         funnel_actor_class = get_funnel_actor_class(funnel_filter)
         query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
+        context = funnel_filter.hogql_context
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data, team=cohort.team)
         query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
+        context = path_filter.hogql_context
+    elif insight_type == INSIGHT_LIFECYCLE:
+        lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
+        query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
+        context = lifecycle_filter.hogql_context
     else:
         if settings.DEBUG:
             raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
@@ -328,14 +340,20 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     else:
         query, params = query_builder.actor_query(limit_actors=False)
 
-    insert_actors_into_cohort_by_query(cohort, query, params)
+    insert_actors_into_cohort_by_query(cohort, query, params, context)
 
 
-def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any]):
+def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any], context: HogQLContext):
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
-            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), "team_id": cohort.team.pk, **params},
+            {
+                "cohort_id": cohort.pk,
+                "_timestamp": datetime.now(),
+                "team_id": cohort.team.pk,
+                **context.values,
+                **params,
+            },
         )
 
         cohort.is_calculating = False

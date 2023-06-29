@@ -8,11 +8,19 @@ interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
+interface QueryParams {
+    timestamp?: number
+}
+
 export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
     path(['scenes', 'session-recordings', 'sessionPlayerModalLogic']),
     actions({
-        openSessionPlayer: (sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => ({
+        openSessionPlayer: (
+            sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
+            initialTimestamp: number | null = null
+        ) => ({
             sessionRecording,
+            initialTimestamp,
         }),
         closeSessionPlayer: true,
     }),
@@ -21,6 +29,13 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             null as Pick<SessionRecordingType, 'id' | 'matching_events'> | null,
             {
                 openSessionPlayer: (_, { sessionRecording }) => sessionRecording,
+                closeSessionPlayer: () => null,
+            },
+        ],
+        initialTimestamp: [
+            null as number | null,
+            {
+                openSessionPlayer: (_, { initialTimestamp }) => initialTimestamp,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -39,6 +54,9 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
+            const searchParams: QueryParams = {
+                ...router.values.searchParams,
+            }
 
             if (!values.activeSessionRecording?.id) {
                 delete hashParams.sessionRecordingId
@@ -46,7 +64,13 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
                 hashParams.sessionRecordingId = values.activeSessionRecording.id
             }
 
-            return [router.values.location.pathname, router.values.searchParams, hashParams, { replace }]
+            if (!values.initialTimestamp) {
+                delete searchParams.timestamp
+            } else {
+                searchParams.timestamp = values.initialTimestamp
+            }
+
+            return [router.values.location.pathname, searchParams, hashParams, { replace }]
         }
 
         return {
@@ -55,12 +79,13 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => {
-        const urlToAction = (_: any, __: any, hashParams: HashParams): void => {
+        const urlToAction = (_: any, searchParams: QueryParams, hashParams: HashParams): void => {
             // Check if the logic is still mounted. Because this is called on every URL change, the logic might have been unmounted already.
             if (sessionPlayerModalLogic.isMounted()) {
                 const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
+                const initialTimestamp = searchParams.timestamp ?? null
                 if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecording?.id) {
-                    actions.openSessionPlayer({ id: nulledSessionRecordingId })
+                    actions.openSessionPlayer({ id: nulledSessionRecordingId }, initialTimestamp)
                 }
             }
         }

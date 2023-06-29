@@ -1143,3 +1143,51 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query = f"select a {op} {b} from (select {a} as a)"
             response = execute_hogql_query(query, team=self.team)
             self.assertEqual(response.results, [(res,)], query)
+
+    def test_regex_functions(self):
+        query = """
+            SELECT
+                'kala' ~ '.*',
+                'kala' =~ '.*',
+                'kala' !~ '.*',
+                'kala' =~ 'a',
+                'kala' !~ 'a',
+                'kala' =~ 'A',
+                'kala' !~ 'A',
+                'kala' ~* 'A',
+                'kala' =~* 'A',
+                'kala' !~* 'A'
+        """
+
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+        )
+
+        self.assertEqual(
+            response.results,
+            [(True, True, False, True, False, False, True, True, True, False)],
+        )
+
+    def test_nullish_coalescing(self):
+        query = """
+            SELECT
+                null ?? 1,
+                null ?? null ?? 2,
+                3 ?? null,
+                null ?? 'string',
+                1 + (null ?? 2) + 3,
+                1 + null ?? 2 + 3,
+                10 ?? true ? 20 : 30,
+                10 ?? 5 + 10
+        """
+
+        response = execute_hogql_query(
+            query,
+            team=self.team,
+        )
+
+        self.assertEqual(
+            response.results,
+            [(1, 2, 3, "string", 6, 5, 20, 10)],
+        )

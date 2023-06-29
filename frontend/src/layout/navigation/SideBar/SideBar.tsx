@@ -206,7 +206,7 @@ function Pages(): JSX.Element {
                         icon={<IconLive />}
                         identifier={Scene.Events}
                         to={urls.events()}
-                        title={featureFlags[FEATURE_FLAGS.HOGQL] ? 'Event Explorer' : 'Live Events'}
+                        title={'Event Explorer'}
                     />
                     <PageButton
                         icon={<IconUnverifiedEvent />}

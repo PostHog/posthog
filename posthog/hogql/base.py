@@ -59,6 +59,12 @@ class ConstantType(Type):
     def resolve_constant_type(self) -> "ConstantType":
         return self
 
+    def print_type(self) -> str:
+        raise NotImplementedException("ConstantType.print_type not implemented")
+
 
 class UnknownType(ConstantType):
     data_type: ConstantDataType = PydanticField("unknown", const=True)
+
+    def print_type(self) -> str:
+        return "Unknown"

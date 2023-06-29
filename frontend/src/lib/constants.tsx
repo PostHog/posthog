@@ -136,7 +136,6 @@ export const FEATURE_FLAGS = {
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
-    HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar

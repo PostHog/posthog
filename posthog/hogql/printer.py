@@ -296,19 +296,19 @@ class _Printer(Visitor):
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        if node.op == ast.BinaryOperationOp.Add:
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        if node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Sub:
+        elif node.op == ast.ArithmeticOperationOp.Sub:
             return f"minus({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Mult:
+        elif node.op == ast.ArithmeticOperationOp.Mult:
             return f"multiply({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Div:
+        elif node.op == ast.ArithmeticOperationOp.Div:
             return f"divide({self.visit(node.left)}, {self.visit(node.right)})"
-        elif node.op == ast.BinaryOperationOp.Mod:
+        elif node.op == ast.ArithmeticOperationOp.Mod:
             return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
         else:
-            raise HogQLException(f"Unknown BinaryOperationOp {node.op}")
+            raise HogQLException(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
@@ -388,28 +388,32 @@ class _Printer(Visitor):
 
         elif node.op == ast.CompareOperationOp.Gt:
             return f"greater({left}, {right})"
-        elif node.op == ast.CompareOperationOp.GtE:
+        elif node.op == ast.CompareOperationOp.GtEq:
             return f"greaterOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationOp.Lt:
             return f"less({left}, {right})"
-        elif node.op == ast.CompareOperationOp.LtE:
+        elif node.op == ast.CompareOperationOp.LtEq:
             return f"lessOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationOp.Like:
             return f"like({left}, {right})"
+        elif node.op == ast.CompareOperationOp.NotLike:
+            return f"notLike({left}, {right})"
         elif node.op == ast.CompareOperationOp.ILike:
             return f"ilike({left}, {right})"
-        elif node.op == ast.CompareOperationOp.NotLike:
-            return f"not(like({left}, {right}))"
         elif node.op == ast.CompareOperationOp.NotILike:
-            return f"not(ilike({left}, {right}))"
+            return f"notILike({left}, {right})"
         elif node.op == ast.CompareOperationOp.In:
             return f"in({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotIn:
-            return f"not(in({left}, {right}))"
+            return f"notIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
             return f"match({left}, {right})"
         elif node.op == ast.CompareOperationOp.NotRegex:
             return f"not(match({left}, {right}))"
+        elif node.op == ast.CompareOperationOp.IRegex:
+            return f"match({left}, concat('(?i)', {right}))"
+        elif node.op == ast.CompareOperationOp.NotIRegex:
+            return f"not(match({left}, concat('(?i)', {right})))"
         else:
             raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 
@@ -558,7 +562,10 @@ class _Printer(Visitor):
         inside = self.visit(node.expr)
         if isinstance(node.expr, ast.Alias):
             inside = f"({inside})"
-        return f"{inside} AS {self._print_identifier(node.alias)}"
+        alias = self._print_identifier(node.alias)
+        if "%" in alias:
+            raise HogQLException(f"Alias \"{node.alias}\" contains unsupported character '%'")
+        return f"{inside} AS {alias}"
 
     def visit_table_type(self, type: ast.TableType):
         if self.dialect == "clickhouse":

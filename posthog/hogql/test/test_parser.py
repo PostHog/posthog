@@ -102,8 +102,8 @@ class TestParser(BaseTest):
                 args=[
                     ast.Lambda(
                         args=["x"],
-                        expr=ast.BinaryOperation(
-                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
                         ),
                     )
                 ],
@@ -116,8 +116,8 @@ class TestParser(BaseTest):
                 args=[
                     ast.Lambda(
                         args=["x"],
-                        expr=ast.BinaryOperation(
-                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
                         ),
                     )
                 ],
@@ -130,8 +130,8 @@ class TestParser(BaseTest):
                 args=[
                     ast.Lambda(
                         args=["x", "y"],
-                        expr=ast.BinaryOperation(
-                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
                         ),
                     )
                 ],
@@ -146,69 +146,81 @@ class TestParser(BaseTest):
         self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
         self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
 
-    def test_binary_operations(self):
+    def test_arithmetic_operations(self):
         self.assertEqual(
             self._expr("1 + 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Add),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
+            ),
         )
         self.assertEqual(
             self._expr("1 + -2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.BinaryOperationOp.Add),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.ArithmeticOperationOp.Add
+            ),
         )
         self.assertEqual(
             self._expr("1 - 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Sub),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Sub
+            ),
         )
         self.assertEqual(
             self._expr("1 * 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mult),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
+            ),
         )
         self.assertEqual(
             self._expr("1 / 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Div),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Div
+            ),
         )
         self.assertEqual(
             self._expr("1 % 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mod),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mod
+            ),
         )
         self.assertEqual(
             self._expr("1 + 2 + 2"),
-            ast.BinaryOperation(
-                left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Add
+            ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
         self.assertEqual(
             self._expr("1 * 1 * 2"),
-            ast.BinaryOperation(
-                left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Mult
+            ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationOp.Mult,
+                op=ast.ArithmeticOperationOp.Mult,
             ),
         )
         self.assertEqual(
             self._expr("1 + 1 * 2"),
-            ast.BinaryOperation(
+            ast.ArithmeticOperation(
                 left=ast.Constant(value=1),
-                right=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mult
+                right=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
                 ),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
         self.assertEqual(
             self._expr("1 * 1 + 2"),
-            ast.BinaryOperation(
-                left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Mult
+            ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
 
@@ -234,7 +246,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("1 <= 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtEq
             ),
         )
         self.assertEqual(
@@ -244,7 +256,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("1 >= 2"),
             ast.CompareOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtEq
             ),
         )
 
@@ -340,16 +352,18 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             self._expr("(1 + 1)"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Add),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
+            ),
         )
         self.assertEqual(
             self._expr("1 + (1 + 1)"),
-            ast.BinaryOperation(
+            ast.ArithmeticOperation(
                 left=ast.Constant(value=1),
-                right=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Add
+                right=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
                 ),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
 
@@ -458,8 +472,8 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             self._expr("now() - interval 1 week"),
-            ast.BinaryOperation(
-                op=ast.BinaryOperationOp.Sub,
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
                 left=ast.Call(name="now", args=[]),
                 right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
             ),
