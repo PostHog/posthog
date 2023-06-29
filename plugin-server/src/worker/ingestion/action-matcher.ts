@@ -1,6 +1,6 @@
 import { executeHogQLBytecode } from '@posthog/hogvm'
 import { Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
@@ -170,6 +170,7 @@ export class ActionMatcher {
         elements: Element[] | undefined,
         action: Action
     ): Promise<boolean> {
+        let byteCodeResponse: boolean | undefined = undefined
         if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
             try {
                 const eventProxy = new Proxy(event, {
@@ -187,7 +188,7 @@ export class ActionMatcher {
                             : (target as any)[prop]
                     },
                 })
-                return Boolean(
+                byteCodeResponse = Boolean(
                     await executeHogQLBytecode(action.bytecode, eventProxy, async (...args: any[]) => {
                         if (args.length === 3 && (args[0] == /*IN_COHORT*/ 27 || args[0] == /*NOT_IN_COHORT*/ 28)) {
                             const response = await this.checkEventAgainstCohortFilter(args[1], event.teamId, {
@@ -208,10 +209,19 @@ export class ActionMatcher {
                 })
             }
         }
+
+        // If bytecode matching worked, return true
+        if (byteCodeResponse) {
+            return true
+        }
+
+        // If bytecode matching failed, fallback to previous matching
+        let response = false
         for (const step of action.steps) {
             try {
                 if (await this.checkStep(event, elements, step)) {
-                    return true
+                    response = true
+                    break
                 }
             } catch (error) {
                 captureException(error, {
@@ -220,7 +230,15 @@ export class ActionMatcher {
                 })
             }
         }
-        return false
+
+        if (response && byteCodeResponse === false) {
+            captureMessage('Action matched with regular matching, but failed with bytecode', {
+                tags: { team_id: action.team_id },
+                extra: { id: action.id, event, elements, action },
+            })
+        }
+
+        return response
     }
 
     /**
