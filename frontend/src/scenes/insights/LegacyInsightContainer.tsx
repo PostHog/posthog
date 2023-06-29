@@ -1,11 +1,8 @@
 import { Card, Col, Row } from 'antd'
 import { LegacyInsightDisplayConfig } from 'scenes/insights/LegacyInsightDisplayConfig'
-import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
-import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -18,7 +15,6 @@ import {
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
@@ -34,11 +30,11 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
-    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
-    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
+    [`${InsightType.STICKINESS}`]: <>not supported for legacy component</>,
+    [`${InsightType.LIFECYCLE}`]: <>not supported for legacy component</>,
     [`${InsightType.FUNNELS}`]: <FunnelInsight />,
-    [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <Paths />,
+    [`${InsightType.RETENTION}`]: <>not supported for legacy component</>,
+    [`${InsightType.PATHS}`]: <>not supported for legacy component</>,
 }
 
 export function LegacyInsightContainer({
@@ -95,12 +91,7 @@ export function LegacyInsightContainer({
         }
         if (!!timedOutQueryId) {
             return (
-                <InsightTimeoutState
-                    isLoading={insightLoading}
-                    queryId={timedOutQueryId}
-                    insightType={activeView}
-                    insightProps={insightProps}
-                />
+                <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} insightProps={insightProps} />
             )
         }
 
@@ -206,25 +197,6 @@ export function LegacyInsightContainer({
                 className="insights-graph-container"
             >
                 <div>
-                    {isFunnelsFilter(filters) ? (
-                        <div
-                            className={clsx(
-                                'insights-graph-header',
-                                {
-                                    funnels: isFunnelsFilter(filters),
-                                },
-                                'justify-between',
-                                'items-center',
-                                'flex',
-                                'flex-row'
-                            )}
-                        >
-                            <div className="flex flex-col">
-                                {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
-                            </div>
-                        </div>
-                    ) : null}
-
                     {!disableLastComputation || !!filters.sampling_factor ? (
                         <Row
                             className="insights-graph-header computation-time-and-sampling-notice"

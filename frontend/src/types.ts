@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -99,6 +99,9 @@ export enum ProductKey {
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
+    SESSION_REPLAY = 'session_replay',
+    DATA_WAREHOUSE = 'data_warehouse',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
 export enum LicensePlan {
@@ -322,6 +325,7 @@ export interface TeamType extends TeamBasicType {
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
+    autocapture_exceptions_errors_to_ignore: string[]
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -625,12 +629,39 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
+export type EncodedRecordingSnapshot = {
+    windowId: string
+    data: eventWithTime[]
+}
+
+export interface SessionRecordingSnapshotSource {
+    source: 'blob' | 'realtime'
+    start_timestamp?: string
+    end_timestamp?: string
+    blob_key?: string
+    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotResponse {
+    // Future interface
+    sources?: SessionRecordingSnapshotSource[]
+    snapshots?: EncodedRecordingSnapshot[]
+
+    // legacy interface
+    next?: string
+    // When loaded from S3
+    blob_keys?: string[]
+    // When loaded from Clickhouse (legacy)
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+}
+
 export type RecordingSnapshot = eventWithTime & {
     windowId: string
 }
 
 export interface SessionPlayerSnapshotData {
-    snapshots: RecordingSnapshot[]
+    snapshots?: RecordingSnapshot[]
+    sources?: SessionRecordingSnapshotSource[]
     next?: string
     blob_keys?: string[]
 }
@@ -694,7 +725,6 @@ export interface RecordingFilters {
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    offset?: number
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationTypeFilter
     console_logs?: FilterableLogLevel[]
@@ -1480,8 +1510,9 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
 }
 
-export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
     date_marker: dayjs.Dayjs | null
+    created_at: dayjs.Dayjs
 }
 
 export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
@@ -1519,6 +1550,7 @@ export enum PathType {
     PageView = '$pageview',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+    HogQL = 'hogql',
 }
 
 export enum FunnelPathType {
@@ -1651,6 +1683,7 @@ export interface FunnelsFilterType extends FilterType {
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
+    paths_hogql_expression?: string
     include_event_types?: PathType[]
     start_point?: string
     end_point?: string
@@ -1986,8 +2019,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -2003,6 +2034,7 @@ export interface Survey {
     name: string
     description: string
     type: SurveyType
+    linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
@@ -2024,9 +2056,9 @@ export enum SurveyType {
 }
 
 export interface SurveyAppearance {
-    background_color?: string
-    button_color?: string
-    text_color?: string
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
 }
 
 export interface SurveyQuestion {
@@ -2255,6 +2287,7 @@ export type HotKey =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+    | 'forwardslash'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
@@ -2942,3 +2975,19 @@ export enum NotebookNodeType {
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export interface DataWarehouseCredential {
+    access_key: string
+    access_secret: string
+}
+export interface DataWarehouseTable {
+    /** UUID */
+    id: string
+    name: string
+    format: string
+    url_pattern: string
+    credential: DataWarehouseCredential
+    columns: DatabaseSchemaQueryResponseField[]
+}
+
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet'

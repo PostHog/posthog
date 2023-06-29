@@ -1,3 +1,4 @@
+import { dayjs } from 'lib/dayjs'
 import { useValues } from 'kea'
 import { teamLogic } from '../teamLogic'
 import { useCallback, useEffect, useState } from 'react'
@@ -181,17 +182,158 @@ export const useExportAction = (
     exportId: string,
     action: 'pause' | 'unpause'
 ): {
-    executeExportAction: () => Promise<void>
+    executeExportAction: (data: any) => Promise<void>
     loading: boolean
     error: Error | null
 } => {
     // Returns a callback to execute an action for the given team and export ID.
     const [state, setState] = useState<{ loading: boolean; error: Error | null }>({ loading: false, error: null })
 
-    const executeExportAction = useCallback(() => {
+    const executeExportAction = useCallback(
+        (data) => {
+            setState({ loading: true, error: null })
+            return api
+                .createResponse(`/api/projects/${teamId}/batch_exports/${exportId}/${action}`, data ? data : {})
+                .then((response) => {
+                    if (response.ok) {
+                        setState({ loading: false, error: null })
+                    } else {
+                        // TODO: parse the error response.
+                        const error = new Error(response.statusText)
+                        setState({ loading: false, error: error })
+                        throw error
+                    }
+                })
+        },
+        [teamId, exportId, action]
+    )
+
+    return { executeExportAction, ...state }
+}
+
+export const useExport = (
+    teamId: number,
+    exportId: string
+): {
+    loading: boolean
+    export_: BatchExport | undefined
+    error: Error | undefined
+    updateCallback: (signal: AbortSignal | undefined) => void
+} => {
+    // Fetches the export details for the given team and export ID.
+    const [loading, setLoading] = useState(true)
+    const [export_, setExport] = useState<BatchExport>()
+    const [error, setError] = useState<Error>()
+
+    const updateCallback = useCallback(
+        (signal: AbortSignal | undefined) => {
+            fetch(`/api/projects/${teamId}/batch_exports/${exportId}`, { signal })
+                .then((res) => res.json())
+                .then((data) => {
+                    setExport(data)
+                    setLoading(false)
+                })
+                .catch((error) => {
+                    setError(error)
+                    setLoading(false)
+                })
+        },
+        [teamId, exportId]
+    )
+
+    useEffect(() => {
+        const controller = new AbortController()
+        const signal = controller.signal
+
+        setLoading(true)
+        setError(undefined)
+
+        updateCallback(signal)
+
+        return () => controller.abort()
+    }, [teamId, exportId])
+
+    return { loading, export_, error, updateCallback }
+}
+
+export const useExportRuns = (
+    teamId: number,
+    exportId: string,
+    limit: number | null,
+    dateRange: [dayjs.Dayjs, dayjs.Dayjs]
+): {
+    loading: boolean
+    exportRuns: BatchExportRun[] | undefined
+    error: Error | undefined
+    updateCallback: (
+        signal: AbortSignal | undefined,
+        numberOfRows: number | null,
+        dateRange: [dayjs.Dayjs, dayjs.Dayjs]
+    ) => Promise<void>
+} => {
+    // Fetches the export runs for the given team and export ID.
+    const [loading, setLoading] = useState(true)
+    const [exportRuns, setExportRuns] = useState<BatchExportRun[]>()
+    const [error, setError] = useState<Error>()
+
+    const updateCallback = useCallback(
+        (signal: AbortSignal | undefined, numberOfRows: number | null, dateRange: [dayjs.Dayjs, dayjs.Dayjs]) => {
+            setLoading(true)
+            setError(undefined)
+
+            const url = numberOfRows
+                ? `/api/projects/${teamId}/batch_exports/${exportId}/runs?limit=${encodeURIComponent(
+                      numberOfRows
+                  )}&after=${encodeURIComponent(dateRange[0].toISOString())}&before=${encodeURIComponent(
+                      dateRange[1].toISOString()
+                  )}`
+                : `/api/projects/${teamId}/batch_exports/${exportId}/runs?after=${encodeURIComponent(
+                      dateRange[0].toISOString()
+                  )}&before=${encodeURIComponent(dateRange[1].toISOString())}`
+
+            return fetch(url, { signal })
+                .then((res) => res.json() as Promise<BatchExportRunsResponse>)
+                .then((data) => {
+                    setExportRuns(data.results)
+                    setLoading(false)
+                })
+                .catch((error) => {
+                    setError(error)
+                    setLoading(false)
+                })
+        },
+        [teamId, exportId]
+    )
+
+    useEffect(() => {
+        const controller = new AbortController()
+        const signal = controller.signal
+
+        updateCallback(signal, limit, dateRange)
+
+        return () => controller.abort()
+    }, [teamId, exportId, limit, dateRange])
+
+    return { loading, exportRuns, error, updateCallback }
+}
+
+export const useExportRunAction = (
+    teamId: number,
+    exportId: string,
+    exportRunId: string,
+    action: 'reset'
+): {
+    executeExportRunAction: () => Promise<void>
+    loading: boolean
+    error: Error | null
+} => {
+    // Returns a callback to execute an action for the given team, export ID and export run ID.
+    const [state, setState] = useState<{ loading: boolean; error: Error | null }>({ loading: false, error: null })
+
+    const executeExportRunAction = useCallback(() => {
         setState({ loading: true, error: null })
         return api
-            .createResponse(`/api/projects/${teamId}/batch_exports/${exportId}/${action}`, {})
+            .createResponse(`/api/projects/${teamId}/batch_exports/${exportId}/runs/${exportRunId}/${action}`, {})
             .then((response) => {
                 if (response.ok) {
                     setState({ loading: false, error: null })
@@ -204,76 +346,10 @@ export const useExportAction = (
             })
     }, [teamId, exportId, action])
 
-    return { executeExportAction, ...state }
+    return { executeExportRunAction, ...state }
 }
 
-export const useExport = (
-    teamId: number,
-    exportId: string
-): { loading: boolean; export_: BatchExport | undefined; error: Error | undefined } => {
-    // Fetches the export details for the given team and export ID.
-    const [loading, setLoading] = useState(true)
-    const [export_, setExport] = useState<BatchExport>()
-    const [error, setError] = useState<Error>()
-
-    useEffect(() => {
-        const controller = new AbortController()
-        const signal = controller.signal
-
-        setLoading(true)
-        setError(undefined)
-
-        fetch(`/api/projects/${teamId}/batch_exports/${exportId}`, { signal })
-            .then((res) => res.json())
-            .then((data) => {
-                setExport(data)
-                setLoading(false)
-            })
-            .catch((error) => {
-                setError(error)
-                setLoading(false)
-            })
-
-        return () => controller.abort()
-    }, [teamId, exportId])
-
-    return { loading, export_, error }
-}
-
-export const useExportRuns = (
-    teamId: number,
-    exportId: string
-): { loading: boolean; exportRuns: BatchExportRun[] | undefined; error: Error | undefined } => {
-    // Fetches the export runs for the given team and export ID.
-    const [loading, setLoading] = useState(true)
-    const [exportRuns, setExportRuns] = useState<BatchExportRun[]>()
-    const [error, setError] = useState<Error>()
-
-    useEffect(() => {
-        const controller = new AbortController()
-        const signal = controller.signal
-
-        setLoading(true)
-        setError(undefined)
-
-        fetch(`/api/projects/${teamId}/batch_exports/${exportId}/runs`, { signal })
-            .then((res) => res.json() as Promise<BatchExportRunsResponse>)
-            .then((data) => {
-                setExportRuns(data.results)
-                setLoading(false)
-            })
-            .catch((error) => {
-                setError(error)
-                setLoading(false)
-            })
-
-        return () => controller.abort()
-    }, [teamId, exportId])
-
-    return { loading, exportRuns, error }
-}
-
-type BatchExportRunStatus =
+export type BatchExportRunStatus =
     | 'Cancelled'
     | 'Completed'
     | 'ContinuedAsNew'
@@ -283,9 +359,10 @@ type BatchExportRunStatus =
     | 'Running'
     | 'Starting'
 
-type BatchExportRun = {
+export type BatchExportRun = {
     id: string
     team_id: number
+    batch_export_id: string
     status: BatchExportRunStatus
     opened_at: string
     closed_at: string

@@ -32,14 +32,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
-        KAFKA_CLIENT_CERT_B64: null,
-        KAFKA_CLIENT_CERT_KEY_B64: null,
-        KAFKA_TRUSTED_CERT_B64: null,
-        KAFKA_SECURITY_PROTOCOL: null,
-        KAFKA_SASL_MECHANISM: null,
-        KAFKA_SASL_USER: null,
-        KAFKA_SASL_PASSWORD: null,
-        KAFKA_CLIENT_RACK: null,
+        KAFKA_CLIENT_CERT_B64: undefined,
+        KAFKA_CLIENT_CERT_KEY_B64: undefined,
+        KAFKA_TRUSTED_CERT_B64: undefined,
+        KAFKA_SECURITY_PROTOCOL: undefined,
+        KAFKA_SASL_MECHANISM: undefined,
+        KAFKA_SASL_USER: undefined,
+        KAFKA_SASL_PASSWORD: undefined,
+        KAFKA_CLIENT_RACK: undefined,
+        KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
@@ -120,6 +121,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
+        SESSION_RECORDING_KAFKA_HOSTS: undefined,
+        SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: Change this to 'all' when we release it fully
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
@@ -128,6 +131,20 @@ export function getDefaultConfig(): PluginsServerConfig {
             ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
             : 1024 * 50, // ~50MB after compression in prod
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
+        SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
+        POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
+        POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+    }
+}
+
+export const sessionRecordingBlobConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
+    // When running the blob consumer we override a bunch of settings to use the session recording ones if available
+    return {
+        ...config,
+        KAFKA_HOSTS: config.SESSION_RECORDING_KAFKA_HOSTS || config.KAFKA_HOSTS,
+        KAFKA_SECURITY_PROTOCOL: config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || config.KAFKA_SECURITY_PROTOCOL,
+        POSTHOG_REDIS_HOST: config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.POSTHOG_REDIS_HOST,
+        POSTHOG_REDIS_PORT: config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.POSTHOG_REDIS_PORT,
     }
 }
 

@@ -456,22 +456,46 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
 
-        # Now try changing FF rollout %s
+        # Allow changing FF rollout %s
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        created_ff.filters = {
+            **created_ff.filters,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 35},
+                    {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                    {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
+                ]
+            },
+        }
+        created_ff.save()
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
-                "description": "Bazinga",
+                "description": "Bazinga 222",
                 "parameters": {
                     "feature_flag_variants": [
-                        {"key": "control", "name": "Control Group", "rollout_percentage": 34},
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
                         {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["parameters"]["feature_flag_variants"][0]["key"], "control")
+        self.assertEqual(response.json()["description"], "Bazinga 222")
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.active, True)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["rollout_percentage"], 35)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test_1")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["rollout_percentage"], 33)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][2]["key"], "test_2")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][2]["rollout_percentage"], 32)
 
         # Now try changing FF keys
         response = self.client.patch(
@@ -881,8 +905,7 @@ class TestExperimentCRUD(APILicensedTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # ensure cache doesn't change either
         cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)

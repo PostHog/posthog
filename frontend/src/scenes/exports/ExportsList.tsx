@@ -1,16 +1,230 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from '../urls'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
+import { More } from '../../lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from '../../lib/lemon-ui/LemonDivider'
 import { LemonTag } from '../../lib/lemon-ui/LemonTag/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { IconPlay, IconPause, IconDelete } from 'lib/lemon-ui/icons'
-import { useCurrentTeamId, useExports, useExportAction, useDeleteExport } from './api'
+import { useCurrentTeamId, useExports, useExportAction, useDeleteExport, BatchExport } from './api'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: Exports,
+}
+
+export interface ExportActionButtonsProps {
+    currentTeamId: number
+    export_: BatchExport
+    loading: boolean
+    buttonFullWidth: boolean
+    buttonType: 'primary' | 'secondary' | 'tertiary'
+    dividerVertical: boolean
+    updateCallback: (signal: AbortSignal | undefined) => void
+}
+
+export function ExportActionButtons({
+    currentTeamId,
+    export_,
+    loading,
+    buttonFullWidth,
+    buttonType,
+    dividerVertical,
+    updateCallback,
+}: ExportActionButtonsProps): JSX.Element {
+    const { executeExportAction: pauseExport, error: pauseError } = useExportAction(currentTeamId, export_.id, 'pause')
+    const { executeExportAction: resumeExport, error: resumeError } = useExportAction(
+        currentTeamId,
+        export_.id,
+        'unpause'
+    )
+
+    const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
+
+    return (
+        <>
+            <LemonButton
+                status="primary"
+                type={buttonType}
+                onClick={() => {
+                    export_.paused
+                        ? resumeExport(undefined)
+                              .then(() => {
+                                  updateCallback(undefined)
+                                  lemonToast['success'](
+                                      <>
+                                          <b>{export_.name}</b> has been resumed
+                                      </>,
+                                      {
+                                          toastId: `resume-export-success-${export_.id}`,
+                                      }
+                                  )
+                              })
+                              .catch(() => {
+                                  lemonToast['error'](
+                                      <>
+                                          <b>{export_.name}</b> could not be resumed: {resumeError}
+                                      </>,
+                                      {
+                                          toastId: `resume-export-error-${export_.id}`,
+                                      }
+                                  )
+                              })
+                        : pauseExport(undefined)
+                              .then(() => {
+                                  updateCallback(undefined)
+                                  lemonToast['info'](
+                                      <>
+                                          <b>{export_.name}</b> has been paused
+                                      </>,
+                                      {
+                                          toastId: `pause-export-info-${export_.id}`,
+                                      }
+                                  )
+                              })
+                              .catch(() => {
+                                  lemonToast['error'](
+                                      <>
+                                          <b>{export_.name}</b> could not be resumed: {pauseError}
+                                      </>,
+                                      {
+                                          toastId: `pause-export-error-${export_.id}`,
+                                      }
+                                  )
+                              })
+                }}
+                tooltip={export_.paused ? 'Resume this paused BatchExport' : 'Pause this active BatchExport'}
+                disabled={loading}
+                loading={loading}
+                fullWidth={buttonFullWidth}
+            >
+                {export_.paused ? 'Resume' : 'Pause'}
+            </LemonButton>
+            {export_.paused ? (
+                <LemonButton
+                    status="primary"
+                    type={buttonType}
+                    onClick={() => {
+                        resumeExport({ backfill: true })
+                            .then(() => {
+                                updateCallback(undefined)
+                                lemonToast['success'](
+                                    <>
+                                        <b>{export_.name}</b> has been resumed
+                                    </>,
+                                    {
+                                        toastId: `resume-export-success-${export_.id}`,
+                                    }
+                                )
+                            })
+                            .catch(() => {
+                                lemonToast['error'](
+                                    <>
+                                        <b>{export_.name}</b> could not be resumed: {resumeError}
+                                    </>,
+                                    {
+                                        toastId: `resume-export-error-${export_.id}`,
+                                    }
+                                )
+                            })
+                    }}
+                    tooltip={'Resume this paused BatchExport and trigger backfilling for any runs missed while paused'}
+                    disabled={loading}
+                    loading={loading}
+                    fullWidth={buttonFullWidth}
+                >
+                    Resume and backfill
+                </LemonButton>
+            ) : undefined}
+            <LemonDivider vertical={dividerVertical} />
+            <LemonButton
+                status="danger"
+                type={buttonType}
+                onClick={() => {
+                    deleteExport()
+                        .then(() => {
+                            updateCallback(undefined)
+                            lemonToast['success'](
+                                <>
+                                    <b>{export_.name}</b> has been deleted
+                                </>,
+                                {
+                                    toastId: `delete-export-success-${export_.id}`,
+                                }
+                            )
+                        })
+                        .catch(() => {
+                            lemonToast['error'](
+                                <>
+                                    <b>{export_.name}</b> could not be deleted: {deleteError}
+                                </>,
+                                {
+                                    toastId: `delete-export-error-${export_.id}`,
+                                }
+                            )
+                        })
+                }}
+                tooltip="Permanently delete this BatchExport"
+                disabled={loading}
+                loading={loading}
+                fullWidth={buttonFullWidth}
+            >
+                Delete
+            </LemonButton>
+        </>
+    )
+}
+
+export interface SubExportActionButtonsProps {
+    currentTeamId: number
+    export_: BatchExport
+    loading: boolean
+    updateCallback: (signal: AbortSignal | undefined) => void
+}
+
+export function InlineExportActionButtons({
+    currentTeamId,
+    export_,
+    loading,
+    updateCallback,
+}: SubExportActionButtonsProps): JSX.Element {
+    return (
+        <div className={clsx('flex flex-wrap gap-2')}>
+            <ExportActionButtons
+                export_={export_}
+                currentTeamId={currentTeamId}
+                loading={loading}
+                updateCallback={updateCallback}
+                buttonFullWidth={false}
+                buttonType={'secondary'}
+                dividerVertical={true}
+            />
+        </div>
+    )
+}
+
+export function NestedExportActionButtons({
+    currentTeamId,
+    export_,
+    loading,
+    updateCallback,
+}: SubExportActionButtonsProps): JSX.Element {
+    return (
+        <More
+            overlay={
+                <ExportActionButtons
+                    export_={export_}
+                    currentTeamId={currentTeamId}
+                    loading={loading}
+                    updateCallback={updateCallback}
+                    buttonFullWidth={true}
+                    buttonType={'tertiary'}
+                    dividerVertical={false}
+                />
+            }
+        />
+    )
 }
 
 export function Exports(): JSX.Element {
@@ -94,111 +308,13 @@ export function Exports(): JSX.Element {
                     {
                         title: 'Actions',
                         render: function Render(_, export_) {
-                            const { executeExportAction: pauseExport, error: pauseError } = useExportAction(
-                                currentTeamId,
-                                export_.id,
-                                'pause'
-                            )
-                            const { executeExportAction: resumeExport, error: resumeError } = useExportAction(
-                                currentTeamId,
-                                export_.id,
-                                'unpause'
-                            )
-
-                            const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
-
                             return (
-                                <div className={clsx('flex flex-wrap gap-2')}>
-                                    <LemonButton
-                                        status="primary"
-                                        type="secondary"
-                                        onClick={() => {
-                                            export_.paused
-                                                ? resumeExport().then(() => {
-                                                      if (resumeError === null) {
-                                                          updateCallback(undefined)
-                                                          lemonToast['success'](
-                                                              <>
-                                                                  <b>{export_.name}</b> has been resumed
-                                                              </>,
-                                                              {
-                                                                  toastId: `resume-export-success-${export_.id}`,
-                                                              }
-                                                          )
-                                                      } else {
-                                                          lemonToast['error'](
-                                                              <>
-                                                                  <b>{export_.name}</b> could not be resumed:{' '}
-                                                                  {resumeError}
-                                                              </>,
-                                                              {
-                                                                  toastId: `resume-export-error-${export_.id}`,
-                                                              }
-                                                          )
-                                                      }
-                                                  })
-                                                : pauseExport().then(() => {
-                                                      if (pauseError === null) {
-                                                          updateCallback(undefined)
-                                                          lemonToast['info'](
-                                                              <>
-                                                                  <b>{export_.name}</b> has been paused
-                                                              </>,
-                                                              {
-                                                                  toastId: `pause-export-info-${export_.id}`,
-                                                              }
-                                                          )
-                                                      } else {
-                                                          lemonToast['error'](
-                                                              <>
-                                                                  <b>{export_.name}</b> could not be resumed:{' '}
-                                                                  {pauseError}
-                                                              </>,
-                                                              {
-                                                                  toastId: `pause-export-error-${export_.id}`,
-                                                              }
-                                                          )
-                                                      }
-                                                  })
-                                        }}
-                                        icon={export_.paused ? <IconPlay /> : <IconPause />}
-                                        tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
-                                        disabled={loading}
-                                        loading={loading}
-                                    />
-                                    <LemonButton
-                                        status="danger"
-                                        type="secondary"
-                                        onClick={() => {
-                                            deleteExport().then(() => {
-                                                if (deleteError === null) {
-                                                    updateCallback(undefined)
-                                                    lemonToast['success'](
-                                                        <>
-                                                            <b>{export_.name}</b> has been deleted
-                                                        </>,
-                                                        {
-                                                            toastId: `delete-export-success-${export_.id}`,
-                                                        }
-                                                    )
-                                                } else {
-                                                    lemonToast['error'](
-                                                        <>
-                                                            <b>{export_.name}</b> could not be deleted: {deleteError}
-                                                        </>,
-                                                        {
-                                                            toastId: `delete-export-error-${export_.id}`,
-                                                        }
-                                                    )
-                                                }
-                                            })
-                                        }}
-                                        icon={<IconDelete />}
-                                        tooltip="Permanently delete this BatchExport"
-                                        disabled={loading}
-                                        loading={loading}
-                                    />
-                                </div>
+                                <NestedExportActionButtons
+                                    currentTeamId={currentTeamId}
+                                    export_={export_}
+                                    loading={loading}
+                                    updateCallback={updateCallback}
+                                />
                             )
                         },
                     },

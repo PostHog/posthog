@@ -95,15 +95,22 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    REDIS_URL: string
+    POSTHOG_REDIS_PASSWORD: string
+    POSTHOG_REDIS_HOST: string
+    POSTHOG_REDIS_PORT: number
+    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
+    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
-    KAFKA_CLIENT_CERT_B64: string | null
-    KAFKA_CLIENT_CERT_KEY_B64: string | null
-    KAFKA_TRUSTED_CERT_B64: string | null
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | null
-    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | null
-    KAFKA_SASL_USER: string | null
-    KAFKA_SASL_PASSWORD: string | null
-    KAFKA_CLIENT_RACK: string | null
+    KAFKA_CLIENT_CERT_B64: string | undefined
+    KAFKA_CLIENT_CERT_KEY_B64: string | undefined
+    KAFKA_TRUSTED_CERT_B64: string | undefined
+    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    KAFKA_SASL_MECHANISM: KafkaSaslMechanism | undefined
+    KAFKA_SASL_USER: string | undefined
+    KAFKA_SASL_PASSWORD: string | undefined
+    KAFKA_CLIENT_RACK: string | undefined
+    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -117,10 +124,6 @@ export interface PluginsServerConfig {
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
-    REDIS_URL: string
-    POSTHOG_REDIS_PASSWORD: string
-    POSTHOG_REDIS_HOST: string
-    POSTHOG_REDIS_PORT: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
@@ -131,8 +134,6 @@ export interface PluginsServerConfig {
     STATSD_PORT: number
     STATSD_PREFIX: string
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
-    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
-    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
@@ -195,6 +196,12 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
+    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+    // Dedicated infra values
+    SESSION_RECORDING_KAFKA_HOSTS: string | undefined
+    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -1112,3 +1119,5 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
 }
+
+export type RedisPool = GenericPool<Redis>

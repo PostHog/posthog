@@ -12,34 +12,37 @@
 
     &.primary {
         background-color: var(--primary);
-        color: var(--inverse);
+        color: #fff;
     }
 
     &.highlight {
-        background-color: var(--mark-color);
+        background-color: var(--mark);
+        color: var(--bg-charcoal);
     }
 
     &.warning {
         background-color: var(--warning);
+        color: var(--bg-charcoal);
     }
 
     &.danger {
         background-color: var(--danger);
-        color: var(--inverse);
+        color: #fff;
     }
 
     &.success {
         background-color: var(--success);
-        color: var(--inverse);
+        color: #fff;
     }
 
     &.completion {
         background-color: var(--purple-light);
-        color: var(--purple-dark);
+        color: var(--bg-charcoal);
     }
 
     &.caution {
         background-color: var(--danger-lighter);
+        color: var(--bg-charcoal);
     }
 
     &.none {

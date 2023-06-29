@@ -1,5 +1,6 @@
 import {
     ActionType,
+    AnnotationType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
@@ -98,8 +99,11 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
+    dataWarehouse: (): string => '/warehouse',
+    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
     survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
     annotations: (): string => '/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,

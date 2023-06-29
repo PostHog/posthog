@@ -453,14 +453,14 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome')
-                      AND equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'))) as count_event_match_0 ,
+                 AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)
+                      AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome')
-                                    AND equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'))) as matching_events_0
+                               AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)
+                                    AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -532,12 +532,12 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'))) as count_event_match_0 ,
+                 AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'))) as matching_events_0
+                               AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -595,14 +595,14 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome')
-                      AND equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'))) as count_event_match_0 ,
+                 AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)
+                      AND ifNull(equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'), 0))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome')
-                                    AND equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'))) as matching_events_0
+                               AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)
+                                    AND ifNull(equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'), 0))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -674,12 +674,12 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'))) as count_event_match_0 ,
+                 AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'))) as matching_events_0
+                               AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
