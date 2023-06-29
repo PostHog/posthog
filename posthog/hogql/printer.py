@@ -564,7 +564,7 @@ class _Printer(Visitor):
             inside = f"({inside})"
         alias = self._print_identifier(node.alias)
         if "%" in alias:
-            raise HogQLException(f"Alias '{alias}' contains unsupported character '%'")
+            raise HogQLException(f"Alias \"{node.alias}\" contains unsupported character '%'")
         return f"{inside} AS {alias}"
 
     def visit_table_type(self, type: ast.TableType):
