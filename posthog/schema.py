@@ -387,6 +387,14 @@ class RetentionType(str, Enum):
     retention_first_time = "retention_first_time"
 
 
+class SavedInsightNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("SavedInsightNode", const=True)
+    shortId: str
+
+
 class SessionPropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -571,14 +579,6 @@ class HogQLQuery(BaseModel):
     kind: str = Field("HogQLQuery", const=True)
     query: str
     response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
-
-
-class InsightNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    kind: str = Field("InsightNode", const=True)
-    shortId: str
 
 
 class LifecycleFilter(BaseModel):
@@ -1153,7 +1153,7 @@ class InsightVizNode(BaseModel):
 class Model(BaseModel):
     __root__: Union[
         DataTableNode,
-        InsightNode,
+        SavedInsightNode,
         InsightVizNode,
         TrendsQuery,
         FunnelsQuery,

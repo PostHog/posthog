@@ -1229,20 +1229,6 @@
             },
             "type": "object"
         },
-        "InsightNode": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "const": "InsightNode",
-                    "type": "string"
-                },
-                "shortId": {
-                    "$ref": "#/definitions/InsightShortId"
-                }
-            },
-            "required": ["kind", "shortId"],
-            "type": "object"
-        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -1690,7 +1676,7 @@
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
-                    "$ref": "#/definitions/InsightNode"
+                    "$ref": "#/definitions/SavedInsightNode"
                 },
                 {
                     "$ref": "#/definitions/InsightVizNode"
@@ -1845,6 +1831,20 @@
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "SavedInsightNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SavedInsightNode",
+                    "type": "string"
+                },
+                "shortId": {
+                    "$ref": "#/definitions/InsightShortId"
+                }
+            },
+            "required": ["kind", "shortId"],
+            "type": "object"
         },
         "SessionPropertyFilter": {
             "additionalProperties": false,
