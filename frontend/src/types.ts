@@ -2381,9 +2381,7 @@ export interface Experiment {
     id: number | 'new'
     name: string
     description?: string
-    feature_flag_key: string
-    // ID of feature flag
-    feature_flag?: number
+    feature_flag?: FeatureFlagBasicType
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number

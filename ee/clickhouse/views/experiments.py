@@ -13,7 +13,7 @@ from ee.clickhouse.queries.experiments.funnel_experiment_result import Clickhous
 from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.caching.insight_cache import update_cached_state
@@ -98,6 +98,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
+    feature_flag = MinimalFeatureFlagSerializer(read_only=True)
 
     class Meta:
         model = Experiment
@@ -108,7 +109,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "feature_flag_key",
-            # get the FF id as well to link to FF UI
             "feature_flag",
             "parameters",
             "secondary_metrics",

@@ -212,7 +212,7 @@ export function Experiment(): JSX.Element {
                                         loading={experimentLoading}
                                         disabled={experimentLoading}
                                     >
-                                        Save
+                                        {editingExistingExperiment ? 'Save' : 'Save as draft'}
                                     </LemonButton>
                                 </div>
                             }
@@ -345,18 +345,18 @@ export function Experiment(): JSX.Element {
                                             <strong>Select participants</strong>
                                         </div>
                                         <div className="text-muted mb-4">
-                                            By default, 100% of participants will be targeted.
+                                            Experiments use feature flags to target users. By default, 100% of
+                                            participants will be targeted.
                                             <br />
-                                            For any advanced options like changing the rollout percentage, targeting
-                                            certain users only, targeting by groups, and persisting feature flags, you
-                                            can{' '}
+                                            For any advanced options like changing the rollout percentage, and targeting
+                                            by groups, you can{' '}
                                             {experimentId === 'new' ? (
-                                                'change settings on the feature flag after creation.'
+                                                'change settings on the feature flag after saving this experiment.'
                                             ) : (
                                                 <Link
                                                     to={
                                                         experiment.feature_flag
-                                                            ? urls.featureFlag(experiment.feature_flag)
+                                                            ? urls.featureFlag(experiment.feature_flag.id)
                                                             : undefined
                                                     }
                                                 >
@@ -485,7 +485,7 @@ export function Experiment(): JSX.Element {
                                 loading={experimentLoading}
                                 disabled={experimentLoading}
                             >
-                                Save
+                                {editingExistingExperiment ? 'Save' : 'Save as draft'}
                             </LemonButton>
                         </div>
                     </Form>
@@ -502,10 +502,10 @@ export function Experiment(): JSX.Element {
                                         buttons={
                                             <>
                                                 <CopyToClipboardInline
-                                                    explicitValue={experiment.feature_flag_key}
+                                                    explicitValue={experiment.feature_flag?.key}
                                                     iconStyle={{ color: 'var(--muted-alt)' }}
                                                 >
-                                                    <span className="text-muted">{experiment.feature_flag_key}</span>
+                                                    <span className="text-muted">{experiment.feature_flag?.key}</span>
                                                 </CopyToClipboardInline>
                                                 <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
                                                     <b className="uppercase">{status()}</b>
@@ -644,7 +644,7 @@ export function Experiment(): JSX.Element {
                                     <Link
                                         to={
                                             experiment.feature_flag
-                                                ? urls.featureFlag(experiment.feature_flag)
+                                                ? urls.featureFlag(experiment.feature_flag.id)
                                                 : undefined
                                         }
                                     >

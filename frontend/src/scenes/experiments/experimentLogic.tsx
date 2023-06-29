@@ -251,6 +251,13 @@ export const experimentLogic = kea<experimentLogicType>([
                                 recommended_sample_size: sampleSize,
                             },
                             ...(!draft && { start_date: dayjs() }),
+                            // backwards compatibility: Remove any global properties set on the experiment.
+                            // These were used to change feature flag targeting, but this is controlled directly
+                            // on the feature flag now.
+                            filters: {
+                                ...values.experiment.filters,
+                                properties: [],
+                            },
                         }
                     )
                     if (response?.id) {
