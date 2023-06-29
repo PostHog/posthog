@@ -32,6 +32,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
+import { dayjs } from 'lib/dayjs'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -357,9 +358,10 @@ export function EventsTable({
                                             status="stealth"
                                             onClick={() => {
                                                 event.properties.$session_id &&
-                                                    openSessionPlayer({
-                                                        id: event.properties.$session_id,
-                                                    })
+                                                    openSessionPlayer(
+                                                        { id: event.properties.$session_id },
+                                                        dayjs(event.timestamp).valueOf()
+                                                    )
                                             }}
                                             fullWidth
                                             sideIcon={<IconPlayCircle />}
