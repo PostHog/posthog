@@ -264,8 +264,6 @@ class Resolver(CloningVisitor):
             raise ResolverException("Aliases are allowed only within SELECT queries")
 
         scope = self.scopes[-1]
-        if node.alias in scope.aliases:
-            raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
             raise ResolverException("Alias cannot be empty")
 

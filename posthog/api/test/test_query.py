@@ -251,7 +251,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response_get.json(),
             self.validation_error_response(
                 "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
-                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                "While processing toTimeZone(timestamp, 'UTC') + 'string' AS `timestamp + 'string'`.",
                 "illegal_type_of_argument",
             ),
         )
@@ -263,7 +263,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response_post.json(),
             self.validation_error_response(
                 "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
-                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                "While processing toTimeZone(timestamp, 'UTC') + 'string' AS `timestamp + 'string'`.",
                 "illegal_type_of_argument",
             ),
         )
