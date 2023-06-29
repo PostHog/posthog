@@ -16,6 +16,7 @@ import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogi
 import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { SEONDARY_METRIC_INSIGHT_ID } from './constants'
 
 export function SecondaryMetrics({
     onMetricsChange,
@@ -23,23 +24,16 @@ export function SecondaryMetrics({
     experimentId,
 }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
-    const {
-        previewInsightId,
-        metrics,
-        isModalOpen,
-        isSecondaryMetricModalSubmitting,
-        existingModalSecondaryMetric,
-        metricId,
-    } = useValues(logic)
+    const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricIdx } =
+        useValues(logic)
 
     const {
-        setFilters,
         deleteMetric,
         openModalToCreateSecondaryMetric,
         openModalToEditSecondaryMetric,
         closeModal,
         saveSecondaryMetric,
-        createPreviewInsight,
+        setPreviewInsight,
     } = useActions(logic)
 
     const {
@@ -126,7 +120,7 @@ export function SecondaryMetrics({
                                 form="secondary-metric-modal-form"
                                 type="secondary"
                                 status="danger"
-                                onClick={() => deleteMetric(metricId)}
+                                onClick={() => deleteMetric(metricIdx)}
                             >
                                 Delete
                             </LemonButton>
@@ -159,17 +153,10 @@ export function SecondaryMetrics({
                         <LemonInput />
                     </Field>
                     <Field name="filters" label="Query">
-                        {({ value, onChange }) => (
-                            <MetricSelector
-                                createPreviewInsight={createPreviewInsight}
-                                setFilters={(payload) => {
-                                    setFilters(payload)
-                                    onChange(payload)
-                                }}
-                                previewInsightId={previewInsightId}
-                                filters={value}
-                            />
-                        )}
+                        <MetricSelector
+                            dashboardItemId={SEONDARY_METRIC_INSIGHT_ID}
+                            setPreviewInsight={setPreviewInsight}
+                        />
                     </Field>
                 </Form>
             </LemonModal>

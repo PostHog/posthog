@@ -84,8 +84,13 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#limitClause.
-    def visitLimitClause(self, ctx:HogQLParser.LimitClauseContext):
+    # Visit a parse tree produced by HogQLParser#limitAndOffsetClause.
+    def visitLimitAndOffsetClause(self, ctx:HogQLParser.LimitAndOffsetClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#offsetOnlyClause.
+    def visitOffsetOnlyClause(self, ctx:HogQLParser.OffsetOnlyClauseContext):
         return self.visitChildren(ctx)
 
 
@@ -141,11 +146,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#sampleClause.
     def visitSampleClause(self, ctx:HogQLParser.SampleClauseContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by HogQLParser#limitExpr.
-    def visitLimitExpr(self, ctx:HogQLParser.LimitExprContext):
         return self.visitChildren(ctx)
 
 
@@ -356,6 +356,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#ColumnExprTimestamp.
     def visitColumnExprTimestamp(self, ctx:HogQLParser.ColumnExprTimestampContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#ColumnExprNullish.
+    def visitColumnExprNullish(self, ctx:HogQLParser.ColumnExprNullishContext):
         return self.visitChildren(ctx)
 
 

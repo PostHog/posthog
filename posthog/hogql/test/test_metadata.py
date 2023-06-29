@@ -21,9 +21,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "select 1",
                 "inputSelect": None,
-                "error": "extraneous input '1' expecting <EOF>",
-                "errorStart": 7,
-                "errorEnd": 8,
+                "errors": [{"message": "extraneous input '1' expecting <EOF>", "start": 7, "end": 8, "fix": None}],
             },
         )
 
@@ -35,7 +33,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": True,
                 "inputExpr": None,
                 "inputSelect": "select 1",
-                "error": None,
+                "errors": [],
             },
         )
 
@@ -47,7 +45,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": True,
                 "inputExpr": "timestamp",
                 "inputSelect": None,
-                "error": None,
+                "errors": [],
             },
         )
 
@@ -59,9 +57,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": None,
                 "inputSelect": "timestamp",
-                "error": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
-                "errorStart": 0,
-                "errorEnd": 9,
+                "errors": [
+                    {
+                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '('}",
+                        "start": 0,
+                        "end": 9,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -74,9 +77,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "1 as true",
                 "inputSelect": None,
-                "error": "Alias 'true' is a reserved keyword.",
-                "errorStart": 0,
-                "errorEnd": 9,
+                "errors": [
+                    {
+                        "message": "Alias 'true' is a reserved keyword.",
+                        "start": 0,
+                        "end": 9,
+                        "fix": None,
+                    }
+                ],
             },
         )
 
@@ -89,8 +97,13 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "inputExpr": "1 + no_field",
                 "inputSelect": None,
-                "error": "Unable to resolve field: no_field",
-                "errorStart": 4,
-                "errorEnd": 12,
+                "errors": [
+                    {
+                        "message": "Unable to resolve field: no_field",
+                        "start": 4,
+                        "end": 12,
+                        "fix": None,
+                    }
+                ],
             },
         )

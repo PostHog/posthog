@@ -68,7 +68,10 @@ class PropertyDefinition(UUIDModel):
                 F("query_usage_30_day").desc(nulls_last=True),
                 F("name").asc(),
                 name="index_property_def_query",
-            )
+            ),
+            # creates an index pganalyze identified as missing
+            # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
+            models.Index(fields=["team_id", "type", "is_numerical"]),
         ] + [
             GinIndex(
                 name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]

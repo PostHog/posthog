@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { Divider } from 'antd'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
@@ -96,26 +95,20 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <div className="flex-1">
                             <Field name="is_static" label="Type">
                                 {({ value, onChange }) => (
-                                    <Tooltip
-                                        title={
+                                    <LemonSelect
+                                        disabledReason={
                                             isNewCohort
                                                 ? null
                                                 : 'Create a new cohort to use a different type of cohort.'
                                         }
-                                    >
-                                        <div>
-                                            <LemonSelect
-                                                disabled={!isNewCohort}
-                                                options={COHORT_TYPE_OPTIONS}
-                                                value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
-                                                onChange={(cohortType) => {
-                                                    onChange(cohortType === CohortTypeEnum.Static)
-                                                }}
-                                                fullWidth
-                                                data-attr="cohort-type"
-                                            />
-                                        </div>
-                                    </Tooltip>
+                                        options={COHORT_TYPE_OPTIONS}
+                                        value={value ? CohortTypeEnum.Static : CohortTypeEnum.Dynamic}
+                                        onChange={(cohortType) => {
+                                            onChange(cohortType === CohortTypeEnum.Static)
+                                        }}
+                                        fullWidth
+                                        data-attr="cohort-type"
+                                    />
                                 )}
                             </Field>
                         </div>

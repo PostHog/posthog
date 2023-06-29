@@ -281,9 +281,6 @@ class Resolver(CloningVisitor):
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
 
-            elif node.name == "cohort":
-                return self.visit(cohort(node=node, args=node.args, context=self.context))
-
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
         # mypy wants all the named arguments, but we don't really need them
@@ -447,6 +444,23 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op == ast.CompareOperationOp.InCohort:
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=node.left,
+                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                )
+            )
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=node.left,
+                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                )
+            )
+
         node = super().visit_compare_operation(node)
         # mypy wants all the named arguments, but we don't really need them
         node.type = ast.BooleanType()  # type: ignore

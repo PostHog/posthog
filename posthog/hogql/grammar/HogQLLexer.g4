@@ -279,20 +279,27 @@ DOLLAR: '$';
 DOT: '.';
 EQ_DOUBLE: '==';
 EQ_SINGLE: '=';
-GE: '>=';
+GT_EQ: '>=';
 GT: '>';
 HASH: '#';
+IREGEX_SINGLE: '~*';
+IREGEX_DOUBLE: '=~*';
 LBRACE: '{';
 LBRACKET: '[';
-LE: '<=';
 LPAREN: '(';
+LT_EQ: '<=';
 LT: '<';
 NOT_EQ: '!=' | '<>';
+NOT_IREGEX: '!~*';
+NOT_REGEX: '!~';
+NULLISH: '??';
 PERCENT: '%';
 PLUS: '+';
 QUERY: '?';
 QUOTE_DOUBLE: '"';
 QUOTE_SINGLE: '\'';
+REGEX_SINGLE: '~';
+REGEX_DOUBLE: '=~';
 RBRACE: '}';
 RBRACKET: ']';
 RPAREN: ')';
@@ -304,4 +311,5 @@ UNDERSCORE: '_';
 
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
 SINGLE_LINE_COMMENT: '--' ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
-WHITESPACE: [ \u000B\u000C\t\r\n] -> skip;  // '\n' can be part of multiline single query
+// whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
+WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);

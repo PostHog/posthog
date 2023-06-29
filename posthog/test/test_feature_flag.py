@@ -6,6 +6,7 @@ from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 import pytest
+from posthog.database_healthcheck import postgres_healthcheck
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
@@ -2737,6 +2738,10 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
 
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
+    def setUp(self) -> None:
+        postgres_healthcheck.set_connection(True)
+        return super().setUp()
+
     def test_hash_key_overrides_with_race_conditions(self):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")

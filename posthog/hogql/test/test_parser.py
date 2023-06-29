@@ -10,6 +10,8 @@ from posthog.test.base import BaseTest
 
 
 class TestParser(BaseTest):
+    maxDiff = None
+
     def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
@@ -101,8 +103,8 @@ class TestParser(BaseTest):
                 args=[
                     ast.Lambda(
                         args=["x"],
-                        expr=ast.BinaryOperation(
-                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
                         ),
                     )
                 ],
@@ -115,8 +117,8 @@ class TestParser(BaseTest):
                 args=[
                     ast.Lambda(
                         args=["x"],
-                        expr=ast.BinaryOperation(
-                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Constant(value=2)
                         ),
                     )
                 ],
@@ -129,8 +131,8 @@ class TestParser(BaseTest):
                 args=[
                     ast.Lambda(
                         args=["x", "y"],
-                        expr=ast.BinaryOperation(
-                            op=ast.BinaryOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
+                        expr=ast.ArithmeticOperation(
+                            op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["x"]), right=ast.Field(chain=["y"])
                         ),
                     )
                 ],
@@ -145,69 +147,81 @@ class TestParser(BaseTest):
         self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
         self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
 
-    def test_binary_operations(self):
+    def test_arithmetic_operations(self):
         self.assertEqual(
             self._expr("1 + 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Add),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
+            ),
         )
         self.assertEqual(
             self._expr("1 + -2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.BinaryOperationOp.Add),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.ArithmeticOperationOp.Add
+            ),
         )
         self.assertEqual(
             self._expr("1 - 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Sub),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Sub
+            ),
         )
         self.assertEqual(
             self._expr("1 * 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mult),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
+            ),
         )
         self.assertEqual(
             self._expr("1 / 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Div),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Div
+            ),
         )
         self.assertEqual(
             self._expr("1 % 2"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mod),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mod
+            ),
         )
         self.assertEqual(
             self._expr("1 + 2 + 2"),
-            ast.BinaryOperation(
-                left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Add
+            ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Add
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
         self.assertEqual(
             self._expr("1 * 1 * 2"),
-            ast.BinaryOperation(
-                left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Mult
+            ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationOp.Mult,
+                op=ast.ArithmeticOperationOp.Mult,
             ),
         )
         self.assertEqual(
             self._expr("1 + 1 * 2"),
-            ast.BinaryOperation(
+            ast.ArithmeticOperation(
                 left=ast.Constant(value=1),
-                right=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationOp.Mult
+                right=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.ArithmeticOperationOp.Mult
                 ),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
         self.assertEqual(
             self._expr("1 * 1 + 2"),
-            ast.BinaryOperation(
-                left=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Mult
+            ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Mult
                 ),
                 right=ast.Constant(value=2),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
 
@@ -244,21 +258,18 @@ class TestParser(BaseTest):
             self._expr("1 <= 2"),
             # mypy wants all the named arguments, but we don't really need them
             ast.CompareOperation(  # type: ignore
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.LtEq
             ),
         )
         self.assertEqual(
             self._expr("1 > 2"),
-            # mypy wants all the named arguments, but we don't really need them
-            ast.CompareOperation(  # type: ignore
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt
-            ),
+            ast.CompareOperation(left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.Gt),
         )
         self.assertEqual(
             self._expr("1 >= 2"),
             # mypy wants all the named arguments, but we don't really need them
             ast.CompareOperation(  # type: ignore
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtE
+                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationOp.GtEq
             ),
         )
 
@@ -373,16 +384,18 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             self._expr("(1 + 1)"),
-            ast.BinaryOperation(left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Add),
+            ast.ArithmeticOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
+            ),
         )
         self.assertEqual(
             self._expr("1 + (1 + 1)"),
-            ast.BinaryOperation(
+            ast.ArithmeticOperation(
                 left=ast.Constant(value=1),
-                right=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationOp.Add
+                right=ast.ArithmeticOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.ArithmeticOperationOp.Add
                 ),
-                op=ast.BinaryOperationOp.Add,
+                op=ast.ArithmeticOperationOp.Add,
             ),
         )
 
@@ -394,7 +407,6 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("event like '$%'"),
             # mypy wants all the named arguments, but we don't really need them
-            # mypy wants all the named arguments, but we don't really need them
             ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationOp.Like
             ),
@@ -403,7 +415,6 @@ class TestParser(BaseTest):
     def test_property_access(self):
         self.assertEqual(
             self._expr("properties.something == 1"),
-            # mypy wants all the named arguments, but we don't really need them
             # mypy wants all the named arguments, but we don't really need them
             ast.CompareOperation(  # type: ignore #type: ignore
                 left=ast.Field(chain=["properties", "something"]),
@@ -482,7 +493,6 @@ class TestParser(BaseTest):
         self.assertEqual(
             self._expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}),
             # mypy wants all the named arguments, but we don't really need them
-            # mypy wants all the named arguments, but we don't really need them
             ast.CompareOperation(  # type: ignore #type: ignore
                 op=ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"]),
@@ -497,8 +507,8 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             self._expr("now() - interval 1 week"),
-            ast.BinaryOperation(
-                op=ast.BinaryOperationOp.Sub,
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
                 left=ast.Call(name="now", args=[]),
                 right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
             ),
@@ -530,7 +540,6 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 # mypy wants all the named arguments, but we don't really need them
-                # mypy wants all the named arguments, but we don't really need them
                 where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
@@ -546,7 +555,6 @@ class TestParser(BaseTest):
             self._select("select 1 prewhere 1 == 2"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                # mypy wants all the named arguments, but we don't really need them
                 # mypy wants all the named arguments, but we don't really need them
                 prewhere=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
@@ -564,7 +572,6 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 # mypy wants all the named arguments, but we don't really need them
-                # mypy wants all the named arguments, but we don't really need them
                 having=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
                 ),
@@ -576,7 +583,6 @@ class TestParser(BaseTest):
             self._select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                # mypy wants all the named arguments, but we don't really need them
                 # mypy wants all the named arguments, but we don't really need them
                 where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
@@ -681,7 +687,7 @@ class TestParser(BaseTest):
                     next_join=ast.JoinExpr(  # type: ignore
                         join_type="JOIN",
                         table=ast.Field(chain=["events2"]),
-                        constraint=ast.Constant(value=1),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
                     ),
                 ),
             ),
@@ -697,7 +703,7 @@ class TestParser(BaseTest):
                     next_join=ast.JoinExpr(  # type: ignore
                         join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
-                        constraint=ast.Constant(value=1),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
                     ),
                 ),
             ),
@@ -713,12 +719,12 @@ class TestParser(BaseTest):
                     next_join=ast.JoinExpr(  # type: ignore
                         join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
-                        constraint=ast.Constant(value=1),
+                        constraint=ast.JoinConstraint(expr=ast.Constant(value=1)),
                         # mypy wants all the named arguments, but we don't really need them
                         next_join=ast.JoinExpr(  # type: ignore
                             join_type="RIGHT ANY JOIN",
                             table=ast.Field(chain=["events3"]),
-                            constraint=ast.Constant(value=2),
+                            constraint=ast.JoinConstraint(expr=ast.Constant(value=2)),
                         ),
                     ),
                 ),
@@ -756,11 +762,12 @@ class TestParser(BaseTest):
                         table=ast.Field(chain=["person_distinct_id"]),
                         alias="pdi",
                         # mypy wants all the named arguments, but we don't really need them
-                        # mypy wants all the named arguments, but we don't really need them
-                        constraint=ast.CompareOperation(  # type: ignore #type: ignore
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["pdi", "distinct_id"]),
-                            right=ast.Field(chain=["e", "distinct_id"]),
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(  # type: ignore #type: ignore
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["pdi", "distinct_id"]),
+                                right=ast.Field(chain=["e", "distinct_id"]),
+                            )
                         ),
                         # mypy wants all the named arguments, but we don't really need them
                         next_join=ast.JoinExpr(  # type: ignore
@@ -768,11 +775,12 @@ class TestParser(BaseTest):
                             table=ast.Field(chain=["persons"]),
                             alias="p",
                             # mypy wants all the named arguments, but we don't really need them
-                            # mypy wants all the named arguments, but we don't really need them
-                            constraint=ast.CompareOperation(  # type: ignore #type: ignore
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["p", "id"]),
-                                right=ast.Field(chain=["pdi", "person_id"]),
+                            constraint=ast.JoinConstraint(
+                                expr=ast.CompareOperation(  # type: ignore #type: ignore
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["p", "id"]),
+                                    right=ast.Field(chain=["pdi", "person_id"]),
+                                )
                             ),
                         ),
                     ),
@@ -841,11 +849,31 @@ class TestParser(BaseTest):
             ),
         )
         self.assertEqual(
-            self._select("select 1 from events LIMIT 1 OFFSET 3 WITH TIES"),
+            self._select("select 1 from events OFFSET 3"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                # mypy wants all the named arguments, but we don't really need them
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),  # type: ignore
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=None,
+                offset=ast.Constant(value=3),
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events ORDER BY 1 LIMIT 1 WITH TIES"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
+                limit=ast.Constant(value=1),
+                limit_with_ties=True,
+                offset=None,
+            ),
+        )
+        self.assertEqual(
+            self._select("select 1 from events ORDER BY 1 LIMIT 1, 3 WITH TIES"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
                 limit=ast.Constant(value=1),
                 limit_with_ties=True,
                 offset=ast.Constant(value=3),
@@ -869,7 +897,6 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 # mypy wants all the named arguments, but we don't really need them
-                # mypy wants all the named arguments, but we don't really need them
                 where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Constant(value=1),
@@ -881,7 +908,6 @@ class TestParser(BaseTest):
             self._select("select 1 where 1 == {hogql_val_1}", {"hogql_val_1": ast.Constant(value="bar")}),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                # mypy wants all the named arguments, but we don't really need them
                 # mypy wants all the named arguments, but we don't really need them
                 where=ast.CompareOperation(  # type: ignore #type: ignore
                     op=ast.CompareOperationOp.Eq,
