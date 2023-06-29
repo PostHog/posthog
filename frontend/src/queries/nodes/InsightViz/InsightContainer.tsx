@@ -106,7 +106,7 @@ export function InsightContainer({
                 return <FunnelInvalidExclusionState />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
-                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                return context?.emptyState ?? <InsightEmptyState />
             }
         }
 

@@ -81,9 +81,15 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, context }
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const {
+        dataTableRows,
+        columnsInQuery,
+        columnsInResponse,
+        queryWithDefaults,
+        canSort,
+        emptyStateHeading,
+        emptyStateDetail,
+    } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
@@ -436,10 +442,9 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                     <InsightErrorState />
                                 )
                             ) : (
-                                <InsightEmptyState
-                                    heading={context?.emptyStateHeading}
-                                    detail={context?.emptyStateDetail}
-                                />
+                                context?.emptyState ?? (
+                                    <InsightEmptyState heading={emptyStateHeading} detail={emptyStateDetail} />
+                                )
                             )
                         }
                         expandable={

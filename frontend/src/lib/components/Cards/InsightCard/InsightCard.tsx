@@ -225,7 +225,7 @@ export function FilterBasedCardContent({
                 ) : invalidFunnelExclusion ? (
                     <FunnelInvalidExclusionState />
                 ) : empty ? (
-                    <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                    context?.emptyState ?? <InsightEmptyState />
                 ) : !loading && timedOut ? (
                     <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
                 ) : apiErrored && !loading ? (
