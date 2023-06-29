@@ -131,7 +131,7 @@ describe('eachBatchX', () => {
 
     describe('eachBatch', () => {
         it('calls eachMessage with the correct arguments', async () => {
-            const eachMessage = jest.fn()
+            const eachMessage = jest.fn(() => Promise.resolve())
             const batch = createKafkaJSBatch(event)
             await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
 
@@ -139,7 +139,7 @@ describe('eachBatchX', () => {
         })
 
         it('tracks metrics based on the key', async () => {
-            const eachMessage = jest.fn()
+            const eachMessage = jest.fn(() => Promise.resolve())
             await eachBatch(createKafkaJSBatch(event), queue, eachMessage, groupIntoBatches, 'my_key')
 
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
