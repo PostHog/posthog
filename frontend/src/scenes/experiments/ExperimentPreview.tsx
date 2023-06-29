@@ -221,9 +221,9 @@ export function ExperimentPreview({
                                                     : undefined
                                             }
                                             size="small"
-                                            fullWidth
                                             className="mt-0.5"
                                             type="secondary"
+                                            center
                                         >
                                             Check flag release conditions
                                         </LemonButton>
