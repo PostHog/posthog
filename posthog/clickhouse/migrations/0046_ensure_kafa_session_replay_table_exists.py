@@ -1,4 +1,6 @@
-operations = [
+from typing import List
+
+operations: List = [
     # this migration has been amended to be entirely No-op
     # it has applied successfully in Prod US where it was a no-op
     # as all tables/columns it affected already existed
