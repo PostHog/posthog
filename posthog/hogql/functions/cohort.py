@@ -39,7 +39,7 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
                 HogQLNotice(
                     start=arg.start,
                     end=arg.end,
-                    message=f"Searching for cohort by name. Replace with numeric id {cohorts[0][0]} to protect against renames.",
+                    message=f"Searching for cohort by name. Replace with numeric ID {cohorts[0][0]} to protect against renaming.",
                     fix=str(cohorts[0][0]),
                 )
             )

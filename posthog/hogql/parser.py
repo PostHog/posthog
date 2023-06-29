@@ -13,9 +13,9 @@ from posthog.hogql.parse_string import parse_string, parse_string_literal
 from posthog.hogql.placeholders import replace_placeholders
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, start: Optional[int] = 0) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
-    node = HogQLParseTreeConverter().visit(parse_tree)
+    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
     return node
@@ -72,12 +72,16 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
+    def __init__(self, start: Optional[int] = 0):
+        super().__init__()
+        self.start = start
+
     def visit(self, ctx: ParserRuleContext):
         start = ctx.start.start if ctx.start else None
         end = ctx.stop.stop + 1 if ctx.stop else None
         try:
             node = super().visit(ctx)
-            if isinstance(node, AST):
+            if isinstance(node, AST) and self.start is not None:
                 node.start = start
                 node.end = end
             return node
@@ -182,7 +186,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ProjectionOrderByClause")
 
     def visitLimitAndOffsetClauseClause(self, ctx: HogQLParser.LimitAndOffsetClauseContext):
-        raise Exception(f"Parsed as part of SelectStmt, can't parse directly.")
+        raise Exception(f"Parsed as part of SelectStmt, can't parse directly")
 
     def visitSettingsClause(self, ctx: HogQLParser.SettingsClauseContext):
         raise NotImplementedException(f"Unsupported node: SettingsClause")
@@ -383,11 +387,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.STRING_LITERAL():
             alias = parse_string_literal(ctx.STRING_LITERAL())
         else:
-            raise NotImplementedException(f"Must specify an alias.")
+            raise NotImplementedException(f"Must specify an alias")
         expr = self.visit(ctx.columnExpr())
 
         if alias in RESERVED_KEYWORDS:
-            raise HogQLException(f"Alias '{alias}' is a reserved keyword.")
+            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
 
         return ast.Alias(expr=expr, alias=alias)
 
@@ -702,7 +706,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias = self.visit(ctx.alias() or ctx.identifier())
         if alias in RESERVED_KEYWORDS:
-            raise HogQLException(f"Alias '{alias}' is a reserved keyword.")
+            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
         return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):

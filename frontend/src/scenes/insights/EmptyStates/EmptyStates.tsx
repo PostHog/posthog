@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IconErrorOutline, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -149,7 +148,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
 
 type FunnelSingleStepStateProps = { actionable?: boolean }
 
-export function FunnelSingleStepStateDataExploration(props: FunnelSingleStepStateProps): JSX.Element {
+export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepStateProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
@@ -161,26 +160,6 @@ export function FunnelSingleStepStateDataExploration(props: FunnelSingleStepStat
 
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
-    return <FunnelSingleStepStateComponent addFilter={addFilter} {...props} />
-}
-
-export function FunnelSingleStepState(props: FunnelSingleStepStateProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-    const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
-
-    return <FunnelSingleStepStateComponent addFilter={addFilter} {...props} />
-}
-
-type FunnelSingleStepStateComponentProps = FunnelSingleStepStateProps & {
-    addFilter: () => void
-}
-
-export function FunnelSingleStepStateComponent({
-    actionable = true,
-    addFilter,
-}: FunnelSingleStepStateComponentProps): JSX.Element {
     return (
         <div className="insight-empty-state funnels-empty-state">
             <div className="empty-state-inner">

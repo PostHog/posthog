@@ -36,7 +36,7 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Di
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from persons table.")
+        raise HogQLException("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table

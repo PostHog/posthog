@@ -175,39 +175,66 @@ SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 class IntegerType(ConstantType):
     data_type: ConstantDataType = PydanticField("int", const=True)
 
+    def print_type(self) -> str:
+        return "Integer"
+
 
 class FloatType(ConstantType):
     data_type: ConstantDataType = PydanticField("float", const=True)
+
+    def print_type(self) -> str:
+        return "Float"
 
 
 class StringType(ConstantType):
     data_type: ConstantDataType = PydanticField("str", const=True)
 
+    def print_type(self) -> str:
+        return "String"
+
 
 class BooleanType(ConstantType):
     data_type: ConstantDataType = PydanticField("bool", const=True)
+
+    def print_type(self) -> str:
+        return "Boolean"
 
 
 class DateType(ConstantType):
     data_type: ConstantDataType = PydanticField("date", const=True)
 
+    def print_type(self) -> str:
+        return "Date"
+
 
 class DateTimeType(ConstantType):
     data_type: ConstantDataType = PydanticField("datetime", const=True)
 
+    def print_type(self) -> str:
+        return "DateTime"
+
 
 class UUIDType(ConstantType):
     data_type: ConstantDataType = PydanticField("uuid", const=True)
+
+    def print_type(self) -> str:
+        return "UUID"
 
 
 class ArrayType(ConstantType):
     data_type: ConstantDataType = PydanticField("array", const=True)
     item_type: ConstantType
 
+    def print_type(self) -> str:
+        return "Array"
+
 
 class TupleType(ConstantType):
     data_type: ConstantDataType = PydanticField("tuple", const=True)
     item_types: List[ConstantType]
+
+    def print_type(self) -> str:
+        return "Tuple"
 
 
 class CallType(Type):
