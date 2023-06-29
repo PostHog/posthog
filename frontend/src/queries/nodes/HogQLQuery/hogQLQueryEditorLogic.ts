@@ -8,6 +8,8 @@ import { Monaco } from '@monaco-editor/react'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
+    start: number
+    end: number
 }
 
 export interface HogQLQueryEditorLogicProps {
@@ -81,8 +83,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 const start = model.getPositionAt(error.start ?? 0)
                 const end = model.getPositionAt(error.end ?? queryInput.length)
                 markers.push({
+                    start: error.start ?? 0,
                     startLineNumber: start.lineNumber,
                     startColumn: start.column,
+                    end: error.end ?? queryInput.length,
                     endLineNumber: end.lineNumber,
                     endColumn: end.column,
                     message: error.message ?? 'Unknown error',
