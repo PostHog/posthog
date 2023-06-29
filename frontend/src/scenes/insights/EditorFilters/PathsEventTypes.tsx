@@ -28,8 +28,13 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
         },
         {
             type: PathType.CustomEvent,
-            label: 'Custom events',
+            label: 'Custom event',
             selected: includeEventTypes?.includes(PathType.CustomEvent),
+        },
+        {
+            type: PathType.HogQL,
+            label: 'HogQL expression',
+            selected: includeEventTypes?.includes(PathType.HogQL),
         },
     ]
 

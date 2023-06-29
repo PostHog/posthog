@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from '../funnelLogic'
 import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
@@ -8,12 +7,12 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { ValueInspectorButton } from '../ValueInspectorButton'
-import { FunnelStepMore, FunnelStepMoreDataExploration } from '../FunnelStepMore'
+import { FunnelStepMore } from '../FunnelStepMore'
 import { userLogic } from 'scenes/userLogic'
-import { Noun } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -21,42 +20,11 @@ type StepLegendProps = {
     showTime: boolean
 } & ChartParams
 
-export function StepLegendDataExploration(props: StepLegendProps): JSX.Element {
-    const { aggregationTargetLabel } = useValues(funnelLogic)
+export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { canOpenPersonModal } = useValues(funnelDataLogic(insightProps))
-    return (
-        <StepLegendComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            isUsingDataExploration
-            {...props}
-            showPersonsModal={props.showPersonsModal && canOpenPersonModal}
-        />
-    )
-}
-
-export function StepLegend(props: StepLegendProps): JSX.Element {
-    const { aggregationTargetLabel, canOpenPersonModal } = useValues(funnelLogic)
-    return (
-        <StepLegendComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            {...props}
-            showPersonsModal={props.showPersonsModal && canOpenPersonModal}
-        />
-    )
-}
-
-type StepLegendComponentProps = StepLegendProps & { aggregationTargetLabel: Noun; isUsingDataExploration?: boolean }
-
-export function StepLegendComponent({
-    step,
-    stepIndex,
-    showTime,
-    showPersonsModal,
-    aggregationTargetLabel,
-    isUsingDataExploration,
-}: StepLegendComponentProps): JSX.Element {
-    const { openPersonsModalForStep } = useActions(funnelLogic)
+    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
 
     const convertedCountPresentation = pluralize(
@@ -88,15 +56,7 @@ export function StepLegendComponent({
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                 sideIcon={
-                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && (
-                        <>
-                            {isUsingDataExploration ? (
-                                <FunnelStepMoreDataExploration stepIndex={stepIndex} />
-                            ) : (
-                                <FunnelStepMore stepIndex={stepIndex} />
-                            )}
-                        </>
-                    )
+                    hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
                 }
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
@@ -116,7 +76,7 @@ export function StepLegendComponent({
                     }
                     placement="right"
                 >
-                    {showPersonsModal ? (
+                    {!!showPersonsModal && canOpenPersonModal ? (
                         <ValueInspectorButton
                             onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
                         >

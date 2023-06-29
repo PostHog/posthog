@@ -255,6 +255,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
         self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
+        self._assert_expr_error("event as `as%d`", "Alias \"as%d\" contains unsupported character '%'")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):
@@ -331,9 +332,9 @@ class TestPrinter(BaseTest):
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
     def test_alias_keywords(self):
-        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword.")
-        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword.")
-        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword.")
+        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword")
+        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword")
+        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword")
         self.assertEqual(
             self._select("select 1 as `-- select team_id` from events"),
             f"SELECT 1 AS `-- select team_id` FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",

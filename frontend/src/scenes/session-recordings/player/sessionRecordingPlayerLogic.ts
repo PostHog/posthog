@@ -418,7 +418,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
                     const searchParams = fromParamsGivenUrl(window.location.search)
-                    if (searchParams.t) {
+                    if (searchParams.timestamp) {
+                        const desiredStartTime = Number(searchParams.timestamp)
+                        actions.seekToTimestamp(desiredStartTime, true)
+                    } else if (searchParams.t) {
                         const desiredStartTime = Number(searchParams.t) * 1000
                         actions.seekToTime(desiredStartTime)
                     }
@@ -758,6 +761,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
     beforeUnmount(({ values, actions, cache }) => {
         cache.resetConsoleWarn?.()
+        cache.hasInitialized = false
         clearTimeout(cache.consoleWarnDebounceTimer)
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         values.player?.replayer?.pause()
