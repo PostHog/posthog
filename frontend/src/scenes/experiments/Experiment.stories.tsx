@@ -29,6 +29,7 @@ const MOCK_FUNNEL_EXPERIMENT: Experiment = {
         "We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
     start_date: '2022-12-10T08:06:27.027740Z',
     end_date: '2023-02-07T16:12:54.055481Z',
+    feature_flag_key: 'signup-page-4.0',
     feature_flag: {
         id: 1,
         team_id: 1,
@@ -133,6 +134,7 @@ const MOCK_TREND_EXPERIMENT: Experiment = {
     name: 'aloha',
     start_date: '2023-02-11T10:37:17.634000Z',
     end_date: null,
+    feature_flag_key: 'aloha',
     feature_flag: {
         id: 1,
         team_id: 1,

@@ -2381,6 +2381,7 @@ export interface Experiment {
     id: number | 'new'
     name: string
     description?: string
+    feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
     filters: FilterType
     parameters: {
