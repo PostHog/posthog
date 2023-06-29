@@ -202,8 +202,10 @@ export function Billing(): JSX.Element {
                                         ${billing.current_total_amount_usd_after_discount}
                                     </div>
                                     {billing.discount_percent && (
-                                        <div className="text-xl">
-                                            ({billing.discount_percent}% off discount applied)
+                                        <div>
+                                            <p className="ml-0">
+                                                <strong>{billing.discount_percent}%</strong> off discount applied
+                                            </p>
                                         </div>
                                     )}
                                     {billing.discount_amount_usd && (
@@ -250,7 +252,7 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            <div className="flex justify-between">
+            <div className="flex justify-between mt-4">
                 <h2>Products</h2>
                 {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton
