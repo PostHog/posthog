@@ -10,7 +10,6 @@ import {
     PropertyOperator,
     RawAction,
     StringMatching,
-    StringMatching,
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -38,7 +37,7 @@ describe('ActionMatcher', () => {
     })
 
     /** Return a test action created on a common base using provided steps. */
-    async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
+    async function createTestAction(partialSteps: Partial<ActionStep>[], bytecode?: any[]): Promise<Action> {
         const action: RawAction = {
             id: actionCounter++,
             team_id: 2,
@@ -52,6 +51,7 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
+            bytecode: bytecode ?? null,
         }
         const steps: ActionStep[] = partialSteps.map(
             (partialStep, index) =>
@@ -1246,6 +1246,61 @@ describe('ActionMatcher', () => {
             expect(
                 actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')
             ).toBeFalsy()
+        })
+
+        it('executes bytecode if present', async () => {
+            // properties.foo like '%bar%'
+            const fooLikeBar = ['', '%bar%', '', 'foo', '', 'properties', '.', 2, 'like']
+            const viewportWidth = ['', '$viewport_width', '', 'properties', '.', 2]
+            const viewportHeight = ['', '$viewport_height', '', 'properties', '.', 2]
+            const portraitMode = [...viewportHeight, ...viewportWidth, '<'] // w < h; args are reversed
+            const bytecode = ['_h', ...fooLikeBar, ...portraitMode, 'or', 2]
+
+            const actionDefinitionOpIsSet: Action = await createTestAction(
+                [
+                    {
+                        // not used, bytecode takes precedence
+                        properties: [{ type: 'event', key: 'foo', value: ['null'] }],
+                    },
+                ],
+                bytecode
+            )
+
+            const eventFooBar = createTestEvent({
+                properties: { foo: 'bar', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooBarPolPot = createTestEvent({
+                properties: { foo: null, pol: 'pot', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooBaR = createTestEvent({
+                properties: { foo: 'baR', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooBaz = createTestEvent({
+                properties: { foo: 'baz', $viewport_width: 400, $viewport_height: 600 },
+            })
+            const eventFooRabarbar = createTestEvent({
+                properties: { foo: 'rabarbar', $viewport_width: 800, $viewport_height: 600 },
+            })
+            const eventFooNumber = createTestEvent({
+                properties: { foo: 7, $viewport_width: 400, $viewport_height: 600 },
+            })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({
+                properties: { foo: null, $viewport_width: 400, $viewport_height: 600 },
+            })
+
+            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
         })
     })
 })

@@ -1,3 +1,4 @@
+import { executeHogQLBytecode } from '@posthog/hogvm'
 import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
@@ -170,6 +171,18 @@ export class ActionMatcher {
         action: Action
     ): Promise<boolean> {
         for (const step of action.steps) {
+            if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
+                try {
+                    return Boolean(executeHogQLBytecode(action.bytecode, event))
+                } catch (error) {
+                    // log error and fallback to previous matching
+                    captureException(error, {
+                        tags: { team_id: action.team_id },
+                        extra: { event, elements, action },
+                    })
+                }
+            }
+
             try {
                 if (await this.checkStep(event, elements, step)) {
                     return true

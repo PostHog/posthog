@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Any
 
 from django.db import models
 from django.db.models import Q
@@ -25,6 +25,7 @@ class Action(models.Model):
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
     slack_message_format: models.CharField = models.CharField(default="", max_length=600, blank=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    bytecode: models.JSONField = models.JSONField(null=True, blank=True)
 
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating: models.BooleanField = models.BooleanField(default=False)
@@ -50,6 +51,24 @@ class Action(models.Model):
 
     def get_step_events(self) -> List[str]:
         return [action_step.event for action_step in self.steps.all()]
+
+    def generate_bytecode(self) -> List[Any]:
+        from posthog.hogql.property import action_to_expr
+        from posthog.hogql.bytecode import create_bytecode
+
+        return create_bytecode(action_to_expr(self))
+
+    def refresh_bytecode(self):
+        try:
+            new_bytecode = self.generate_bytecode()
+        except Exception:
+            # There are several known cases when bytecode generation can fail. Instead of spamming
+            # Sentry with errors, ignore those cases for now.
+            new_bytecode = None
+
+        if new_bytecode != self.bytecode:
+            self.bytecode = new_bytecode
+            self.save(update_fields=["bytecode"])
 
 
 @receiver(post_save, sender=Action)

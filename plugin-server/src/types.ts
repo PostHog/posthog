@@ -878,6 +878,7 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
+    bytecode?: any[]
 }
 
 /** Usable Action model. */
