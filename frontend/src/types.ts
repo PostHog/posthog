@@ -2838,6 +2838,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    ttl_seconds?: number
 }
 
 export enum FeatureFlagReleaseType {

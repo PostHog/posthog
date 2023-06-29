@@ -63,6 +63,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
                     dashboard: asset.dashboard,
                     insight: asset.insight,
                     export_context: asset.export_context,
+                    ttl_seconds: 10 * 60,
                 })
 
                 if (!exportedAsset.id) {
