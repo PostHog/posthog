@@ -1,13 +1,14 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 import { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import { Monaco } from '@monaco-editor/react'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface ModelMarker extends editor.IMarkerData {}
+export interface ModelMarker extends editor.IMarkerData {
+    hogQLFix?: string
+}
 
 export interface HogQLQueryEditorLogicProps {
     key: number
@@ -22,7 +23,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     props({} as HogQLQueryEditorLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.query.query !== oldProps.query.query) {
+        if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
             actions.setQueryInput(props.query.query)
         }
     }),
@@ -36,13 +37,18 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
     })),
     selectors({
-        hasErrors: [(s) => [s.modelMarkers], (modelMarkers) => !!modelMarkers?.length],
+        hasErrors: [
+            (s) => [s.modelMarkers],
+            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === MarkerSeverity.Error).length,
+        ],
         error: [
             (s) => [s.hasErrors, s.modelMarkers],
-            (hasErrors, modelMarkers) =>
-                hasErrors && modelMarkers[0]
-                    ? `Error on line ${modelMarkers[0].startLineNumber}, column ${modelMarkers[0].startColumn}`
-                    : null,
+            (hasErrors, modelMarkers) => {
+                const firstError = modelMarkers.find((e) => e.severity === MarkerSeverity.Error)
+                return hasErrors && firstError
+                    ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
+                    : null
+            },
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -66,23 +72,35 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 select: queryInput,
             })
             breakpoint()
-            if (!response?.isValid) {
-                const start = model.getPositionAt(response?.errorStart ?? 0)
-                const end = model.getPositionAt(response?.errorEnd ?? queryInput.length)
-                const markers: ModelMarker[] = [
-                    {
-                        startLineNumber: start.lineNumber,
-                        startColumn: start.column,
-                        endLineNumber: end.lineNumber,
-                        endColumn: end.column,
-                        message: response?.error ?? 'Unknown error',
-                        severity: MarkerSeverity.Error,
-                    },
-                ]
-                actions.setModelMarkers(markers)
-            } else {
-                actions.setModelMarkers([])
+            const markers: ModelMarker[] = []
+
+            function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): void {
+                if (!model) {
+                    return
+                }
+                const start = model.getPositionAt(error.start ?? 0)
+                const end = model.getPositionAt(error.end ?? queryInput.length)
+                markers.push({
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                    message: error.message ?? 'Unknown error',
+                    severity: severity,
+                    hogQLFix: error.fix,
+                })
             }
+            for (const notice of response?.errors ?? []) {
+                noticeToMarker(notice, MarkerSeverity.Error)
+            }
+            for (const notice of response?.warnings ?? []) {
+                noticeToMarker(notice, MarkerSeverity.Warning)
+            }
+            for (const notice of response?.notices ?? []) {
+                noticeToMarker(notice, MarkerSeverity.Hint)
+            }
+
+            actions.setModelMarkers(markers)
         },
         setModelMarkers: ({ markers }) => {
             const model = props.editor?.getModel()

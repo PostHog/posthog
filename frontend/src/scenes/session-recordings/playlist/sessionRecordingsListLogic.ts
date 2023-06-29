@@ -50,6 +50,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
     ...DEFAULT_RECORDING_FILTERS,
+    date_from: '-21d',
     session_recording_duration: {
         type: PropertyFilterType.Recording,
         key: 'duration',

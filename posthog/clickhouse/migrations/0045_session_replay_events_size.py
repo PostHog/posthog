@@ -11,7 +11,6 @@ from posthog.models.session_replay_event.sql import (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 
-
 operations = [
     # we have to drop materialized view first so that we're no longer pulling from kakfa
     # then we drop the kafka table

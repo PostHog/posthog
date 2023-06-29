@@ -40,7 +40,7 @@ class TraversingVisitor(Visitor):
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         self.visit(node.left)
         self.visit(node.right)
 
@@ -262,8 +262,8 @@ class CloningVisitor(Visitor):
             expr=self.visit(node.expr),
         )
 
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        return ast.BinaryOperation(
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        return ast.ArithmeticOperation(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,

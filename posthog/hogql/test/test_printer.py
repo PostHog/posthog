@@ -302,11 +302,19 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("event < 'E'", context), "less(events.event, %(hogql_val_4)s)")
         self.assertEqual(self._expr("event <= 'E'", context), "lessOrEquals(events.event, %(hogql_val_5)s)")
         self.assertEqual(self._expr("event like 'E'", context), "like(events.event, %(hogql_val_6)s)")
-        self.assertEqual(self._expr("event not like 'E'", context), "not(like(events.event, %(hogql_val_7)s))")
+        self.assertEqual(self._expr("event not like 'E'", context), "notLike(events.event, %(hogql_val_7)s)")
         self.assertEqual(self._expr("event ilike 'E'", context), "ilike(events.event, %(hogql_val_8)s)")
-        self.assertEqual(self._expr("event not ilike 'E'", context), "not(ilike(events.event, %(hogql_val_9)s))")
+        self.assertEqual(self._expr("event not ilike 'E'", context), "notILike(events.event, %(hogql_val_9)s)")
         self.assertEqual(self._expr("event in 'E'", context), "in(events.event, %(hogql_val_10)s)")
-        self.assertEqual(self._expr("event not in 'E'", context), "not(in(events.event, %(hogql_val_11)s))")
+        self.assertEqual(self._expr("event not in 'E'", context), "notIn(events.event, %(hogql_val_11)s)")
+        self.assertEqual(self._expr("event ~ 'E'", context), "match(events.event, %(hogql_val_12)s)")
+        self.assertEqual(self._expr("event =~ 'E'", context), "match(events.event, %(hogql_val_13)s)")
+        self.assertEqual(self._expr("event !~ 'E'", context), "not(match(events.event, %(hogql_val_14)s))")
+        self.assertEqual(self._expr("event ~* 'E'", context), "match(events.event, concat('(?i)', %(hogql_val_15)s))")
+        self.assertEqual(self._expr("event =~* 'E'", context), "match(events.event, concat('(?i)', %(hogql_val_16)s))")
+        self.assertEqual(
+            self._expr("event !~* 'E'", context), "not(match(events.event, concat('(?i)', %(hogql_val_17)s)))"
+        )
 
     def test_comments(self):
         context = HogQLContext(team_id=self.team.pk)

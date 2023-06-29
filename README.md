@@ -23,6 +23,7 @@
 - Keep control over your data by deploying PostHog on your infrastructure
 - Use apps to connect to external services and manage data flows
 
+
 ## Table of Contents
 
 - [Get started for free](#get-started-for-free)

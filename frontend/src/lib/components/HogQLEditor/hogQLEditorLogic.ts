@@ -34,16 +34,16 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
                         expr: values.localValue,
                     })
                     breakpoint()
-                    if (response?.error) {
+                    if (response && Array.isArray(response.errors) && response.errors.length > 0) {
                         const textArea = props.textareaRef?.current
                         if (
                             textArea &&
-                            typeof response.errorStart === 'number' &&
-                            typeof response.errorEnd === 'number'
+                            typeof response.errors[0]?.start === 'number' &&
+                            typeof response.errors[0]?.end === 'number'
                         ) {
                             textArea.focus()
-                            textArea.selectionStart = response.errorStart
-                            textArea.selectionEnd = response.errorEnd
+                            textArea.selectionStart = response.errors[0].start
+                            textArea.selectionEnd = response.errors[0].end
                         }
                     } else if (response) {
                         props.onChange(values.localValue)
@@ -62,11 +62,11 @@ export const hogQLEditorLogic = kea<hogQLEditorLogicType>([
         error: [
             (s) => [s.response],
             (response) => {
-                let error = response?.error ?? null
-                if (error && response?.inputExpr && typeof response?.errorStart === 'number') {
+                let error = response?.errors?.[0]?.message ?? null
+                if (error && response?.inputExpr && typeof response?.errors[0]?.start === 'number') {
                     let row = 0
                     let col = 0
-                    for (let pos = 0; pos < response.errorStart; pos++) {
+                    for (let pos = 0; pos < response.errors[0].start; pos++) {
                         if (response.inputExpr[pos] === '\n') {
                             row += 1
                             col = 0
