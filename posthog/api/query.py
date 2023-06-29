@@ -163,10 +163,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
 def _unwrap_pydantic(response: Any) -> Dict | List:
     if isinstance(response, list):
-        return [
-            _unwrap_pydantic(item) if isinstance(item, list) or isinstance(item, BaseModel) else item
-            for item in response
-        ]
+        return [_unwrap_pydantic(item) for item in response]
 
     elif isinstance(response, BaseModel):
         resp1: Dict[str, Any] = {}
