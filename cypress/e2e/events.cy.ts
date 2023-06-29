@@ -58,21 +58,21 @@ describe('Events', () => {
     })
 
     it('Events loaded', () => {
-        cy.get('[data-attr=events-table]').should('exist')
+        cy.get('.DataTable').should('exist')
     })
 
     it('Click on an event', () => {
-        cy.get('[data-attr=events-table] .event-row:nth-child(2) td:first-child').click()
+        cy.get('.DataTable [data-row-key]:nth-child(2) td:first-child').click()
         cy.get('[data-attr=event-details]').should('exist')
     })
 
     it('Apply 1 overall filter', () => {
-        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr=new-prop-filter-EventPropertyFilters.0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-0]').click()
         cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click()
-        cy.get('[data-attr=events-table]').should('exist')
+        cy.get('.DataTable').should('exist')
     })
 
     it('separates feature flag properties into their own tab', () => {
