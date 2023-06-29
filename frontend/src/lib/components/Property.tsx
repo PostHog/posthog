@@ -15,7 +15,7 @@ export function Property({ value }: { value: any }): JSX.Element {
                 </Link>
             )
         } else {
-            valueString = valueComponent = value.toString()
+            valueString = valueComponent = String(value)
         }
     }
     return <span title={valueString}>{valueComponent}</span>
