@@ -119,7 +119,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 }
             }
             if (loading) {
-                icon = <Spinner monocolor />
+                icon = <Spinner monocolor={type === 'primary'} />
                 disabled = true // Cannot interact with a loading button
             }
 
@@ -160,6 +160,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         'LemonButton',
                         `LemonButton--${type}`,
                         `LemonButton--status-${status}`,
+                        loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
                         size && `LemonButton--${size}`,
                         active && 'LemonButton--active',

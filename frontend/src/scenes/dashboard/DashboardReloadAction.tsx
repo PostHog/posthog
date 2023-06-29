@@ -37,7 +37,7 @@ export function DashboardReloadAction(): JSX.Element {
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
                 status="muted"
-                icon={itemsLoading ? <Spinner monocolor={true} /> : <IconRefresh />}
+                icon={itemsLoading ? <Spinner monocolor /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
