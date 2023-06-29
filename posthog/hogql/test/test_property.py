@@ -18,7 +18,7 @@ from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
 
-elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
+elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])
 
 
