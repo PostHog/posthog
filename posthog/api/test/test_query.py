@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.query import process_query
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     EventPropertyFilter,
@@ -448,7 +449,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
             )
-            self.assertEqual(len(response.get("results", [])), 10)
+
+        self.assertEqual(len(response.get("results", [])), 10)
+
+    def test_property_definition_annotation_does_not_break_things(self):
+        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "EventsQuery",
+                    "select": ["event"],
+                    # This used to cause query failure when tried to add an annotation for a node without location
+                    # (which properties.$browser is in this case)
+                    "properties": [{"type": "event", "key": "$browser", "operator": "is_not", "value": "Foo"}],
+                },
+            )
+        self.assertEqual(response.get("columns"), ["event"])
 
     def test_invalid_recent_performance_pageviews(self):
         api_response = self.client.post(
