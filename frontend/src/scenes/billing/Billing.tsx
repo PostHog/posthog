@@ -177,11 +177,19 @@ export function Billing(): JSX.Element {
                 {!isOnboarding && billing?.billing_period && (
                     <div className="flex-1">
                         <div className="space-y-2">
-                            <p>
-                                Your current {billing?.has_active_subscription ? 'billing period' : 'cycle'} is from{' '}
-                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                <b>{billing.billing_period.current_period_end.format('LL')}</b>
-                            </p>
+                            <div>
+                                <p className="ml-0 mb-0">
+                                    {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
+                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                    <b>{billing.billing_period.current_period_end.format('LL')}</b> (
+                                    {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
+                                </p>
+                                {!billing.has_active_subscription && (
+                                    <p className="italic ml-0 text-muted">
+                                        Monthly free allocation resets at the end of the cycle.
+                                    </p>
+                                )}
+                            </div>
 
                             {billing?.has_active_subscription && (
                                 <>
@@ -199,20 +207,17 @@ export function Billing(): JSX.Element {
                                         </div>
                                     )}
                                     {billing.discount_amount_usd && (
-                                        <div className="text-xl">
-                                            (-${billing.discount_amount_usd} discount applied)
+                                        <div>
+                                            <p className="ml-0">
+                                                <strong>
+                                                    ${parseInt(billing.discount_amount_usd).toLocaleString()}
+                                                </strong>{' '}
+                                                remaining credits applied to your bill.
+                                            </p>
                                         </div>
                                     )}
                                 </>
                             )}
-
-                            <p>
-                                <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
-                                in your{' '}
-                                {billing?.has_active_subscription
-                                    ? 'billing period.'
-                                    : 'cycle. Your free allocation will reset at the end of the cycle.'}
-                            </p>
                         </div>
                     </div>
                 )}
