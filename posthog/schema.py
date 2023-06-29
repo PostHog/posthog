@@ -242,16 +242,14 @@ class FunnelCorrelationPersonConverted(str, Enum):
     false = "false"
 
 
-class HogQLMetadataResponse(BaseModel):
+class HogQLNotice(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    error: Optional[str] = None
-    errorEnd: Optional[float] = None
-    errorStart: Optional[float] = None
-    inputExpr: Optional[str] = None
-    inputSelect: Optional[str] = None
-    isValid: Optional[bool] = None
+    end: Optional[float] = None
+    fix: Optional[str] = None
+    message: str
+    start: Optional[float] = None
 
 
 class HogQLQueryResponse(BaseModel):
@@ -292,6 +290,7 @@ class PathType(str, Enum):
     field_pageview = "$pageview"
     field_screen = "$screen"
     custom_event = "custom_event"
+    hogql = "hogql"
 
 
 class PathsFilter(BaseModel):
@@ -313,6 +312,7 @@ class PathsFilter(BaseModel):
     path_replacements: Optional[bool] = None
     path_start_key: Optional[str] = None
     path_type: Optional[PathType] = None
+    paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
     step_limit: Optional[float] = None
 
@@ -542,14 +542,16 @@ class GroupPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLMetadata(BaseModel):
+class HogQLMetadataResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    expr: Optional[str] = None
-    kind: str = Field("HogQLMetadata", const=True)
-    response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
-    select: Optional[str] = None
+    errors: List[HogQLNotice]
+    inputExpr: Optional[str] = None
+    inputSelect: Optional[str] = None
+    isValid: Optional[bool] = None
+    notices: List[HogQLNotice]
+    warnings: List[HogQLNotice]
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -726,6 +728,16 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
+
+
+class HogQLMetadata(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    expr: Optional[str] = None
+    kind: str = Field("HogQLMetadata", const=True)
+    response: Optional[HogQLMetadataResponse] = Field(None, description="Cached query response")
+    select: Optional[str] = None
 
 
 class PersonsNode(BaseModel):

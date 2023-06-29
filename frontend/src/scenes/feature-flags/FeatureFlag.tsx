@@ -174,10 +174,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
-                                This feature flag is linked to an experiment. It's recommended to only make changes to
-                                this flag{' '}
+                                This feature flag is linked to an experiment. Edit settings here only for advanced
+                                functionality. If unsure, go back to{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                    using the experiment creation screen.
+                                    the experiment creation screen.
                                 </Link>
                             </LemonBanner>
                         )}
@@ -756,6 +756,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     {
                                         label: 'Release toggle (boolean)',
                                         value: false,
+                                        disabled: !!(
+                                            featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                        ),
                                     },
                                     {
                                         label: (
@@ -940,6 +943,13 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     data-attr={`delete-prop-filter-${index}`}
                                                     noPadding
                                                     onClick={() => removeVariant(index)}
+                                                    disabledReason={
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                            ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="topRight"
                                                 />
                                             )}
                                         </Row>
@@ -961,6 +971,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 focusVariantKeyField(newIndex)
                             }}
                             icon={<IconPlus />}
+                            disabledReason={
+                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                    ? 'Cannot add variants to a feature flag that is part of an experiment'
+                                    : undefined
+                            }
+                            tooltipPlacement="topLeft"
                             center
                         >
                             Add variant

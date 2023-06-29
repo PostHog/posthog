@@ -3,67 +3,20 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelLogic } from './funnelLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { Link } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconInfo } from 'lib/lemon-ui/icons'
-import { InsightFilter } from '~/queries/schema'
-import { FunnelsFilterType, FunnelTimeConversionMetrics, FunnelVizType } from '~/types'
+import { FunnelVizType } from '~/types'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
-import { FunnelStepsPicker, FunnelStepsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
-import { Noun } from '~/models/groupsModel'
+import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 
-export function FunnelCanvasLabelDataExploration(): JSX.Element | null {
+export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
-    return (
-        <FunnelCanvasLabelComponent
-            conversionMetrics={conversionMetrics}
-            aggregationTargetLabel={aggregationTargetLabel}
-            funnelsFilter={funnelsFilter}
-            updateInsightFilter={updateInsightFilter}
-            isUsingDataExploration
-        />
-    )
-}
-
-export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { conversionMetrics, aggregationTargetLabel, filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelCanvasLabelComponent
-            conversionMetrics={conversionMetrics}
-            aggregationTargetLabel={aggregationTargetLabel}
-            funnelsFilter={filters}
-            updateInsightFilter={(filters: InsightFilter) => {
-                setFilters(filters as Partial<FunnelsFilterType>)
-            }}
-        />
-    )
-}
-
-type FunnelCanvasLabelComponentProps = {
-    aggregationTargetLabel: Noun
-    conversionMetrics: FunnelTimeConversionMetrics
-    funnelsFilter?: FunnelsFilterType | null
-    updateInsightFilter: (insightFilter: InsightFilter) => void
-    isUsingDataExploration?: boolean
-}
-
-function FunnelCanvasLabelComponent({
-    aggregationTargetLabel,
-    conversionMetrics,
-    funnelsFilter,
-    updateInsightFilter,
-    isUsingDataExploration,
-}: FunnelCanvasLabelComponentProps): JSX.Element | null {
-    const StepsPicker = isUsingDataExploration ? FunnelStepsPickerDataExploration : FunnelStepsPicker
     const labels = [
         ...(funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
             ? [
@@ -91,7 +44,7 @@ function FunnelCanvasLabelComponent({
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>
-                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <StepsPicker />}
+                      {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-muted-alt mr-1">:</span>
                       {funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert ? (
                           <span className="font-bold">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
@@ -110,7 +63,7 @@ function FunnelCanvasLabelComponent({
             ? [
                   <>
                       <span className="text-muted-alt">Conversion rate</span>
-                      <StepsPicker />
+                      <FunnelStepsPicker />
                   </>,
               ]
             : []),

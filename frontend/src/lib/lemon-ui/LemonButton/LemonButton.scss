@@ -21,7 +21,7 @@
     user-select: none;
     -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
-    &.LemonButton--disabled {
+    &[aria-disabled='true'] {
         opacity: var(--opacity-disabled);
         cursor: not-allowed;
     }
@@ -131,7 +131,7 @@
         font-weight: 400;
         color: var(--default);
 
-        &:not(.LemonButton--disabled):hover,
+        &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
             background: var(--primary-highlight);
         }
@@ -156,13 +156,13 @@
             background: var(--bg-light);
             border: 1px solid var(--border);
 
-            &:not(.LemonButton--disabled):hover,
+            &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background: var(--primary-highlight);
                 border-color: var(--primary);
             }
 
-            &:not(.LemonButton--disabled):active {
+            &:not([aria-disabled='true']):active {
                 border-color: var(--primary-dark);
             }
         }
@@ -172,11 +172,11 @@
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
-            &:not(.LemonButton--disabled):hover,
+            &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background: var(--#{$status}-highlight, var(--primary-highlight));
             }
-            &:not(.LemonButton--disabled):active {
+            &:not([aria-disabled='true']):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
                 .LemonButton__icon {
                     color: var(--#{$status}-dark, var(--primary-dark));
@@ -195,7 +195,7 @@
                     color: #fff;
                 }
 
-                &:not(.LemonButton--disabled):hover,
+                &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
                     color: #fff;
                     background: var(--#{$status}-light, var(--#{$status}));
@@ -203,7 +203,7 @@
                         color: #fff;
                     }
                 }
-                &:not(.LemonButton--disabled):active {
+                &:not([aria-disabled='true']):active {
                     background: var(--#{$status}-dark, var(--#{$status}));
                     color: #fff;
                     .LemonButton__icon {
@@ -217,13 +217,13 @@
                 background: var(--bg-light);
                 border: 1px solid var(--border);
 
-                &:not(.LemonButton--disabled):hover,
+                &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
                 }
 
-                &:not(.LemonButton--disabled):active {
+                &:not([aria-disabled='true']):active {
                     border-color: var(--#{$status}-dark, var(--status));
                 }
             }
@@ -238,7 +238,7 @@
             color: var(--muted);
         }
 
-        &:not(.LemonButton--disabled):hover,
+        &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
             color: var(--default);
             background: var(--border);
@@ -247,7 +247,7 @@
             }
         }
 
-        &:not(.LemonButton--disabled):active {
+        &:not([aria-disabled='true']):active {
             transform: scale(0.96875); // 31/32 (0.5px less on both sides, assuming a 32px tall button)
         }
 
@@ -262,7 +262,7 @@
         &.LemonButton--primary {
             color: #fff;
             background: var(--primary-3000);
-            &:not(.LemonButton--disabled):hover,
+            &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background: var(--primary-3000-hover);
                 color: #fff;
@@ -275,7 +275,7 @@
         &.LemonButton--secondary {
             color: var(--default);
             background: var(--secondary-3000);
-            &:not(.LemonButton--disabled):hover,
+            &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
                 background: var(--secondary-3000-hover);
                 color: var(--default);

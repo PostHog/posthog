@@ -1550,6 +1550,7 @@ export enum PathType {
     PageView = '$pageview',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+    HogQL = 'hogql',
 }
 
 export enum FunnelPathType {
@@ -1682,6 +1683,7 @@ export interface FunnelsFilterType extends FilterType {
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
+    paths_hogql_expression?: string
     include_event_types?: PathType[]
     start_point?: string
     end_point?: string
@@ -2017,8 +2019,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {

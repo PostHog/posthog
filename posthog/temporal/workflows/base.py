@@ -88,9 +88,10 @@ class UpdateBatchExportRunStatusInputs:
 
     id: str
     status: str
+    latest_error: str | None = None
 
 
 @activity.defn
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
-    await sync_to_async(update_batch_export_run_status)(run_id=UUID(inputs.id), status=inputs.status)  # type: ignore
+    await sync_to_async(update_batch_export_run_status)(run_id=UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error)  # type: ignore
