@@ -83,7 +83,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         ]
         read_only_fields = [
             "team_id",
-            "bytecode",
             "bytecode_error",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
