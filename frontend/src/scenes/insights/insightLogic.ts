@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { promptLogic } from 'lib/logic/promptLogic'
-import { getEventNamesForAction, objectsEqual, shouldCancelQuery, sum, toParams, uuid } from 'lib/utils'
+import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
@@ -16,9 +16,9 @@ import {
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
-import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
-import { combineUrl, router } from 'kea-router'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { router } from 'kea-router'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
     filterTrendsClientSideParams,
@@ -33,7 +33,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, getResponseBytes } from './utils'
+import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -51,7 +51,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
-import { legacyInsightQuery, queryExportContext } from '~/queries/query'
+import { queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -166,14 +166,13 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             callback,
         }),
-        loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
         setInsightMetadata: (metadata: Partial<InsightModel>) => ({ metadata }),
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
     }),
-    loaders(({ actions, cache, values, props }) => ({
+    loaders(({ actions, values, props }) => ({
         insight: [
             props.cachedInsight ??
                 createEmptyInsight(
@@ -294,133 +293,6 @@ export const insightLogic = kea<insightLogicType>([
                     })
                     return updatedInsight
                 },
-                // using values.filters, query for new insight results
-                loadResults: async ({ refresh, queryId }, breakpoint) => {
-                    // fetch this now, as it might be different when we report below
-                    const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
-
-                    actions.abortAnyRunningQuery()
-                    cache.abortController = new AbortController()
-                    const methodOptions: ApiMethodOptions = {
-                        signal: cache.abortController.signal,
-                    }
-
-                    const { filters } = values
-
-                    const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
-
-                    const dashboardItemId = props.dashboardItemId
-                    actions.startQuery(queryId)
-                    if (dashboardItemId && dashboardsModel.isMounted()) {
-                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
-                    }
-
-                    let fetchResponse: any
-                    let response: any
-                    let apiUrl: string = ''
-                    const { currentTeamId } = values
-
-                    if (!currentTeamId) {
-                        throw new Error("Can't load insight before current project is determined.")
-                    }
-                    try {
-                        if (
-                            values.savedInsight?.id &&
-                            objectsEqual(cleanFilters(filters), cleanFilters(values.savedInsight.filters ?? {}))
-                        ) {
-                            // Instead of making a search for filters, reload the insight via its id if possible.
-                            // This makes sure we update the insight's cache key if we get new default filters.
-                            apiUrl = combineUrl(`api/projects/${currentTeamId}/insights/${values.savedInsight.id}`, {
-                                refresh: true,
-                            }).url
-                            fetchResponse = await api.getResponse(apiUrl, methodOptions)
-                        } else {
-                            const params = {
-                                ...filters,
-                                ...(refresh ? { refresh: true } : {}),
-                                client_query_id: queryId,
-                                session_id: currentSessionId(),
-                            }
-                            ;[fetchResponse, apiUrl] = await legacyInsightQuery({
-                                filters: params,
-                                currentTeamId,
-                                methodOptions,
-                                refresh,
-                            })
-                        }
-                        response = await getJSONOrThrow(fetchResponse)
-                    } catch (e: any) {
-                        if (shouldCancelQuery(e)) {
-                            actions.abortQuery({
-                                queryId,
-                                view: insight,
-                                scene: scene,
-                                exception: e,
-                            })
-                        }
-                        breakpoint()
-                        actions.endQuery({
-                            queryId,
-                            view: insight,
-                            scene: scene,
-                            lastRefresh: null,
-                            nextAllowedRefresh: null,
-                            exception: e,
-                        })
-                        if (dashboardItemId && dashboardsModel.isMounted()) {
-                            dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
-                        }
-                        if (isFunnelsFilter(filters)) {
-                            eventUsageLogic.actions.reportFunnelCalculated(
-                                filters.events?.length || 0,
-                                filters.actions?.length || 0,
-                                filters.interval || '',
-                                filters.funnel_viz_type,
-                                false,
-                                e.message
-                            )
-                        }
-                        throw e
-                    }
-
-                    breakpoint()
-                    actions.endQuery({
-                        queryId,
-                        view: (values.filters.insight as InsightType) || InsightType.TRENDS,
-                        scene: scene,
-                        lastRefresh: response.last_refresh,
-                        nextAllowedRefresh: response.next_allowed_client_refresh,
-                        response: {
-                            cached: response?.is_cached,
-                            apiResponseBytes: getResponseBytes(fetchResponse),
-                            apiUrl,
-                        },
-                    })
-                    if (dashboardItemId && dashboardsModel.isMounted()) {
-                        dashboardsModel.actions.updateDashboardRefreshStatus(
-                            dashboardItemId,
-                            false,
-                            response.last_refresh
-                        )
-                    }
-                    if (isFunnelsFilter(filters)) {
-                        eventUsageLogic.actions.reportFunnelCalculated(
-                            filters.events?.length || 0,
-                            filters.actions?.length || 0,
-                            filters.interval || '',
-                            filters.funnel_viz_type,
-                            true
-                        )
-                    }
-
-                    return {
-                        ...values.insight,
-                        result: response.result,
-                        next: response.next,
-                        timezone: response.timezone,
-                        filters,
-                    } as Partial<InsightModel>
-                },
             },
         ],
     })),
@@ -497,8 +369,6 @@ export const insightLogic = kea<insightLogicType>([
                     overrideFilter ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
-                loadResultsSuccess: (state, { insight }) =>
-                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
             },
         ],
         /** The insight's state as it is in the database. */
@@ -541,7 +411,6 @@ export const insightLogic = kea<insightLogicType>([
                     return isHTTPErrorStatus || isBrowserErrorStatus
                 },
                 loadInsightFailure: (_, { errorObject }) => errorObject?.status === 0,
-                loadResultsFailure: (_, { errorObject }) => errorObject?.status === 0,
                 startQuery: () => false,
                 loadResult: () => false,
             },
