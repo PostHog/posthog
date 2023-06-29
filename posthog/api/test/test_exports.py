@@ -79,6 +79,7 @@ class TestExports(APIBaseTest):
                 "has_content": False,
                 "insight": None,
                 "export_context": None,
+                "ttl_seconds": 15552000,
             },
         )
 
@@ -122,6 +123,7 @@ class TestExports(APIBaseTest):
                 "has_content": False,
                 "dashboard": None,
                 "export_context": None,
+                "ttl_seconds": 15552000,
             },
         )
 
@@ -154,6 +156,30 @@ class TestExports(APIBaseTest):
         )
 
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+    @patch("posthog.api.exports.exporter")
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_create_new_valid_export_with_ttl(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "application/pdf", "insight": self.insight.id, "ttl_seconds": 1234},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(
+            data,
+            {
+                "id": data["id"],
+                "created_at": data["created_at"],
+                "insight": self.insight.id,
+                "export_format": "application/pdf",
+                "filename": "export-example-insight.pdf",
+                "has_content": False,
+                "dashboard": None,
+                "export_context": None,
+                "ttl_seconds": 1234,
+            },
+        )
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})

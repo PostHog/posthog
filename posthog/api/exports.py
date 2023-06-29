@@ -22,9 +22,13 @@ from posthog.tasks import exporter
 
 logger = structlog.get_logger(__name__)
 
+SIX_MONTHS_IN_SECONDS = 3600 * 24 * 30 * 6
+
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
+
+    ttl_seconds = serializers.IntegerField(required=False, default=SIX_MONTHS_IN_SECONDS)
 
     class Meta:
         model = ExportedAsset
@@ -37,6 +41,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "has_content",
             "export_context",
             "filename",
+            "ttl_seconds",
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename"]
 

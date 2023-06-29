@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import models
 from django.http import HttpResponse
 from django.utils.text import slugify
+from django.utils.timezone import now
 from rest_framework.exceptions import NotFound
 from sentry_sdk import capture_exception
 
@@ -16,6 +17,7 @@ from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
+from django.db.models import F, Q
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +29,22 @@ def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)
 
 
+class ExportedAssetManager(models.Manager):
+    def get_queryset(self):
+        # mypy thinks we can't use F() expressions to multiply the timedelta, but we can
+        # TRICKY: you can't directly set the timedelta using the ttl_seconds value
+        # but you can multiply a one second timedelta by the ttl_seconds value
+        # ¯\_(ツ)_/¯
+        ttl_time_ago = now() - timedelta(seconds=1) * F("ttl_seconds")  # type: ignore
+        # keep assets whose TTL has not passed or who have no TTL set
+        return super().get_queryset().filter(Q(created_at__gte=ttl_time_ago) | Q(ttl_seconds__isnull=True))
+
+
 class ExportedAsset(models.Model):
+    # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
+    objects = ExportedAssetManager()
+    objects_including_ttl_deleted = models.Manager()
+
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -42,6 +59,9 @@ class ExportedAsset(models.Model):
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    # number of seconds after the created_at that this asset can be used
+    # ExportedAssets are deleted after their TTL however, *not immediately after the TTL period has passed*
+    ttl_seconds: models.IntegerField = models.IntegerField(null=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context: models.JSONField = models.JSONField(null=True, blank=True)
@@ -60,7 +80,7 @@ class ExportedAsset(models.Model):
 
     @property
     def filename(self):
-        ext = self.export_format.split("/")[1]
+        ext = str(self.export_format).split("/")[1]
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
@@ -76,7 +96,7 @@ class ExportedAsset(models.Model):
 
     @property
     def file_ext(self):
-        return self.export_format.split("/")[1]
+        return str(self.export_format).split("/")[1]
 
     def get_analytics_metadata(self):
         return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
