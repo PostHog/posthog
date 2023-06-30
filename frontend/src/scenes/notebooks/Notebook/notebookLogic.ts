@@ -34,6 +34,7 @@ export const notebookLogic = kea<notebookLogicType>([
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         exportJSON: true,
+        showConflictOverlay: true,
     }),
     reducers({
         localContent: [
@@ -50,11 +51,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditorRef: (_, { editor }) => editor,
             },
         ],
-
         ready: [
             false,
             {
                 setReady: () => true,
+            },
+        ],
+        conflictOverlayVisible: [
+            false,
+            {
+                showConflictOverlay: () => true,
+                loadNotebook: () => false,
             },
         ],
     }),
@@ -225,6 +232,12 @@ export const notebookLogic = kea<notebookLogicType>([
 
         saveNotebookSuccess: sharedListeners.onNotebookChange,
         loadNotebookSuccess: sharedListeners.onNotebookChange,
+
+        saveNotebookFailure: ({ errorObject }) => {
+            if (errorObject.code === 'conflict') {
+                actions.showConflictOverlay()
+            }
+        },
 
         exportJSON: () => {
             const file = new File(

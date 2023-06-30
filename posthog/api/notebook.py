@@ -2,6 +2,7 @@ from typing import Dict, List, Optional
 
 import structlog
 from django.db.models import QuerySet
+from django.db import transaction
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
@@ -101,16 +102,22 @@ class NotebookSerializer(serializers.ModelSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
+        raise serializers.ValidationError(
+            "Notebook was modified by someone else. Please refresh and try again.", "conflict"
+        )
+
         # TODO: This is not atomic meaning we could still end up with race conditions
-        if validated_data.get("content"):
-            if validated_data.get("version") != instance.version:
-                raise serializers.ValidationError(
-                    "Notebook was modified by someone else. Please refresh and try again."
-                )
+        with transaction.atomic():
+            if validated_data.get("content"):
+                if validated_data.get("version") != instance.version:
+                    raise serializers.ValidationError(
+                        "Notebook was modified by someone else. Please refresh and try again."
+                    )
 
-            validated_data["version"] = instance.version + 1
+                validated_data["version"] = instance.version + 1
 
-        updated_notebook = super().update(instance, validated_data)
+            updated_notebook = super().update(instance, validated_data)
+
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
         log_notebook_activity(
