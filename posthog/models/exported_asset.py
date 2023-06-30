@@ -102,6 +102,12 @@ class ExportedAsset(models.Model):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
+    @classmethod
+    def delete_expired_assets(cls):
+        expired_assets = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__lte=now())
+        logger.info("deleting_expired_assets", count=expired_assets.count())
+        expired_assets.delete()
+
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
     if not expiry_delta:
