@@ -39,6 +39,20 @@ def check_can_edit_sharing_configuration(
     return True
 
 
+def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset | None:
+    serializer = ExportedAssetSerializer(
+        data={
+            "insight": resource.insight.pk if resource.insight else None,
+            "dashboard": resource.dashboard.pk if resource.dashboard else None,
+            "export_format": "image/png",
+        },
+        context={"team_id": cast(Team, resource.team).pk},
+    )
+    serializer.is_valid(raise_exception=True)
+    export_asset = serializer.synthetic_create("opengraph image")
+    return export_asset
+
+
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
@@ -129,6 +143,9 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        if not context.get("recording") and serializer.data.get("enabled"):
+            export_asset_for_opengraph(instance)
 
         return response.Response(serializer.data)
 
@@ -278,15 +295,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if has_usable_matches:
             return exported_asset_matches.first()
         else:
-            serializer = ExportedAssetSerializer(
-                data={
-                    "insight": resource.insight.pk if resource.insight else None,
-                    "dashboard": resource.dashboard.pk if resource.dashboard else None,
-                    "export_format": "image/png",
-                },
-                context={"team_id": cast(Team, resource.team).pk, "request": self.request},
-            )
-            serializer.is_valid(raise_exception=True)
-            export_asset = serializer.synthetic_create("opengraph image")
+            export_asset = export_asset_for_opengraph(resource)
 
             return export_asset
