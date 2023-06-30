@@ -16,7 +16,7 @@ on:
     paths-ignore:
       - 'plugin-server/**'
 
-concurrency: 'posthog-container-images'
+concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
 jobs:
     posthog_build:
