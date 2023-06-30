@@ -1,13 +1,11 @@
-import { Hub, StatelessVmMap } from '../../types'
+import { Hub, PluginLogEntrySource, PluginLogEntryType, StatelessVmMap } from '../../types'
 import { LazyPluginVM } from '../vm/lazy'
-import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
 import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
 
 export async function setupPlugins(hub: Hub): Promise<void> {
     const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(hub)
-    const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessVms = {} as StatelessVmMap
 
     const timer = new Date()
@@ -26,7 +24,6 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
-            pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
 
             if (prevConfig) {
                 void teardownPlugins(hub, prevConfig)
@@ -36,9 +33,16 @@ export async function setupPlugins(hub: Hub): Promise<void> {
                 statelessVms[plugin.id] = pluginConfig.vm
             }
         }
+
+        await hub.db.queuePluginLogEntry({
+            message: `Plugin loaded (instance ID ${hub.instanceId}).`,
+            pluginConfig: pluginConfig,
+            source: PluginLogEntrySource.System,
+            type: PluginLogEntryType.Debug,
+            instanceId: hub.instanceId,
+        })
     }
 
-    await Promise.all(pluginVMLoadPromises)
     hub.statsd?.timing('setup_plugins.success', timer)
 
     hub.plugins = plugins

@@ -24,6 +24,11 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         return false
     }
 
+    if (pluginConfig.vm?.initializing) {
+        await pluginConfig.vm?.resolveInternalVm
+        return true
+    }
+
     try {
         // load config json
         const configJson = isLocalPlugin
@@ -104,7 +109,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
                   readFileIfExists(hub.BASE_DIR, plugin, 'index.ts')
             : plugin.source__index_ts
         if (pluginSource) {
-            void pluginConfig.vm?.initialize!(pluginSource, pluginDigest(plugin))
+            await pluginConfig.vm?.initialize!(pluginSource, pluginDigest(plugin))
             return true
         } else {
             // always call this if no backend app present, will signal that the VM is done
