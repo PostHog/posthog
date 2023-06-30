@@ -224,12 +224,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
-            asset_description = resource.insight.description or "A shared PostHog insight"
+            asset_description = resource.insight.description or ""
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
-            asset_description = resource.dashboard.description or "A shared PostHog dashboard"
+            asset_description = resource.dashboard.description or ""
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             exported_data.update({"dashboard": dashboard_data})
