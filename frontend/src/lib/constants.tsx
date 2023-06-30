@@ -152,6 +152,7 @@ export const FEATURE_FLAGS = {
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER: 'session-recording-show-console-logs-filter', // owner: #team-monitoring
+    TMP_ROLLOUT_SAVED_INSIGHT_REFRESH_ON_NAVIGATION: 'tmp-rollout-saved-insight-refresh-on-navigation', // owner: @thmsobrmlr
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

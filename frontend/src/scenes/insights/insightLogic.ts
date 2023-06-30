@@ -35,7 +35,7 @@ import { teamLogic } from '../teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { actionsModel } from '~/models/actionsModel'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -52,6 +52,7 @@ import { userLogic } from 'scenes/userLogic'
 import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -93,6 +94,8 @@ export const insightLogic = kea<insightLogicType>([
             ['user'],
             globalInsightLogic,
             ['globalInsightFilters'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
@@ -753,8 +756,11 @@ export const insightLogic = kea<insightLogicType>([
             actions.setFilters(values.savedInsight.filters || {})
         },
     })),
-    events(({ props, actions }) => ({
+    events(({ props, actions, values }) => ({
         afterMount: () => {
+            const savedInsightRefreshEnabled =
+                !!values.featureFlags[FEATURE_FLAGS.TMP_ROLLOUT_SAVED_INSIGHT_REFRESH_ON_NAVIGATION]
+
             if (!props.dashboardItemId || props.dashboardItemId === 'new' || props.dashboardItemId.startsWith('new-')) {
                 return
             }
@@ -764,13 +770,17 @@ export const insightLogic = kea<insightLogicType>([
                 props.dashboardId
             )
             if (insight) {
-                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                 if (insight?.result) {
+                    actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                     actions.reportInsightViewed(insight, insight.filters || {})
                 } else {
-                    // TODO: Consolidate backend side caching behaviour with a smart refreshing
-                    // heuristic, then remove this special handling.
-                    actions.fetchResultFromNumericInsightApi(insight.id)
+                    if (insight.id && savedInsightRefreshEnabled) {
+                        // TODO: Consolidate backend side caching behaviour with a smart refreshing
+                        // heuristic, then remove this special handling.
+                        actions.fetchResultFromNumericInsightApi(insight.id)
+                    } else {
+                        actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
+                    }
                 }
                 return
             }
