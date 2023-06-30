@@ -8,6 +8,14 @@ const clean = (f: Partial<AnyFilterType>): Partial<AnyFilterType> => {
     // remove undefined values, empty array and empty objects
     const cleanedFilters = objectCleanWithEmpty(cleanFilters(f))
 
+    // TODO: Ignore filter_test_accounts for now, but should compare against default
+    delete cleanedFilters.filter_test_accounts
+
+    // sync with DEFAULT_DATE_FROM_DAYS
+    if (!cleanedFilters.date_from) {
+        cleanedFilters.date_from = '-7d'
+    }
+
     cleanedFilters.events = cleanedFilters.events?.map((e) => {
         // event math `total` is the default
         if (e.math === 'total') {
