@@ -811,10 +811,10 @@ export function PropertyKeyInfo({
             className={className}
             overlay={
                 <div className="PropertyKeyInfo__overlay">
-                    <strong className="PropertyKeyInfo">
+                    <div className="PropertyKeyInfo__header">
                         {!!data && <span className="PropertyKeyInfo__logo" />}
                         {data.label}
-                    </strong>
+                    </div>
                     {data.description || data.examples ? (
                         <>
                             <LemonDivider />
