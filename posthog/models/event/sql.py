@@ -23,7 +23,7 @@ TRUNCATE_EVENTS_TABLE_SQL = (
 )
 DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
-INSERTED_AT_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
+INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -149,6 +149,7 @@ group1_created_at,
 group2_created_at,
 group3_created_at,
 group4_created_at,
+NOW64() AS inserted_at,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
