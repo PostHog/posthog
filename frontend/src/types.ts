@@ -2059,13 +2059,16 @@ export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
     textColor?: string
+    submitButtonText?: string
+    descriptionTextColor?: string
 }
 
 export interface SurveyQuestion {
     type: SurveyQuestionType
     question: string
+    description?: string | null
     required?: boolean
-    link?: string | null
+    link: string | null
     choices?: string[] | null
 }
 
