@@ -11,7 +11,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 ADD_COLUMNS_BASE_SQL = """
 ALTER TABLE {table}
 ON CLUSTER '{cluster}'
-ADD COLUMN IF NOT EXISTS Nullable(inserted_at DateTime64(6, 'UTC')) DEFAULT NULL
+ADD COLUMN IF NOT EXISTS inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NULL
 """
 
 
