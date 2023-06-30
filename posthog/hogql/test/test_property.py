@@ -393,6 +393,7 @@ class TestProperty(BaseTest):
             is_static=True,
             groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
         )
+
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
