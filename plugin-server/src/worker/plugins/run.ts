@@ -5,6 +5,7 @@ import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
+import { loadPlugin } from './loadPlugin'
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
@@ -247,6 +248,8 @@ async function getPluginMethodsForTeam<M extends keyof VMMethods>(
     if (pluginConfigs.length === 0) {
         return []
     }
+
+    await Promise.all(pluginConfigs.map((pluginConfig) => loadPlugin(hub, pluginConfig)))
     const methodsObtained = await Promise.all(
         pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.vm?.getVmMethod(method)])
     )

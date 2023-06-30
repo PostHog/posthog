@@ -1,5 +1,6 @@
 import { Hub, PluginConfigId } from '../../types'
 import { status } from '../../utils/status'
+import { loadPlugin } from './loadPlugin'
 
 export async function loadSchedule(server: Hub): Promise<void> {
     const timer = new Date()
@@ -11,11 +12,14 @@ export async function loadSchedule(server: Hub): Promise<void> {
     let count = 0
 
     for (const [id, pluginConfig] of server.pluginConfigs) {
-        const tasks = (await pluginConfig.vm?.getScheduledTasks()) ?? {}
-        for (const [taskName, task] of Object.entries(tasks)) {
-            if (task && taskName in pluginSchedule) {
-                pluginSchedule[taskName].push(id)
-                count++
+        if (pluginConfig.plugin?.capabilities?.scheduled_tasks?.length) {
+            await loadPlugin(server, pluginConfig)
+            const tasks = (await pluginConfig.vm?.getScheduledTasks()) ?? {}
+            for (const [taskName, task] of Object.entries(tasks)) {
+                if (task && taskName in pluginSchedule) {
+                    pluginSchedule[taskName].push(id)
+                    count++
+                }
             }
         }
     }
