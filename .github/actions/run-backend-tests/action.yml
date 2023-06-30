@@ -104,7 +104,7 @@ runs:
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest posthog -m "not async_migrations" \
+              pytest hogvm posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
@@ -120,11 +120,6 @@ runs:
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS
-
-        - name: Show docker compose log
-          if: ${{ always() }}
-          shell: bash
-          run: docker compose -f docker-compose.dev.yml logs --tail=5000
 
         # Post-tests
 

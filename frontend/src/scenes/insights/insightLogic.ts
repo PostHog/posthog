@@ -39,9 +39,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -90,8 +89,6 @@ export const insightLogic = kea<insightLogicType>([
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
             groupsModel,
             ['aggregationLabel'],
             cohortsModel,
@@ -182,13 +179,10 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const load_query_insight_query_params = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
-                        ? '&include_query_insights=true'
-                        : ''
                     const response = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
                             shortId
-                        )}${load_query_insight_query_params}`
+                        )}&include_query_insights=true`
                     )
                     if (response?.results?.[0]) {
                         return response.results[0]
@@ -606,13 +600,12 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDashboardQueries],
-            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDashboardQueries) =>
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
+            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
                 summarizeInsight(insight.query, insight.filters || {}, {
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
-                    isUsingDashboardQueries,
                 }).slice(0, 400),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
@@ -777,12 +770,6 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
-        isUsingDashboardQueries: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.HOGQL]
-            },
-        ],
     }),
     listeners(({ actions, selectors, values, cache, props }) => ({
         setFiltersMerge: ({ filters }) => {
@@ -809,28 +796,6 @@ export const insightLogic = kea<insightLogicType>([
             }
 
             actions.reportInsightViewed(values.insight, filters, previousFilters)
-
-            const backendFilterChanged = !objectsEqual(
-                Object.assign({}, values.filters, {
-                    layout: undefined,
-                    hidden_legend_keys: undefined,
-                    funnel_advanced: undefined,
-                    show_legend: undefined,
-                }),
-                Object.assign({}, values.loadedFilters, {
-                    layout: undefined,
-                    hidden_legend_keys: undefined,
-                    funnel_advanced: undefined,
-                    show_legend: undefined,
-                })
-            )
-
-            // (Re)load results when filters have changed or if there's no result yet
-            if (backendFilterChanged || !values.insight?.result) {
-                if (props.disableDataExploration && !values.insight?.query) {
-                    actions.loadResults()
-                }
-            }
         },
         reportInsightViewedForRecentInsights: async () => {
             // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights"
@@ -1087,10 +1052,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
-            // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (props.disableDataExploration && !insight.result && !insight.query && values.filters) {
-                actions.loadResults()
-            }
         },
         toggleInsightLegend: () => {
             const newFilters: Partial<TrendsFilterType> = {

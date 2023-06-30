@@ -1027,7 +1027,8 @@ export class DB {
     public async addFeatureFlagHashKeysForMergedPerson(
         teamID: Team['id'],
         sourcePersonID: Person['id'],
-        targetPersonID: Person['id']
+        targetPersonID: Person['id'],
+        client: PoolClient
     ): Promise<void> {
         // Delete and insert in a single query to ensure
         // this function is safe wherever it is run.
@@ -1050,7 +1051,8 @@ export class DB {
                 ON CONFLICT DO NOTHING
             `,
             [teamID, sourcePersonID, targetPersonID],
-            'addFeatureFlagHashKeysForMergedPerson'
+            'addFeatureFlagHashKeysForMergedPerson',
+            client
         )
     }
 

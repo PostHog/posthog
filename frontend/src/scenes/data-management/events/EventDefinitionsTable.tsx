@@ -13,7 +13,7 @@ import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionH
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
+import { UsageDisabledWarning } from 'scenes/data-management/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
     ThirtyDayQueryCountTitle,

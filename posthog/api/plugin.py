@@ -280,7 +280,15 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def filter_queryset_by_parents_lookups(self, queryset):
         try:
-            return queryset.filter(Q(**self.parents_query_dict) | Q(is_global=True))
+            return queryset.filter(
+                Q(**self.parents_query_dict)
+                | Q(is_global=True)
+                | Q(
+                    id__in=PluginConfig.objects.filter(
+                        team__organization_id=self.organization_id, enabled=True
+                    ).values_list("plugin_id", flat=True)
+                )
+            )
         except ValueError:
             raise NotFound()
 

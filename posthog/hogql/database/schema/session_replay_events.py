@@ -30,6 +30,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "console_log_count": IntegerDatabaseField(name="console_log_count"),
     "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
     "console_error_count": IntegerDatabaseField(name="console_error_count"),
+    "size": IntegerDatabaseField(name="size"),
     "pdi": LazyJoin(
         from_field="distinct_id",
         join_table=PersonDistinctIdsTable(),
@@ -74,6 +75,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         "console_log_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_log_count"])]),
         "console_warn_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_warn_count"])]),
         "console_error_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "console_error_count"])]),
+        "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
+        "size": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "size"])]),
     }
 
     select_fields: List[ast.Expr] = []

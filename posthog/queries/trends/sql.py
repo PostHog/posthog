@@ -498,10 +498,12 @@ FROM (
 GROUP BY status
 """
 
+
 LIFECYCLE_PEOPLE_SQL = """
-SELECT person_id
+SELECT DISTINCT person_id as actor_id
 FROM ({events_query}) e
 WHERE status = %(status)s
 AND dateTrunc(%(interval)s, toDateTime(%(target_date)s, %(timezone)s)) = start_of_period
-LIMIT %(limit)s OFFSET %(offset)s
+{limit}
+{offset}
 """

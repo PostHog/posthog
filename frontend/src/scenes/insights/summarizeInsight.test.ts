@@ -69,12 +69,6 @@ const summaryContext: SummaryContext = {
     aggregationLabel,
     cohortsById: cohortIdsMapped,
     mathDefinitions,
-    isUsingDashboardQueries: false,
-}
-
-const flagsOnSummaryContext: SummaryContext = {
-    ...summaryContext,
-    isUsingDashboardQueries: true,
 }
 
 describe('summarizing insights', () => {
@@ -368,6 +362,45 @@ describe('summarizing insights', () => {
             ).toEqual('User paths based on all events')
         })
 
+        it('summarizes a Paths insight based on all events and HogQL expression', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent, PathType.HogQL],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on all events and HogQL expression')
+        })
+
+        it('summarizes a Paths insight based on page views and HogQL expression', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.PageView, PathType.HogQL],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on page views and HogQL expression')
+        })
+
+        it('summarizes a Paths insight based on HogQL expression', () => {
+            expect(
+                summarizeInsight(
+                    null,
+                    {
+                        insight: InsightType.PATHS,
+                        include_event_types: [PathType.HogQL],
+                    } as PathsFilterType,
+                    summaryContext
+                )
+            ).toEqual('User paths based on HogQL expression')
+        })
+
         it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
             expect(
                 summarizeInsight(
@@ -490,7 +523,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual(
@@ -521,7 +554,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual("Random action count per user average & purchase's price sum")
@@ -536,7 +569,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('')
@@ -562,7 +595,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual("Pageview unique users by event's Browser")
@@ -593,7 +626,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
@@ -624,7 +657,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
@@ -655,7 +688,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('Pageview → random_event → Random action user conversion rate')
@@ -686,7 +719,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
@@ -713,7 +746,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual(
@@ -743,7 +776,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual(
@@ -762,7 +795,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('User paths based on all events')
@@ -779,7 +812,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('User paths based on all events')
@@ -798,7 +831,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
@@ -825,7 +858,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
@@ -846,7 +879,7 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(
                 { kind: NodeKind.InsightVizNode, source: query } as InsightVizNode,
                 {},
-                flagsOnSummaryContext
+                summaryContext
             )
 
             expect(result).toEqual('User lifecycle based on Rageclick')
@@ -863,7 +896,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('event from events into a data table.')
         })
@@ -877,7 +910,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('event, timestamp from events into a data table.')
         })
@@ -892,7 +925,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('event from events into a data table.')
         })
@@ -907,7 +940,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('timestamp from events into a data table.')
         })
@@ -921,7 +954,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual(
                 'session_id, session_start, session_end, duration_ms from Time to See Data into a data table.'
@@ -939,7 +972,7 @@ describe('summarizing insights', () => {
                 },
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('Waterfall chart for time to see session complete_me.')
         })
@@ -953,7 +986,7 @@ describe('summarizing insights', () => {
                     select: ['count()'],
                 },
             }
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('count() from events into a data table.')
         })
@@ -964,7 +997,7 @@ describe('summarizing insights', () => {
                 query: 'select event,\n          person.properties.email from events\n  where timestamp > now() - interval 1 day',
             }
 
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('HogQL data table.')
         })
@@ -977,7 +1010,7 @@ describe('summarizing insights', () => {
                     kind: NodeKind.PersonsNode,
                 },
             }
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('person, id, created_at, person.$delete from persons into a data table.')
         })
@@ -987,7 +1020,7 @@ describe('summarizing insights', () => {
                 kind: NodeKind.RecentPerformancePageViewNode,
                 dateRange: { date_from: '-7d' },
             }
-            const result = summarizeInsight(query, {}, flagsOnSummaryContext)
+            const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('Recent page views with performance data.')
         })
