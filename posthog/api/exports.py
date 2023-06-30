@@ -55,6 +55,45 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
+        validated_data = self.validated_data
+        validated_data["team_id"] = self.context["team_id"]
+        validated_data["created_by"] = None
+
+        instance: ExportedAsset = super().create(validated_data)
+
+        self.generate_export_sync(instance, 0.01)
+
+        instance.refresh_from_db()
+
+        insight_id = instance.insight_id
+        dashboard_id = instance.dashboard_id
+        if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
+            try:
+                insight: Insight = Insight.objects.select_related("team__organization").get(id=insight_id)
+                log_activity(
+                    organization_id=insight.team.organization.id,
+                    team_id=self.context["team_id"],
+                    user=None,
+                    item_id=insight_id,  # Type: ignore
+                    scope="Insight",
+                    activity="exported for " + reason,
+                    detail=Detail(
+                        name=insight.name if insight.name else insight.derived_name,
+                        short_id=insight.short_id,
+                        changes=[
+                            Change(
+                                type="Insight", action="exported", field="export_format", after=instance.export_format
+                            )
+                        ],
+                    ),
+                )
+            except Insight.DoesNotExist as ex:
+                logger.warn("insight_exports.unknown_insight", exception=ex, insight_id=insight_id)
+                pass
+
+        return instance
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
@@ -62,21 +101,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         instance: ExportedAsset = super().create(validated_data)
 
-        task = exporter.export_asset.delay(instance.id)
-        try:
-            task.get(timeout=10)
-            instance.refresh_from_db()
-        except celery.exceptions.TimeoutError:
-            # If the rendering times out - fine, the frontend will poll instead for the response
-            pass
-        except requests.exceptions.MissingSchema:
-            # regression test see https://github.com/PostHog/posthog/issues/11204
-            pass
-        except NotImplementedError as ex:
-            logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)
-            raise serializers.ValidationError(
-                {"export_format": ["This type of export is not supported for this resource."]}
-            )
+        self.generate_export_sync(instance)
 
         report_user_action(request.user, "export created", instance.get_analytics_metadata())
 
@@ -109,6 +134,24 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 pass
 
         return instance
+
+    @staticmethod
+    def generate_export_sync(instance: ExportedAsset, timeout: float = 10) -> None:
+        task = exporter.export_asset.delay(instance.id)
+        try:
+            task.get(timeout=timeout)
+            instance.refresh_from_db()
+        except celery.exceptions.TimeoutError:
+            # If the rendering times out - fine, the frontend will poll instead for the response
+            pass
+        except requests.exceptions.MissingSchema:
+            # regression test see https://github.com/PostHog/posthog/issues/11204
+            pass
+        except NotImplementedError as ex:
+            logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)
+            raise serializers.ValidationError(
+                {"export_format": ["This type of export is not supported for this resource."]}
+            )
 
 
 class ExportedAssetViewSet(

@@ -8,14 +8,16 @@ from typing import List, Literal, Optional, Union, cast
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.constants import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
-    CLICKHOUSE_FUNCTIONS,
-    FIRST_ARG_DATETIME_FUNCTIONS,
-    HOGQL_AGGREGATIONS,
     MAX_SELECT_RETURNED_ROWS,
     HogQLSettings,
+)
+from posthog.hogql.functions import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
+    HOGQL_AGGREGATIONS,
     ADD_TIMEZONE_TO_FUNCTIONS,
-    HOGQL_FUNCTIONS,
+    HOGQL_POSTHOG_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable
@@ -27,6 +29,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
+from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_types
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
@@ -67,6 +70,7 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
 
     context.database = context.database or create_hogql_database(context.team_id)
+
     node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
@@ -447,22 +451,21 @@ class _Printer(Visitor):
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
-            required_arg_count = HOGQL_AGGREGATIONS[node.name]
+            func_meta = HOGQL_AGGREGATIONS[node.name]
 
-            if isinstance(required_arg_count, int) and required_arg_count != len(node.args):
-                raise HogQLException(
-                    f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
-                )
-            if isinstance(required_arg_count, tuple) and (
-                (required_arg_count[0] is not None and len(node.args) < required_arg_count[0])
-                or (required_arg_count[1] is not None and len(node.args) > required_arg_count[1])
-            ):
-                if required_arg_count[1] is None:
-                    raise HogQLException(
-                        f"Aggregation '{node.name}' requires at least {required_arg_count[0]} argument{'s' if required_arg_count[0] != 1 else ''}, found {len(node.args)}"
-                    )
-                raise HogQLException(
-                    f"Aggregation '{node.name}' requires between {required_arg_count[0] or '0'} and {required_arg_count[1] or 'unlimited'} arguments, found {len(node.args)}"
+            validate_function_args(
+                node.args, func_meta.min_args, func_meta.max_args, node.name, function_term="aggregation"
+            )
+            if func_meta.min_params:
+                if node.params is None:
+                    raise HogQLException(f"Aggregation '{node.name}' requires parameters in addition to arguments")
+                validate_function_args(
+                    node.params,
+                    func_meta.min_params,
+                    func_meta.max_params,
+                    node.name,
+                    function_term="aggregation",
+                    argument_term="parameter",
                 )
 
             # check that we're not running inside another aggregate
@@ -472,30 +475,22 @@ class _Printer(Visitor):
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
-            translated_args = ", ".join([self.visit(arg) for arg in node.args])
-            if node.distinct:
-                translated_args = f"DISTINCT {translated_args}"
-            return f"{node.name}({translated_args})"
+            args = [self.visit(arg) for arg in node.args]
+            params = [self.visit(param) for param in node.params] if node.params is not None else None
 
-        elif node.name in CLICKHOUSE_FUNCTIONS:
-            clickhouse_name, min_args, max_args = CLICKHOUSE_FUNCTIONS[node.name]
+            params_part = f"({', '.join(params)})" if params is not None else ""
+            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
+            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
 
-            if min_args is not None and len(node.args) < min_args:
-                if min_args == max_args:
-                    raise HogQLException(
-                        f"Function '{node.name}' expects {min_args} arguments. Passed {len(node.args)}."
-                    )
-                raise HogQLException(
-                    f"Function '{node.name}' expects at least {min_args} arguments. Passed {len(node.args)}."
-                )
+        elif node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
+            func_meta = HOGQL_CLICKHOUSE_FUNCTIONS[node.name]
 
-            if max_args is not None and len(node.args) > max_args:
-                if min_args == max_args:
-                    raise HogQLException(
-                        f"Function '{node.name}' expects {max_args} arguments. Passed {len(node.args)}."
-                    )
-                raise HogQLException(
-                    f"Function '{node.name}' expects at most least {max_args} arguments. Passed {len(node.args)}."
+            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            if func_meta.min_params:
+                if node.params is None:
+                    raise HogQLException(f"Function '{node.name}' requires parameters in addition to arguments")
+                validate_function_args(
+                    node.params, func_meta.min_params, func_meta.max_params, node.name, argument_term="parameter"
                 )
 
             if self.dialect == "clickhouse":
@@ -532,8 +527,8 @@ class _Printer(Visitor):
                 else:
                     args = [self.visit(arg) for arg in node.args]
 
-                if (clickhouse_name == "now64" and len(node.args) == 0) or (
-                    clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
+                if (func_meta.clickhouse_name == "now64" and len(node.args) == 0) or (
+                    func_meta.clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
                 ):
                     # must add precision if adding timezone in the next step
                     args.append("6")
@@ -541,13 +536,17 @@ class _Printer(Visitor):
                 if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
-                return f"{clickhouse_name}({', '.join(args)})"
+                params = [self.visit(param) for param in node.params] if node.params is not None else None
+
+                params_part = f"({', '.join(params)})" if params is not None else ""
+                args_part = f"({', '.join(args)})"
+                return f"{func_meta.clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
-        elif node.name in HOGQL_FUNCTIONS:
+        elif node.name in HOGQL_POSTHOG_FUNCTIONS:
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
-            all_function_names = list(CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
+            all_function_names = list(HOGQL_CLICKHOUSE_FUNCTIONS.keys()) + list(HOGQL_AGGREGATIONS.keys())
             close_matches = get_close_matches(node.name, all_function_names, 1)
             if len(close_matches) > 0:
                 raise HogQLException(

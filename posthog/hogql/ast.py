@@ -21,6 +21,7 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FieldOrTable,
     DatabaseField,
+    StringArrayDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -240,6 +241,7 @@ class TupleType(ConstantType):
 class CallType(Type):
     name: str
     arg_types: List[ConstantType]
+    param_types: Optional[List[ConstantType]] = None
     return_type: ConstantType
 
     def resolve_constant_type(self) -> ConstantType:
@@ -294,6 +296,8 @@ class FieldType(Type):
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StringArrayDatabaseField):
+            return FieldType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
@@ -432,8 +436,14 @@ class Placeholder(Expr):
 
 class Call(Expr):
     name: str
+    """Function name"""
     args: List[Expr]
-    distinct: Optional[bool] = None
+    params: Optional[List[Expr]] = None
+    """
+    Parameters apply to some aggregate functions, see ClickHouse docs:
+    https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
+    """
+    distinct: bool = False
 
 
 class JoinConstraint(Expr):

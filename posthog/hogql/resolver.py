@@ -4,11 +4,12 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.constants import HOGQL_FUNCTIONS
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.cohort import cohort
+from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -278,7 +279,8 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if node.name in HOGQL_FUNCTIONS:
+        if func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
 
@@ -289,7 +291,17 @@ class Resolver(CloningVisitor):
                 arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
             else:
                 arg_types.append(ast.UnknownType())
-        node.type = ast.CallType(name=node.name, arg_types=arg_types, return_type=ast.UnknownType())
+        param_types: Optional[List[ast.ConstantType]] = None
+        if node.params is not None:
+            param_types = []
+            for param in node.params:
+                if param.type:
+                    param_types.append(param.type.resolve_constant_type() or ast.UnknownType())
+                else:
+                    param_types.append(ast.UnknownType())
+        node.type = ast.CallType(
+            name=node.name, arg_types=arg_types, param_types=param_types, return_type=ast.UnknownType()
+        )
         return node
 
     def visit_lambda(self, node: ast.Lambda):

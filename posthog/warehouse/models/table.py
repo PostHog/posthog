@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     StringJSONDatabaseField,
     BooleanDatabaseField,
+    StringArrayDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
 import re
@@ -29,7 +30,7 @@ ClickhouseHogqlMapping = {
     "Int32": IntegerDatabaseField,
     "Int64": IntegerDatabaseField,
     "Tuple": StringJSONDatabaseField,
-    "Array": StringJSONDatabaseField,
+    "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
 }
