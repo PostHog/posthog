@@ -54,7 +54,11 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
 
     def test_with_no_feature_flag_properties_on_actions(self):
         action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(action=action_credit_card, event="paid", properties=[{"$os": "Windows"}])
+        ActionStep.objects.create(
+            action=action_credit_card,
+            event="paid",
+            properties=[{"key": "$os", "type": "event", "value": ["Windows"], "operator": "exact"}],
+        )
 
         ActionStep.objects.create(action=action_credit_card, event="$autocapture", tag_name="button", text="Pay $10")
 
@@ -88,7 +92,11 @@ class TestUtils(ClickhouseTestMixin, APIBaseTest):
 
     def test_with_feature_flag_properties_on_actions(self):
         action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(action=action_credit_card, event="paid", properties=[{"$os": "Windows"}])
+        ActionStep.objects.create(
+            action=action_credit_card,
+            event="paid",
+            properties=[{"key": "$os", "type": "event", "value": ["Windows"], "operator": "exact"}],
+        )
 
         filter = Filter(
             data={
