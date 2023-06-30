@@ -118,7 +118,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement,
         strategy: 'fixed',
         middleware: [
-            offset(4),
+            offset(showArrow ? 8 : 4),
             ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
             shift(),
             size({
