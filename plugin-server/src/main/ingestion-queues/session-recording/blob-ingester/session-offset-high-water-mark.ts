@@ -53,6 +53,11 @@ export class SessionOffsetHighWaterMark {
                 // invalid JSON
                 return null
             } else {
+                captureException(error, {
+                    tags: {
+                        description,
+                    },
+                })
                 throw error
             }
         } finally {
