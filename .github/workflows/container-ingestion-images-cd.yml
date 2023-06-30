@@ -7,13 +7,13 @@
 #   as base image the container image from the previous step. The image is
 #   then pushed to AWS ECR.
 #
-name: Container Images CD
+name: Ingestion Container Images CD
 
 on:
     push:
         branches:
             - master
-    paths-ignore:
+    paths:
       - 'plugin-server/**'
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
@@ -130,19 +130,15 @@ jobs:
                   app_id: ${{ secrets.DEPLOYER_APP_ID }}
                   private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
-            - name: Trigger PostHog Cloud deployment
-              # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
-              # as this action is now deprecated.
-              uses: mvasigh/dispatch-action@main
+            - name: Trigger Ingestion Cloud deployment
+              if: steps.check_changes_plugins.outputs.changed != ''
+              uses: peter-evans/repository-dispatch@v1
               with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repo: posthog-cloud-infra
-                  owner: PostHog
-                  event_type: posthog_cloud_build
-                  # TODO: switch image_tag to a SHA. We currently use 'latest'
-                  # to avoid checksum mismatch on multiple platforms.
-                  message: |
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  repository: PostHog/charts
+                  event-type: ingestion_deploy
+                  client-payload: |
                       {
-                        "image_tag": "latest",
-                        "context": ${{ toJson(github) }}
+                        "image_tag": "${{ steps.build.outputs.digest }}",
                       }
+
