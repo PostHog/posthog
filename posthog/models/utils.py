@@ -275,7 +275,7 @@ def execute_with_timeout(timeout: int, database: str = 'default') -> Iterator[Cu
     Sets a transaction local timeout for the current transaction.
     """
     print('database is: ', database)
-    with transaction.atomic():
+    with transaction.atomic(using=database):
         with connections[database].cursor() as cursor:
             print('using connection: ', cursor.connection)
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])

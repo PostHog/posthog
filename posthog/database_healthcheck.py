@@ -43,8 +43,10 @@ class DatabaseHealthcheck:
         return round(time.time() / self.time_interval)
 
     def is_postgres_connected_check(self) -> bool:
+        from posthog.models.feature_flag.flag_matching import DATABASE_FOR_FLAG_MATCHING
+
         try:
-            with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+            with connections[DATABASE_FOR_FLAG_MATCHING()].cursor() as cursor:
                 cursor.execute("SELECT 1")
             return True
         except Exception:

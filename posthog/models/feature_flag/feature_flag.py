@@ -298,7 +298,11 @@ def set_feature_flags_for_team_in_cache(
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
-    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+    try:
+        cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+    except Exception:
+        # redis is unavailable
+        capture_exception()
 
     return all_feature_flags
 

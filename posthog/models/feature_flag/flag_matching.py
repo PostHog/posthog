@@ -95,8 +95,8 @@ class FlagsMatcherCache:
         if self.failed_to_fetch_flags:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
-                group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING()):
+                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(team_id=self.team_id)
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
         except DatabaseError as err:
             self.failed_to_fetch_flags = True
@@ -324,7 +324,6 @@ class FeatureFlagMatcher:
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
         try:
-            print('query_conditions executing', DATABASE_FOR_FLAG_MATCHING(), settings.READ_REPLICA_OPT_IN)
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING()):
@@ -334,7 +333,7 @@ class FeatureFlagMatcher:
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
                 )
                 print('person query is using connection: ', person_query.db)
-                basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
+                basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(team_id=team_id)
                 group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -511,23 +510,24 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def get_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str]) -> Dict[str, str]:
+def get_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], using_database: str = 'default') -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
 
     person_and_distinct_ids = list(
-        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team_id=team_id).values_list(
+        PersonDistinctId.objects.using(using_database).filter(distinct_id__in=distinct_ids, team_id=team_id).values_list(
             "person_id", "distinct_id"
         )
     )
+    print('person and ids: ', person_and_distinct_ids)
 
     person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
 
     person_ids = list(person_id_to_distinct_id.keys())
 
     for feature_flag, override, _ in sorted(
-        FeatureFlagHashKeyOverride.objects.filter(person_id__in=person_ids, team_id=team_id).values_list(
+        FeatureFlagHashKeyOverride.objects.using(using_database).filter(person_id__in=person_ids, team_id=team_id).values_list(
             "feature_flag_key", "hash_key", "person_id"
         ),
         key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
@@ -602,6 +602,7 @@ def get_all_feature_flags(
     # no matter what other distinct_ids the user has.
     # FeatureFlagHashKeyOverride stores a distinct_id (hash_key_override) given a flag, person_id, and team_id.
 
+    writing_hash_key_override = False
     # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
     # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
     if hash_key_override is not None:
@@ -619,6 +620,7 @@ def get_all_feature_flags(
             # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
 
             set_feature_flag_hash_key_overrides(team_id, [distinct_id, hash_key_override], hash_key_override)
+            writing_hash_key_override = True
 
         except Exception as e:
             # If the database is in read-only mode, we can't handle experience continuity flags,
@@ -629,12 +631,16 @@ def get_all_feature_flags(
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
+        # when we're writing a hash_key_override, we query the main database, not the replica
+        # this is because we need to make sure the write is successful before we read it
+        using_database = 'default' if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING()
         person_overrides = {}
-        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
             target_distinct_ids = [distinct_id]
             if hash_key_override is not None:
                 target_distinct_ids.append(str(hash_key_override))
-            person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids)
+            person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids, using_database)
+            print('found person overrides', person_overrides)
 
     except Exception:
         # database is down, we can't handle experience continuity flags at all.
