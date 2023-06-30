@@ -6,13 +6,11 @@ import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId', 'currentTeam'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId', 'currentTeam']],
     }),
 
     selectors({
@@ -24,7 +22,6 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
                 placement: DashboardPlacement.ProjectHomepage,
             }),
         ],
-        allowQueryInsights: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
     }),
 
     loaders(({ values }) => ({
@@ -33,7 +30,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             {
                 loadRecentInsights: async () => {
                     return await api.get(
-                        `api/projects/${values.currentTeamId}/insights/my_last_viewed?include_query_insights=${values.allowQueryInsights}`
+                        `api/projects/${values.currentTeamId}/insights/my_last_viewed?include_query_insights=true`
                     )
                 },
             },

@@ -83,7 +83,6 @@ function TaxonomyIntroductionSection(): JSX.Element {
                     className="mt-2 font-semibold"
                 >
                     Learn more about Data Management
-                    <IconOpenInNew style={{ marginLeft: 8 }} />
                 </Link>
             </DefinitionPopover.Section>
         </>
@@ -392,16 +391,16 @@ function DefinitionEdit(): JSX.Element {
                 <DefinitionPopover.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
-                        <Link target="_blank" to={viewFullDetailUrl}>
-                            <LemonButton
-                                sideIcon={<IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />}
-                                disabledReason={definitionLoading ? 'Loading…' : undefined}
-                                type="secondary"
-                                size="small"
-                            >
-                                More options
-                            </LemonButton>
-                        </Link>
+                        <LemonButton
+                            sideIcon={<IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />}
+                            disabledReason={definitionLoading ? 'Loading…' : undefined}
+                            type="secondary"
+                            size="small"
+                            to={viewFullDetailUrl}
+                            targetBlank
+                        >
+                            More options
+                        </LemonButton>
                     ) : (
                         <div className="flex-1" />
                     )}

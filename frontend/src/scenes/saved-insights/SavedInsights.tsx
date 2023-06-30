@@ -295,7 +295,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
-                    overlay: overlayForNewInsightMenu(dataAttr, !!featureFlags[FEATURE_FLAGS.HOGQL]),
+                    overlay: overlayForNewInsightMenu(dataAttr),
                 },
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
@@ -346,9 +346,6 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingDashboardQueries = !!featureFlags[FEATURE_FLAGS.HOGQL]
-
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
@@ -387,7 +384,6 @@ export function SavedInsights(): JSX.Element {
                                             aggregationLabel,
                                             cohortsById,
                                             mathDefinitions,
-                                            isUsingDashboardQueries,
                                         })}
                                     </i>
                                 )}

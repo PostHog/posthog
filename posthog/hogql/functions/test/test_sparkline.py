@@ -19,4 +19,4 @@ class TestSparkline(BaseTest):
     def test_sparkline_error(self):
         with self.assertRaises(HogQLException) as e:
             execute_hogql_query(f"SELECT sparkline()", self.team)
-        self.assertEqual(str(e.exception), "sparkline() takes exactly one argument")
+        self.assertEqual(str(e.exception), "Function 'sparkline' expects 1 argument, found 0")

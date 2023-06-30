@@ -415,6 +415,12 @@ class TestParser(BaseTest):
             ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
 
+    def test_calls_with_params(self):
+        self.assertEqual(
+            self._expr("quantile(0.95)(foo)"),
+            ast.Call(name="quantile", args=[ast.Field(chain=["foo"])], params=[ast.Constant(value=0.95)]),
+        )
+
     def test_alias(self):
         self.assertEqual(
             self._expr("1 as asd"),
