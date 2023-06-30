@@ -1,6 +1,6 @@
 import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
-import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
+import { queryNodeToFilter, seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
 import { getEventNamesForAction } from 'lib/utils'
 import {
     isInsightQueryWithBreakdown,
@@ -8,8 +8,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import equal from 'fast-deep-equal'
+import { compareFilters } from 'scenes/insights/utils/compareFilters'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
@@ -94,8 +93,10 @@ export const getCachedResults = (
     }
 
     // only set the cached result when the filters match the currently set ones
-    const cachedQueryNode = filtersToQueryNode(cachedInsight.filters)
-    if (!equal(cachedQueryNode, query)) {
+    const cachedFilters = cachedInsight.filters
+    const currentFilters = queryNodeToFilter(query)
+
+    if (!compareFilters(cachedFilters, currentFilters)) {
         return undefined
     }
 
