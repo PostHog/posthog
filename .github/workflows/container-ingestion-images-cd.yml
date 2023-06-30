@@ -16,7 +16,7 @@ on:
     paths:
       - 'plugin-server/**'
 
-concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
+concurrency: 'posthog-container-images'
 
 jobs:
     posthog_build:
