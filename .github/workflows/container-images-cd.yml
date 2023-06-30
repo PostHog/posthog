@@ -145,7 +145,7 @@ jobs:
                         "context": ${{ toJson(github) }}
                       }
 
-            - name: Check for changes in posthog directory
+            - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
                 echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
@@ -159,6 +159,6 @@ jobs:
                   event-type: ingestion_deploy
                   client-payload: |
                       {
-                        "image_tag": "latest",
+                        "image_tag": "${{ steps.build.outputs.digest }}",
                       }
 
