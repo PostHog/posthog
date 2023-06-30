@@ -121,6 +121,8 @@ class PropertySwapper(CloningVisitor):
         return node
 
     def _add_notice(self, node: ast.Field, message: str):
+        if node.start is None or node.end is None:
+            return  # Don't add notices for nodes without location (e.g. from EventsQuery JSON)
         # Only highlight the last part of the chain
         start = max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1])))
         self.context.notices.append(
