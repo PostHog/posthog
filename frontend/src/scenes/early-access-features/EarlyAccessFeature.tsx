@@ -40,8 +40,14 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
-        useActions(earlyAccessFeatureLogic)
+    const {
+        submitEarlyAccessFeatureRequest,
+        cancel,
+        editFeature,
+        updateStage,
+        deleteEarlyAccessFeature,
+        toggleImplementOptInInstructionsModal,
+    } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
     return (
@@ -73,6 +79,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         ) : (
                             <>
+                                <div className="flex flex-row justify-between">
+                                    <LemonButton
+                                        key="help-button"
+                                        type="secondary"
+                                        onClick={toggleImplementOptInInstructionsModal}
+                                        sideIcon={<IconHelpOutline />}
+                                    >
+                                        Implement public opt-in
+                                    </LemonButton>
+                                </div>
+                                <LemonDivider vertical />
                                 <LemonButton
                                     data-attr="delete-feature"
                                     status="danger"
@@ -391,30 +408,15 @@ interface PersonsTableByFilterProps {
 }
 
 function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
-    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
-
     return (
-        <div className="space-y-2">
-            <div className="flex flex-row justify-between">
-                <LemonButton
-                    key="help-button"
-                    onClick={toggleImplementOptInInstructionsModal}
-                    sideIcon={<IconHelpOutline />}
-                >
-                    Implement public opt-in
-                </LemonButton>
-            </div>
-            <Query
-                query={{
-                    kind: NodeKind.DataTableNode,
-                    columns: ['*', 'person'],
-                    source: { kind: NodeKind.PersonsNode, fixedProperties: properties },
-                    full: true,
-                }}
-                context={{
-                    emptyState: emptyState,
-                }}
-            />
-        </div>
+        <Query
+            query={{
+                kind: NodeKind.DataTableNode,
+                columns: ['*', 'person'],
+                source: { kind: NodeKind.PersonsNode, fixedProperties: properties },
+                full: true,
+            }}
+            context={{ emptyState: emptyState }}
+        />
     )
 }
