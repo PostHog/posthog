@@ -27,6 +27,8 @@ ClickhouseHogqlMapping = {
     "Float16": IntegerDatabaseField,
     "Float32": IntegerDatabaseField,
     "Float64": IntegerDatabaseField,
+    "Int8": IntegerDatabaseField,
+    "Int16": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
     "Int64": IntegerDatabaseField,
     "Tuple": StringJSONDatabaseField,
