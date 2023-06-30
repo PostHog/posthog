@@ -70,6 +70,7 @@ def prepare_ast_for_printing(
 ) -> ast.Expr:
 
     context.database = context.database or create_hogql_database(context.team_id)
+
     node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
