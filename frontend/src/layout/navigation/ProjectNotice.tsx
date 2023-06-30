@@ -95,6 +95,10 @@ export function ProjectNotice(): JSX.Element | null {
             },
             type: 'warning',
         },
+        is_impersonated: {
+            message: 'You are currently impersonating another user.',
+            type: 'warning',
+        },
     }
 
     const relevantNotice = NOTICES[projectNoticeVariant]

@@ -56,7 +56,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 function CohortDay({ percentage, latest }: { percentage: number; latest: boolean }): JSX.Element {
     const backgroundColorSaturation = percentage / 100
     const backgroundColor = gradateColor(BRAND_BLUE_HSL, backgroundColorSaturation, 0.1)
-    const textColor = backgroundColorSaturation > 0.4 ? 'var(--white)' : 'var(--default)' // Ensure text contrast
+    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--default)' // Ensure text contrast
 
     const numberCell = (
         <div

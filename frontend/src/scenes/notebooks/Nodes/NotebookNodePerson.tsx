@@ -18,8 +18,14 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { person, personLoading } = useValues(logic)
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Person} title="Person" {...props} href={urls.person(id)}>
-            <div className="border bg-inverse rounded">
+        <NodeWrapper
+            nodeType={NotebookNodeType.Person}
+            title="Person"
+            {...props}
+            href={urls.person(id)}
+            resizeable={false}
+        >
+            <div className="border bg-bg-light rounded">
                 <div className="p-4">
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />

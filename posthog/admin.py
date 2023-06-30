@@ -24,8 +24,10 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.warehouse.models import DataWarehouseTable
 
 admin.site.register(FeatureFlag)
+admin.site.register(DataWarehouseTable)
 
 
 @admin.register(Insight)

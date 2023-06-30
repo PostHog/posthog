@@ -15,7 +15,7 @@ import {
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -39,8 +39,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
     }
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
@@ -54,8 +54,8 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
     }
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
@@ -155,21 +155,23 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
     if (include_event_types) {
-        let matchCount = 0
         if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
-            matchCount++
         }
         if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
-            matchCount++
         }
         if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
-            matchCount++
         }
-        if (matchCount === 0 || matchCount === Object.keys(PathType).length) {
+        if (
+            (humanEventTypes.length === 0 && !include_event_types.includes(PathType.HogQL)) ||
+            humanEventTypes.length === 3
+        ) {
             humanEventTypes = ['all events']
+        }
+        if (include_event_types.includes(PathType.HogQL)) {
+            humanEventTypes.push('HogQL expression')
         }
     }
     return humanEventTypes

@@ -6,18 +6,18 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
     TypedDict,
     Union,
     cast,
-    Literal,
 )
 
-import dateutil
 import requests
 import structlog
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
@@ -30,6 +30,7 @@ from posthog.celery import app
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import FlagRequestType
+from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -37,8 +38,8 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day, get_instance_region
+from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
@@ -283,8 +284,14 @@ def capture_event(
     name: str,
     organization_id: str,
     properties: Dict[str, Any],
-    timestamp: Optional[datetime] = None,
+    timestamp: Optional[Union[datetime, str]] = None,
 ) -> None:
+    if timestamp and isinstance(timestamp, str):
+        try:
+            timestamp = parser.isoparse(timestamp)
+        except ValueError:
+            timestamp = None
+
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
@@ -307,6 +314,7 @@ def capture_event(
         pha_client.group_identify("instance", settings.SITE_URL, properties)
 
 
+@timed_log()
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -318,6 +326,7 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -331,6 +340,7 @@ def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -345,6 +355,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -358,6 +369,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
     return results
 
 
+@timed_log()
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -371,6 +383,7 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
     return results
 
 
+@timed_log()
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -395,6 +408,7 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
     return result
 
 
+@timed_log()
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -406,6 +420,7 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     return result
 
 
+@timed_log()
 def get_teams_with_hogql_metric(
     begin: datetime,
     end: datetime,
@@ -435,6 +450,7 @@ def get_teams_with_hogql_metric(
     return result
 
 
+@timed_log()
 def get_teams_with_feature_flag_requests_count_in_period(
     begin: datetime, end: datetime, request_type: FlagRequestType
 ) -> List[Tuple[int, int]]:
@@ -510,7 +526,7 @@ def send_all_org_usage_reports(
 ) -> List[dict]:  # Dict[str, OrgReport]:
     capture_event_name = capture_event_name or "organization usage report"
 
-    at_date = dateutil.parser.parse(at) if at else None
+    at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
@@ -771,7 +787,8 @@ def send_all_org_usage_reports(
 
         # First capture the events to PostHog
         if not skip_capture_event:
-            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
+            at_date_str = at_date.isoformat() if at_date else None
+            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
 
         # Then capture the events to Billing
         if has_non_zero_usage(full_report):

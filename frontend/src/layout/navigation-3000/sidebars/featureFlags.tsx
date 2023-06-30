@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { navigation3000Logic } from '../navigationLogic'
 import { FuseSearchMatch } from './utils'
+import { groupsModel } from '~/models/groupsModel'
 
 const fuse = new Fuse<FeatureFlagType>([], {
     // Note: For feature flags `name` is the description field
@@ -34,16 +35,19 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             ['currentTeamId'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
+            groupsModel,
+            ['aggregationLabel'],
         ],
         actions: [featureFlagsLogic, ['updateFeatureFlag', 'loadFeatureFlags']],
     }),
     selectors(({ actions }) => ({
         contents: [
-            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentTeamId],
-            (relevantFeatureFlags, featureFlagsLoading, currentTeamId) => [
+            (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentTeamId, s.aggregationLabel],
+            (relevantFeatureFlags, featureFlagsLoading, currentTeamId, aggregationLabel) => [
                 {
                     key: 'feature-flags',
                     title: 'Feature Flags',
+                    loading: featureFlagsLoading,
                     items: relevantFeatureFlags.map(([featureFlag, matches]) => {
                         if (!featureFlag.id) {
                             throw new Error('Feature flag ID should never be missing in the sidebar')
@@ -53,7 +57,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                             name: featureFlag.key,
                             url: urls.featureFlag(featureFlag.id),
                             summary: featureFlag.active ? (
-                                groupFilters(featureFlag.filters.groups, true)
+                                groupFilters(featureFlag.filters, true, aggregationLabel)
                             ) : (
                                 <i>Disabled</i>
                             ),
@@ -135,7 +139,6 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                             status: 'danger',
                                         },
                                     ],
-                                    loading: featureFlagsLoading,
                                 },
                             ],
                         } as ExtendedListItem

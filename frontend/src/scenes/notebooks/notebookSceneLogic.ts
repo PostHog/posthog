@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { Breadcrumb, NotebookMode } from '~/types'
 import { actionToUrl, urlToAction } from 'kea-router'
 
@@ -16,6 +16,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     key(({ shortId }) => shortId),
     connect((props: NotebookSceneLogicProps) => ({
         values: [notebookLogic(props), ['notebook', 'notebookLoading']],
+        actions: [notebookLogic(props), ['loadNotebook']],
     })),
     actions({
         setNotebookMode: (mode: NotebookMode) => ({ mode }),
@@ -67,5 +68,9 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     : urls.notebookEdit(props.shortId)
             },
         }
+    }),
+
+    afterMount(({ actions }) => {
+        actions.loadNotebook()
     }),
 ])

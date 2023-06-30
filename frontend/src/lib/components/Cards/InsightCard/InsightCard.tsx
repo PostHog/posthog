@@ -25,7 +25,6 @@ import {
 } from '~/types'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -52,6 +51,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -227,11 +227,7 @@ export function FilterBasedCardContent({
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
-                    <InsightTimeoutState
-                        isLoading={false}
-                        insightProps={{ dashboardItemId: undefined }}
-                        insightType={insight.filters.insight}
-                    />
+                    <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
                 ) : apiErrored && !loading ? (
                     <InsightErrorState excludeDetail />
                 ) : (
@@ -277,11 +273,9 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueries } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const { timedOutQueryId, erroredQueryId, insightLoading } = useValues(insightLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelLogic(insightLogicProps)
+        funnelDataLogic(insightLogicProps)
     )
 
     let tooFewFunnelSteps = false
@@ -356,7 +350,7 @@ function InsightCardInternal(
                     >
                         {!!insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
-                        ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
+                        ) : canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly />
                         ) : (
                             <QueriesUnsupportedHere />

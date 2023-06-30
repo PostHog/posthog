@@ -11,6 +11,8 @@ import {
     FeatureFlagFilters,
     FeatureFlagGroupType,
     PluginType,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
     SurveyQuestionType,
     SurveyType,
@@ -20,11 +22,12 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginInstallationType } from 'scenes/plugins/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface NewSurvey
     extends Pick<
         Survey,
+        | 'id'
         | 'name'
         | 'description'
         | 'type'
@@ -35,12 +38,16 @@ export interface NewSurvey
         | 'linked_flag'
         | 'targeting_flag'
         | 'archived'
+        | 'appearance'
     > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
+export const defaultSurveyAppearance = { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' }
+
 const NEW_SURVEY: NewSurvey = {
+    id: 'new',
     name: '',
     description: '',
     questions: [{ type: SurveyQuestionType.Open, question: '' }],
@@ -53,24 +60,30 @@ const NEW_SURVEY: NewSurvey = {
     end_date: null,
     conditions: null,
     archived: false,
+    appearance: defaultSurveyAppearance,
 }
 
-export const getSurveyEventName = (surveyName: string): string => {
-    return `${surveyName} survey sent`
-}
+export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
+export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
-            select: ['*', 'event', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
+            select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
-            after: '-30d',
-            limit: 100,
-            event: getSurveyEventName(surveyName),
+            where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+            after: survey.created_at,
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: survey.id,
+                },
+            ],
         },
         propertiesViaUrl: true,
         showExport: true,
@@ -82,8 +95,28 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
     return surveyDataQuery
 }
 
+export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
+    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+    return {
+        surveysShown: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: surveysShownHogqlQuery },
+        },
+        surveysDismissed: {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.HogQLQuery, query: surveysDismissedHogqlQuery },
+        },
+    }
+}
+
 export interface SurveyLogicProps {
     id: string | 'new'
+}
+
+export interface SurveyMetricsQueries {
+    surveysShown: DataTableNode
+    surveysDismissed: DataTableNode
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -91,7 +124,19 @@ export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        actions: [surveysLogic, ['loadSurveys'], pluginsLogic, ['installPlugin']],
+        actions: [
+            surveysLogic,
+            ['loadSurveys'],
+            eventUsageLogic,
+            [
+                'reportSurveyCreated',
+                'reportSurveyLaunched',
+                'reportSurveyEdited',
+                'reportSurveyArchived',
+                'reportSurveyStopped',
+                'reportSurveyViewed',
+            ],
+        ],
         values: [pluginsLogic, ['installedPlugins']],
     })),
     actions({
@@ -100,18 +145,19 @@ export const surveyLogic = kea<surveyLogicType>([
         updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
-        setInstallingPlugin: (installing: boolean) => ({ installing }),
         launchSurvey: true,
-        installSurveyPlugin: true,
         stopSurvey: true,
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
+        setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, actions }) => ({
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.surveys.get(props.id)
+                    const survey = await api.surveys.get(props.id)
+                    actions.reportSurveyViewed(survey)
+                    return survey
                 }
                 return { ...NEW_SURVEY }
             },
@@ -125,12 +171,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = dayjs()
                 return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
             },
+            stopSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+            },
         },
     })),
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            if (survey.start_date && survey.id !== 'new') {
+                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
+                actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
                 actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
@@ -140,28 +190,24 @@ export const surveyLogic = kea<surveyLogicType>([
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
             router.actions.replace(urls.survey(survey.id))
+            actions.reportSurveyCreated(survey)
         },
         updateSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
+            actions.reportSurveyEdited(survey)
             actions.loadSurveys()
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
+            actions.reportSurveyLaunched(survey)
         },
-        installSurveyPlugin: async (_, breakpoint) => {
-            actions.setInstallingPlugin(true)
-            const installPl = async (): Promise<void> =>
-                actions.installPlugin('https://github.com/PostHog/feature-surveys', PluginInstallationType.Repository)
-            await installPl()
-            await breakpoint(600)
-            actions.setInstallingPlugin(false)
-        },
-        stopSurvey: async () => {
-            const endDate = dayjs()
-            actions.updateSurvey({ end_date: endDate.toISOString() })
+        stopSurveySuccess: ({ survey }) => {
+            actions.loadSurveys()
+            actions.reportSurveyStopped(survey)
         },
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
@@ -213,10 +259,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDataTableQuery: (_, { query }) => query,
             },
         ],
-        installingPlugin: [
-            false,
+        surveyMetricsQueries: [
+            null as SurveyMetricsQueries | null,
             {
-                setInstallingPlugin: (_, { installing }) => installing,
+                setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
             },
         ],
     }),

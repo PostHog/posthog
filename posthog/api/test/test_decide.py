@@ -19,11 +19,11 @@ from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
-from posthog.utils import is_postgres_connected_cached_check
+from posthog.database_healthcheck import postgres_healthcheck
 from posthog import redis
 
 
-@patch("posthog.models.feature_flag.flag_matching.is_postgres_connected_cached_check", return_value=True)
+@patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
@@ -179,7 +179,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self._update_team({"autocapture_exceptions_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["autocaptureExceptions"], True)
+        self.assertEqual(response["autocaptureExceptions"], {"errors_to_ignore": [], "endpoint": "/e/"})
+
+    def test_exception_autocapture_errors_to_ignore(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["autocaptureExceptions"], False)
+
+        self._update_team({"autocapture_exceptions_opt_in": True})
+        self._update_team(
+            {"autocapture_exceptions_errors_to_ignore": ["ResizeObserver loop limit exceeded", ".* bot .*"]}
+        )
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["autocaptureExceptions"],
+            {"errors_to_ignore": ["ResizeObserver loop limit exceeded", ".* bot .*"], "endpoint": "/e/"},
+        )
 
     def test_user_session_recording_opt_in_wildcard_domain(self, *args):
         # :TRICKY: Test for regression around caching
@@ -1587,7 +1603,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
         self.assertEqual(response["featureFlags"], {})
-        self.assertEqual(response["autocaptureExceptions"], True)
+        self.assertEqual(response["autocaptureExceptions"], {"errors_to_ignore": [], "endpoint": "/e/"})
 
         # now database is down
         with connection.execute_wrapper(QueryTimeoutWrapper()):
@@ -1600,7 +1616,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)
-            self.assertEqual(response["autocaptureExceptions"], True)
+            self.assertEqual(response["autocaptureExceptions"], {"errors_to_ignore": [], "endpoint": "/e/"})
             self.assertEqual(response["featureFlags"], {})
 
     def test_decide_with_json_and_numeric_distinct_ids(self, *args):
@@ -1910,7 +1926,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     def setUp(self, *args):
         cache.clear()
 
-        is_postgres_connected_cached_check.cache_clear()
+        postgres_healthcheck.cache_clear()
 
         super().setUp()
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
@@ -2034,7 +2050,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         self._post_decide(api_version=3, origin="https://random.example.com")
 
         # remove database check cache values
-        is_postgres_connected_cached_check.cache_clear()
+        postgres_healthcheck.cache_clear()
 
         with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
             self
@@ -2042,9 +2058,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-
-            self.assertEqual(is_postgres_connected_cached_check.cache_info().hits, 2)
-            self.assertEqual(is_postgres_connected_cached_check.cache_info().misses, 1)
 
             self.assertEqual(
                 response["sessionRecording"],

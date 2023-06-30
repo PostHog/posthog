@@ -295,11 +295,11 @@
               "type": "string"
           },
           {
-              "key": "start_time",
+              "key": "min_first_timestamp",
               "type": "datetime"
           },
           {
-              "key": "end_time",
+              "key": "max_last_timestamp",
               "type": "datetime"
           },
           {
@@ -335,6 +335,10 @@
               "type": "integer"
           },
           {
+              "key": "size",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -354,6 +358,14 @@
                   "pdi",
                   "person_id"
               ]
+          },
+          {
+              "key": "start_time",
+              "type": "datetime"
+          },
+          {
+              "key": "end_time",
+              "type": "datetime"
           }
       ],
       "cohort_people": [
@@ -432,6 +444,10 @@
               "type": "integer"
           },
           {
+              "key": "size",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -461,6 +477,11 @@
           {
               "key": "person_id",
               "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           },
           {
               "key": "is_deleted",
@@ -529,17 +550,17 @@
               "type": "integer"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "sign",
               "type": "integer"
           },
           {
               "key": "version",
               "type": "integer"
-          },
-          {
-              "key": "person",
-              "type": "lazy_table",
-              "table": "persons"
           }
       ],
       "raw_person_overrides": [
@@ -863,11 +884,11 @@
               "type": "string"
           },
           {
-              "key": "start_time",
+              "key": "min_first_timestamp",
               "type": "datetime"
           },
           {
-              "key": "end_time",
+              "key": "max_last_timestamp",
               "type": "datetime"
           },
           {
@@ -903,6 +924,10 @@
               "type": "integer"
           },
           {
+              "key": "size",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -922,6 +947,14 @@
                   "pdi",
                   "person_id"
               ]
+          },
+          {
+              "key": "start_time",
+              "type": "datetime"
+          },
+          {
+              "key": "end_time",
+              "type": "datetime"
           }
       ],
       "cohort_people": [
@@ -1000,6 +1033,10 @@
               "type": "integer"
           },
           {
+              "key": "size",
+              "type": "integer"
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
@@ -1029,6 +1066,11 @@
           {
               "key": "person_id",
               "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           },
           {
               "key": "is_deleted",
@@ -1097,17 +1139,17 @@
               "type": "integer"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "sign",
               "type": "integer"
           },
           {
               "key": "version",
               "type": "integer"
-          },
-          {
-              "key": "person",
-              "type": "lazy_table",
-              "table": "persons"
           }
       ],
       "raw_person_overrides": [

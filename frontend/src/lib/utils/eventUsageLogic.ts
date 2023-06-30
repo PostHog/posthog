@@ -28,6 +28,7 @@ import {
     AccessLevel,
     RecordingReportLoadTimes,
     SessionRecordingPlayerTab,
+    Survey,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -531,10 +532,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        // This is temporary for use with the NEW_EMPTY_STATES experiment and should be removed when that is.
-        reportEmptyStateShown: (product: string) => ({
-            product,
+        reportSurveyViewed: (survey: Survey) => ({
+            survey,
         }),
+        reportSurveyCreated: (survey: Survey) => ({ survey }),
+        reportSurveyEdited: (survey: Survey) => ({ survey }),
+        reportSurveyLaunched: (survey: Survey) => ({ survey }),
+        reportSurveyStopped: (survey: Survey) => ({ survey }),
+        reportSurveyArchived: (survey: Survey) => ({ survey }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1038,7 +1043,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlaylistCreated: (properties) => {
             posthog.capture('recording playlist created', properties)
         },
-
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
@@ -1295,9 +1299,54 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 language,
             })
         },
-        reportEmptyStateShown: ({ product }) => {
-            posthog.capture('product empty state shown', {
-                product,
+        reportSurveyCreated: ({ survey }) => {
+            posthog.capture('survey created', {
+                name: survey.name,
+                id: survey.id,
+                questions_length: survey.questions.length,
+            })
+        },
+        reportSurveyLaunched: ({ survey }) => {
+            posthog.capture('survey launched', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
+            })
+        },
+        reportSurveyViewed: ({ survey }) => {
+            posthog.capture('survey viewed', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
+                end_date: survey.end_date,
+            })
+        },
+        reportSurveyStopped: ({ survey }) => {
+            posthog.capture('survey stopped', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
+                end_date: survey.end_date,
+            })
+        },
+        reportSurveyArchived: ({ survey }) => {
+            posthog.capture('survey archived', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
+                end_date: survey.end_date,
+            })
+        },
+        reportSurveyEdited: ({ survey }) => {
+            posthog.capture('survey edited', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
             })
         },
     }),

@@ -29,7 +29,7 @@ describe('sessionPlayerModalLogic', () => {
         })
         it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
             expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
-                .toDispatchActions(['getSessionRecordingsSuccess'])
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
                 .toMatchValues({
                     selectedSessionRecording: { id: 'abc' },
                     activeSessionRecording: listOfSessionRecordings[0],
@@ -43,10 +43,13 @@ describe('sessionPlayerModalLogic', () => {
         })
 
         it('is read from the URL on the session recording page', async () => {
-            router.actions.push('/replay', {}, { sessionRecordingId: 'abc' })
+            router.actions.push('/replay', { timestamp: 12345678 }, { sessionRecordingId: 'abc' })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
+            expect(router.values.searchParams).toHaveProperty('timestamp', 12345678)
 
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.openSessionPlayer({ id: 'abc' })])
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.openSessionPlayer({ id: 'abc' }, 12345678),
+            ])
         })
     })
 })

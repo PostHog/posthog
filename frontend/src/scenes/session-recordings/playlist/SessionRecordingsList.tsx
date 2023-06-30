@@ -112,7 +112,7 @@ export function SessionRecordingsList({
 
     return (
         <div
-            className={clsx('flex flex-col w-full bg-white border rounded', className, {
+            className={clsx('flex flex-col w-full bg-bg-light border rounded', className, {
                 'border-dashed': !recordings?.length,
                 'overflow-hidden': recordings?.length,
             })}

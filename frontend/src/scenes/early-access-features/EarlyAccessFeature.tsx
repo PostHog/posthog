@@ -46,7 +46,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
-
     return (
         <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
@@ -71,7 +70,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                 >
-                                    {isNewEarlyAccessFeature ? 'Save Draft' : 'Save'}
+                                    {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                                 </LemonButton>
                             </>
                         ) : (
@@ -269,9 +268,10 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 interface FlagSelectorProps {
     value: number | undefined
     onChange: (value: any) => void
+    readOnly?: boolean
 }
 
-export function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Element {
+export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
@@ -298,9 +298,13 @@ export function FlagSelector({ value, onChange }: FlagSelectorProps): JSX.Elemen
             fallbackPlacements={['bottom']}
             onClickOutside={() => setVisible(false)}
         >
-            <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                {!!featureFlag.key ? featureFlag.key : 'Select flag'}
-            </LemonButton>
+            {readOnly ? (
+                <div>{featureFlag.key}</div>
+            ) : (
+                <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
+                    {!!featureFlag.key ? featureFlag.key : 'Select flag'}
+                </LemonButton>
+            )}
         </Popover>
     )
 }

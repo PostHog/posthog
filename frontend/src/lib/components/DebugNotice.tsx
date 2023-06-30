@@ -28,7 +28,7 @@ export function DebugNotice(): JSX.Element | null {
     }
 
     return (
-        <div className="bg-white cursor-pointer border-t" onClick={() => setNoticeHidden(true)}>
+        <div className="bg-bg-light cursor-pointer border-t" onClick={() => setNoticeHidden(true)}>
             <div className="p-2 border-l-4 border-primary text-primary-dark  truncate flex justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton

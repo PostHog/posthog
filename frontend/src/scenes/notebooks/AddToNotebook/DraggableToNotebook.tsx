@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { NotebookNodeType } from '~/types'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import './DraggableToNotebook.scss'
@@ -29,6 +29,7 @@ export function DraggableToNotebook({
     className,
 }: DraggableToNotebookProps): JSX.Element {
     const { setNotebookSideBarShown } = useActions(notebookSidebarLogic)
+    const [isDragging, setIsDragging] = useState(false)
     const keyHeld = useKeyHeld('Alt')
 
     if (!node && !properties && !href) {
@@ -48,12 +49,14 @@ export function DraggableToNotebook({
                         'DraggableToNotebook',
                         className,
                         noOverflow && 'DraggableToNotebook--no-overflow',
-                        keyHeld && 'DraggableToNotebook--highlighted'
+                        keyHeld && 'DraggableToNotebook--highlighted',
+                        isDragging && 'DraggableToNotebook--dragging'
                     )}
                     draggable={draggable}
                     onDragStart={
                         draggable
                             ? (e: any) => {
+                                  setIsDragging(true)
                                   if (href) {
                                       const url = window.location.origin + href
                                       e.dataTransfer.setData('text/uri-list', url)
@@ -65,12 +68,13 @@ export function DraggableToNotebook({
                               }
                             : undefined
                     }
+                    onDragEnd={() => setIsDragging(false)}
                 >
                     {keyHeld ? (
                         <div className="DraggableToNotebook__highlighter">
                             <div className="DraggableToNotebook__highlighter__info">
                                 <span className="DraggableToNotebook__highlighter__info__text">Drag to notebook</span>
-                                <IconJournalPlus />
+                                <IconJournalPlus className="text-lg" />
                             </div>
                         </div>
                     ) : null}

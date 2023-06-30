@@ -122,6 +122,17 @@ describe('sessionRecordingPlayerLogic', () => {
             })
             resumeKeaLoadersErrors()
         })
+        it('ensures the cache initialization is reset after the player is unmounted', async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart'])
+            expect(logic.cache.hasInitialized).toBeTruthy()
+
+            logic.unmount()
+            expect(logic.cache.hasInitialized).toBeFalsy()
+        })
     })
 
     describe('delete session recording', () => {

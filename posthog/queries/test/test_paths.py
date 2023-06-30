@@ -144,7 +144,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time("2012-01-15T03:21:34.000Z"):
-            filter = PathFilter(data={"dummy": "dummy"})
+            filter = PathFilter(team=self.team, data={"dummy": "dummy"})
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(response[0]["source"], "1_/", response)
@@ -193,19 +193,19 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
             date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
 
-            filter = PathFilter(data={**date_params})
+            filter = PathFilter(team=self.team, data={**date_params})
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
             self.assertEqual(len(response), 4)
 
             # Test account filter
-            filter = PathFilter(data={**date_params, FILTER_TEST_ACCOUNTS: True}, team=self.team)
+            filter = PathFilter(team=self.team, data={**date_params, FILTER_TEST_ACCOUNTS: True})
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
             self.assertEqual(len(response), 3)
 
             date_from = now() + relativedelta(days=7)
             date_to = now() - relativedelta(days=7)
             date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
-            filter = PathFilter(data={**date_params}, team=self.team)
+            filter = PathFilter(team=self.team, data={**date_params})
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
             self.assertEqual(len(response), 0)
 
@@ -228,7 +228,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id="person_4", event="custom_event_1", team=self.team, properties={}),
         _create_event(distinct_id="person_4", event="custom_event_2", team=self.team, properties={}),
 
-        filter = PathFilter(data={"path_type": "custom_event"})
+        filter = PathFilter(team=self.team, data={"path_type": "custom_event"})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(response[0]["source"], "1_custom_event_1", response)
@@ -245,6 +245,46 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response[3]["source"], "2_custom_event_2", response[3])
         self.assertEqual(response[3]["target"], "3_custom_event_3")
+        self.assertEqual(response[3]["value"], 1)
+
+    def test_custom_hogql_paths(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person_4"])
+
+        _create_event(distinct_id="person_1", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_1", event="custom_event_3", team=self.team, properties={"a": "!"}),
+        _create_event(
+            properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team
+        ),  # should be ignored,
+        _create_event(distinct_id="person_2", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_2", event="custom_event_2", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_2", event="custom_event_3", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_3", event="custom_event_2", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_3", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_4", event="custom_event_1", team=self.team, properties={"a": "!"}),
+        _create_event(distinct_id="person_4", event="custom_event_2", team=self.team, properties={"a": "!"}),
+
+        filter = PathFilter(
+            data={"path_type": "hogql", "paths_hogql_expression": "event || properties.a"}, team=self.team
+        )
+        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(response[0]["source"], "1_custom_event_1!", response)
+        self.assertEqual(response[0]["target"], "2_custom_event_2!")
+        self.assertEqual(response[0]["value"], 2)
+
+        self.assertEqual(response[1]["source"], "1_custom_event_1!")
+        self.assertEqual(response[1]["target"], "2_custom_event_3!")
+        self.assertEqual(response[1]["value"], 1)
+
+        self.assertEqual(response[2]["source"], "1_custom_event_2!")
+        self.assertEqual(response[2]["target"], "2_custom_event_1!")
+        self.assertEqual(response[2]["value"], 1)
+
+        self.assertEqual(response[3]["source"], "2_custom_event_2!", response[3])
+        self.assertEqual(response[3]["target"], "3_custom_event_3!")
         self.assertEqual(response[3]["value"], 1)
 
     def test_screen_paths(self):
@@ -265,7 +305,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         _create_event(properties={"$screen_name": "/"}, distinct_id="person_4", event="$screen", team=self.team),
         _create_event(properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team),
 
-        filter = PathFilter(data={"path_type": "$screen"})
+        filter = PathFilter(team=self.team, data={"path_type": "$screen"})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
@@ -328,7 +368,9 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team
         ),
 
-        filter = PathFilter(data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
+        filter = PathFilter(
+            team=self.team, data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]}
+        )
 
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
@@ -386,7 +428,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/insights/path/?type=%24pageview&start=%2Fpricing"
         ).json()
 
-        filter = PathFilter(data={"path_type": "$pageview", "start_point": "/pricing"})
+        filter = PathFilter(team=self.team, data={"path_type": "$pageview", "start_point": "/pricing"})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(len(response), 5)
@@ -398,7 +440,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
         # ensure trailing slashes make no difference
-        filter = PathFilter(data={"path_type": "$pageview", "start_point": "/pricing/"})
+        filter = PathFilter(team=self.team, data={"path_type": "$pageview", "start_point": "/pricing/"})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(len(response), 5)
@@ -409,7 +451,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(response[3].items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
         self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
-        filter = PathFilter(data={"path_type": "$pageview", "start_point": "/"})
+        filter = PathFilter(team=self.team, data={"path_type": "$pageview", "start_point": "/"})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(len(response), 3)
@@ -450,7 +492,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-04-15 03:30:34",
         ),
 
-        filter = PathFilter(data={"date_from": "2020-04-13"})
+        filter = PathFilter(team=self.team, data={"date_from": "2020-04-13"})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(response[0]["source"], "1_/")

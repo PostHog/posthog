@@ -363,6 +363,53 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/")
         assert response.json()["session_recording_version"] == "v2"
 
+    def test_turn_on_exception_autocapture(self):
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_opt_in"] is None
+
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_opt_in": "Welwyn Garden City"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Must be a valid boolean."
+
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_opt_in": True})
+        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_opt_in"] is True
+
+    def test_configure_exception_autocapture_event_dropping(self):
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] is None
+
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": {"wat": "am i"}}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Must provide a list for field: autocapture_exceptions_errors_to_ignore."
+
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": [1, False]})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            response.json()["detail"]
+            == "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
+        )
+
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": ["wat am i"]}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] == ["wat am i"]
+
+    def test_configure_exception_autocapture_event_dropping_only_allows_simple_config(self):
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": ["abc" * 300]}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            response.json()["detail"]
+            == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+        )
+
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """
