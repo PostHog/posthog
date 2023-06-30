@@ -328,6 +328,8 @@ def insert_cohort_people_into_pg(cohort: Cohort):
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     from_existing_cohort_id = filter_data.get("from_cohort_id")
+    context: HogQLContext
+
     if from_existing_cohort_id:
         existing_cohort = Cohort.objects.get(pk=from_existing_cohort_id)
         query = """
@@ -341,7 +343,6 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     else:
         insight_type = filter_data.get("insight")
         query_builder: ActorBaseQuery
-        context: HogQLContext
 
         if insight_type == INSIGHT_TRENDS:
             filter = Filter(data=filter_data, team=cohort.team)
