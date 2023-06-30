@@ -240,6 +240,7 @@ class TupleType(ConstantType):
 class CallType(Type):
     name: str
     arg_types: List[ConstantType]
+    param_types: Optional[List[ConstantType]] = None
     return_type: ConstantType
 
     def resolve_constant_type(self) -> ConstantType:
@@ -432,8 +433,14 @@ class Placeholder(Expr):
 
 class Call(Expr):
     name: str
+    """Function name"""
     args: List[Expr]
-    distinct: Optional[bool] = None
+    params: Optional[List[Expr]] = None
+    """
+    Parameters apply to some aggregate functions, see ClickHouse docs:
+    https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
+    """
+    distinct: bool = False
 
 
 class JoinConstraint(Expr):

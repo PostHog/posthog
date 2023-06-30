@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HOGQL_AGGREGATIONS
+from posthog.hogql.functions import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
