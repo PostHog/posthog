@@ -79,17 +79,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <div className="flex flex-row justify-between">
-                                    <LemonButton
-                                        key="help-button"
-                                        type="secondary"
-                                        onClick={toggleImplementOptInInstructionsModal}
-                                        sideIcon={<IconHelpOutline />}
-                                    >
-                                        Implement public opt-in
-                                    </LemonButton>
-                                </div>
-                                <LemonDivider vertical />
                                 <LemonButton
                                     data-attr="delete-feature"
                                     status="danger"
@@ -128,6 +117,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         Archive
                                     </LemonButton>
                                 )}
+                                <LemonDivider vertical />
+                                <div className="flex flex-row justify-between">
+                                    <LemonButton
+                                        key="help-button"
+                                        type="secondary"
+                                        onClick={toggleImplementOptInInstructionsModal}
+                                        sideIcon={<IconHelpOutline />}
+                                    >
+                                        Implement public opt-in
+                                    </LemonButton>
+                                </div>
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Archived && (
                                     <LemonButton
                                         data-attr="reactive-feature"
