@@ -62,7 +62,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
         instance: ExportedAsset = super().create(validated_data)
 
-        self.generate_export_sync(instance)
+        self.generate_export_sync(instance, 0.01)
 
         instance.refresh_from_db()
 
@@ -136,10 +136,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         return instance
 
     @staticmethod
-    def generate_export_sync(instance: ExportedAsset) -> None:
+    def generate_export_sync(instance: ExportedAsset, timeout: float = 10) -> None:
         task = exporter.export_asset.delay(instance.id)
         try:
-            task.get(timeout=10)
+            task.get(timeout=timeout)
             instance.refresh_from_db()
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response

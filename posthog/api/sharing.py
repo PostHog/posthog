@@ -39,6 +39,20 @@ def check_can_edit_sharing_configuration(
     return True
 
 
+def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset | None:
+    serializer = ExportedAssetSerializer(
+        data={
+            "insight": resource.insight.pk if resource.insight else None,
+            "dashboard": resource.dashboard.pk if resource.dashboard else None,
+            "export_format": "image/png",
+        },
+        context={"team_id": cast(Team, resource.team).pk},
+    )
+    serializer.is_valid(raise_exception=True)
+    export_asset = serializer.synthetic_create("opengraph image")
+    return export_asset
+
+
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
@@ -130,6 +144,9 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        if not context.get("recording") and serializer.data.get("enabled"):
+            export_asset_for_opengraph(instance)
+
         return response.Response(serializer.data)
 
 
@@ -200,15 +217,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             exported_data["type"] = "image"
 
         add_og_tags = resource.insight or resource.dashboard
+        asset_description = ""
 
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
             asset_title = resource.insight.name or resource.insight.derived_name
+            asset_description = resource.insight.description or "A shared PostHog insight"
             insight_data = InsightSerializer(resource.insight, many=False, context=context).data
             exported_data.update({"insight": insight_data})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
+            asset_description = resource.dashboard.description or "A shared PostHog dashboard"
             dashboard_data = DashboardSerializer(resource.dashboard, context=context).data
             # We don't want the dashboard to be accidentally loaded via the shared endpoint
             exported_data.update({"dashboard": dashboard_data})
@@ -240,6 +260,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             context={
                 "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
                 "asset_title": asset_title,
+                "asset_description": asset_description,
                 "add_og_tags": add_og_tags,
             },
             team_for_public_context=resource.team,
@@ -274,15 +295,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         if has_usable_matches:
             return exported_asset_matches.first()
         else:
-            serializer = ExportedAssetSerializer(
-                data={
-                    "insight": resource.insight.pk if resource.insight else None,
-                    "dashboard": resource.dashboard.pk if resource.dashboard else None,
-                    "export_format": "image/png",
-                },
-                context={"team_id": cast(Team, resource.team).pk, "request": self.request},
-            )
-            serializer.is_valid(raise_exception=True)
-            export_asset = serializer.synthetic_create("opengraph image")
+            export_asset = export_asset_for_opengraph(resource)
 
             return export_asset
