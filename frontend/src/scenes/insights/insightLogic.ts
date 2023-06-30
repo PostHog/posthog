@@ -142,7 +142,7 @@ export const insightLogic = kea<insightLogicType>([
         toggleInsightLegend: true,
         toggleVisibility: (index: number) => ({ index }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
-        fetchResultFromNumericInsightApi: (id: number) => ({ id }),
+        loadInsightWithRefresh: (id: number) => ({ id }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -262,7 +262,10 @@ export const insightLogic = kea<insightLogicType>([
                     })
                     return updatedInsight
                 },
-                fetchResultFromNumericInsightApi: async ({ id }) => {
+                loadInsightWithRefresh: async ({ id }) => {
+                    // Fetch the insight from the numeric insights api, which has a heuristic for determining wether
+                    // to return a cached version or a synchronously updated one.
+                    // See https://github.com/PostHog/posthog/pull/14178.
                     const apiUrl = combineUrl(`api/projects/${values.currentTeamId}/insights/${id}`, {
                         refresh: true,
                     }).url
@@ -775,9 +778,7 @@ export const insightLogic = kea<insightLogicType>([
                     actions.reportInsightViewed(insight, insight.filters || {})
                 } else {
                     if (insight.id && savedInsightRefreshEnabled) {
-                        // TODO: Consolidate backend side caching behaviour with a smart refreshing
-                        // heuristic, then remove this special handling.
-                        actions.fetchResultFromNumericInsightApi(insight.id)
+                        actions.loadInsightWithRefresh(insight.id)
                     } else {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                     }
