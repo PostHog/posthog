@@ -13,8 +13,6 @@ on:
     push:
         branches:
             - master
-    paths-ignore:
-      - 'plugin-server/**'
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
@@ -146,3 +144,21 @@ jobs:
                         "image_tag": "latest",
                         "context": ${{ toJson(github) }}
                       }
+
+            - name: Check for changes in plugins directory
+              id: check_changes_plugins
+              run: |
+                echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
+
+            - name: Trigger Ingestion Cloud deployment
+              if: steps.check_changes_plugins.outputs.changed != ''
+              uses: peter-evans/repository-dispatch@v1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  repository: PostHog/charts
+                  event-type: ingestion_deploy
+                  client-payload: |
+                      {
+                        "image_tag": "${{ steps.build.outputs.digest }}",
+                      }
+
