@@ -247,6 +247,7 @@ class TestSharing(APIBaseTest):
         self, type: str, patched_exporter_task: Mock, patched_object_storage: Mock
     ) -> None:
         patched_object_storage.return_value = b"the image bytes"
+        self._setup_patched_exporter(patched_exporter_task)
 
         target = self.insight if type == "insights" else self.dashboard
 
@@ -256,15 +257,14 @@ class TestSharing(APIBaseTest):
             share_response = self.client.patch(
                 f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
             )
+            # enabling creates an asset
+            assert ExportedAsset.objects.count() == 1
+            original_asset = ExportedAsset.objects.first()
 
         access_token = share_response.json()["access_token"]
 
-        assert ExportedAsset.objects.count() == 1
-        original_asset = ExportedAsset.objects.first()
-
-        self._setup_patched_exporter(patched_exporter_task)
-
-        assert ExportedAsset.objects.count() == 1
+        # times passes and the asset is stale
+        assert ExportedAsset.objects.count() == 0
 
         item_opengraph_image = self.client.get("/shared/" + access_token + ".png")
         assert item_opengraph_image.status_code == 200
