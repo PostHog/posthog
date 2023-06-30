@@ -19,7 +19,7 @@ const getDefaultQuery = (): DataTableNode => ({
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
 
-    actions({ setQuery: (query: Node) => ({ query }), reloadPersonsScene: true }),
+    actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ query: [getDefaultQuery() as Node, { setQuery: (_, { query }) => query }] }),
 
     actionToUrl(({ values }) => ({

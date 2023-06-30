@@ -6,7 +6,6 @@ import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 
 export const scene: SceneExport = {
     component: PersonsScene,
-    logic: personsSceneLogic,
 }
 
 export function PersonsScene(): JSX.Element {
