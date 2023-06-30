@@ -31,6 +31,7 @@ import { NodeKind } from '~/queries/schema'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 
 const { TabPane } = Tabs
 
@@ -106,8 +107,9 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
+    const { reloadPersonsScene } = useActions(personsSceneLogic)
     const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
-    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
+    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
@@ -135,7 +137,7 @@ export function Person(): JSX.Element | null {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                            onClick={() => showPersonDeleteModal(person, () => reloadPersonsScene())}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"

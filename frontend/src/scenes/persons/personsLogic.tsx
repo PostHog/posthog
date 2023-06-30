@@ -235,17 +235,4 @@ export const personsLogic = kea<personsLogicType>({
             }
         },
     }),
-    events: ({ props, actions }) => ({
-        afterMount: () => {
-            if (props.cohort && typeof props.cohort === 'number') {
-                actions.setListFilters({ cohort: props.cohort })
-                actions.loadPersons()
-            }
-
-            if (props.fixedProperties) {
-                actions.setHiddenListProperties(props.fixedProperties)
-                actions.loadPersons()
-            }
-        },
-    }),
 })
