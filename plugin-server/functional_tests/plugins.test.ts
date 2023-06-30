@@ -524,6 +524,7 @@ test.concurrent(
             name: 'runEveryMinute plugin',
             plugin_type: 'source',
             is_global: false,
+            capabilities: { scheduled_tasks: ['runEveryMinute'] },
             source__index_ts: `
             export async function runEveryMinute() {
                 console.info(JSON.stringify(['runEveryMinute']))

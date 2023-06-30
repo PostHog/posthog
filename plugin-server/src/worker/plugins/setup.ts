@@ -1,5 +1,6 @@
 import { Hub, PluginLogEntrySource, PluginLogEntryType, StatelessVmMap } from '../../types'
 import { LazyPluginVM } from '../vm/lazy'
+import { loadPlugin } from './loadPlugin'
 import { loadPluginsFromDB } from './loadPluginsFromDB'
 import { loadSchedule } from './loadSchedule'
 import { teardownPlugins } from './teardown'
@@ -24,6 +25,10 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             pluginConfig.vm = statelessVms[plugin.id]
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
+
+            if (pluginConfig.plugin?.source__frontend_tsx || pluginConfig.plugin?.source__site_ts) {
+                await loadPlugin(hub, pluginConfig)
+            }
 
             if (prevConfig) {
                 void teardownPlugins(hub, prevConfig)
