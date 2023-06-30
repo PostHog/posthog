@@ -1,9 +1,7 @@
 import json
-from datetime import datetime
 from typing import Any, Dict, Optional, cast
 
 from django.core.serializers.json import DjangoJSONEncoder
-from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import mixins, response, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -245,13 +243,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             team_for_public_context=resource.team,
         )
 
-    def _exported_asset_is_stale(self, exported_asset: ExportedAsset | None) -> bool:
-        if not exported_asset:
-            return True
-
-        export_age = now() - cast(datetime, exported_asset.created_at)
-        return export_age.total_seconds() > 3600 * 3
-
     def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
         target = resource.insight or resource.dashboard
         if not target:
@@ -263,15 +254,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             dashboard=resource.dashboard or None,
         )
 
-        has_usable_matches = exported_asset_matches.exists() and not self._exported_asset_is_stale(
-            exported_asset_matches.first()
-        )
-
-        if exported_asset_matches.exists() and not has_usable_matches:
-            exported_asset_matches.delete()
-            has_usable_matches = False
-
-        if has_usable_matches:
+        if exported_asset_matches.exists():
             return exported_asset_matches.first()
         else:
             serializer = ExportedAssetSerializer(
@@ -279,6 +262,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                     "insight": resource.insight.pk if resource.insight else None,
                     "dashboard": resource.dashboard.pk if resource.dashboard else None,
                     "export_format": "image/png",
+                    "ttl_seconds": 60 * 60 * 3,  # 3 hours
                 },
                 context={"team_id": cast(Team, resource.team).pk, "request": self.request},
             )
