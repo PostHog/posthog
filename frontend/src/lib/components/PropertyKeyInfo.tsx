@@ -817,7 +817,7 @@ export function PropertyKeyInfo({
                     </div>
                     {data.description || data.examples ? (
                         <>
-                            <LemonDivider />
+                            <LemonDivider className="my-3" />
                             <div>
                                 {data.description ? <p>{data.description}</p> : null}
                                 {data.examples ? (
@@ -829,7 +829,7 @@ export function PropertyKeyInfo({
                             </div>
                         </>
                     ) : null}
-                    <LemonDivider />
+                    <LemonDivider className="my-3" />
                     <div>
                         Sent as <code>{value}</code>
                     </div>
