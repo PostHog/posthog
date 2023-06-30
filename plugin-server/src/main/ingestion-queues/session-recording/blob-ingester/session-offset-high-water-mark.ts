@@ -43,9 +43,10 @@ export class SessionOffsetHighWaterMark {
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T | null> {
-        const client = await this.redisPool.acquire()
+        let client: Redis | null = null
         const timeout = timeoutGuard(`${description} delayed. Waiting over 30 seconds.`)
         try {
+            client = await this.redisPool.acquire()
             return await fn(client)
         } catch (error) {
             if (error instanceof SyntaxError) {
@@ -56,7 +57,9 @@ export class SessionOffsetHighWaterMark {
             }
         } finally {
             clearTimeout(timeout)
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
         }
     }
 
