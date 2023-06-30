@@ -1262,7 +1262,10 @@ describe('ActionMatcher', () => {
                 [
                     {
                         // not used, bytecode takes precedence
-                        properties: [{ type: 'event', key: 'foo', value: ['null'] }],
+                        properties: [
+                            { type: 'event', key: 'foo', operator: PropertyOperator.IContains, value: ['bar'] },
+                            { type: 'hogql', key: 'properties.$viewport_width < properties.$viewport_height' },
+                        ],
                     },
                 ],
                 bytecode

@@ -834,9 +834,19 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
     key: 'id'
     value: number | string
 }
+/** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
+    type: 'hogql'
+    key: string
+}
 
 /** Sync with posthog/frontend/src/types.ts */
-export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+    | HogQLPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
