@@ -10,6 +10,11 @@
       }
     </script>
     {% include "head.html" %}
+      {% if add_og_tags %}
+          <meta property="og:title" content="{{ asset_title }}">
+          <meta property="og:url" content="{{ request.build_absolute_uri }}">
+          <meta property="og:image" content="{{ request.build_absolute_uri }}.png">
+      {% endif %}
   </head>
   <body>
     <script>
