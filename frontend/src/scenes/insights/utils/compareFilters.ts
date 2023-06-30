@@ -11,12 +11,21 @@ const clean = (f: Partial<AnyFilterType>): Partial<AnyFilterType> => {
     // TODO: Ignore filter_test_accounts for now, but should compare against default
     delete cleanedFilters.filter_test_accounts
 
+    // remove properties related to persons modal
+    delete cleanedFilters.entity_id
+    delete cleanedFilters.entity_type
+    delete cleanedFilters.entity_math
+
     // sync with DEFAULT_DATE_FROM_DAYS
     if (!cleanedFilters.date_from) {
         cleanedFilters.date_from = '-7d'
     }
 
     cleanedFilters.events = cleanedFilters.events?.map((e) => {
+        if (!e.order && (cleanedFilters.events || []).length === 1 && (cleanedFilters.actions || []).length === 0) {
+            e.order = 0
+        }
+
         // event math `total` is the default
         if (e.math === 'total') {
             delete e.math
