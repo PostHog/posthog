@@ -64,7 +64,7 @@
 
     .Preflight__cannot-continue {
         background-color: var(--side);
-        border: 2px solid var(--light-grey);
+        border: 2px solid var(--mid);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -107,7 +107,7 @@
 
         svg,
         .Preflight__status-text {
-            color: var(--border-dark);
+            color: var(--border-bold);
         }
     }
 

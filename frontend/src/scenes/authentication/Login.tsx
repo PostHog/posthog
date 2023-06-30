@@ -17,6 +17,7 @@ import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { captureException } from '@sentry/react'
+import { SupportModalButton } from './SupportModalButton'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -85,6 +86,7 @@ export function Login(): JSX.Element {
                     <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
+            footer={<SupportModalButton />}
         >
             <div className="space-y-2">
                 <h2>Log in</h2>

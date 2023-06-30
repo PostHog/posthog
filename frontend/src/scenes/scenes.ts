@@ -3,8 +3,12 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId, SessionRecordingsTabs } from '~/types'
+import { InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 import { combineUrl } from 'kea-router'
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+import { EventsQuery } from '~/queries/schema'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -49,7 +53,19 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Live Events',
+        name: 'Event Explorer',
+    },
+    [Scene.Exports]: {
+        projectBased: true,
+        name: 'Exports',
+    },
+    [Scene.CreateExport]: {
+        projectBased: true,
+        name: 'Create Export',
+    },
+    [Scene.ViewExport]: {
+        projectBased: true,
+        name: 'View Export',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -91,17 +107,17 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Web Performance',
     },
-    [Scene.SessionRecordings]: {
+    [Scene.Replay]: {
         projectBased: true,
-        name: 'Recordings',
+        name: 'Session Replay',
     },
-    [Scene.SessionRecording]: {
+    [Scene.ReplaySingle]: {
         projectBased: true,
-        name: 'Recordings',
+        name: 'Replay Recording',
     },
-    [Scene.SessionRecordingPlaylist]: {
+    [Scene.ReplayPlaylist]: {
         projectBased: true,
-        name: 'Recordings Playlist',
+        name: 'Replay Playlist',
     },
     [Scene.Person]: {
         projectBased: true,
@@ -137,6 +153,22 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
+    },
+    [Scene.Surveys]: {
+        projectBased: true,
+        name: 'Surveys',
+    },
+    [Scene.Survey]: {
+        projectBased: true,
+        name: 'Survey',
+    },
+    [Scene.DataWarehouse]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseTable]: {
+        projectBased: true,
+        name: 'Data Warehouse Table',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
@@ -256,9 +288,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Feedback',
     },
-    [Scene.Issues]: {
+    [Scene.Notebook]: {
         projectBased: true,
-        name: 'Issues',
+        name: 'Notebook',
     },
 }
 
@@ -285,15 +317,36 @@ export const redirects: Record<
     '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
+    '/events/:id/*': ({ id, _ }) => {
+        const query = getDefaultEventsSceneQuery([
+            {
+                type: PropertyFilterType.HogQL,
+                key: `uuid = '${id.replaceAll(/[^a-f0-9\-]/g, '')}'`,
+                value: null,
+            },
+        ])
+        try {
+            const timestamp = decodeURIComponent(_)
+            const after = dayjs(timestamp).subtract(1, 'second').startOf('second').toISOString()
+            const before = dayjs(timestamp).add(1, 'second').startOf('second').toISOString()
+            Object.assign(query.source as EventsQuery, { before, after })
+        } catch (e) {
+            lemonToast.error('Invalid event timestamp')
+        }
+        return combineUrl(urls.events(), {}, { q: query }).url
+    },
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
+    '/recordings/:id': ({ id }) => urls.replaySingle(id),
+    '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
-            return urls.sessionRecording(hashParams.sessionRecordingId)
+            return urls.replaySingle(hashParams.sessionRecordingId)
         }
-        return urls.sessionRecordings()
+        return urls.replay()
     },
+    '/replay': urls.replay(),
 }
 
 export const routes: Record<string, Scene> = {
@@ -304,6 +357,7 @@ export const routes: Record<string, Scene> = {
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
     [urls.createAction()]: Scene.Action,
+    [urls.copyAction(null)]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.ingestionWarnings()]: Scene.IngestionWarnings,
     [urls.insightNew()]: Scene.Insight,
@@ -316,6 +370,9 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
+    [urls.exports()]: Scene.Exports,
+    [urls.createExport()]: Scene.CreateExport,
+    [urls.viewExport(':id')]: Scene.ViewExport,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
@@ -323,14 +380,14 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
-    [urls.sessionRecordings()]: Scene.SessionRecordings,
+    [urls.replay()]: Scene.Replay,
     // One entry for every available tab
-    ...Object.values(SessionRecordingsTabs).reduce((acc, tab) => {
-        acc[urls.sessionRecordings(tab)] = Scene.SessionRecordings
+    ...Object.values(ReplayTabs).reduce((acc, tab) => {
+        acc[urls.replay(tab)] = Scene.Replay
         return acc
     }, {} as Record<string, Scene>),
-    [urls.sessionRecording(':id')]: Scene.SessionRecording,
-    [urls.sessionRecordingPlaylist(':id')]: Scene.SessionRecordingPlaylist,
+    [urls.replaySingle(':id')]: Scene.ReplaySingle,
+    [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
@@ -342,9 +399,14 @@ export const routes: Record<string, Scene> = {
     [urls.experiment(':id')]: Scene.Experiment,
     [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
+    [urls.surveys()]: Scene.Surveys,
+    [urls.survey(':id')]: Scene.Survey,
+    [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,
+    [urls.annotation(':id')]: Scene.Annotations,
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
@@ -389,5 +451,6 @@ export const routes: Record<string, Scene> = {
     [urls.debugQuery()]: Scene.DebugQuery,
     [urls.feedback()]: Scene.Feedback,
     [urls.feedback() + '/*']: Scene.Feedback,
-    [urls.issues()]: Scene.Issues,
+    [urls.notebook(':shortId')]: Scene.Notebook,
+    [urls.notebookEdit(':shortId')]: Scene.Notebook,
 }

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { decodeParams, router } from 'kea-router'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
     PersonPropertyFilter,
@@ -23,13 +23,7 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-export interface PersonPaginatedResponse {
-    next: string | null
-    previous: string | null
-    results: PersonType[]
-}
-
-export interface PersonLogicProps {
+export interface PersonsLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
@@ -37,14 +31,8 @@ export interface PersonLogicProps {
 }
 
 export const personsLogic = kea<personsLogicType>({
-    props: {} as PersonLogicProps,
+    props: {} as PersonsLogicProps,
     key: (props) => {
-        if (!props.fixedProperties && !props.cohort && !props.syncWithUrl) {
-            throw new Error(
-                `personsLogic must be initialized with props.cohort or props.syncWithUrl or props.fixedProperties`
-            )
-        }
-
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
@@ -67,6 +55,7 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
+        setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
@@ -106,6 +95,7 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
         splitMergeModalShown: [
@@ -138,12 +128,12 @@ export const personsLogic = kea<personsLogicType>({
     selectors: () => ({
         apiDocsURL: [
             () => [(_, props) => props.cohort],
-            (cohort: PersonLogicProps['cohort']) =>
+            (cohort: PersonsLogicProps['cohort']) =>
                 !!cohort
                     ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
                     : 'https://posthog.com/docs/api/persons',
         ],
-        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
+        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonsLogicProps['cohort']) => cohort],
         currentTab: [
             (s) => [s.activeTab],
             (activeTab) => {
@@ -253,22 +243,33 @@ export const personsLogic = kea<personsLogicType>({
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
-            { next: null, previous: null, results: [] } as PersonPaginatedResponse,
+            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
+                offset: number
+            },
             {
                 loadPersons: async ({ url }) => {
+                    let result: CountedPaginatedResponse<PersonType> & { offset: number }
                     if (!url) {
-                        const newFilters = { ...values.listFilters }
+                        const newFilters: PersonListParams = { ...values.listFilters }
                         newFilters.properties = [
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (props.cohort) {
-                            url = `api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`
-                        } else {
-                            return api.persons.list(newFilters)
+                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         }
+                        if (props.cohort) {
+                            result = {
+                                ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                offset: 0,
+                            }
+                        } else {
+                            result = { ...(await api.persons.list(newFilters)), offset: 0 }
+                        }
+                    } else {
+                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
                     }
-                    return await api.get(url)
+                    return result
                 },
             },
         ],
@@ -306,11 +307,7 @@ export const personsLogic = kea<personsLogicType>({
         },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = { ...router.values.searchParams }
-
-                if (values.activeTab !== PersonsTabType.HISTORY) {
-                    delete searchParams['page']
-                }
+                const searchParams = {}
 
                 return [
                     router.values.location.pathname,
@@ -324,16 +321,6 @@ export const personsLogic = kea<personsLogicType>({
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/persons': ({}, searchParams) => {
-            const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
-            if (props.syncWithUrl && !featureDataExploration) {
-                actions.setListFilters(searchParams)
-                if (!values.persons.results.length && !values.personsLoading) {
-                    // Initial load
-                    actions.loadPersons()
-                }
-            }
-        },
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
@@ -342,8 +329,8 @@ export const personsLogic = kea<personsLogicType>({
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
-                    actions.navigateToTab(PersonsTabType.PROPERTIES)
+                if (!activeTab) {
+                    actions.setActiveTab(PersonsTabType.PROPERTIES)
                 }
 
                 if (rawPersonDistinctId) {

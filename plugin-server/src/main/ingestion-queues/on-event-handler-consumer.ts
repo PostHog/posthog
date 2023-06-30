@@ -4,9 +4,8 @@ import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-to
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
-import { makeHealthCheck } from './analytics-events-ingestion-consumer'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
-import { IngestionConsumer } from './kafka-queue'
+import { KafkaJSIngestionConsumer } from './kafka-queue'
 
 export const startOnEventHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
@@ -40,11 +39,36 @@ export const startOnEventHandlerConsumer = async ({
 }
 
 export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
-    return new IngestionConsumer(
+    return new KafkaJSIngestionConsumer(
         hub,
         piscina,
         KAFKA_EVENTS_JSON,
         `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
         eachBatchAsyncHandlers
     )
+}
+
+export function makeHealthCheck(queue: KafkaJSIngestionConsumer) {
+    const sessionTimeout = 30000
+    const { HEARTBEAT } = queue.consumer.events
+    let lastHeartbeat: number = Date.now()
+    queue.consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+
+    const isHealthy = async () => {
+        // Consumer has heartbeat within the session timeout, so it is healthy.
+        if (Date.now() - lastHeartbeat < sessionTimeout) {
+            return true
+        }
+
+        // Consumer has not heartbeat, but maybe it's because the group is
+        // currently rebalancing.
+        try {
+            const { state } = await queue.consumer.describeGroup()
+
+            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+        } catch (error) {
+            return false
+        }
+    }
+    return isHealthy
 }

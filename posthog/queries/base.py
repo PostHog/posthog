@@ -99,6 +99,12 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     override_value = override_property_values[key]
 
     if operator == "exact":
+        parsed_value = property._parse_value(value)
+        if is_truthy_property_value(parsed_value):
+            # Do boolean handling, such that passing in "true" or "True" as override value is equivalent
+            truthy = parsed_value in (True, [True], "true", ["true"])
+            return str(override_value).lower() == str(truthy).lower()
+
         if isinstance(value, list):
             return override_value in value
         return value == override_value
@@ -181,7 +187,11 @@ def empty_or_null_with_value_q(
     if operator == "exact" or operator is None:
         value_as_given = Property._parse_value(value)
         value_as_coerced_to_number = Property._parse_value(value, convert_to_number=True)
-        if value_as_given == value_as_coerced_to_number:
+        # TRICKY: Don't differentiate between 'true' and '"true"' when database matching (one is boolean, other is string)
+        if is_truthy_property_value(value_as_given):
+            truthy = value_as_given in (True, [True], "true", ["true"])
+            target_filter = lookup_q(f"{column}__{key}", truthy) | lookup_q(f"{column}__{key}", str(truthy).lower())
+        elif value_as_given == value_as_coerced_to_number:
             target_filter = lookup_q(f"{column}__{key}", value_as_given)
         else:
             target_filter = lookup_q(f"{column}__{key}", value_as_given) | lookup_q(
@@ -328,3 +338,8 @@ def properties_to_Q(
     return property_group_to_Q(
         PropertyGroup(type=PropertyOperatorType.AND, values=properties), override_property_values, cohorts_cache
     )
+
+
+def is_truthy_property_value(value: Any) -> bool:
+    # Does not resolve 0 and 1 as true, but does resolve the strings as true
+    return value in ("true", ["true"], [True], [False], "false", ["false"]) or value is True or value is False

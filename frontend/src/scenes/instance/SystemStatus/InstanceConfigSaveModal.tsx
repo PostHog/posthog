@@ -54,30 +54,40 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
         useValues(systemStatusLogic)
     const { saveInstanceConfig } = useActions(systemStatusLogic)
     const loading = updatedInstanceConfigCount !== null
+
+    const isChangingEnabledEmailSettings =
+        instanceConfigEditingState.EMAIL_ENABLED !== false &&
+        Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL'))
+    const isEnablingEmail = instanceConfigEditingState.EMAIL_ENABLED === true
+    const changeNoun = Object.keys(instanceConfigEditingState).length === 1 ? 'change' : 'changes'
+
     return (
         <LemonModal
-            title="Confirm new changes"
+            title={`Confirm ${changeNoun} to instance configuration`}
             isOpen={isOpen}
             closable={!loading}
             onClose={onClose}
+            width={576}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={onClose} loading={loading}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={onClose}
+                        disabledReason={loading ? 'Saving in progress' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" status="danger" loading={loading} onClick={saveInstanceConfig}>
-                        Apply changes
+                        Apply {changeNoun}
                     </LemonButton>
                 </>
             }
         >
             <div className="space-y-2">
-                {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
+                {isChangingEnabledEmailSettings && (
                     <LemonBanner type="info">
-                        <>
-                            As you are changing email settings, we'll attempt to send a <b>test email</b> so you can
-                            verify everything works (unless you are turning email off).
-                        </>
+                        As you are changing email settings and {isEnablingEmail ? 'enabling email' : 'email is enabled'}
+                        , we'll attempt to send a test email so you can verify everything works.
                     </LemonBanner>
                 )}
                 {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
@@ -98,7 +108,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                         </>
                     </LemonBanner>
                 )}
-                <div>The following changes will be immediately applied to your instance.</div>
+                <div>The following {changeNoun} will be immediately applied to your instance.</div>
                 {Object.keys(instanceConfigEditingState).map((key) => (
                     <ChangeRow
                         key={key}

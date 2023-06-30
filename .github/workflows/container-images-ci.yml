@@ -34,11 +34,16 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v3
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Docker meta
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/posthog/posthog/posthog
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
                   tags: |
                       type=schedule
                       type=ref,event=branch
@@ -66,7 +71,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   project: x19jffd9zf # posthog
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
@@ -109,12 +114,17 @@ jobs:
                   username: ${{ github.repository_owner }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Lowercase GITHUB_REPOSITORY
+              id: lowercase
+              run: |
+                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
             - name: Build container images
               id: build
               uses: depot/build-push-action@v1
               with:
                   project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: false
@@ -124,7 +134,7 @@ jobs:
                   # Use the non-cloud image as base image and extend it with
                   # the posthog-cloud code we've checked out.
                   build-args: |
-                      BASE_IMAGE=ghcr.io/posthog/posthog/posthog:${{ needs.posthog_build.outputs.container_image_version }}
+                      BASE_IMAGE=ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog:${{ needs.posthog_build.outputs.container_image_version }}
 
     deploy_preview:
         uses: ./.github/workflows/pr-deploy.yml

@@ -18,7 +18,7 @@ from prometheus_client import Gauge
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
-from posthog.utils import get_crontab
+from posthog.utils import get_crontab, get_instance_region
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -88,18 +88,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
     # PostHog Cloud cron jobs
-    if is_cloud():
-        # TODO EC this should be triggered only for instances that haven't been migrated to the new billing
-        # Calculate billing usage for the day every day at midnight UTC
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
-        # Verify that persons data is in sync every day at 4 AM UTC
-        sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+    # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
+    # Verify that persons data is in sync every day at 4 AM UTC
+    sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
-    # if is_cloud() or settings.DEMO:
+    # Every 30 minutes, send decide request counts to the main posthog instance
+    sender.add_periodic_task(crontab(minute="*/30"), calculate_decide_usage.s(), name="calculate decide usage")
+
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
     # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
-    # TODO: Re-enable when we've upgraded ClickHouse and can use lightweight deletes
-    # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
+    sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -146,19 +144,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
         sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
-    # TODO: Re-enable when we've upgraded ClickHouse and can use lightweight deletes
-    # if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-    #     sender.add_periodic_task(
-    #         clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
-    #     )
+    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
+        sender.add_periodic_task(
+            clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+        )
 
-    # TODO: Re-enable when we've upgraded ClickHouse and can use lightweight deletes
-    # if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-    #     sender.add_periodic_task(
-    #         clear_clickhouse_deleted_person_crontab,
-    #         clear_clickhouse_deleted_person.s(),
-    #         name="clickhouse clear deleted person data",
-    #     )
+    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
+        sender.add_periodic_task(
+            clear_clickhouse_deleted_person_crontab,
+            clear_clickhouse_deleted_person.s(),
+            name="clickhouse clear deleted person data",
+        )
 
     if settings.EE_AVAILABLE:
         sender.add_periodic_task(
@@ -194,6 +190,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             crontab(minute=0, hour="*"),
             check_flags_to_rollback.s(),
             name="check feature flags that should be rolled back",
+        )
+
+        sender.add_periodic_task(
+            crontab(minute=10, hour="*/12"),
+            find_flags_with_enriched_analytics.s(),
+            name="find feature flags with enriched analytics",
         )
 
 
@@ -341,7 +343,7 @@ def pg_row_count():
                     pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "person_overrides", "session_recording_events"]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
@@ -494,7 +496,9 @@ def clickhouse_row_count():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = """select count(1) freq from {table};"""
+                QUERY = (
+                    """select count(1) freq from {table} where _timestamp >= toStartOfDay(date_sub(DAY, 2, now()));"""
+                )
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
@@ -739,20 +743,56 @@ def count_teams_with_no_property_query_count():
 
 
 @app.task(ignore_result=True)
-def calculate_billing_daily_usage():
-    try:
-        from multi_tenancy.tasks import compute_daily_usage_for_organizations  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        compute_daily_usage_for_organizations()
+def calculate_decide_usage() -> None:
+    from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
+    from posthog.models import Team
+    from django.db.models import Q
+    from posthoganalytics import Posthog
+
+    if not is_cloud():
+        return
+
+    # send EU data to EU, US data to US
+    api_key = None
+    host = None
+    region = get_instance_region()
+    if region == "EU":
+        api_key = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
+        host = "https://eu.posthog.com"
+    elif region == "US":
+        api_key = "sTMFPsFhdP1Ssg"
+        host = "https://app.posthog.com"
+
+    if not api_key:
+        return
+
+    ph_client = Posthog(api_key, host=host)
+
+    for team in Team.objects.select_related("organization").exclude(
+        Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+    ):
+        capture_team_decide_usage(ph_client, team.id, team.uuid)
+
+    ph_client.shutdown()
+
+
+@app.task(ignore_result=True)
+def find_flags_with_enriched_analytics():
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
+    from datetime import datetime, timedelta
+
+    end = datetime.now()
+    begin = end - timedelta(hours=12)
+
+    find_flags_with_enriched_analytics(begin, end)
 
 
 @app.task(ignore_result=True)
 def demo_reset_master_team():
     from posthog.tasks.demo_reset_master_team import demo_reset_master_team
 
-    demo_reset_master_team()
+    if is_cloud() or settings.DEMO:
+        demo_reset_master_team()
 
 
 @app.task(ignore_result=True)
@@ -772,6 +812,9 @@ def check_async_migration_health():
 @app.task(ignore_result=True)
 def verify_persons_data_in_sync():
     from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
+
+    if not is_cloud():
+        return
 
     verify()
 

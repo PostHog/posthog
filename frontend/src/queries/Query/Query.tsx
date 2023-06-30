@@ -1,8 +1,7 @@
 import {
     isDataNode,
     isDataTableNode,
-    isLegacyQuery,
-    isInsightQueryNode,
+    isSavedInsightNode,
     isInsightVizNode,
     isTimeToSeeDataSessionsNode,
 } from '../utils'
@@ -11,14 +10,13 @@ import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
-import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { AddToNotebookWrapper } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -63,18 +61,16 @@ export function Query(props: QueryProps): JSX.Element | null {
     }
 
     let component
-    if (isLegacyQuery(query)) {
-        component = <LegacyInsightQuery query={query} context={queryContext} />
-    } else if (isDataTableNode(query)) {
+    if (isDataTableNode(query)) {
         component = (
             <DataTable query={query} setQuery={setQuery} context={queryContext} cachedResults={props.cachedResults} />
         )
     } else if (isDataNode(query)) {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
+    } else if (isSavedInsightNode(query)) {
+        component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
         component = <InsightViz query={query} setQuery={setQuery} context={queryContext} />
-    } else if (isInsightQueryNode(query)) {
-        component = <InsightQuery query={query} context={queryContext} />
     } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     }
@@ -85,7 +81,7 @@ export function Query(props: QueryProps): JSX.Element | null {
 
         return (
             <ErrorBoundary>
-                <AddToNotebookWrapper node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
+                <DraggableToNotebook node={NotebookNodeType.Query} properties={{ query: queryWithoutFull }}>
                     {!!props.context?.showQueryEditor ? (
                         <>
                             <QueryEditor
@@ -99,7 +95,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                         </>
                     ) : null}
                     {component}
-                </AddToNotebookWrapper>
+                </DraggableToNotebook>
             </ErrorBoundary>
         )
     }

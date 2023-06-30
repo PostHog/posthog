@@ -577,6 +577,8 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         if not get_instance_setting("GROUPS_ON_EVENTS_ENABLED"):
             return
 
+        materialize("events", "some_mat_prop3", table_column="group2_properties")
+
         string_expr = get_property_string_expr(
             "events",
             "some_mat_prop3",

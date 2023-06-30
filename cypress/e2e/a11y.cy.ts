@@ -11,7 +11,7 @@ describe('a11y', () => {
     const sidebarItems = [
         'dashboards',
         'savedinsights',
-        'sessionsrecordings',
+        'replay',
         'featureflags',
         'experiments',
         'events',

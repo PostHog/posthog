@@ -100,6 +100,7 @@ class Paths:
             {**self.params, **self._filter.hogql_context.values},
             query_type="paths",
             filter=self._filter,
+            team_id=self._team.pk,
         )
 
     def get_query(self) -> str:

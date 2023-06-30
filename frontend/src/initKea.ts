@@ -67,9 +67,9 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
             history: routerHistory,
             location: routerLocation,
             urlPatternOptions: {
-                // :TRICKY: We override default url segment matching characters.
-                // This list includes all characters which are not escaped by encodeURIComponent
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+                // :TRICKY: What chars to allow in named segment values i.e. ":key"
+                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
+                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|",
             },
         }),
         formsPlugin,

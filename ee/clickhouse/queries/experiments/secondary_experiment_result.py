@@ -3,6 +3,7 @@ from typing import Dict, Optional
 
 import pytz
 from rest_framework.exceptions import ValidationError
+from ee.clickhouse.queries.experiments.trend_experiment_result import uses_count_per_user_aggregation
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_TRENDS, TRENDS_CUMULATIVE
 from posthog.models.feature_flag import FeatureFlag
@@ -55,7 +56,7 @@ class ClickhouseSecondaryExperimentResult:
         )
 
         self.team = team
-        if query_filter.insight == INSIGHT_TRENDS:
+        if query_filter.insight == INSIGHT_TRENDS and not uses_count_per_user_aggregation(query_filter):
             query_filter = query_filter.shallow_clone({"display": TRENDS_CUMULATIVE})
 
         self.query_filter = query_filter
@@ -88,12 +89,15 @@ class ClickhouseSecondaryExperimentResult:
         return variants
 
     def get_trend_count_data_for_variants(self, insight_results) -> Dict[str, float]:
-        # this assumes the Trend insight is Cumulative
+        # this assumes the Trend insight is Cumulative, unless using count per user
         variants = {}
 
         for result in insight_results:
             count = result["count"]
             breakdown_value = result["breakdown_value"]
+
+            if uses_count_per_user_aggregation(self.query_filter):
+                count = result["count"] / len(result.get("data", [0]))
 
             if breakdown_value in self.variants:
                 variants[breakdown_value] = count

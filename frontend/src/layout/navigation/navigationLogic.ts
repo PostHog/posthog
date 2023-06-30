@@ -10,26 +10,18 @@ import { VersionType } from '~/types'
 import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type ProjectNoticeVariant =
     | 'demo_project'
     | 'real_project_with_no_events'
     | 'invite_teammates'
     | 'unverified_email'
+    | 'is_impersonated'
 
 export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [
-            sceneLogic,
-            ['sceneConfig'],
-            membersLogic,
-            ['members', 'membersLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     },
     actions: {
@@ -199,7 +191,6 @@ export const navigationLogic = kea<navigationLogicType>({
                 s.members,
                 s.membersLoading,
                 s.projectNoticesAcknowledged,
-                s.featureFlags,
             ],
             (
                 organization,
@@ -208,23 +199,19 @@ export const navigationLogic = kea<navigationLogicType>({
                 user,
                 members,
                 membersLoading,
-                projectNoticesAcknowledged,
-                featureFlags
+                projectNoticesAcknowledged
             ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
                     return null
                 }
-
-                if (currentTeam?.is_demo && !preflight?.demo) {
+                if (user?.is_impersonated) {
+                    return ['is_impersonated', false]
+                } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
                     return ['demo_project', false]
-                } else if (
-                    !user?.is_email_verified &&
-                    !user?.has_social_auth &&
-                    featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === 'test'
-                ) {
+                } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
                     return ['unverified_email', false]
                 } else if (
                     !projectNoticesAcknowledged['real_project_with_no_events'] &&

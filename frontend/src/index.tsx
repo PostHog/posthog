@@ -9,6 +9,9 @@ import { initKea } from './initKea'
 import { loadPostHogJS } from './loadPostHogJS'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 
+import { PostHogProvider } from 'posthog-js/react'
+import posthog from 'posthog-js'
+
 loadPostHogJS()
 initKea()
 
@@ -27,7 +30,9 @@ function renderApp(): void {
     if (root) {
         ReactDOM.render(
             <ErrorBoundary>
-                <App />
+                <PostHogProvider client={posthog}>
+                    <App />
+                </PostHogProvider>
             </ErrorBoundary>,
             root
         )

@@ -7,9 +7,9 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 
 import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { parseEventAndProperty } from './funnelUtils'
-import { funnelLogic } from './funnelLogic'
+import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
@@ -27,10 +27,10 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         actions: [
             insightLogic(props),
             ['loadResultsSuccess'],
-            insightDataLogic(props),
+            insightVizDataLogic(props),
             ['loadDataSuccess'],
-            funnelLogic(props),
-            ['hideSkewWarning as legacyHideSkewWarning', 'openCorrelationPersonsModal'],
+            funnelPersonsModalLogic(props),
+            ['openCorrelationPersonsModal'],
             funnelDataLogic(props),
             ['hideSkewWarning'],
             funnelCorrelationLogic(props),
@@ -80,10 +80,6 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
     }),
 
     listeners(({ values, actions }) => ({
-        // skew warning
-        legacyHideSkewWarning: () => {
-            actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
-        },
         hideSkewWarning: () => {
             actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'hide skew warning')
         },

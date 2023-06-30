@@ -19,6 +19,7 @@ async function processOnEvent(runner: EventPipelineRunner, event: PostIngestionE
         func: (event) => runOnEvent(runner.hub, event),
         statsKey: `kafka_queue.single_on_event`,
         timeoutMessage: `After 30 seconds still running onEvent`,
+        teamId: event.teamId,
     })
 }
 

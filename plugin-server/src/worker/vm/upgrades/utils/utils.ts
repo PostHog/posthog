@@ -73,7 +73,7 @@ export const fetchTimestampBoundariesForTeam = async (
 
         return isValidMin && isValidMax ? { min: minDate, max: maxDate } : null
     } catch (e) {
-        Sentry.captureException(e)
+        Sentry.captureException(e, { tags: { team_id: teamId } })
         return null
     }
 }

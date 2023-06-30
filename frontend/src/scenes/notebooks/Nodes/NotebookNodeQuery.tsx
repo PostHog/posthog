@@ -1,12 +1,13 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { useEffect, useState } from 'react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType } from '~/types'
 import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useJsonNodeState } from './utils'
+import { useEffect, useMemo, useState } from 'react'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -21,30 +22,45 @@ const DEFAULT_QUERY: QuerySchema = {
     expandable: false,
 }
 
-const Component = (props: NodeViewProps): JSX.Element => {
-    let propQuery = props.node.attrs.query
-    try {
-        propQuery = typeof propQuery === 'string' ? JSON.parse(propQuery) : propQuery
-    } catch (e) {
-        console.error("Couldn't parse query", e)
-    }
-    const [query, setQuery] = useState<QuerySchema>(propQuery)
+const DEFAULT_HEIGHT = 500
 
+const Component = (props: NodeViewProps): JSX.Element => {
+    const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
 
+    const [editing, setEditing] = useState(false)
+
     useEffect(() => {
-        props.updateAttributes({
-            query: JSON.stringify(query),
-        })
+        // We probably want a dedicated edit button for this
+        setEditing(props.selected)
+    }, [props.selected])
+
+    const title = useMemo(() => {
+        if (NodeKind.DataTableNode === query.kind) {
+            if (query.source.kind) {
+                return query.source.kind.replace('Node', '')
+            }
+            return 'Data Exploration'
+        }
+        return 'Query'
     }, [query])
 
+    const modifiedQuery = useMemo(() => {
+        const modifiedQuery = { ...query }
+
+        if (NodeKind.DataTableNode === modifiedQuery.kind) {
+            // We don't want to show the insights button for now
+            modifiedQuery.showOpenEditorButton = false
+            modifiedQuery.full = editing
+        }
+        return modifiedQuery
+    }, [query, editing])
+
     return (
-        <NodeWrapper className={NotebookNodeType.Query} title="Query" {...props}>
+        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={DEFAULT_HEIGHT} {...props}>
             <BindLogic logic={insightLogic} props={insightProps}>
-                <div className="max-h-120 overflow-y-auto">
-                    <Query query={query} setQuery={(t) => setQuery(t as any)} />
-                </div>
+                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
             </BindLogic>
         </NodeWrapper>
     )
@@ -58,6 +74,9 @@ export const NotebookNodeQuery = Node.create({
 
     addAttributes() {
         return {
+            height: {
+                default: DEFAULT_HEIGHT,
+            },
             query: {
                 default: DEFAULT_QUERY,
             },

@@ -50,7 +50,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @cached_function
     def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=team)
 
         base_uri = request.build_absolute_uri("/")
         result = FunnelCorrelation(filter=filter, team=team, base_uri=base_uri).run()

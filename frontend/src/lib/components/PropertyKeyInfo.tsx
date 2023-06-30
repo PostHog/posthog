@@ -10,8 +10,12 @@ export interface KeyMappingInterface {
     element: Record<string, KeyMapping>
 }
 
-export const keyMapping: KeyMappingInterface = {
+export const KEY_MAPPING: KeyMappingInterface = {
     event: {
+        '': {
+            label: 'All events',
+            description: 'This is a wildcard that matches all events.',
+        },
         $timestamp: {
             label: 'Timestamp',
             description: 'Time the event happened.',
@@ -138,17 +142,6 @@ export const keyMapping: KeyMappingInterface = {
             description: 'The search engine the user came in from (if any). This is last-touch.',
             examples: ['Google', 'DuckDuckGo'],
         },
-        distinct_id: {
-            label: 'Distinct ID',
-            description: (
-                <span>
-                    Distinct ID either given by calling{' '}
-                    <pre style={{ display: 'inline' }}>posthog.identify('distinct id')</pre> or generated automatically
-                    if the user is anonymous.
-                </span>
-            ),
-            examples: ['1234', '16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-        },
         $active_feature_flags: {
             label: 'Active Feature Flags',
             description: 'Keys of the feature flags that were active while this event was sent.',
@@ -221,6 +214,14 @@ export const keyMapping: KeyMappingInterface = {
                 </>
             ),
             examples: ['beta-feature'],
+        },
+        $feature_view: {
+            label: 'Feature View',
+            description: 'When a user views a feature.',
+        },
+        $feature_interaction: {
+            label: 'Feature Interaction',
+            description: 'When a user interacts with a feature.',
         },
         $capture_metrics: {
             label: 'Capture Metrics',
@@ -441,6 +442,46 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Sentry tags',
             description: 'Tags sent to Sentry along with the exception',
         },
+        $exception_type: {
+            label: 'Exception type',
+            description: 'Exception categorized into types. E.g. "Error"',
+        },
+        $exception_message: {
+            label: 'Exception Message',
+            description: 'The message detected on the error.',
+        },
+        $exception_source: {
+            label: 'Exception source',
+            description: 'The source of the exception. E.g. JS file.',
+        },
+        $exception_lineno: {
+            label: 'Exception source line number',
+            description: 'Which line in the exception source that caused the exception.',
+        },
+        $exception_colno: {
+            label: 'Exception source column number',
+            description: 'Which column of the line in the exception source that caused the exception.',
+        },
+        $exception_DOMException_code: {
+            label: 'DOMException code',
+            description: 'If a DOMException was thrown, it also has a DOMException code.',
+        },
+        $exception_is_synthetic: {
+            label: 'Exception is synthetic',
+            description: 'Whether this was detected as a synthetic exception',
+        },
+        $exception_stack_trace_raw: {
+            label: 'Exception raw stack trace',
+            description: "The exception's stack trace, as a string.",
+        },
+        $exception_handled: {
+            label: 'Exception was handled',
+            description: 'Whether this was a handled or unhandled exception',
+        },
+        $exception_personURL: {
+            label: 'Exception person URL',
+            description: 'The PostHog person that experienced the exception',
+        },
         $ce_version: {
             label: '$ce_version',
             description: '',
@@ -464,8 +505,9 @@ export const keyMapping: KeyMappingInterface = {
             hide: true,
         },
         $time: {
-            label: 'Timestamp (seconds)',
-            description: 'Time as given by the client, seconds since epoch.',
+            label: '$time (deprecated)',
+            description:
+                'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
             hide: true,
             examples: ['1681211521.345'],
         },
@@ -650,25 +692,26 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
-export const keyMappingKeys = Object.keys(keyMapping.event)
+export const keyMappingKeys = Object.keys(KEY_MAPPING.event)
 
 export function isPostHogProp(key: string): boolean {
     /*
-    Returns whether a given property is a PostHog-defined property. If the property is custom-defined, 
+    Returns whether a given property is a PostHog-defined property. If the property is custom-defined,
         function will return false.
     */
-    if (Object.keys(keyMapping.event).includes(key) || Object.keys(keyMapping.element).includes(key)) {
+    if (Object.keys(KEY_MAPPING.event).includes(key) || Object.keys(KEY_MAPPING.element).includes(key)) {
         return true
     }
     return false
 }
 
 interface PropertyKeyInfoInterface {
-    value: string
+    value: string | null | undefined
     type?: 'event' | 'element'
     tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean
+    /** @default true */
     ellipsis?: boolean
     className?: string
 }
@@ -715,16 +758,16 @@ export function getKeyMapping(
     value: string | PropertyFilterValue | undefined,
     type: 'event' | 'element'
 ): KeyMapping | null {
-    if (!value) {
+    if (value == undefined) {
         return null
     }
 
-    value = `${value}` // convert to string
+    value = value.toString()
     let data = null
-    if (value in keyMapping[type]) {
-        return { ...keyMapping[type][value] }
-    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
-        data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
+    if (value in KEY_MAPPING[type]) {
+        return { ...KEY_MAPPING[type][value] }
+    } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in KEY_MAPPING[type]) {
+        data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
             data.description = `${data.description} Data from the first time this user was seen.`
@@ -745,6 +788,15 @@ export function getKeyMapping(
             return {
                 label: `Feature Enrollment: ${featureFlagKey}`,
                 description: `Whether the user has opted into the "${featureFlagKey}" beta program.`,
+                examples: ['true', 'false'],
+            }
+        }
+    } else if (value.startsWith('$feature_interaction/')) {
+        const featureFlagKey = value.replace(/^\$feature_interaction\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature Interaction: ${featureFlagKey}`,
+                description: `Whether the user has interacted with "${featureFlagKey}".`,
                 examples: ['true', 'false'],
             }
         }
@@ -769,21 +821,21 @@ export function PropertyKeyInfo({
     ellipsis = true,
     className = '',
 }: PropertyKeyInfoInterface): JSX.Element {
-    value = `${value}` // convert to string
+    value = value?.toString() ?? '' // convert to string
 
     const data = getKeyMapping(value, type)
-    const baseValue = (data ? data.label : value)?.trim() ?? ''
-    const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
+    const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
+    const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
     // By this point, property is a PH defined property
     const innerContent = (
         <span className={clsx('PropertyKeyInfo', className)}>
             {!disableIcon && !!data && <span className="PropertyKeyInfoLogo" />}
             <span
-                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--elipsis')}
-                title={baseValue}
+                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}
+                title={valueDisplayText}
             >
-                {baseValueNode}
+                {valueDisplayElement}
             </span>
         </span>
     )

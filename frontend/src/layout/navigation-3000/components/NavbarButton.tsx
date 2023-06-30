@@ -1,5 +1,4 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { sceneConfigurations } from 'scenes/scenes'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -17,12 +16,10 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
     ({ identifier, title, onClick, persistentTooltip, ...buttonProps }, ref): JSX.Element => {
         const [hasBeenClicked, setHasBeenClicked] = useState(false)
 
-        const effectiveTitle: string | undefined = title || sceneConfigurations[identifier]?.name
-
         return (
             <li>
                 <Tooltip
-                    title={effectiveTitle}
+                    title={title}
                     placement="right"
                     delayMs={0}
                     visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click

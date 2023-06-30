@@ -26,7 +26,6 @@ export interface DefinitionPopoverLogicProps {
     type: TaxonomicFilterGroupType | string
     /* Callback to update specific item in in-memory list */
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    onMouseLeave?: () => void
     onCancel?: () => void
     onSave?: () => void
     hideView?: boolean
@@ -101,7 +100,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
                                 `api/projects/@current/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
                             )
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
@@ -123,7 +124,6 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
     }),
     selectors: {
         type: [() => [(_, props) => props.type], (type) => type],
-        onMouseLeave: [() => [(_, props) => props.onMouseLeave], (onMouseLeave) => onMouseLeave],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],
         hideEdit: [() => [(_, props) => props.hideEdit], (hideEdit) => hideEdit ?? false],
         openDetailInNewTab: [

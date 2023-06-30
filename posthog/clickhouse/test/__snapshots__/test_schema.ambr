@@ -212,7 +212,7 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0,
+      is_deleted Int8,
       version UInt64
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
@@ -228,7 +228,7 @@
       distinct_id VARCHAR,
       person_id UUID,
       is_deleted Int8,
-      version Int64 DEFAULT 1
+      version Int64
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
@@ -332,7 +332,11 @@
       click_count Int64,
       keypress_count Int64,
       mouse_activity_count Int64,
-      active_milliseconds Int64
+      active_milliseconds Int64,
+      console_log_count Int64,
+      console_warn_count Int64,
+      console_error_count Int64,
+      size Int64
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -793,7 +797,7 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0,
+      is_deleted Int8,
       version UInt64
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
@@ -809,7 +813,7 @@
       distinct_id VARCHAR,
       person_id UUID,
       is_deleted Int8,
-      version Int64 DEFAULT 1
+      version Int64
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
   
@@ -913,7 +917,11 @@
       click_count Int64,
       keypress_count Int64,
       mouse_activity_count Int64,
-      active_milliseconds Int64
+      active_milliseconds Int64,
+      console_log_count Int64,
+      console_warn_count Int64,
+      console_error_count Int64,
+      size Int64
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -1001,7 +1009,7 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0,
+      is_deleted Int8,
       version UInt64
       
       
@@ -1025,7 +1033,7 @@
       distinct_id VARCHAR,
       person_id UUID,
       is_deleted Int8,
-      version Int64 DEFAULT 1
+      version Int64
       
       
   , _timestamp DateTime
@@ -1330,7 +1338,12 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      -- this column allows us to estimate the amount of data that is being ingested
+      size SimpleAggregateFunction(sum, Int64)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
   '
@@ -1359,7 +1372,11 @@
   sum(click_count) as click_count,
   sum(keypress_count) as keypress_count,
   sum(mouse_activity_count) as mouse_activity_count,
-  sum(active_milliseconds) as active_milliseconds
+  sum(active_milliseconds) as active_milliseconds,
+  sum(console_log_count) as console_log_count,
+  sum(console_warn_count) as console_warn_count,
+  sum(console_error_count) as console_error_count,
+  sum(size) as size
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
   
@@ -1441,7 +1458,6 @@
   , _offset UInt64
   
       
-      , PROJECTION fast_max_kafka_timestamp_sharded_events (SELECT max(_timestamp))
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
@@ -1586,7 +1602,12 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      -- this column allows us to estimate the amount of data that is being ingested
+      size SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)
@@ -1805,7 +1826,7 @@
       team_id Int64,
       properties VARCHAR,
       is_identified Int8,
-      is_deleted Int8 DEFAULT 0,
+      is_deleted Int8,
       version UInt64
       
       
@@ -1829,7 +1850,7 @@
       distinct_id VARCHAR,
       person_id UUID,
       is_deleted Int8,
-      version Int64 DEFAULT 1
+      version Int64
       
       
   , _timestamp DateTime
@@ -2055,7 +2076,6 @@
   , _offset UInt64
   
       
-      , PROJECTION fast_max_kafka_timestamp_sharded_events (SELECT max(_timestamp))
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
@@ -2200,7 +2220,12 @@
       click_count SimpleAggregateFunction(sum, Int64),
       keypress_count SimpleAggregateFunction(sum, Int64),
       mouse_activity_count SimpleAggregateFunction(sum, Int64),
-      active_milliseconds SimpleAggregateFunction(sum, Int64)
+      active_milliseconds SimpleAggregateFunction(sum, Int64),
+      console_log_count SimpleAggregateFunction(sum, Int64),
+      console_warn_count SimpleAggregateFunction(sum, Int64),
+      console_error_count SimpleAggregateFunction(sum, Int64),
+      -- this column allows us to estimate the amount of data that is being ingested
+      size SimpleAggregateFunction(sum, Int64)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
       PARTITION BY toYYYYMM(min_first_timestamp)

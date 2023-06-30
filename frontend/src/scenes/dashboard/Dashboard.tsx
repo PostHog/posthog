@@ -25,7 +25,6 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
-    sharingAccessToken?: string
 }
 
 export const scene: SceneExport = {
@@ -37,12 +36,9 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Dashboard({ id, dashboard, placement, sharingAccessToken }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
     return (
-        <BindLogic
-            logic={dashboardLogic}
-            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, sharingAccessToken }}
-        >
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
             <DashboardScene />
         </BindLogic>
     )
@@ -148,6 +144,7 @@ function DashboardScene(): JSX.Element {
                                         ...groupsTaxonomicTypes,
                                         TaxonomicFilterGroupType.Cohorts,
                                         TaxonomicFilterGroupType.Elements,
+                                        TaxonomicFilterGroupType.HogQLExpression,
                                     ]}
                                 />
                             </div>
@@ -155,8 +152,9 @@ function DashboardScene(): JSX.Element {
                         {placement !== DashboardPlacement.Export && (
                             <div className="flex space-x-4 dashoard-items-actions">
                                 <div
-                                    className="left-item"
-                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                    className={`left-item ${
+                                        placement === DashboardPlacement.Public ? 'text-right' : ''
+                                    }`}
                                 >
                                     {[DashboardPlacement.Public].includes(placement) ? (
                                         <LastRefreshText />

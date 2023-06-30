@@ -10,7 +10,7 @@ function FlutterCaptureSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Dart}>
             {
-                "import 'package:posthog_flutter/posthog_flutter.dart';\n\nPosthog.screen(\n\tscreenName: 'Example Screen',\n);"
+                "import 'package:posthog_flutter/posthog_flutter.dart';\n\nPosthog().screen(\n\tscreenName: 'Example Screen',\n);"
             }
         </CodeSnippet>
     )
@@ -41,7 +41,7 @@ function FlutterIOSSetupSnippet(): JSX.Element {
                 currentTeam?.api_token +
                 '</string>\n\t<key>com.posthog.posthog.POSTHOG_HOST</key>\n\t<string>' +
                 url +
-                '</string>\n\t<key>com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<false/>\n\t<false/>\n\t[...]\n</dict>'}
+                '</string>\n\t<key>com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<false/>\n\t[...]\n</dict>'}
         </CodeSnippet>
     )
 }

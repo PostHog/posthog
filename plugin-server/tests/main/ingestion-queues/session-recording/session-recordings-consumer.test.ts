@@ -1,7 +1,9 @@
+import { DateTime } from 'luxon'
 import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../../../src/config/config'
+import { now } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 import { createOrganization, createTeam } from '../../../helpers/sql'
@@ -18,7 +20,7 @@ describe('session-recordings-consumer', () => {
     beforeEach(() => {
         postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL })
         teamManager = new TeamManager(postgres, {} as any)
-        eachBachWithDependencies = eachBatch({ producer, teamManager, summaryEnabledTeams: [] })
+        eachBachWithDependencies = eachBatch({ producer, teamManager })
     })
 
     afterEach(() => {
@@ -60,7 +62,7 @@ describe('session-recordings-consumer', () => {
             },
         ])
 
-        // Should have send to the DLQ.
+        // Should have sent to the DLQ.
         expect(producer.produce).toHaveBeenCalledTimes(1)
     })
 
@@ -83,7 +85,7 @@ describe('session-recordings-consumer', () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)
 
-        const eachBachWithDependencies: any = eachBatch({ producer, teamManager, summaryEnabledTeams: null })
+        const eachBachWithDependencies: any = eachBatch({ producer, teamManager })
 
         await eachBachWithDependencies([
             {
@@ -92,7 +94,7 @@ describe('session-recordings-consumer', () => {
                     team_id: teamId,
                     data: JSON.stringify({
                         event: '$snapshot',
-                        properties: { $snapshot_data: { events_summary: [{ timestamp: 12345 }] } },
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: now() }] } },
                     }),
                 }),
                 timestamp: 123,
@@ -102,11 +104,13 @@ describe('session-recordings-consumer', () => {
         expect(producer.produce).toHaveBeenCalledTimes(2)
     })
 
-    test('eachBatch can emit to two topics for a specific team', async () => {
+    test('eachBatch does not emit a replay record that is more than a month in the future', async () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)
 
-        const eachBachWithDependencies: any = eachBatch({ producer, teamManager, summaryEnabledTeams: [teamId] })
+        const eachBachWithDependencies: any = eachBatch({ producer, teamManager })
+
+        const aMonthInFuture = DateTime.now().plus({ months: 1 }).toMillis()
 
         await eachBachWithDependencies([
             {
@@ -115,26 +119,34 @@ describe('session-recordings-consumer', () => {
                     team_id: teamId,
                     data: JSON.stringify({
                         event: '$snapshot',
-                        properties: { $snapshot_data: { events_summary: [{ timestamp: 12345 }] } },
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: aMonthInFuture }] } },
                     }),
                 }),
                 timestamp: 123,
             },
         ])
 
-        expect(producer.produce).toHaveBeenCalledTimes(2)
+        expect(producer.produce).toHaveBeenCalledTimes(1)
     })
 
-    test('eachBatch can emit to only one topic when team is not summary enabled', async () => {
+    test('eachBatch does not emit a replay record that is more than a month in the past', async () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)
 
-        const eachBachWithDependencies: any = eachBatch({ producer, teamManager, summaryEnabledTeams: [teamId + 1] })
+        const eachBachWithDependencies: any = eachBatch({ producer, teamManager })
+
+        const aMonthInFuture = DateTime.now().minus({ months: 1 }).toMillis()
 
         await eachBachWithDependencies([
             {
                 key: 'test',
-                value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
+                value: JSON.stringify({
+                    team_id: teamId,
+                    data: JSON.stringify({
+                        event: '$snapshot',
+                        properties: { $snapshot_data: { events_summary: [{ timestamp: aMonthInFuture }] } },
+                    }),
+                }),
                 timestamp: 123,
             },
         ])

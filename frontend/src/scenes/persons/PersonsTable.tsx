@@ -1,6 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonType } from '~/types'
+import { PersonType, PropertyDefinitionType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PersonHeader } from './PersonHeader'
@@ -117,7 +117,7 @@ export function PersonsTable({
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable({ properties }) {
                         return Object.keys(properties).length ? (
-                            <PropertiesTable properties={properties} />
+                            <PropertiesTable type={PropertyDefinitionType.Person} properties={properties} />
                         ) : (
                             'This person has no properties.'
                         )

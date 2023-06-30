@@ -174,7 +174,7 @@ export const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
                 status.error('🔥', 'Failed to disconnect node-rdkafka consumer', { error })
                 reject(error)
             } else {
-                status.info('🔁', 'Disconnected session node-rdkafka consumer')
+                status.info('🔁', 'Disconnected node-rdkafka consumer')
                 resolve(data)
             }
         })

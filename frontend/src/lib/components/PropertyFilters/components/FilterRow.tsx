@@ -53,11 +53,7 @@ export const FilterRow = React.memo(function FilterRow({
         <>
             <Row
                 align="middle"
-                className={clsx(
-                    'property-filter-row',
-                    !disablePopover && 'wrap-filters',
-                    orFiltering && index !== 0 && 'mt-2'
-                )}
+                className={clsx('property-filter-row', !disablePopover && 'wrap-filters')}
                 data-attr={'property-filter-' + index}
                 wrap={false}
             >
@@ -71,6 +67,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClick={() => onRemove(index)}
                                 size="small"
                                 className="ml-2"
+                                noPadding
                             />
                         )}
                     </>

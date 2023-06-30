@@ -7,8 +7,6 @@ import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
 import { themeLogic } from './themeLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { navigation3000Logic } from './navigationLogic'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
@@ -23,16 +21,15 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="Navigation3000">
             <Navbar />
-            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} />}
-            <main>
-                <Breadcrumbs />
-                <div className="Navigation3000__scene">
-                    <div className="Navigation3000__content">{children}</div>
-                </div>
-            </main>
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <NotebookSideBar />
-            </FlaggedFeature>
+            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
+            <NotebookSideBar>
+                <main>
+                    <Breadcrumbs />
+                    <div className="Navigation3000__scene">
+                        <div className="Navigation3000__content">{children}</div>
+                    </div>
+                </main>
+            </NotebookSideBar>
 
             <CommandPalette />
         </div>

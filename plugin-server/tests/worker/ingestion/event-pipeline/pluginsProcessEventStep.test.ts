@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
-import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
@@ -20,7 +19,6 @@ const pluginEvent: PluginEvent = {
 
 describe('pluginsProcessEventStep()', () => {
     let runner: any
-    let personContainer: any
 
     beforeEach(() => {
         runner = {
@@ -32,14 +30,13 @@ describe('pluginsProcessEventStep()', () => {
                 },
             },
         }
-        personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
     })
 
     it('forwards processed plugin event to `processPersonsStep`', async () => {
         const processedEvent = { ...pluginEvent, event: 'processed' }
         jest.mocked(runProcessEvent).mockResolvedValue(processedEvent)
 
-        const response = await pluginsProcessEventStep(runner, pluginEvent, personContainer)
+        const response = await pluginsProcessEventStep(runner, pluginEvent)
 
         expect(response).toEqual(processedEvent)
     })
@@ -47,7 +44,7 @@ describe('pluginsProcessEventStep()', () => {
     it('does not forward but counts dropped events by plugins', async () => {
         jest.mocked(runProcessEvent).mockResolvedValue(null)
 
-        const response = await pluginsProcessEventStep(runner, pluginEvent, personContainer)
+        const response = await pluginsProcessEventStep(runner, pluginEvent)
 
         expect(response).toEqual(null)
         expect(runner.hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.dropped_event', { teamID: '2' })

@@ -1,9 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import * as Sentry from '@sentry/node'
 import * as fs from 'fs'
-import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
-import Redis from 'ioredis'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
@@ -31,12 +29,11 @@ import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
-import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { status } from '../status'
-import { createPostgresPool, createRedis, UUIDT } from '../utils'
+import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
@@ -129,12 +126,11 @@ export async function createHub(
 
     status.info('🤔', `Connecting to Kafka...`)
 
-    const kafka = createKafkaClient(serverConfig as KafkaConfig)
-
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig as KafkaConfig)
+    const kafka = createKafkaClient(serverConfig)
+    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
     const producer = await createKafkaProducer({ ...kafkaConnectionConfig, 'linger.ms': 0 })
 
-    const kafkaProducer = new KafkaProducerWrapper(producer)
+    const kafkaProducer = new KafkaProducerWrapper(producer, serverConfig.KAFKA_PRODUCER_WAIT_FOR_ACK)
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
@@ -142,19 +138,7 @@ export async function createHub(
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createPool<Redis.Redis>(
-        {
-            create: () => createRedis(serverConfig),
-            destroy: async (client) => {
-                await client.quit()
-            },
-        },
-        {
-            min: serverConfig.REDIS_POOL_MIN_SIZE,
-            max: serverConfig.REDIS_POOL_MAX_SIZE,
-            autostart: true,
-        }
-    )
+    const redisPool = createRedisPool(serverConfig)
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
@@ -238,7 +222,6 @@ export async function createHub(
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
-    hub.personManager = new PersonManager(hub as Hub)
 
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
@@ -261,6 +244,7 @@ export type KafkaConfig = {
     KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
+    KAFKA_CLIENT_RACK?: string
 }
 
 export function createKafkaClient({

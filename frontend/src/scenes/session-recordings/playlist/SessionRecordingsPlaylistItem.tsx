@@ -8,6 +8,8 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
+import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { urls } from 'scenes/urls'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
@@ -78,97 +80,97 @@ export function SessionRecordingPlaylistItem({
 
     const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
-    // TODO: Modify onClick to only react to shift+click
-
     return (
-        <li
-            draggable
-            key={recording.id}
-            className={clsx(
-                'SessionRecordingsPlaylist__list-item',
-                'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
-                isActive && 'bg-primary-highlight'
-            )}
-            onClick={() => onClick()}
-        >
-            <div className="w-2 h-2 mx-2">
-                {!recording.viewed ? (
-                    <Tooltip title={'Indicates the recording has not been watched yet'}>
-                        <div
-                            className="w-2 h-2 mt-2 rounded-full bg-primary-light"
-                            aria-label="unwatched-recording-label"
-                        />
-                    </Tooltip>
-                ) : null}
-            </div>
-            <div className="grow overflow-hidden space-y-px">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 shrink overflow-hidden">
-                        {(recording.pinned_count ?? 0) > 0 && (
-                            <Tooltip
-                                placement="topRight"
-                                title={`This recording is pinned on ${recording.pinned_count} playlists`}
-                            >
-                                <IconPinFilled className="text-sm text-orange shrink-0" />
-                            </Tooltip>
-                        )}
-                        <div className="truncate font-medium text-primary ph-no-capture">
-                            {asDisplay(recording.person)}
+        <DraggableToNotebook href={urls.replaySingle(recording.id)} alwaysDraggable noOverflow>
+            <li
+                key={recording.id}
+                className={clsx(
+                    'SessionRecordingsPlaylist__list-item',
+                    'flex flex-row py-2 pr-4 pl-0 cursor-pointer relative overflow-hidden',
+                    isActive && 'bg-primary-highlight'
+                )}
+                onClick={() => onClick()}
+            >
+                <div className="w-2 h-2 mx-2">
+                    {!recording.viewed ? (
+                        <Tooltip title={'Indicates the recording has not been watched yet'}>
+                            <div
+                                className="w-2 h-2 mt-2 rounded-full bg-primary-light"
+                                aria-label="unwatched-recording-label"
+                            />
+                        </Tooltip>
+                    ) : null}
+                </div>
+                <div className="grow overflow-hidden space-y-px">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 shrink overflow-hidden">
+                            {(recording.pinned_count ?? 0) > 0 && (
+                                <Tooltip
+                                    placement="topRight"
+                                    title={`This recording is pinned on ${recording.pinned_count} playlists`}
+                                >
+                                    <IconPinFilled className="text-sm text-orange shrink-0" />
+                                </Tooltip>
+                            )}
+                            <div className="truncate font-medium text-primary ph-no-capture">
+                                {asDisplay(recording.person)}
+                            </div>
+                        </div>
+                        <div className="flex-1" />
+                        <div className="flex items-center flex-1 justify-end font-semibold">
+                            <IconSchedule className={iconClassnames} />
+                            <span>
+                                <span className={clsx(durationParts[0] === '00' && 'opacity-50 font-normal')}>
+                                    {durationParts[0]}:
+                                </span>
+                                <span
+                                    className={clsx({
+                                        'opacity-50 font-normal':
+                                            durationParts[0] === '00' && durationParts[1] === '00',
+                                    })}
+                                >
+                                    {durationParts[1]}:
+                                </span>
+                                {durationParts[2]}
+                            </span>
                         </div>
                     </div>
-                    <div className="flex-1" />
-                    <div className="flex items-center flex-1 justify-end font-semibold">
-                        <IconSchedule className={iconClassnames} />
-                        <span>
-                            <span className={clsx(durationParts[0] === '00' && 'opacity-50 font-normal')}>
-                                {durationParts[0]}:
-                            </span>
+
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex iems-center gap-2 text-xs text-muted-alt">
+                            {propertyIcons}
+
                             <span
-                                className={clsx({
-                                    'opacity-50 font-normal': durationParts[0] === '00' && durationParts[1] === '00',
-                                })}
+                                title={`Click count: ${recording.click_count}`}
+                                className="flex items-center gap-1  overflow-hidden shrink-0"
                             >
-                                {durationParts[1]}:
+                                <IconAutocapture />
+                                {recording.click_count}
                             </span>
-                            {durationParts[2]}
+
+                            <span
+                                title={`Keyboard inputs: ${recording.keypress_count}`}
+                                className="flex items-center gap-1  overflow-hidden shrink-0"
+                            >
+                                <IconKeyboard />
+                                {recording.keypress_count}
+                            </span>
+                        </div>
+                        <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 w-2/3">
+                        <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
+                            <span title={`First URL: ${recording.start_url}`} className="truncate">
+                                {firstPath}
+                            </span>
                         </span>
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex iems-center gap-2 text-xs text-muted-alt">
-                        {propertyIcons}
-
-                        <span
-                            title={`Click count: ${recording.click_count}`}
-                            className="flex items-center gap-1  overflow-hidden shrink-0"
-                        >
-                            <IconAutocapture />
-                            {recording.click_count}
-                        </span>
-
-                        <span
-                            title={`Keyboard inputs: ${recording.keypress_count}`}
-                            className="flex items-center gap-1  overflow-hidden shrink-0"
-                        >
-                            <IconKeyboard />
-                            {recording.keypress_count}
-                        </span>
-                    </div>
-                    <TZLabel className="overflow-hidden text-ellipsis text-xs" time={recording.start_time} />
-                </div>
-
-                <div className="flex items-center justify-between gap-4 w-2/3">
-                    <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
-                        <span title={`First URL: ${recording.start_url}`} className="truncate">
-                            {firstPath}
-                        </span>
-                    </span>
-                </div>
-            </div>
-
-            <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />
-        </li>
+                <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />
+            </li>
+        </DraggableToNotebook>
     )
 }
 

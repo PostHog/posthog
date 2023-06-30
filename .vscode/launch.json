@@ -27,7 +27,7 @@
                 "PYTHONUNBUFFERED": "1",
                 "DEBUG": "1",
                 "CLICKHOUSE_SECURE": "False",
-                "KAFKA_URL": "kafka://localhost",
+                "KAFKA_HOSTS": "localhost:9092",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "WORKER_CONCURRENCY": "2",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
@@ -44,7 +44,8 @@
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
-                "OBJECT_STORAGE_ENABLED": "True"
+                "OBJECT_STORAGE_ENABLED": "True",
+                "SESSION_RECORDING_BLOB_PROCESSING_TEAMS": "all"
             }
         },
         {
@@ -66,10 +67,11 @@
                 "DJANGO_SETTINGS_MODULE": "posthog.settings",
                 "DEBUG": "1",
                 "CLICKHOUSE_SECURE": "False",
-                "KAFKA_URL": "kafka://localhost",
+                "KAFKA_HOSTS": "localhost",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
-                "PRINT_SQL": "1"
+                "PRINT_SQL": "1",
+                "REPLAY_BLOB_INGESTION_TRAFFIC_RATIO": "1.0"
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",

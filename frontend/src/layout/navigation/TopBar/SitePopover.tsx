@@ -14,6 +14,7 @@ import {
     IconSettings,
     IconCorporate,
     IconPlus,
+    IconRedeem,
 } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { Link } from 'lib/lemon-ui/Link'
@@ -267,13 +268,16 @@ export function SitePopoverOverlay(): JSX.Element {
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
-                {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
+                {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] && (
                     <div
-                        className="LemonButton LemonButton--tertiary LemonButton--status-primary LemonButton--full-width LemonButton__content flex items-center"
+                        className="LemonButton LemonButton--tertiary LemonButton--status-primary LemonButton--full-width LemonButton__content flex items-center  LemonButton--has-icon"
                         data-attr="early-access-feature-button"
                         onClick={closeSitePopover}
                     >
-                        Early Access Features
+                        <span className="LemonButton__icon">
+                            <IconRedeem />
+                        </span>
+                        Enable beta features
                     </div>
                 )}
             </SitePopoverSection>

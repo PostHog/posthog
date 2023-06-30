@@ -1,6 +1,8 @@
 import json
 from unittest.mock import ANY, MagicMock, patch
 
+
+from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from rest_framework import status
 
@@ -16,7 +18,6 @@ from posthog.test.base import APIBaseTest
 
 class TestTeamAPI(APIBaseTest):
     def test_list_projects(self):
-
         response = self.client.get("/api/projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -33,7 +34,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertNotIn("event_properties_numerical", response_data["results"][0])
 
     def test_retrieve_project(self):
-
         response = self.client.get("/api/projects/@current/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -44,7 +44,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
         self.assertEqual(response_data["has_group_types"], False)
         self.assertEqual(
-            response_data["person_on_events_querying_enabled"], get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+            response_data["person_on_events_querying_enabled"],
+            get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"),
         )
         self.assertEqual(
             response_data["groups_on_events_querying_enabled"], get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
@@ -105,7 +106,6 @@ class TestTeamAPI(APIBaseTest):
         )
 
     def test_update_project_timezone(self):
-
         response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -117,7 +117,6 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(self.team.timezone, "Europe/Istanbul")
 
     def test_update_test_filter_default_checked(self):
-
         response = self.client.patch("/api/projects/@current/", {"test_account_filters_default_checked": "true"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -364,6 +363,53 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/")
         assert response.json()["session_recording_version"] == "v2"
 
+    def test_turn_on_exception_autocapture(self):
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_opt_in"] is None
+
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_opt_in": "Welwyn Garden City"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Must be a valid boolean."
+
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_opt_in": True})
+        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_opt_in"] is True
+
+    def test_configure_exception_autocapture_event_dropping(self):
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] is None
+
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": {"wat": "am i"}}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Must provide a list for field: autocapture_exceptions_errors_to_ignore."
+
+        response = self.client.patch("/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": [1, False]})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            response.json()["detail"]
+            == "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
+        )
+
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": ["wat am i"]}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["autocapture_exceptions_errors_to_ignore"] == ["wat am i"]
+
+    def test_configure_exception_autocapture_event_dropping_only_allows_simple_config(self):
+        response = self.client.patch(
+            "/api/projects/@current/", {"autocapture_exceptions_errors_to_ignore": ["abc" * 300]}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            response.json()["detail"]
+            == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+        )
+
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """
@@ -374,3 +420,12 @@ def create_team(organization: Organization, name: str = "Test team") -> Team:
     return Team.objects.create(
         organization=organization, name=name, ingested_event=True, completed_snippet_onboarding=True, is_demo=True
     )
+
+
+async def acreate_team(organization: Organization, name: str = "Test team") -> Team:
+    """
+    This is a helper that just creates a team. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world  scenarios.
+    """
+    return await sync_to_async(create_team)(organization, name=name)  # type: ignore

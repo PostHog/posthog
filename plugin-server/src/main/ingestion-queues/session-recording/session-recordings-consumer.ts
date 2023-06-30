@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
+import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, Message, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import {
@@ -32,14 +33,16 @@ export const startSessionRecordingEventsConsumer = async ({
     consumerMaxBytes,
     consumerMaxBytesPerPartition,
     consumerMaxWaitMs,
-    summaryIngestionEnabledTeams,
+    consumerErrorBackoffMs,
+    batchingTimeoutMs,
 }: {
     teamManager: TeamManager
     kafkaConfig: KafkaConfig
     consumerMaxBytes: number
     consumerMaxBytesPerPartition: number
     consumerMaxWaitMs: number
-    summaryIngestionEnabledTeams: string
+    consumerErrorBackoffMs: number
+    batchingTimeoutMs: number
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -72,8 +75,6 @@ export const startSessionRecordingEventsConsumer = async ({
     const eachBatchWithContext = eachBatch({
         teamManager,
         producer,
-        summaryEnabledTeams:
-            summaryIngestionEnabledTeams === 'all' ? null : summaryIngestionEnabledTeams.split(',').map(parseInt),
     })
 
     // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -86,7 +87,9 @@ export const startSessionRecordingEventsConsumer = async ({
         consumerMaxBytesPerPartition,
         consumerMaxBytes,
         consumerMaxWaitMs,
+        consumerErrorBackoffMs,
         fetchBatchSize,
+        batchingTimeoutMs,
         eachBatch: eachBatchWithContext,
     })
 
@@ -99,15 +102,7 @@ export const startSessionRecordingEventsConsumer = async ({
 }
 
 export const eachBatch =
-    ({
-        teamManager,
-        producer,
-        summaryEnabledTeams,
-    }: {
-        teamManager: TeamManager
-        producer: RdKafkaProducer
-        summaryEnabledTeams: number[] | null
-    }) =>
+    ({ teamManager, producer }: { teamManager: TeamManager; producer: RdKafkaProducer }) =>
     async (messages: Message[]) => {
         // To start with, we simply process each message in turn,
         // without attempting to perform any concurrency. There is a lot
@@ -128,7 +123,7 @@ export const eachBatch =
         // DependencyUnavailableError error to distinguish between
         // intermittent and permanent errors.
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
-        const eachMessageWithContext = eachMessage({ teamManager, producer, summaryEnabledTeams })
+        const eachMessageWithContext = eachMessage({ teamManager, producer })
 
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => eachMessageWithContext(message))
@@ -171,15 +166,7 @@ export const eachBatch =
     }
 
 const eachMessage =
-    ({
-        teamManager,
-        producer,
-        summaryEnabledTeams,
-    }: {
-        teamManager: TeamManager
-        producer: RdKafkaProducer
-        summaryEnabledTeams: number[] | null
-    }) =>
+    ({ teamManager, producer }: { teamManager: TeamManager; producer: RdKafkaProducer }) =>
     async (message: Message) => {
         // For each message, we:
         //
@@ -273,7 +260,14 @@ const eachMessage =
 
         if (team.session_recording_opt_in) {
             try {
-                if (event.event === '$snapshot') {
+                if (event.event === '$snapshot_items') {
+                    eventDroppedCounter
+                        .labels({
+                            event_type: 'session_recordings',
+                            drop_cause: 'recordings-consumer-does-not-handle-snapshot-items',
+                        })
+                        .inc()
+                } else if (event.event === '$snapshot') {
                     const clickHouseRecord = createSessionRecordingEvent(
                         messagePayload.uuid,
                         team.id,
@@ -285,18 +279,52 @@ const eachMessage =
 
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
-                        if (summaryEnabledTeams === null || summaryEnabledTeams?.includes(team.id)) {
-                            replayRecord = createSessionReplayEvent(
-                                messagePayload.uuid,
-                                team.id,
-                                messagePayload.distinct_id,
-                                event.ip,
-                                event.properties || {}
-                            )
+                        replayRecord = createSessionReplayEvent(
+                            messagePayload.uuid,
+                            team.id,
+                            messagePayload.distinct_id,
+                            event.ip,
+                            event.properties || {}
+                        )
+                        // the replay record timestamp has to be valid and be within a reasonable diff from now
+                        if (replayRecord !== null) {
+                            const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
+                            if (!asDate.isValid || Math.abs(asDate.diffNow('months').months) >= 0.99) {
+                                captureMessage(
+                                    `Invalid replay record timestamp: ${replayRecord.first_timestamp} for event ${messagePayload.uuid}`,
+                                    {
+                                        extra: {
+                                            replayRecord,
+                                            uuid: clickHouseRecord.uuid,
+                                            timestamp: clickHouseRecord.timestamp,
+                                        },
+                                        tags: {
+                                            team: team.id,
+                                            session_id: clickHouseRecord.session_id,
+                                        },
+                                    }
+                                )
+                                replayRecord = null
+                            }
                         }
                     } catch (e) {
                         status.warn('??', 'session_replay_summarizer_error', { error: e })
-                        captureException(e)
+                        captureException(e, {
+                            extra: {
+                                clickHouseRecord: {
+                                    uuid: clickHouseRecord.uuid,
+                                    timestamp: clickHouseRecord.timestamp,
+                                    snapshot_data: clickHouseRecord.snapshot_data,
+                                },
+                                replayRecord,
+                            },
+                            tags: {
+                                team: team.id,
+                                session_id: clickHouseRecord.session_id,
+                                chunk_index: event.properties?.['$snapshot_data']?.chunk_index || 'unknown',
+                                chunk_count: event.properties?.['$snapshot_data']?.chunk_count || 'unknown',
+                            },
+                        })
                     }
 
                     const producePromises = [

@@ -20,6 +20,7 @@ interface LemonInputPropsBase
         | 'autoCorrect'
         | 'autoCapitalize'
         | 'spellCheck'
+        | 'inputMode'
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
@@ -72,8 +73,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onBlur,
         onPressEnter,
         status = 'default',
-        allowClear = false,
-        fullWidth = false,
+        allowClear, // Default handled inside the component
+        fullWidth,
         prefix,
         suffix,
         type,
@@ -96,14 +97,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         setFocused(true)
     }
 
-    // Type=search has some special overrides
-    allowClear = allowClear ?? (type === 'search' ? true : false)
-    fullWidth = fullWidth ?? (type === 'search' ? false : true)
-    prefix = prefix ?? (type === 'search' ? <IconMagnifier /> : undefined)
-    // Type=password has some special overrides
-    suffix =
-        suffix ??
-        (type === 'password' ? (
+    if (type === 'search') {
+        allowClear = allowClear ?? true
+        prefix = prefix ?? <IconMagnifier />
+    } else if (type === 'password') {
+        suffix = suffix ?? (
             <LemonButton
                 size="small"
                 noPadding
@@ -116,13 +114,14 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     setPasswordVisible(!passwordVisible)
                 }}
             />
-        ) : undefined)
-
+        )
+    }
     // allowClear button takes precedence if set
-    suffix =
-        allowClear && value ? (
+    if (allowClear && value) {
+        suffix = (
             <LemonButton
                 size="small"
+                noPadding
                 icon={<IconClose />}
                 status="primary-alt"
                 tooltip="Clear input"
@@ -136,9 +135,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     focus()
                 }}
             />
-        ) : (
-            suffix
         )
+    }
 
     return (
         <span

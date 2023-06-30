@@ -51,6 +51,7 @@ def get_property_values_for_key(
         ),
         {"team_id": team.pk, "key": key, **extra_params},
         query_type="get_property_values_with_value",
+        team_id=team.pk,
     )
 
 
@@ -62,9 +63,11 @@ def get_person_property_values_for_key(key: str, team: Team, value: Optional[str
             SELECT_PERSON_PROP_VALUES_SQL_WITH_FILTER.format(property_field=property_field),
             {"team_id": team.pk, "key": key, "value": "%{}%".format(value)},
             query_type="get_person_property_values_with_value",
+            team_id=team.pk,
         )
     return insight_sync_execute(
         SELECT_PERSON_PROP_VALUES_SQL.format(property_field=property_field),
         {"team_id": team.pk, "key": key},
         query_type="get_person_property_values",
+        team_id=team.pk,
     )

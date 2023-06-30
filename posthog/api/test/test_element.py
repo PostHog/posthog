@@ -143,7 +143,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response), 1)
 
     # checking postgres, don't care about person on events
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_element_stats_postgres_queries_are_as_expected(self) -> None:
         self._setup_events()

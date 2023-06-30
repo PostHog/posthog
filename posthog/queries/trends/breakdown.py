@@ -140,6 +140,7 @@ class TrendsBreakdown:
         aggregate_operation, _, math_params = process_math(
             self.entity,
             self.team,
+            filter=self.filter,
             event_table_alias=self.EVENT_TABLE_ALIAS,
             person_id_alias=f"person_id"
             if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED

@@ -1,7 +1,8 @@
+from datetime import datetime, timedelta
+
 import json
 from typing import Any, List, Type, cast
 
-import structlog
 from dateutil import parser
 import requests
 from django.db.models import Count, Prefetch
@@ -16,25 +17,43 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    SharingTokenPermission,
+    TeamMemberAccessPermission,
+)
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
 )
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from posthog.storage import object_storage
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
-logger = structlog.get_logger(__name__)
+
+def snapshots_response(data: Any) -> Any:
+    # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
+    # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+    try:
+        JSONRenderer().render(data=data)
+    except Exception:
+        capture_exception(
+            Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": data}
+        )
+        return JsonResponse(data)
+
+    return Response(data)
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -56,9 +75,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "matching_events",
             "person",
-            "segments",
-            "start_and_end_times_by_window_id",
-            "snapshot_data_by_window_id",
             "storage",
             "pinned_count",
         ]
@@ -74,10 +90,18 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "keypress_count",
             "start_url",
             "matching_events",
-            "snapshot_data_by_window_id",
             "storage",
             "pinned_count",
         ]
+
+
+class SessionRecordingSharedSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="session_id", read_only=True)
+    recording_duration = serializers.IntegerField(source="duration", read_only=True)
+
+    class Meta:
+        model = SessionRecording
+        fields = ["id", "recording_duration", "start_time", "end_time"]
 
 
 class SessionRecordingPropertiesSerializer(serializers.Serializer):
@@ -91,12 +115,49 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
         }
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
+    source = serializers.CharField()  # type: ignore
+    start_timestamp = serializers.DateTimeField(allow_null=True)
+    end_timestamp = serializers.DateTimeField(allow_null=True)
+    blob_key = serializers.CharField(allow_null=True)
+
+
+class SessionRecordingSnapshotsSerializer(serializers.Serializer):
+    sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
+    snapshots = serializers.ListField(required=False)
+
+
+class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = SessionRecordingSerializer
+
+    sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
+
+    def get_permissions(self):
+        if hasattr(self.request, "sharing_configuration"):
+            return [permission() for permission in [SharingTokenPermission]]
+        return super().get_permissions()
+
+    def get_serializer_class(self) -> Type[serializers.Serializer]:
+        if hasattr(self.request, "sharing_configuration"):
+            return SessionRecordingSharedSerializer
+        else:
+            return SessionRecordingSerializer
+
+    def get_object(self) -> SessionRecording:
+        recording = SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
+        self.check_object_permissions(self.request, recording)
+
+        return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(request=request, team=self.team)
         use_v2_list = request.GET.get("version") == "2"
         use_v3_list = request.GET.get("version") == "3"
 
@@ -104,12 +165,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             list_recordings(filter, request, context=self.get_serializer_context(), v2=use_v2_list, v3=use_v3_list)
         )
 
-    # Returns meta data about the recording
+    # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
+        recording = self.get_object()
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
@@ -125,15 +183,16 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_person()
 
-        save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
-        recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
+        if not request.user.is_anonymous:
+            save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
+            recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
 
-        serializer = SessionRecordingSerializer(recording, context=self.get_serializer_context())
+        serializer = self.get_serializer(recording)
 
         return Response(serializer.data)
 
-    def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = self.get_object()
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
@@ -141,52 +200,104 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         recording.deleted = True
         recording.save()
 
-        return Response({"success": True})
+        return Response({"success": True}, status=204)
 
-    @action(methods=["GET"], detail=True)
-    def snapshot_file(self, request: request.Request, **kwargs) -> HttpResponse:
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+    def _snapshots_v2(self, request: request.Request):
+        """
+        This will eventually replaced the snapshots endpoint below.
+        This path only supports loading from S3 or Redis based on query params
+        """
+        recording = self.get_object()
+        response_data = {}
+        source = request.GET.get("source")
+        # TODO: Handle the old S3 storage method for pinned recordings
 
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        blob_key = request.GET.get("blob_key")
-
-        if not blob_key:
-            raise exceptions.ValidationError("Must provide a snapshot file blob key")
-
-        # very short-lived pre-signed URL
-        file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{self.kwargs['pk']}/data/{blob_key}"
-        url = object_storage.get_presigned_url(file_key, expiration=60)
-        if not url:
-            raise exceptions.NotFound("Snapshot file not found")
-
-        with requests.get(url=url, stream=True) as r:
-            r.raise_for_status()
-            response = HttpResponse(content=r.raw, content_type="application/json")
-            response["Content-Disposition"] = "inline"
-            return response
-
-    # Paginated endpoint that returns the snapshots for the recording
-    @action(methods=["GET"], detail=True)
-    def snapshots(self, request: request.Request, **kwargs):
-        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
-
-        if recording.deleted:
-            raise exceptions.NotFound("Recording not found")
-
-        if request.GET.get("blob_loading_enabled", "false") == "true":
+        if not source:
+            sources: List[dict] = []
             blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
             blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
-                return Response(
+                for full_key in blob_keys:
+                    # Keys are like 1619712000-1619712060
+                    blob_key = full_key.replace(blob_prefix, "")
+                    time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
+
+                    sources.append(
+                        {
+                            "source": "blob",
+                            "start_timestamp": time_range[0],
+                            "end_timestamp": time_range.pop(),
+                            "blob_key": blob_key,
+                        }
+                    )
+
+            might_have_realtime = True
+            newest_timestamp = None
+
+            if sources:
+                sources = sorted(sources, key=lambda x: x["start_timestamp"])
+                oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+                newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+
+            if might_have_realtime:
+                sources.append(
                     {
-                        "snapshot_data_by_window_id": [],
-                        "blob_keys": [x.replace(blob_prefix, "") for x in blob_keys],
-                        "next": None,
+                        "source": "realtime",
+                        "start_timestamp": newest_timestamp,
+                        "end_timestamp": None,
                     }
                 )
+
+            response_data["sources"] = sources
+
+        elif source == "realtime":
+            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
+            response_data["snapshots"] = snapshots
+
+        elif source == "blob":
+            blob_key = request.GET.get("blob_key", "")
+            if not blob_key:
+                raise exceptions.ValidationError("Must provide a snapshot file blob key")
+
+            # very short-lived pre-signed URL
+            file_key = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+            url = object_storage.get_presigned_url(file_key, expiration=60)
+            if not url:
+                raise exceptions.NotFound("Snapshot file not found")
+
+            with requests.get(url=url, stream=True) as r:
+                r.raise_for_status()
+                response = HttpResponse(content=r.raw, content_type="application/json")
+                response["Content-Disposition"] = "inline"
+                return response
+        else:
+            raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
+
+        serializer = SessionRecordingSnapshotsSerializer(response_data)
+
+        return Response(serializer.data)
+
+    @action(methods=["GET"], detail=True)
+    def snapshots(self, request: request.Request, **kwargs):
+        """
+        Snapshots can be loaded from multiple places:
+        1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
+        2. From Redis if the session is newer than our ingestion limit.
+        3. From Clickhouse whilst we are migrating to the new ingestion method
+        """
+
+        if request.GET.get("version") == "2":
+            return self._snapshots_v2(request)
+
+        recording = self.get_object()
+
+        # TODO: Determine if we should try Redis or not based on the recording start time and the S3 responses
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
 
         # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
@@ -202,35 +313,33 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_snapshots(limit, offset)
 
-        if not recording.snapshot_data_by_window_id:
-            raise exceptions.NotFound("Snapshots not found")
+        if offset == 0:
+            if not recording.snapshot_data_by_window_id:
+                raise exceptions.NotFound("Snapshots not found")
 
         if recording.can_load_more_snapshots:
             next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
         else:
             next_url = None
 
-        res = {"next": next_url, "snapshot_data_by_window_id": recording.snapshot_data_by_window_id}
+        res = {
+            "storage": recording.storage,
+            "next": next_url,
+            "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+        }
 
-        # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
-        # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
-        try:
-            JSONRenderer().render(data=res)
-        except Exception:
-            capture_exception(
-                Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": res}
-            )
-            return JsonResponse(res)
-
-        return Response(res)
+        return snapshots_response(res)
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs):
-        filter = SessionRecordingsFilter(request=request)
+        filter = SessionRecordingsFilter(request=request, team=self.team)
         session_ids = [
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]
+        for session_id in session_ids:
+            if not isinstance(session_id, str):
+                raise exceptions.ValidationError(f"Invalid session_id: {session_id} - not a string")
         session_recordings_properties = SessionRecordingProperties(
             team=self.team, filter=filter, session_ids=session_ids
         ).run()
@@ -288,16 +397,20 @@ def list_recordings(
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
 
         # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
-        session_recording_list_instance: Type[SessionRecordingList] = (
-            SessionRecordingListFromReplaySummary
-            if can_use_v3
-            else SessionRecordingListV2
-            if can_use_v2
-            else SessionRecordingList
-        )
-        (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
-            filter=filter, team=team
-        ).run()
+        if can_use_v3:
+            # check separately here to help mypy see that SessionRecordingListFromReplaySummary
+            # is its own thing even though it is still stuck with inheritance until we can collapse
+            # the number of listing mechanisms
+            (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
+                filter=filter, team=team
+            ).run()
+        else:
+            session_recording_list_instance: Type[SessionRecordingList] = (
+                SessionRecordingListV2 if can_use_v2 else SessionRecordingList
+            )
+            (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
+                filter=filter, team=team
+            ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 

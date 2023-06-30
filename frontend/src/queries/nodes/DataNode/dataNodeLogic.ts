@@ -26,6 +26,7 @@ import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import equal from 'fast-deep-equal'
 
 export interface DataNodeLogicProps {
     key: string
@@ -44,12 +45,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
         if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
+        }
+        if (
+            props.cachedResults &&
+            (!values.response || (oldProps.cachedResults && !equal(props.cachedResults, oldProps.cachedResults)))
+        ) {
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -57,6 +64,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
+        setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -68,9 +76,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         response: [
             props.cachedResults ?? null,
             {
+                setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
-                    if (props.cachedResults) {
+                    if (props.cachedResults && !refresh) {
                         return props.cachedResults
                     }
 

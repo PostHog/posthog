@@ -1,18 +1,18 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
-import { Breadcrumb, SessionRecordingsTabs } from '~/types'
+import { Breadcrumb, ReplayTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
+export const humanFriendlyTabName = (tab: ReplayTabs): string => {
     switch (tab) {
-        case SessionRecordingsTabs.Recent:
+        case ReplayTabs.Recent:
             return 'Recent Recordings'
-        case SessionRecordingsTabs.Playlists:
+        case ReplayTabs.Playlists:
             return 'Playlists'
-        case SessionRecordingsTabs.FilePlayback:
+        case ReplayTabs.FilePlayback:
             return 'Playback from file'
         default:
             return capitalizeFirstLetter(tab)
@@ -24,11 +24,11 @@ export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit o
 export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     path(() => ['scenes', 'session-recordings', 'root']),
     actions({
-        setTab: (tab: SessionRecordingsTabs = SessionRecordingsTabs.Recent) => ({ tab }),
+        setTab: (tab: ReplayTabs = ReplayTabs.Recent) => ({ tab }),
     }),
     reducers(({}) => ({
         tab: [
-            SessionRecordingsTabs.Recent as SessionRecordingsTabs,
+            ReplayTabs.Recent as ReplayTabs,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -37,7 +37,7 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     actionToUrl(({ values }) => {
         return {
-            setTab: () => [urls.sessionRecordings(values.tab), router.values.searchParams],
+            setTab: () => [urls.replay(values.tab), router.values.searchParams],
         }
     }),
 
@@ -46,10 +46,10 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             (s) => [s.tab],
             (tab): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (tab !== SessionRecordingsTabs.Recent) {
+                if (tab !== ReplayTabs.Recent) {
                     breadcrumbs.push({
-                        name: 'Recordings',
-                        path: urls.sessionRecordings(),
+                        name: 'Replay',
+                        path: urls.replay(),
                     })
                 }
                 breadcrumbs.push({
@@ -63,9 +63,9 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
 
     urlToAction(({ actions, values }) => {
         return {
-            '/recordings/:tab': ({ tab }) => {
+            '/replay/:tab': ({ tab }) => {
                 if (tab !== values.tab) {
-                    actions.setTab(tab as SessionRecordingsTabs)
+                    actions.setTab(tab as ReplayTabs)
                 }
             },
         }

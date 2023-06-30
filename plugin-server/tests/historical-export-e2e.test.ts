@@ -90,8 +90,8 @@ describe('Historical Export (v2)', () => {
     }
 
     it('exports a batch of events in a time range', async () => {
+        await ingestEvent('2021-07-28T00:00:00.000Z') // To avoid parallel person processing which we don't handle
         await Promise.all([
-            ingestEvent('2021-07-28T00:00:00.000Z'),
             ingestEvent('2021-08-01T00:00:00.000Z', { properties: { foo: 'bar' } }),
             ingestEvent('2021-08-02T02:00:00.000Z'),
             ingestEvent('2021-08-03T09:00:00.000Z'),

@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
-import { SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
+import { SessionRecordingPlaylistType, ReplayTabs } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import type { savedSessionRecordingPlaylistsLogicType } from './savedSessionRecordingPlaylistsLogicType'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -32,7 +32,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
 }
 
 export interface SavedSessionRecordingPlaylistsLogicProps {
-    tab: SessionRecordingsTabs
+    tab: ReplayTabs
 }
 
 export const DEFAULT_PLAYLIST_FILTERS = {
@@ -205,11 +205,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                   }
               ]
             | void => {
-            if (router.values.location.pathname === urls.sessionRecordings(SessionRecordingsTabs.Playlists)) {
+            if (router.values.location.pathname === urls.replay(ReplayTabs.Playlists)) {
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
-                    return [urls.sessionRecordings(SessionRecordingsTabs.Playlists), nextValues, {}, { replace: false }]
+                    return [urls.replay(ReplayTabs.Playlists), nextValues, {}, { replace: false }]
                 }
             }
         }
@@ -219,7 +219,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.sessionRecordings(SessionRecordingsTabs.Playlists)]: async (_, searchParams) => {
+        [urls.replay(ReplayTabs.Playlists)]: async (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {

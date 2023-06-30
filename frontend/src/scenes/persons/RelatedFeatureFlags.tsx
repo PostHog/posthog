@@ -14,6 +14,7 @@ interface Props {
 }
 
 export enum FeatureFlagMatchReason {
+    SuperConditionMatch = 'super_condition_value',
     ConditionMatch = 'condition_match',
     NoConditionMatch = 'no_condition_match',
     OutOfRolloutBound = 'out_of_rollout_bound',
@@ -26,6 +27,7 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.NoConditionMatch]: "Doesn't match any conditions",
     [FeatureFlagMatchReason.OutOfRolloutBound]: 'Out of rollout bound',
     [FeatureFlagMatchReason.NoGroupType]: 'Missing group type',
+    [FeatureFlagMatchReason.SuperConditionMatch]: 'Matches early access condition',
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
@@ -49,7 +51,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     <>
                         <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
                             {stringWithWBR(featureFlag.key, 17)}
-                            <LemonTag type={isExperiment ? 'purple' : 'default'} className="ml-2">
+                            <LemonTag type={isExperiment ? 'completion' : 'default'} className="ml-2">
                                 {isExperiment ? 'Experiment' : 'Feature flag'}
                             </LemonTag>
                         </Link>

@@ -232,7 +232,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
         <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
                 <h5 className="grow m-0 text-muted">
-                    {annotation.date_marker.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
+                    {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
                     -level
                 </h5>

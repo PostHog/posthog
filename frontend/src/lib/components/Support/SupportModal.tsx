@@ -10,7 +10,7 @@ import { IconBugReport, IconFeedback, IconSupport } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonFileInput, useUploadFiles } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { useRef } from 'react'
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
     {
@@ -40,11 +40,17 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportModal(): JSX.Element {
+export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
     const { sendSupportRequest, isSupportFormOpen } = useValues(supportLogic)
     const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
 
+    if (!preflightLogic.values.preflight?.cloud) {
+        if (isSupportFormOpen) {
+            lemonToast.error(`In-app support isn't provided for self-hosted instances.`)
+        }
+        return null
+    }
     const dropRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -78,11 +84,21 @@ export function SupportModal(): JSX.Element {
         >
             <Form
                 logic={supportLogic}
-                formKey="sendSupportRequest"
+                formKey={loggedIn ? 'sendSupportRequest' : 'sendSupportLoggedOutRequest'}
                 id="support-modal-form"
                 enableFormOnSubmit
                 className="space-y-4"
             >
+                {!loggedIn && (
+                    <>
+                        <Field name="name" label="Name">
+                            <LemonInput data-attr="name" placeholder="Jane" />
+                        </Field>
+                        <Field name="email" label="Email">
+                            <LemonInput data-attr="email" placeholder="your@email.com" />
+                        </Field>
+                    </>
+                )}
                 <Field name="kind" label="What type of message is this?">
                     <LemonSelect fullWidth options={SUPPORT_TICKET_OPTIONS} />
                 </Field>

@@ -1,5 +1,10 @@
 lockfileVersion: '6.0'
 
+patchedDependencies:
+  pg@8.10.0:
+    hash: ju7a73s3qkmrf666u3aacfrooi
+    path: patches/pg@8.10.0.patch
+
 dependencies:
   '@aws-sdk/client-s3':
     specifier: ^3.315.0
@@ -44,8 +49,11 @@ dependencies:
     specifier: 1.4.0
     version: 1.4.0
   '@sentry/node':
-    specifier: ^7.17.4
+    specifier: ^7.49.0
     version: 7.49.0
+  '@sentry/profiling-node':
+    specifier: ^0.3.0
+    version: 0.3.0
   '@sentry/tracing':
     specifier: ^7.17.4
     version: 7.49.0
@@ -111,7 +119,7 @@ dependencies:
     version: 2.1.1
   pg:
     specifier: ^8.6.0
-    version: 8.10.0
+    version: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
   pino:
     specifier: ^8.6.0
     version: 8.11.0
@@ -137,8 +145,8 @@ dependencies:
     specifier: ^8.3.2
     version: 8.3.2
   vm2:
-    specifier: 3.9.17
-    version: 3.9.17
+    specifier: 3.9.18
+    version: 3.9.18
 
 devDependencies:
   0x:
@@ -3621,6 +3629,25 @@ packages:
       tslib: 1.14.1
     dev: false
 
+  /@sentry/core@7.53.0:
+    resolution: {integrity: sha512-TKMWWEvwT8tSqyIWuCexUk+fIoMA8ZAzGJdOfPW9XRL38RrXA9O+7V5xxK98X/bPHQ6UQF/QceookGOqqpmQyQ==}
+    engines: {node: '>=8'}
+    dependencies:
+      '@sentry/types': 7.53.0
+      '@sentry/utils': 7.53.0
+      tslib: 1.14.1
+    dev: false
+
+  /@sentry/hub@7.53.0:
+    resolution: {integrity: sha512-lMWyELUtsomXiQOn5DI77ZOeYOmE5VbqSZ+fPrhnvey5NDxyHozEl5KBpyWIiC5Kc++lmjWQK6gH7FUA/vhO2A==}
+    engines: {node: '>=8'}
+    dependencies:
+      '@sentry/core': 7.53.0
+      '@sentry/types': 7.53.0
+      '@sentry/utils': 7.53.0
+      tslib: 1.14.1
+    dev: false
+
   /@sentry/node@7.49.0:
     resolution: {integrity: sha512-KLIrqcbKk4yR3g8fjl87Eyv4M9j4YI6b7sqVAZYj3FrX3mC6JQyGdlDfUpSKy604n1iAdr6OuUp5f9x7jPJaeQ==}
     engines: {node: '>=8'}
@@ -3637,6 +3664,25 @@ packages:
       - supports-color
     dev: false
 
+  /@sentry/profiling-node@0.3.0:
+    resolution: {integrity: sha512-zodtr8JgI3m7GOoELEiE+zokEhyVoP6I4PvfPOTA6Etud4CUZ1B6uM7Ls8VgWAwlrPxJzaP+GJUJevZ0P2jfOQ==}
+    engines: {node: '>=8.0.0'}
+    requiresBuild: true
+    dependencies:
+      '@sentry/hub': 7.53.0
+      '@sentry/node': 7.49.0
+      '@sentry/tracing': 7.49.0
+      '@sentry/types': 7.49.0
+      '@sentry/utils': 7.49.0
+      detect-libc: 2.0.1
+      nan: 2.17.0
+      node-abi: 3.40.0
+      node-gyp: 9.3.1
+    transitivePeerDependencies:
+      - bluebird
+      - supports-color
+    dev: false
+
   /@sentry/tracing@7.49.0:
     resolution: {integrity: sha512-RtyTt1DvX7s1M2ca9qnevOkuwn8HjbKXrSVHtMbQYoT3uGvjT8Pm71D5WtWMWH2QLpFgcqQq/1ifZBUAG4Y7qA==}
     engines: {node: '>=8'}
@@ -3648,11 +3694,24 @@ packages:
     resolution: {integrity: sha512-9yXXh7iv76+O6h2ONUVx0wsL1auqJFWez62mTjWk4350SgMmWp/zUkBxnVXhmcYqscz/CepC+Loz9vITLXtgxg==}
     engines: {node: '>=8'}
 
+  /@sentry/types@7.53.0:
+    resolution: {integrity: sha512-hqlbrCL8nfDfjlF6wh4NHNW9plhWJ1m2BSqRyspcxOC44e293BPfwjUzr0aQapJK/aRkHROnfAtzsEu2awNPzg==}
+    engines: {node: '>=8'}
+    dev: false
+
   /@sentry/utils@7.49.0:
     resolution: {integrity: sha512-JdC9yGnOgev4ISJVwmIoFsk8Zx0psDZJAj2DV7x4wMZsO6QK+YjC7G3mUED/S5D5lsrkBZ/3uvQQhr8DQI4UcQ==}
     engines: {node: '>=8'}
     dependencies:
       '@sentry/types': 7.49.0
+      tslib: 1.14.1
+    dev: false
+
+  /@sentry/utils@7.53.0:
+    resolution: {integrity: sha512-T3F2DkXB9fDjUIAcrOMrGCnquyTQxTyTb5Mh+NbFBevQn32fHehQ62VraLhe20HTVy8YBFkXisvLu6HeOZ5Mog==}
+    engines: {node: '>=8'}
+    dependencies:
+      '@sentry/types': 7.53.0
       tslib: 1.14.1
     dev: false
 
@@ -5664,7 +5723,7 @@ packages:
       ast-types: 0.13.4
       escodegen: 1.14.3
       esprima: 4.0.1
-      vm2: 3.9.17
+      vm2: 3.9.18
     dev: false
 
   /delayed-stream@1.0.0:
@@ -5705,6 +5764,11 @@ packages:
   /destroy@1.2.0:
     resolution: {integrity: sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
+    dev: false
+
+  /detect-libc@2.0.1:
+    resolution: {integrity: sha512-463v3ZeIrcWtdgIg6vI6XUncguvr2TnGl4SzDXinkt9mSLpBJKXT3mW6xT3VQdDN11+WVs29pgvivTc4Lp8v+w==}
+    engines: {node: '>=8'}
     dev: false
 
   /detect-newline@3.1.0:
@@ -6921,7 +6985,7 @@ packages:
       chokidar: 3.5.3
       cosmiconfig: 7.1.0
       json5: 2.2.3
-      pg: 8.10.0
+      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
       tslib: 2.5.0
       yargs: 16.2.0
     transitivePeerDependencies:
@@ -8781,6 +8845,13 @@ packages:
       lower-case: 1.1.4
     dev: true
 
+  /node-abi@3.40.0:
+    resolution: {integrity: sha512-zNy02qivjjRosswoYmPi8hIKJRr8MpQyeKT6qlcq/OnOgA3Rhoae+IYOqsM9V5+JnHWmxKnWOT2GxvtqdtOCXA==}
+    engines: {node: '>=10'}
+    dependencies:
+      semver: 7.5.0
+    dev: false
+
   /node-fetch@2.6.9:
     resolution: {integrity: sha512-DJm/CJkZkRjKKj4Zi4BsKVZh3ValV5IR5s7LVZnW+6YMh0W1BfNA8XSs6DLMGYlId5F3KnA70uu2qepcR08Qqg==}
     engines: {node: 4.x || >=6.0.0}
@@ -9316,7 +9387,7 @@ packages:
     peerDependencies:
       pg: '>=8.0'
     dependencies:
-      pg: 8.10.0
+      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
     dev: false
 
   /pg-protocol@1.6.0:
@@ -9332,7 +9403,7 @@ packages:
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
 
-  /pg@8.10.0:
+  /pg@8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi):
     resolution: {integrity: sha512-ke7o7qSTMb47iwzOSaZMfeR7xToFdkE71ifIipOAAaLIM0DYzfOAXlgFFmYUIE2BcJtvnVlGCID84ZzCegE8CQ==}
     engines: {node: '>= 8.0.0'}
     peerDependencies:
@@ -9349,6 +9420,7 @@ packages:
       pg-types: 2.2.0
       pgpass: 1.0.5
     dev: false
+    patched: true
 
   /pgpass@1.0.5:
     resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
@@ -11161,8 +11233,8 @@ packages:
     resolution: {integrity: sha512-2ham8XPWTONajOR0ohOKOHXkm3+gaBmGut3SRuu75xLd/RRaY6vqgh8NBYYk7+RW3u5AtzPQZG8F10LHkl0lAQ==}
     dev: true
 
-  /vm2@3.9.17:
-    resolution: {integrity: sha512-AqwtCnZ/ERcX+AVj9vUsphY56YANXxRuqMb7GsDtAr0m0PcQX3u0Aj3KWiXM0YAHy7i6JEeHrwOnwXbGYgRpAw==}
+  /vm2@3.9.18:
+    resolution: {integrity: sha512-iM7PchOElv6Uv6Q+0Hq7dcgDtWWT6SizYqVcvol+1WQc+E9HlgTCnPozbQNSP3yDV9oXHQOEQu530w2q/BCVZg==}
     engines: {node: '>=6.0'}
     hasBin: true
     dependencies:

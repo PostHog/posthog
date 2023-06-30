@@ -22,17 +22,19 @@ from posthog.test.base import APIBaseTest
 
 class TestUserAPI(APIBaseTest):
     def setUp(self):
+        super().setUp()
+
         # ensure the rate limit is reset for each test
         cache.clear()
-        super().setUp()
 
         self.personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(self.personal_api_key))
 
     def tearDown(self):
+        super().tearDown()
+
         # ensure the rate limit is reset for any subsequent non-rate-limit tests
         cache.clear()
-        return super().tearDown()
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")

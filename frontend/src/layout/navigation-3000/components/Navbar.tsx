@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
 import { navigation3000Logic } from '../navigationLogic'
-import { NAVBAR_ITEMS } from '../sidebars/navbarItems'
+import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 
@@ -34,14 +34,12 @@ export function Navbar(): JSX.Element {
                             {section.map((item) => (
                                 <NavbarButton
                                     key={item.identifier}
+                                    title={item.label}
                                     identifier={item.identifier}
                                     icon={item.icon}
-                                    // TODO: Simplify all the pointer handling below
-                                    to={
-                                        'pointer' in item && typeof item.pointer === 'string' ? item.pointer : undefined
-                                    }
+                                    to={'to' in item ? item.to : undefined}
                                     onClick={
-                                        'pointer' in item && typeof item.pointer !== 'string'
+                                        'logic' in item
                                             ? () => {
                                                   if (activeNavbarItemId === item.identifier && isSidebarShown) {
                                                       hideSidebar()

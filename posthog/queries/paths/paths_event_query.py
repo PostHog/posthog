@@ -6,7 +6,9 @@ from posthog.constants import (
     FUNNEL_PATH_BETWEEN_STEPS,
     PAGEVIEW_EVENT,
     SCREEN_EVENT,
+    HOGQL,
 )
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
@@ -58,17 +60,25 @@ class PathEventQuery(EventQuery):
             for field in self._extra_event_properties
         ]
 
+        event_hogql = "event"
+
+        if self._should_query_hogql():
+            event_hogql = self._filter.paths_hogql_expression or event_hogql
+        if self._should_query_url():
+            event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})"
+        if self._should_query_screen():
+            event_hogql = f"if(event = '{SCREEN_EVENT}', properties.$screen_name, {event_hogql})"
+
         event_conditional = (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
-            if self._should_query_screen()
-            else "if(0, '', "
+            "ifNull("
+            + translate_hogql(
+                query=event_hogql,
+                context=self._filter.hogql_context,
+                dialect="clickhouse",
+                events_table_alias=self.EVENT_TABLE_ALIAS,
+            )
+            + ", '') AS path_item_ungrouped"
         )
-        event_conditional += (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
-            if self._should_query_url()
-            else "if(0, '', "
-        )
-        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item_ungrouped"
 
         _fields.append(event_conditional)
 
@@ -150,39 +160,28 @@ class PathEventQuery(EventQuery):
         if self._filter.local_path_cleaning_filters and len(self._filter.local_path_cleaning_filters) > 0:
             replacements.extend(self._filter.local_path_cleaning_filters)
 
+        # If there are any path cleaning rules, apply them
         if len(replacements) > 0:
+            final_path_item_column = "path_item_cleaned"
             for idx, replacement in enumerate(replacements):
                 alias = replacement["alias"]
                 regex = replacement["regex"]
-                if idx == 0:
-                    name = "path_item" if idx == len(replacements) - 1 else f"path_item_{idx}"
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_ungrouped, %(regex_replacement_{idx})s, %(alias_{idx})s) as {name}"
-                    )
-                elif idx == len(replacements) - 1:
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item"
-                    )
-                else:
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item_{idx}"
-                    )
+                source_path_item_column = "path_item_ungrouped" if idx == 0 else f"path_item_{idx-1}"
+                result_path_item_column = "path_item_cleaned" if idx == len(replacements) - 1 else f"path_item_{idx}"
+                _fields.append(
+                    f"replaceRegexpAll({source_path_item_column}, %(regex_replacement_{idx})s, %(alias_{idx})s) "
+                    f"AS {result_path_item_column}"
+                )
                 params[f"regex_replacement_{idx}"] = regex
                 params[f"alias_{idx}"] = alias
-
         else:
-            _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")
-            _fields.append("if(group_index > 0, %(groupings)s[group_index], path_item_ungrouped) AS path_item")
+            final_path_item_column = "path_item_ungrouped"
+
+        # Match wildcard groups
+        _fields.append(f"multiMatchAnyIndex({final_path_item_column}, %(regex_groupings)s) AS group_index")
+        _fields.append(f"if(group_index > 0, %(groupings)s[group_index], {final_path_item_column}) AS path_item")
 
         return _fields, params
-
-    def _get_current_url_parsing(self):
-        path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        return f"if(length({path_type}) > 1, replaceRegexpAll({path_type}, '/$', ''), {path_type})"
-
-    def _get_screen_name_parsing(self):
-        path_type, _ = get_property_string_expr("events", "$screen_name", "'$screen_name'", "properties")
-        return path_type
 
     def _get_event_query(self) -> Tuple[str, Dict[str, Any]]:
         params: Dict[str, Any] = {}
@@ -197,6 +196,9 @@ class PathEventQuery(EventQuery):
 
         if self._filter.include_all_custom_events:
             or_conditions.append(f"NOT event LIKE '$%%'")
+
+        if self._filter.include_hogql:
+            or_conditions.append(f"1 = 1")
 
         if self._filter.custom_events:
             or_conditions.append(f"event IN %(custom_events)s")
@@ -230,6 +232,16 @@ class PathEventQuery(EventQuery):
         ) and SCREEN_EVENT not in self._filter.exclude_events:
             return True
         elif self._filter.include_screenviews:
+            return True
+
+        return False
+
+    def _should_query_hogql(self) -> bool:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and HOGQL not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_hogql:
             return True
 
         return False

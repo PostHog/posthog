@@ -4,6 +4,7 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+
     h5 {
         margin: 0.25rem 0.5rem;
     }
@@ -91,7 +92,7 @@
     width: 0.5rem;
     height: 0.5rem;
     transform: rotate(45deg);
-    background: #fff;
+    background: var(--bg-light);
 
     &--top {
         border-top: 1px solid var(--border);
@@ -119,6 +120,6 @@
 }
 
 .Popover__content {
-    overflow: auto;
+    overflow-y: auto;
     max-height: 100%;
 }

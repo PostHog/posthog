@@ -77,7 +77,9 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition = await api.propertyDefinitions.get({
                                 propertyDefinitionId: id,
                             })
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         }
                         breakpoint()
                     } catch (response: any) {
@@ -114,11 +116,6 @@ export const definitionLogic = kea<definitionLogicType>([
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
-        backDetailUrl: [
-            (s) => [s.isEvent, s.definition],
-            (isEvent, definition) =>
-                isEvent ? urls.eventDefinition(definition.id) : urls.propertyDefinition(definition.id),
-        ],
         breadcrumbs: [
             (s) => [s.definition, s.isEvent],
             (definition, isEvent): Breadcrumb[] => {

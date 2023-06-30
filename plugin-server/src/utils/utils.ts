@@ -1,5 +1,7 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
@@ -12,6 +14,7 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
+    RedisPool,
     TimestampFormat,
 } from '../types'
 import { Hub } from './../types'
@@ -336,7 +339,6 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         return await callback()
     }
 }
-
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
     const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
         ? {
@@ -368,6 +370,22 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
         })
     await redis.info()
     return redis
+}
+
+export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
+    return createPool<Redis.Redis>(
+        {
+            create: () => createRedis(serverConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: serverConfig.REDIS_POOL_MIN_SIZE,
+            max: serverConfig.REDIS_POOL_MAX_SIZE,
+            autostart: true,
+        }
+    )
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
@@ -580,4 +598,19 @@ export function stalenessCheck(hub: Hub | undefined, stalenessSeconds: number): 
         lastActivity: hub?.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
         lastActivityType: hub?.lastActivityType,
     }
+}
+
+/** Get a value from a properties object by its path. This allows accessing nested properties. */
+export function getPropertyValueByPath(properties: Properties, [firstKey, ...nestedKeys]: string[]): any {
+    if (firstKey === undefined) {
+        throw new Error('No path to property was provided')
+    }
+    let value = properties[firstKey]
+    for (const key of nestedKeys) {
+        if (value === undefined) {
+            return undefined
+        }
+        value = value[key]
+    }
+    return value
 }

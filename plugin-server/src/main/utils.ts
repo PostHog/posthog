@@ -11,6 +11,7 @@ interface FunctionInstrumentation<T, E> {
     timeoutMessage: string
     statsKey: string
     func: (event: E) => Promise<T>
+    teamId: number
 }
 
 export async function runInstrumentedFunction<T, E>({
@@ -19,6 +20,7 @@ export async function runInstrumentedFunction<T, E>({
     event,
     func,
     statsKey,
+    teamId,
 }: FunctionInstrumentation<T, E>): Promise<T> {
     const timeout = timeoutGuard(timeoutMessage, {
         event: JSON.stringify(event),
@@ -34,7 +36,7 @@ export async function runInstrumentedFunction<T, E>({
     } catch (error) {
         end({ success: 'false' })
         status.info('🔔', error)
-        Sentry.captureException(error)
+        Sentry.captureException(error, { tags: { team_id: teamId } })
         throw error
     } finally {
         server.statsd?.increment(`${statsKey}_total`)

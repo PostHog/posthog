@@ -13,6 +13,17 @@ export class DependencyUnavailableError extends Error {
     }
     readonly dependencyName: string
     readonly error: Error
+    readonly isRetriable = true
+}
+
+export class MessageSizeTooLarge extends Error {
+    constructor(message: string, error: Error) {
+        super(message)
+        this.name = 'MessageSizeTooLarge'
+        this.error = error
+    }
+    readonly error: Error
+    readonly isRetriable = false
 }
 
 export async function processError(
@@ -22,7 +33,9 @@ export async function processError(
     event?: PluginEvent | ProcessedPluginEvent | null
 ): Promise<void> {
     if (!pluginConfig) {
-        captureException(new Error('Tried to process error for nonexistent plugin config!'))
+        captureException(new Error('Tried to process error for nonexistent plugin config!'), {
+            tags: { team_id: event?.team_id },
+        })
         return
     }
 

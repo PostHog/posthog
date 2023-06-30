@@ -5,7 +5,15 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import posthog from 'posthog-js'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
-    return <LemonButton type="tertiary" icon={<IconClose />} onClick={closeToast} data-attr="toast-close-button" />
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            icon={<IconClose />}
+            onClick={closeToast}
+            data-attr="toast-close-button"
+        />
+    )
 }
 
 interface ToastButton {

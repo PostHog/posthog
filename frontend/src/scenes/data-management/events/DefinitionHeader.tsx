@@ -2,14 +2,14 @@ import { EventDefinition, PropertyDefinition } from '~/types'
 import {
     IconAutocapture,
     IconPageleave,
-    IconPageview,
+    IconPreview,
     PropertyIcon,
     IconUnverifiedEvent,
     IconVerifiedEvent,
     VerifiedPropertyIcon,
-    ActionEvent,
+    IconSelectAll,
 } from 'lib/lemon-ui/icons'
-import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
@@ -22,9 +22,16 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (!!keyMapping.event[definition.name]) {
+    if (!!KEY_MAPPING.event[definition.name]) {
         return (
             <Tooltip title="PostHog event property">
+                <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
+            </Tooltip>
+        )
+    }
+    if (!!definition.verified) {
+        return (
+            <Tooltip title="Verified event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
@@ -36,12 +43,12 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
-export function getEventDefinitionIcon(definition: EventDefinition | Record<string, any>): JSX.Element {
+export function getEventDefinitionIcon(definition: EventDefinition & { value: string | null }): JSX.Element {
     // Rest are events
     if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
             <Tooltip title="PostHog event">
-                <IconPageview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+                <IconPreview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
@@ -59,17 +66,17 @@ export function getEventDefinitionIcon(definition: EventDefinition | Record<stri
             </Tooltip>
         )
     }
-    if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
+    if (definition.name && (definition.verified || !!KEY_MAPPING.event[definition.name])) {
         return (
-            <Tooltip title={`${!!keyMapping.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+            <Tooltip title={`${!!KEY_MAPPING.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
                 <IconVerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    if (!('id' in definition) && definition.value === null) {
+    if (definition.value === null) {
         return (
-            <Tooltip title={`All events`}>
-                <ActionEvent className="taxonomy-icon taxonomy-icon-verified" />
+            <Tooltip title="All events">
+                <IconSelectAll className="taxonomy-icon taxonomy-icon-built-in" />
             </Tooltip>
         )
     }

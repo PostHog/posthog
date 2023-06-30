@@ -331,7 +331,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['setDates'])
-                .toMatchValues({ filters: { date_from: '-24h', date_to: null } })
+                .toMatchValues({ filters: { date_from: '-24h', date_to: null, properties: [] } })
         })
     })
 

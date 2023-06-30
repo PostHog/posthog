@@ -14,7 +14,7 @@ export function Unsubscribe(): JSX.Element {
     return (
         <BridgePage view="unsubscribe">
             {unsubscriptionLoading ? (
-                <SpinnerOverlay />
+                <SpinnerOverlay sceneLevel />
             ) : unsubscription ? (
                 <div>
                     <h2>You have been unsubscribed!</h2>

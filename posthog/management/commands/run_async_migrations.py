@@ -1,3 +1,4 @@
+import logging
 from typing import List, Sequence
 
 import structlog
@@ -17,6 +18,7 @@ from posthog.models.async_migration import (
 from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def get_necessary_migrations() -> Sequence[AsyncMigration]:

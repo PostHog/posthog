@@ -13,6 +13,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconCheckCircleOutline, IconErrorOutline } from 'lib/lemon-ui/icons'
+import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -23,10 +24,8 @@ export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
 
-    console.log(requestPasswordResetManualErrors, 'the errors initially')
-
     return (
-        <BridgePage view="password-reset">
+        <BridgePage view="password-reset" footer={<SupportModalButton />}>
             {requestPasswordResetManualErrors?.code === 'throttled' ? (
                 <div className="text-center ">
                     <IconErrorOutline className="text-5xl text-danger" />

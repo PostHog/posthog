@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 import structlog
@@ -9,6 +10,7 @@ from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person_distinct_id
 
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class Command(BaseCommand):
