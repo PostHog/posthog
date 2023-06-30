@@ -15,6 +15,7 @@ from posthog.temporal.workflows.base import (
     PostHogWorkflow,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    setup_logging,
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
@@ -39,6 +40,7 @@ class S3InsertInputs:
     region: str
     prefix: str
     team_id: int
+    batch_export_id: str
     data_interval_start: str
     data_interval_end: str
     aws_access_key_id: str | None = None
@@ -64,6 +66,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     have or haven't processed yet. We have `_timestamp` in the events table, but
     this is the time
     """
+    setup_logging(
+        "temporalio.activity",
+        team_id=inputs.team_id,
+        export_type="S3",
+        data_interval_end=inputs.data_interval_end,
+        batch_export_id=inputs.batch_export_id,
+    )
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
     async with get_client() as client:
@@ -82,7 +91,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 "Nothing to export in batch %s - %s. Exiting.",
                 inputs.data_interval_start,
                 inputs.data_interval_end,
-                count,
             )
             return
 
@@ -193,9 +201,15 @@ class S3BatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: S3BatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info("Starting S3 export")
-
         data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        setup_logging(
+            "temporalio.workflow",
+            team_id=inputs.team_id,
+            export_type="S3",
+            data_interval_end=data_interval_end,
+            batch_export_id=inputs.batch_export_id,
+        )
+        workflow.logger.info("Starting S3 export")
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -221,6 +235,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             region=inputs.region,
             prefix=inputs.prefix,
             team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             data_interval_start=data_interval_start.isoformat(),

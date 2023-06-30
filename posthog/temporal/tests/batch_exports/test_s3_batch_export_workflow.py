@@ -8,16 +8,15 @@ from uuid import uuid4
 import boto3
 import pytest
 from aiochclient import ChClient
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import Client as HttpClient
 from django.test import override_settings
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
 from ee.clickhouse.materialized_columns.columns import materialize
-
-from asgiref.sync import sync_to_async
-
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
 from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
@@ -267,6 +266,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         region="us-east-1",
         prefix=prefix,
         team_id=team_id,
+        batch_export_id="1234-1234",
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         aws_access_key_id="object_storage_root_user",

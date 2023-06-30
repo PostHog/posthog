@@ -1,12 +1,18 @@
 import datetime as dt
 from typing import Any
 
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotAuthenticated, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.batch_exports.models import (
+    BatchExportLogEntry,
+    BatchExportLogLevel,
+    fetch_batch_export_log_entries,
+)
 from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
@@ -54,6 +60,24 @@ def validate_date_input(date_input: Any) -> dt.datetime:
     return parsed
 
 
+def validate_after_and_before(raw_after: Any, raw_before: Any) -> tuple[dt.datetime, dt.datetime] | None:
+    date_range = None
+    if raw_after is not None and raw_before is not None:
+        after_datetime = validate_date_input(raw_after)
+        before_datetime = validate_date_input(raw_before)
+        date_range = (after_datetime, before_datetime)
+    return date_range
+
+
+def validate_limit(limit: Any) -> int | None:
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            raise ValidationError(f"Query parameter 'limit' must be omitted or an integer not '{limit}'")
+    return limit
+
+
 class BatchExportRunSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExportRun model."""
 
@@ -88,20 +112,13 @@ class BatchExportRunViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         after = self.request.query_params.get("after", None)
         before = self.request.query_params.get("before", None)
-        date_range = None
-        if after is not None and before is not None:
-            after_datetime = validate_date_input(after)
-            before_datetime = validate_date_input(before)
-            date_range = (after_datetime, before_datetime)
+        date_range = validate_after_and_before(after, before)
 
         runs = self.get_queryset(date_range=date_range)
-        limit = self.request.query_params.get("limit", None)
-        if limit is not None:
-            try:
-                limit = int(limit)
-            except (TypeError, ValueError):
-                raise ValidationError(f"Invalid value for 'limit' parameter: '{limit}'")
 
+        raw_limit = self.request.query_params.get("limit", None)
+        limit = validate_limit(raw_limit)
+        if limit:
             runs = runs[:limit]
 
         page = self.paginate_queryset(runs)
@@ -298,3 +315,40 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         delete_schedule(temporal, str(instance.pk))
         instance.save()
+
+
+class BatchExportLogEntrySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BatchExportLogEntry
+
+
+class BatchExportLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    serializer_class = BatchExportLogEntrySerializer
+
+    def get_queryset(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """List logs for this BatchExport."""
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
+        raw_after = self.request.GET.get("after", None)
+        after = validate_date_input(raw_after) if raw_after else None
+        raw_before = self.request.GET.get("before", None)
+        before = validate_date_input(raw_before) if raw_before else None
+        raw_data_interval_end = self.request.GET.get("data_interval_end", None)
+        data_interval_end = validate_date_input(raw_data_interval_end) if raw_data_interval_end else None
+
+        raw_limit = self.request.GET.get("limit", None)
+        limit = validate_limit(raw_limit)
+
+        level_filter = [BatchExportLogLevel[t] for t in (self.request.GET.getlist("level_filter", []))]
+
+        return fetch_batch_export_log_entries(
+            team_id=self.parents_query_dict["team_id"],
+            batch_export_id=self.parents_query_dict["batch_export_id"],
+            data_interval_end=data_interval_end,
+            after=after,
+            before=before,
+            limit=limit,
+            level_filter=level_filter,
+        )

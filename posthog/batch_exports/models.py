@@ -1,5 +1,12 @@
+import datetime as dt
+from dataclasses import dataclass
+from typing import Any, Generator
+from uuid import UUID
+
 from django.db import models
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.plugin import PluginLogEntryType
 from posthog.models.utils import UUIDModel
 
 
@@ -124,3 +131,75 @@ class BatchExport(UUIDModel):
     end_at: models.DateTimeField = models.DateTimeField(
         null=True, default=None, help_text="Time after which any Batch Export runs won't be triggered."
     )
+
+
+BatchExportLogLevel = PluginLogEntryType
+
+
+@dataclass(frozen=True)
+class BatchExportLogEntry:
+    id: UUID
+    team_id: int
+    batch_export_id: UUID
+    timestamp: dt.datetime
+    level: BatchExportLogLevel
+    type: str
+    message: str
+
+
+def fetch_batch_export_log_entries(
+    *,
+    team_id: int,
+    batch_export_id: str,
+    data_interval_end: dt.datetime | None,
+    after: dt.datetime | None = None,
+    before: dt.datetime | None = None,
+    search: str | None = None,
+    limit: int | None = None,
+    level_filter: list[BatchExportLogLevel] | None = None,
+) -> Generator[BatchExportLogEntry, None, None]:
+    clickhouse_where_parts: list[str] = []
+    clickhouse_kwargs: dict[str, Any] = {}
+
+    if team_id is not None:
+        clickhouse_where_parts.append("team_id = %(team_id)s")
+        clickhouse_kwargs["team_id"] = team_id
+
+    if batch_export_id is not None:
+        clickhouse_where_parts.append("batch_export_id = %(batch_export_id)s")
+        clickhouse_kwargs["batch_export_id"] = team_id
+
+    if after is not None:
+        clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
+
+    if before is not None:
+        clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+
+    if data_interval_end is not None:
+        clickhouse_where_parts.append("data_interval_end = toDateTime64(%(data_interval_end)s, 6)")
+        clickhouse_kwargs["before"] = data_interval_end.isoformat().replace("+00:00", "")
+
+    if search:
+        clickhouse_where_parts.append("message ILIKE %(search)s")
+        clickhouse_kwargs["search"] = f"%{search}%"
+
+    if level_filter is not None and len(level_filter) > 0:
+        clickhouse_where_parts.append("level in %(types)s")
+        clickhouse_kwargs["types"] = level_filter
+
+    clickhouse_query = f"""
+    SELECT
+        id,
+        team_id,
+        batch_export_id,
+        data_interval_end,
+        type,
+        level,
+        message,
+        timestamp
+    WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+    """
+
+    return (BatchExportLogEntry(*result) for result in sync_execute(clickhouse_query, clickhouse_kwargs))

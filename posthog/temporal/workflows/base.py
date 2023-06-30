@@ -1,15 +1,22 @@
+import datetime as dt
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from asgiref.sync import sync_to_async
-from temporalio import activity
+from temporalio import activity, workflow
 
 from posthog.batch_exports.service import (
     create_batch_export_run,
     update_batch_export_run_status,
 )
+from posthog.kafka_client.client import (
+    KafkaProducer,
+)
+from posthog.kafka_client.topics import KAFKA_BATCH_EXPORTS_LOGS
+from posthog.models.utils import UUIDT
 
 
 class PostHogWorkflow(ABC):
@@ -40,6 +47,127 @@ class PostHogWorkflow(ABC):
         own inputs.
         """
         return NotImplemented
+
+
+class BatchExportLogRecord(logging.LogRecord):
+    """Subclass of LogRecord with BatchExport parameters."""
+
+    def __init__(
+        self, *args, team_id: int, export_type: str, batch_export_id: str, data_interval_end: dt.datetime, **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+
+        self.team_id = team_id
+        self.export_type = export_type
+        self.batch_export_id = batch_export_id
+        self.data_interval_end = data_interval_end
+
+
+class KafkaLoggingHandler(logging.Handler):
+    """Emit logs to Kafka topic for ClickHouse Ingestion"""
+
+    def __init__(self):
+        super().__init__()
+        self._producer = None
+
+    @property
+    def producer(self):
+        """Return a KafkaProducer used to emit logs to Kafka."""
+        if self._producer is None:
+            self._producer = KafkaProducer()
+        return self._producer
+
+    def emit(
+        self,
+        record: logging.LogRecord,
+    ):
+        """Emit BatchExportLogRecord to Kafka."""
+        if not isinstance(record, BatchExportLogRecord):
+            # We don't handle logging.LogRecord.
+            return
+
+        timestamp_str = dt.datetime.fromtimestamp(record.created).isoformat().replace("+00:00", "")
+        data_interval_end_str = record.data_interval_end.isoformat().replace("+00:00", "")
+
+        entry = {
+            "id": str(UUIDT()),
+            "export_type": record.export_type,
+            "team_id": record.team_id,
+            "batch_export_id": record.batch_export_id,
+            "data_interval_end": data_interval_end_str,
+            "level": record.levelname,
+            "message": self.format(record),
+            "timestamp": timestamp_str,
+        }
+
+        try:
+            self.producer.produce(KAFKA_BATCH_EXPORTS_LOGS, data=entry)
+            # This will block waiting for messages to flush.
+            # Eventually, we can squeeze out performance by using a QueueHandler.
+            self.producer.close()
+        except Exception:
+            self.handleError(record)
+
+
+def setup_logging(
+    logger: logging.Logger | str,
+    team_id: int,
+    export_type: str,
+    batch_export_id: str,
+    data_interval_end: dt.datetime | str,
+) -> None:
+    """Setup logging of BatchExports by populating handlers and record factory.
+
+    We setup two handlers:
+    * A KafkaLoggingHandler to send logs to a Kafka topic for ingestion into ClickHouse.
+    * A StreamHandler for WARNING and higher level logs to aid with debugging.
+
+    Args:
+        logger: The logger or the name of the logger to be populated with previously mentioned handlers.
+        team_id: The team id the BatchExport is running for.
+        batch_export_id: The id of the running BatchExport.
+        data_interval_end: Used to identify the specific BatchExport run.
+    """
+    if isinstance(logger, str):
+        logger = logging.getLogger(logger)
+
+    # I can't find a good place to disable these.
+    # We don't want to leak the entire info into the message.
+    activity.logger.activity_info_on_message = False
+    workflow.logger.workflow_info_on_message = False
+
+    if len(logger.handlers) != 0:
+        # We do not want to add these handlers more than once.
+        return
+
+    kafka_handler = KafkaLoggingHandler()
+    kafka_handler.setLevel(logging.DEBUG)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.WARNING)
+
+    logger.addHandler(kafka_handler)
+    logger.addHandler(stream_handler)
+
+    data_interval_end_dt = (
+        data_interval_end
+        if isinstance(data_interval_end, dt.datetime)
+        else dt.datetime.fromisoformat(data_interval_end)
+    )
+
+    def batch_export_log_record_factory(*args, **kwargs) -> BatchExportLogRecord:
+        """Return a subclass of LogRecord to be ingested by Kafka."""
+        record = BatchExportLogRecord(
+            *args,
+            team_id=team_id,
+            export_type=export_type,
+            batch_export_id=batch_export_id,
+            data_interval_end=data_interval_end_dt,
+            **kwargs,
+        )
+        return record
+
+    logging.setLogRecordFactory(batch_export_log_record_factory)
 
 
 @dataclass

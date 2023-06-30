@@ -16,6 +16,7 @@ from posthog.temporal.workflows.base import (
     PostHogWorkflow,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    setup_logging,
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
@@ -63,6 +64,7 @@ class SnowflakeInsertInputs:
     # attach surface for credential leaks.
 
     team_id: int
+    batch_export_id: str
     user: str
     password: str
     account: str
@@ -116,6 +118,13 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     have or haven't processed yet. We have `_timestamp` in the events table, but
     this is the time
     """
+    setup_logging(
+        "temporalio.activity",
+        team_id=inputs.team_id,
+        export_type="Snowflake",
+        data_interval_end=inputs.data_interval_end,
+        batch_export_id=inputs.batch_export_id,
+    )
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
     async with get_client() as client:
@@ -269,9 +278,15 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to S3 bucket."""
-        workflow.logger.info("Starting S3 export")
-
         data_interval_start, data_interval_end = get_data_interval_from_workflow_inputs(inputs)
+        setup_logging(
+            "temporalio.workflow",
+            team_id=inputs.team_id,
+            export_type="Snowflake",
+            data_interval_end=data_interval_end,
+            batch_export_id=inputs.batch_export_id,
+        )
+        workflow.logger.info("Starting S3 export")
 
         create_export_run_inputs = CreateBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -294,6 +309,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
+            batch_export_id=inputs.batch_export_id,
             user=inputs.user,
             password=inputs.password,
             account=inputs.account,
