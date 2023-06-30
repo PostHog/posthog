@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { IconClose } from '../icons'
-import { LemonButton, LemonButtonProps } from '../LemonButton'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from '../LemonButton'
 import { PopoverProps } from '../Popover'
-import './LemonSelect.scss'
-import clsx from 'clsx'
 import { TooltipProps } from '../Tooltip'
 import {
     LemonMenu,
@@ -93,7 +91,6 @@ export function LemonSelect<T>({
     dropdownMaxContentWidth = false,
     dropdownPlacement,
     allowClear = false,
-    className,
     menu,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
@@ -121,6 +118,14 @@ export function LemonSelect<T>({
     const activeLeaf = allLeafOptions.find((o) => o.value === activeValue)
     const isClearButtonShown = allowClear && !!activeValue
 
+    const fullButtonProps = {
+        ...buttonProps,
+        icon: activeLeaf?.icon,
+        type: 'secondary',
+        status: 'stealth',
+        children: activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>,
+    } as LemonButtonProps
+
     return (
         <LemonMenu
             items={items}
@@ -135,33 +140,21 @@ export function LemonSelect<T>({
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
-            <LemonButton
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                icon={activeLeaf?.icon}
-                // so that the pop-up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <div /> : undefined}
-                type="secondary"
-                status="stealth"
-                {...buttonProps}
-            >
-                <span>
-                    {activeLeaf ? activeLeaf.label : activeValue ?? <span className="text-muted">{placeholder}</span>}
-                </span>
-                {isClearButtonShown && (
-                    <LemonButton
-                        className="LemonSelect--button--clearable"
-                        type="tertiary"
-                        status="stealth"
-                        noPadding
-                        icon={<IconClose />}
-                        tooltip="Clear selection"
-                        onClick={() => {
+            {!isClearButtonShown ? (
+                <LemonButton {...fullButtonProps} />
+            ) : (
+                <LemonButtonWithSideAction
+                    {...fullButtonProps}
+                    sideAction={{
+                        icon: <IconClose />,
+                        tooltip: 'Clear selection',
+                        onClick: () => {
                             onChange?.(null)
                             setActiveValue(null)
-                        }}
-                    />
-                )}
-            </LemonButton>
+                        },
+                    }}
+                />
+            )}
         </LemonMenu>
     )
 }
