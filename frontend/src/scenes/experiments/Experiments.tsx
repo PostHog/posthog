@@ -20,10 +20,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
@@ -42,14 +38,6 @@ export function Experiments(): JSX.Element {
     } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { reportEmptyStateShown } = useActions(eventUsageLogic)
-
-    useEffect(() => {
-        if (shouldShowEmptyState) {
-            reportEmptyStateShown('experiments')
-        }
-    }, [shouldShowEmptyState])
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
         'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
@@ -193,7 +181,6 @@ export function Experiments(): JSX.Element {
                         ]}
                     />
                     {(shouldShowEmptyState || shouldShowProductIntroduction) &&
-                        featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' &&
                         (tab === ExperimentsTabs.Archived ? (
                             <ProductIntroduction
                                 productName="Experiments"
@@ -215,7 +202,7 @@ export function Experiments(): JSX.Element {
                                 customHog={ExperimentsHog}
                             />
                         ))}
-                    {(!shouldShowEmptyState || featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] !== 'test') && (
+                    {!shouldShowEmptyState && (
                         <>
                             <div className="flex justify-between mb-4">
                                 <LemonInput

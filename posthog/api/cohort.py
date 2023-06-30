@@ -33,6 +33,7 @@ from posthog.constants import (
     OFFSET,
 )
 from posthog.event_usage import report_user_action
+from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import get_and_update_pending_version
@@ -336,28 +337,36 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
             ORDER BY person_id
         """
         params = {"team_id": cohort.team.pk, "from_cohort_id": existing_cohort.pk, "version": existing_cohort.version}
+        context = Filter(data=filter_data, team=cohort.team).hogql_context
     else:
         insight_type = filter_data.get("insight")
         query_builder: ActorBaseQuery
+        context: HogQLContext
 
         if insight_type == INSIGHT_TRENDS:
             filter = Filter(data=filter_data, team=cohort.team)
             entity = get_target_entity(filter)
             query_builder = TrendsActors(cohort.team, entity, filter)
+            context = filter.hogql_context
         elif insight_type == INSIGHT_STICKINESS:
             stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
             entity = get_target_entity(stickiness_filter)
             query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
+            context = stickiness_filter.hogql_context
         elif insight_type == INSIGHT_FUNNELS:
             funnel_filter = Filter(data=filter_data, team=cohort.team)
             funnel_actor_class = get_funnel_actor_class(funnel_filter)
             query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
+            context = funnel_filter.hogql_context
         elif insight_type == INSIGHT_PATHS:
             path_filter = PathFilter(data=filter_data, team=cohort.team)
             query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
+            context = path_filter.hogql_context
         elif insight_type == INSIGHT_LIFECYCLE:
             lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
             query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
+            context = lifecycle_filter.hogql_context
+
         else:
             if settings.DEBUG:
                 raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
@@ -372,14 +381,20 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
         else:
             query, params = query_builder.actor_query(limit_actors=False)
 
-    insert_actors_into_cohort_by_query(cohort, query, params)
+    insert_actors_into_cohort_by_query(cohort, query, params, context)
 
 
-def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any]):
+def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any], context: HogQLContext):
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
-            {"cohort_id": cohort.pk, "_timestamp": datetime.now(), "team_id": cohort.team.pk, **params},
+            {
+                "cohort_id": cohort.pk,
+                "_timestamp": datetime.now(),
+                "team_id": cohort.team.pk,
+                **context.values,
+                **params,
+            },
         )
 
         cohort.is_calculating = False

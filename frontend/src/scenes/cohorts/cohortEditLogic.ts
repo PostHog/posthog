@@ -253,25 +253,35 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             },
         ],
+        duplicatedStaticCohort: [
+            null as CohortType | null,
+            {
+                duplicateToStaticCohort: async (_, breakpoint) => {
+                    try {
+                        await breakpoint(200)
+                        const cohort = await api.cohorts.duplicate(values.cohort.id)
+                        lemonToast.success(
+                            'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
+                            {
+                                toastId: `cohort-duplicated-${values.cohort.id}`,
+                                button: {
+                                    label: 'View cohort',
+                                    action: () => {
+                                        router.actions.push(urls.cohort(cohort.id))
+                                    },
+                                },
+                            }
+                        )
+                        return cohort
+                    } catch (error: any) {
+                        lemonToast.error(error.detail || 'Failed to duplicate cohort')
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, key }) => ({
-        duplicateToStaticCohort: async () => {
-            try {
-                const cohort = await api.cohorts.duplicate(values.cohort.id)
-                console.log(cohort)
-                lemonToast.success('Cohort duplicated. Please wait up to a few minutes for it to be calculated', {
-                    toastId: `cohort-duplicated-${values.cohort.id}`,
-                    button: {
-                        label: 'View cohort',
-                        action: () => {
-                            router.actions.push(urls.cohort(cohort.id))
-                        },
-                    },
-                })
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to duplicate cohort')
-            }
-        },
         deleteCohort: () => {
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())

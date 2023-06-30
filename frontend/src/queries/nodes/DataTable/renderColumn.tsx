@@ -16,6 +16,7 @@ import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableL
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function renderColumn(
     key: string,
@@ -30,7 +31,13 @@ export function renderColumn(
     } else if (value === errorColumn) {
         return <LemonTag color="red">Error</LemonTag>
     } else if (value === null) {
-        return <span className="italic text-muted">NULL</span>
+        return (
+            <Tooltip title="NULL" placement="right" delayMs={0}>
+                <span className="cursor-default" aria-hidden>
+                    —
+                </span>
+            </Tooltip>
+        )
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -73,7 +80,7 @@ export function renderColumn(
             }
             return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
-        return <span>{String(value)}</span>
+        return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null

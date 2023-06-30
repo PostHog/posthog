@@ -4,10 +4,9 @@ import { useActions, useValues } from 'kea'
 import { IconLegend } from 'lib/lemon-ui/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendsFilterType } from '~/types'
-import { shouldShowLegend } from './utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export function InsightLegendButtonDataExploration(): JSX.Element | null {
+export function InsightLegendButton(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightFilter, hasLegend } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -17,42 +16,6 @@ export function InsightLegendButtonDataExploration(): JSX.Element | null {
         updateInsightFilter({ show_legend: !showLegend })
     }
 
-    return (
-        <InsightLegendButtonComponent
-            hasLegend={hasLegend}
-            showLegend={showLegend}
-            toggleShowLegend={toggleShowLegend}
-        />
-    )
-}
-
-export function InsightLegendButton(): JSX.Element | null {
-    const { filters } = useValues(insightLogic)
-    const { toggleInsightLegend } = useActions(insightLogic)
-
-    const hasLegend = shouldShowLegend(filters)
-    const showLegend = (filters as TrendsFilterType).show_legend
-
-    return (
-        <InsightLegendButtonComponent
-            hasLegend={hasLegend}
-            showLegend={showLegend}
-            toggleShowLegend={toggleInsightLegend}
-        />
-    )
-}
-
-type InsightLegendButtonComponentProps = {
-    hasLegend: boolean
-    showLegend?: boolean
-    toggleShowLegend: () => void
-}
-
-export function InsightLegendButtonComponent({
-    hasLegend,
-    showLegend,
-    toggleShowLegend,
-}: InsightLegendButtonComponentProps): JSX.Element | null {
     if (!hasLegend) {
         return null
     }
