@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.sharing import shared_url_as_png
 from posthog.models import ExportedAsset
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
@@ -13,6 +14,25 @@ from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
+
+
+@parameterized.expand(
+    [
+        ["http://localhost:8000/something", "http://localhost:8000/something.png"],
+        ["http://localhost:8000/something?query=string", "http://localhost:8000/something.png?query=string"],
+        [
+            "http://localhost:8000/something?query=string&another=one",
+            "http://localhost:8000/something.png?query=string&another=one",
+        ],
+        [
+            "http://localhost:8000/something?query=string&another=one#withhash",
+            "http://localhost:8000/something.png?query=string&another=one#withhash",
+        ],
+        ["http://localhost:8000/something#withhash", "http://localhost:8000/something.png#withhash"],
+    ]
+)
+def test_shared_image_alternative(url: str, expected_url: str) -> None:
+    assert shared_url_as_png(url) == expected_url
 
 
 class TestSharing(APIBaseTest):

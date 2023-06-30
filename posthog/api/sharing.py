@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from typing import Any, Dict, Optional, cast
+from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.timezone import now
@@ -24,6 +25,18 @@ from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+
+
+def shared_url_as_png(url: str = "") -> str:
+    validated_url = urlparse(url)
+    path = validated_url.path
+
+    extension = ".png"
+    if not path.endswith(extension):
+        path = f"{path}{extension}"
+
+    new_url = validated_url._replace(path=path)
+    return urlunparse(new_url)
 
 
 # NOTE: We can't use a standard permission system as we are using Detail view on a non-detail route
@@ -263,6 +276,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 "asset_title": asset_title,
                 "asset_description": asset_description,
                 "add_og_tags": add_og_tags,
+                "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
             },
             team_for_public_context=resource.team,
         )
