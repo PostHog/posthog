@@ -143,8 +143,8 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 <LemonTextArea value={question.description || ''} />
                             </Field>
                             {question.type === SurveyQuestionType.Link && (
-                                <Field name="link" label="Link">
-                                    <LemonInput value={question.link || ''} />
+                                <Field name="link" label="Link" info="Make sure to include https:// in the url.">
+                                    <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
                                 </Field>
                             )}
                         </Group>
@@ -266,6 +266,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 onAppearanceChange={(appearance) => {
                                     onChange(appearance)
                                 }}
+                                link={survey.questions[0].link}
                                 appearance={value || defaultSurveyAppearance}
                             />
                         )}

@@ -8,6 +8,7 @@ interface SurveyAppearanceProps {
     question: string
     appearance: SurveyAppearanceType
     description?: string | null
+    link?: string | null
     readOnly?: boolean
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
@@ -16,13 +17,20 @@ export function SurveyAppearance({
     question,
     appearance,
     description,
+    link,
     readOnly,
     onAppearanceChange,
 }: SurveyAppearanceProps): JSX.Element {
     return (
         <>
             <h3 className="mb-4 text-center">Preview</h3>
-            <BaseAppearance type={type} question={question} description={description} appearance={appearance} />
+            <BaseAppearance
+                type={type}
+                question={question}
+                description={description}
+                appearance={appearance}
+                link={link}
+            />
             {!readOnly && (
                 <div className="flex flex-col">
                     <div className="mt-2">Background color</div>
@@ -85,11 +93,13 @@ function BaseAppearance({
     question,
     appearance,
     description,
+    link,
 }: {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
     description?: string | null
+    link?: string | null
 }): JSX.Element {
     return (
         <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
@@ -121,7 +131,9 @@ function BaseAppearance({
                         <button
                             className="form-submit"
                             type="button"
-                            onClick={() => {}}
+                            onClick={() => {
+                                link && type === SurveyQuestionType.Link ? window.open(link) : null
+                            }}
                             style={{ backgroundColor: appearance.submitButtonColor }}
                         >
                             {appearance.submitButtonText || 'Submit'}

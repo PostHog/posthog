@@ -209,6 +209,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     appearance={survey.appearance || defaultSurveyAppearance}
                                                     question={survey.questions[0].question}
                                                     description={survey.questions[0].description}
+                                                    link={survey.questions[0].link}
                                                     readOnly={true}
                                                     onAppearanceChange={() => {}}
                                                 />
