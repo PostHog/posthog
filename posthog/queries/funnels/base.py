@@ -554,6 +554,8 @@ class ClickhouseFunnelBase(ABC):
         elif entity.id is None:
             content_sql = f"1 = 1 {filters}"
         else:
+            if entity_name not in self.params:
+                self.params[entity_name] = []
             if entity.id not in self.params[entity_name]:
                 self.params[entity_name].append(entity.id)
             event_param_key = f"{entity_name}_{step_prefix}event_{index}"

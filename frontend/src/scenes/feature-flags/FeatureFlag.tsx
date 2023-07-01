@@ -283,7 +283,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
                                                 >
-                                                    Learn more <IconOpenInNew />
+                                                    Learn more
                                                 </Link>
                                             </div>
                                         </div>

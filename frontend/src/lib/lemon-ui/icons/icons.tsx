@@ -282,12 +282,12 @@ export function IconSelectAll(props: LemonIconProps): JSX.Element {
 /** Material Design Rate Review icon. */
 export function IconSurveys(props: LemonIconProps): JSX.Element {
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" {...props}>
+        <LemonIconBase {...props}>
             <path
-                d="M240-400h98l236-234q6-6 6-15t-6-15l-70-70q-6-6-15-6t-15 6L240-498v98Zm180 0h300v-80H500l-80 80ZM80-80v-720q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H240L80-80Zm126-240h594v-480H160v525l46-45Zm-46 0v-480 480Z"
+                d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17l-.59.59-.58.58V4h16v12zm-9.5-2H18v-2h-5.5zm3.86-5.87c.2-.2.2-.51 0-.71l-1.77-1.77c-.2-.2-.51-.2-.71 0L6 11.53V14h2.47l5.89-5.87z"
                 fill="currentColor"
             />
-        </svg>
+        </LemonIconBase>
     )
 }
 

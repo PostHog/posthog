@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import clsx from 'clsx'
 import './Link.scss'
+import { IconOpenInNew } from '../icons'
 
 type RoutePart = string | Record<string, any>
 
@@ -41,7 +42,19 @@ const shouldForcePageLoad = (input: any): boolean => {
  * or whether to be routed internally via kea-router
  */
 export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = React.forwardRef(
-    ({ to, target, disableClientSideRouting, preventClick = false, onClick: onClickRaw, className, ...props }, ref) => {
+    (
+        {
+            to,
+            target,
+            disableClientSideRouting,
+            preventClick = false,
+            onClick: onClickRaw,
+            className,
+            children,
+            ...props
+        },
+        ref
+    ) => {
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
                 event.stopPropagation()
@@ -70,9 +83,14 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 target={target}
                 rel={target === '_blank' ? 'noopener noreferrer' : undefined}
                 {...props}
-            />
+            >
+                {children}
+                {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
+            </a>
         ) : (
-            <button ref={ref as any} className={clsx('Link', className)} onClick={onClick} type="button" {...props} />
+            <button ref={ref as any} className={clsx('Link', className)} onClick={onClick} type="button" {...props}>
+                {children}
+            </button>
         )
     }
 )

@@ -127,10 +127,10 @@ class TestVisitor(BaseTest):
         class EternalVisitor(TraversingVisitor):
             def visit_constant(self, node: ast.Constant):
                 if node.value == 616:
-                    raise HogQLException("You tried accessing a forbidden number, perish.")
+                    raise HogQLException("You tried accessing a forbidden number, perish!")
 
         with self.assertRaises(HogQLException) as e:
             EternalVisitor().visit(parse_expr("1 + 616 / 'asd2'"))
-        self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish.")
+        self.assertEqual(str(e.exception), "You tried accessing a forbidden number, perish!")
         self.assertEqual(e.exception.start, 4)
         self.assertEqual(e.exception.end, 7)

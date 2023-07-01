@@ -13,6 +13,7 @@ from semantic_version import Version
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.plugins.access import (
     can_configure_plugins,
     can_globally_manage_plugins,
@@ -149,6 +150,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         list_response_other_org_2_data = list_response_other_org_2.json()
         self.assertEqual(list_response_other_org_2_data["count"], 1)
         self.assertEqual(list_response_other_org_2.status_code, 200)
+
+    def test_no_longer_globally_managed_still_visible_to_org_if_enabled(self, mock_get, mock_reload):
+        other_org: Organization = Organization.objects.create(
+            name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
+        )
+        other_team: Team = Team.objects.create(organization=other_org, name="FooBar2")
+        OrganizationMembership.objects.create(user=self.user, organization=other_org)
+        plugin = Plugin.objects.create(organization=self.organization)
+        PluginConfig.objects.create(plugin=plugin, enabled=True, team=other_team, order=0)
+        # The plugin is NOT global BUT it was before and it was enabled for one of the projects back then,
+        # so it should still show up for the other org
+        list_response = self.client.get(f"/api/organizations/{other_org.id}/plugins/")
+        self.assertEqual(list_response.status_code, 200, list_response.json())
+        list_response_data = list_response.json()
+        self.assertEqual(list_response_data["count"], 1)
+        self.assertEqual(list_response_data["results"][0]["id"], plugin.id)
 
     def test_globally_managed_only_manageable_by_owner_org(self, mock_get, mock_reload):
         my_org = self.organization
@@ -896,6 +913,25 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             format="multipart",
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_update_plugin_config_no_longer_globally_managed_but_still_enabled(self, mock_get, mock_reload):
+        self.organization.plugins_access_level = Organization.PluginsAccessLevel.CONFIG
+        self.organization.save()
+        other_org: Organization = Organization.objects.create(
+            name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.CONFIG
+        )
+        other_team: Team = Team.objects.create(organization=other_org, name="FooBar2")
+        OrganizationMembership.objects.create(user=self.user, organization=other_org)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=other_team, order=0)
+        # The plugin is NOT global BUT it was before and it was enabled for the project back then,
+        # so it should still be editable for the other org
+        response = self.client.patch(
+            f"/api/projects/{other_team.pk}/plugin_configs/{plugin_config.pk}/",
+            {"order": 2},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 200)
 
     def test_delete_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(

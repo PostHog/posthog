@@ -4,7 +4,6 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
@@ -24,6 +23,7 @@ import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
 import { LemonCheckbox } from '@posthog/lemon-ui'
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -54,7 +54,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         }
     }, [querySource])
 
-    const { openCorrelationPersonsModal } = useActions(funnelLogic(insightProps))
+    const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
     const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
 
@@ -233,7 +233,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             <Empty />
                         ) : (
                             <>
-                                <p style={{ margin: 'auto', maxWidth: 500 }}>
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <p className="m-auto" style={{ maxWidth: 500 }}>
                                     Highlight events which are likely to have affected the conversion rate within the
                                     funnel.{' '}
                                     <Link to="https://posthog.com/manual/correlation">

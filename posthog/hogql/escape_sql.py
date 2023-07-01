@@ -31,7 +31,9 @@ def escape_param_clickhouse(value: str) -> str:
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes. Added a $.
-def escape_hogql_identifier(identifier: str) -> str:
+def escape_hogql_identifier(identifier: str | int) -> str:
+    if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
+        return str(identifier)
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier

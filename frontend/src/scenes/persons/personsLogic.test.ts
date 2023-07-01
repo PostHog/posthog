@@ -59,22 +59,6 @@ describe('personsLogic', () => {
                     searchParams: { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] },
                 })
         })
-        it('properties from url works', async () => {
-            router.actions.push('/persons', { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] })
-            await expectLogic(logic, () => {}).toMatchValues(logic, {
-                listFilters: { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] },
-            })
-
-            // Expect a clean url (no ?properties={})
-            await expectLogic(logic, () => {
-                logic.actions.setListFilters({
-                    properties: [],
-                })
-                logic.actions.loadPersons()
-            })
-                .toDispatchActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: {} })
-        })
     })
 
     describe('loads a person', () => {

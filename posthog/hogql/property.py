@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.constants import HOGQL_AGGREGATIONS
+from posthog.hogql.functions import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -232,7 +232,7 @@ def cohort_subquery(cohort_id, is_static) -> ast.Expr:
         sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
     else:
         sql = "(SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)})
+    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None)  # clear the source start position
 
 
 def action_to_expr(action: Action) -> ast.Expr:
