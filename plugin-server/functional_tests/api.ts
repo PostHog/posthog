@@ -194,7 +194,7 @@ export const reloadPlugins = async () => await redis.publish('reload-plugins', '
 export const waitForPluginToLoad = (pluginConfig: any) => {
     return waitForExpect(async () => {
         const logEntries = await fetchPluginLogEntries(pluginConfig.id)
-        const setUp = logEntries.filter(({ message }) => message.includes('Plugin loaded'))
+        const setUp = logEntries.filter(({ message }) => message.includes('Plugin registered'))
         expect(setUp.length).toBeGreaterThan(0)
     })
 }
