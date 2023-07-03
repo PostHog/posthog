@@ -189,6 +189,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Pageview',
             description: 'When a user loads (or reloads) a page.',
         },
+        $pageview_id: {
+            label: 'Pageview ID',
+            description: 'The ID for the pageview event.',
+        },
         $pageleave: {
             label: 'Pageleave',
             description: 'When a user leaves a page.',
@@ -197,6 +201,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
+        },
+        $autocapture_disabled_server_side: {
+            label: 'Autocapture disabled server-side',
+            description: 'If autocapture has been disabled server-side.',
         },
         $screen: {
             label: 'Screen',
