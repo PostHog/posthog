@@ -2838,6 +2838,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    expires_after?: Dayjs
 }
 
 export enum FeatureFlagReleaseType {
