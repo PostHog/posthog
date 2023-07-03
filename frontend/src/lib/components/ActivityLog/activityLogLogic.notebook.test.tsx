@@ -62,7 +62,7 @@ describe('the activity log logic', () => {
                                         },
                                         content: [
                                             {
-                                                text: 'testing my notebook',
+                                                text: 'testing my notebook (before)',
                                                 type: 'text',
                                             },
                                         ],
@@ -71,79 +71,7 @@ describe('the activity log logic', () => {
                                         type: 'paragraph',
                                         content: [
                                             {
-                                                text: 'here is where my amazing content i',
-                                                type: 'text',
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [
-                                            {
-                                                text: 'I am stealing your amazing content',
-                                                type: 'text',
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [
-                                            {
-                                                text: 'more of the changin',
-                                                type: 'text',
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [
-                                            {
-                                                text: 'I am user one, my last content load ended "changin" even though it should have ended "changing"',
-                                                type: 'text',
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [
-                                            {
-                                                text: 'this edit ends with the letter r',
-                                                type: 'text',
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [
-                                            {
-                                                text: 'what',
-                                                type: 'text',
-                                            },
-                                        ],
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                    },
-                                    {
-                                        type: 'paragraph',
-                                        content: [
-                                            {
-                                                text: 'ah, is it when no new line',
+                                                text: 'here is where my amazing content will be',
                                                 type: 'text',
                                             },
                                         ],
