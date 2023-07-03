@@ -28,6 +28,23 @@ describe('the activity log logic', () => {
             )
         })
 
+        it('can handle system exports of an insight', async () => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'name',
+                    before: 'start',
+                    after: 'finish',
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter renamed "start" to "finish"'
+            )
+        })
+
         it('can handle change of filters', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {
