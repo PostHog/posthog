@@ -45,8 +45,8 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
     labelnames=["reason"],
 )
 
-print('flag_matching.py',"decide" not in settings.READ_REPLICA_OPT_IN)
 DATABASE_FOR_FLAG_MATCHING = lambda: "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
+
 
 class FeatureFlagMatchReason(str, Enum):
     SUPER_CONDITION_VALUE = "super_condition_value"
@@ -96,7 +96,9 @@ class FlagsMatcherCache:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING()):
-                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(team_id=self.team_id)
+                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(
+                    team_id=self.team_id
+                )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
         except DatabaseError as err:
             self.failed_to_fetch_flags = True
@@ -332,7 +334,6 @@ class FeatureFlagMatcher:
                 person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
                 )
-                print('person query is using connection: ', person_query.db)
                 basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(team_id=team_id)
                 group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
@@ -510,26 +511,27 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def get_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], using_database: str = 'default') -> Dict[str, str]:
+def get_feature_flag_hash_key_overrides(
+    team_id: int, distinct_ids: List[str], using_database: str = "default"
+) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
 
     # Priority to the first distinctID's values, to keep this function deterministic
 
     person_and_distinct_ids = list(
-        PersonDistinctId.objects.using(using_database).filter(distinct_id__in=distinct_ids, team_id=team_id).values_list(
-            "person_id", "distinct_id"
-        )
+        PersonDistinctId.objects.using(using_database)
+        .filter(distinct_id__in=distinct_ids, team_id=team_id)
+        .values_list("person_id", "distinct_id")
     )
-    print('person and ids: ', person_and_distinct_ids)
 
     person_id_to_distinct_id = {person_id: distinct_id for person_id, distinct_id in person_and_distinct_ids}
 
     person_ids = list(person_id_to_distinct_id.keys())
 
     for feature_flag, override, _ in sorted(
-        FeatureFlagHashKeyOverride.objects.using(using_database).filter(person_id__in=person_ids, team_id=team_id).values_list(
-            "feature_flag_key", "hash_key", "person_id"
-        ),
+        FeatureFlagHashKeyOverride.objects.using(using_database)
+        .filter(person_id__in=person_ids, team_id=team_id)
+        .values_list("feature_flag_key", "hash_key", "person_id"),
         key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
         # We want the highest priority to go last in sort order, so it's the latest update in the dict
     ):
@@ -619,9 +621,10 @@ def get_all_feature_flags(
             # On merge, if a person is deleted, it is fine because the below line in plugin-server will take care of it.
             # https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L696 (addFeatureFlagHashKeysForMergedPerson)
 
-            set_feature_flag_hash_key_overrides(team_id, [distinct_id, hash_key_override], hash_key_override)
-            writing_hash_key_override = True
-
+            writing_hash_key_override = set_feature_flag_hash_key_overrides(
+                team_id, [distinct_id, hash_key_override], hash_key_override
+            )
+            # TODO: Confirm this is set correctly
         except Exception as e:
             # If the database is in read-only mode, we can't handle experience continuity flags,
             # since the set_feature_flag_hash_key_overrides call will fail.
@@ -633,14 +636,13 @@ def get_all_feature_flags(
     try:
         # when we're writing a hash_key_override, we query the main database, not the replica
         # this is because we need to make sure the write is successful before we read it
-        using_database = 'default' if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING()
+        using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING()
         person_overrides = {}
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
             target_distinct_ids = [distinct_id]
             if hash_key_override is not None:
                 target_distinct_ids.append(str(hash_key_override))
             person_overrides = get_feature_flag_hash_key_overrides(team_id, target_distinct_ids, using_database)
-            print('found person overrides', person_overrides)
 
     except Exception:
         # database is down, we can't handle experience continuity flags at all.
@@ -667,7 +669,7 @@ def get_all_feature_flags(
     )
 
 
-def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], hash_key_override: str) -> None:
+def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], hash_key_override: str) -> bool:
     # As a product decision, the first override wins, i.e consistency matters for the first walkthrough.
     # Thus, we don't need to do upserts here.
 
@@ -709,8 +711,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                 # There can be cases where it's a different override (like a person on two different browser sending the same request at the same time),
                 # but we don't care about that case because first override wins.
                 cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids), "hash_key_override": hash_key_override})  # type: ignore
-
-            break
+                return cursor.rowcount > 0
 
         except IntegrityError as e:
             if "violates foreign key constraint" in str(e) and retry < max_retries - 1:
@@ -720,6 +721,8 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
                 time.sleep(retry_delay)
             else:
                 raise e
+
+    return False
 
 
 def handle_feature_flag_exception(err: Exception, log_message: str = ""):

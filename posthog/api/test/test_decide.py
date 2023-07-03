@@ -1,18 +1,19 @@
 import base64
 import json
-import os
 import random
 from unittest.mock import patch
 import time
+from django.conf import settings
 
 
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TestCase, modify_settings, override_settings
+from django.test import TestCase
 from django.test.client import Client
 from freezegun import freeze_time
 import pytest
 from rest_framework import status
+from posthog.models.group.group import Group
 from posthog.models.signals import mute_selected_signals
 
 
@@ -26,8 +27,6 @@ from posthog.models.team.team import Team
 from posthog.models.person import PersonDistinctId
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
-from posthog.settings.data_stores import postgres_config
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
 from posthog.database_healthcheck import postgres_healthcheck
 from posthog import redis
@@ -1852,7 +1851,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             response = self._post_decide(api_version=3, data={"token": new_token, "distinct_id": "other id"})
             self.assertEqual(response.status_code, 429)
-    
+
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_only_fires_when_enabled(self, *args):
         FeatureFlag.objects.create(
@@ -1938,7 +1937,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
         postgres_healthcheck.cache_clear()
         super().setUp(*args)
-    
+
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
@@ -2075,14 +2074,21 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response["featureFlags"], {"no-props": True})
             self.assertEqual(response["errorsWhileComputingFlags"], True)
 
+
+@pytest.mark.skipif(
+    "decide" not in settings.READ_REPLICA_OPT_IN, reason="This test requires READ_REPLICA_OPT_IN=decide"
+)
 class TestDecideUsesReadReplica(TestCase):
     """
-    To prepare the db, do:
+    A cheat sheet for creating a READ-ONLY fake replica when local testing:
 
-    docker exec -it d9e506cc71b5 bash
+    docker compose -f docker-compose.dev.yml exec db bash
     psql -U posthog
     CREATE USER posthog2 WITH PASSWORD 'password';
-    \c test_posthog
+    # this user will be the one used to connect to the replica^^
+
+    # switch to the db on which you want to give permissions
+    backslash c test_posthog
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO posthog2;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO posthog2;
 
@@ -2090,43 +2096,62 @@ class TestDecideUsesReadReplica(TestCase):
 
     POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='password' POSTHOG_DB_USER='posthog2'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
 
-    django seems pretty shite at nagivating tested cursors to the right db. Would need to manually add them all the time? _sigh_ :/
-    need an automated way to test this at minimum.
-    At best, don't have to think about this at all.
+    or run locally with the same env vars.
+
+    Django seems pretty shite at nagivating tested cursors to the right db. Would need to manually add them all the time, _sigh_ :/
+    This test suite aims to be comprehensive, covering all decide code paths so we can catch if something is hitting the main db
+    when it shouldn't be.
     """
-    databases = ["default", "replica"]
+
+    databases = {"default", "replica"}
+
+    def setup_user_and_team_in_db(self, dbname: str = "default"):
+
+        organization = Organization.objects.using(dbname).create(
+            name="Org 1", slug=f"org-{dbname}-{random.randint(1, 1000000)}"
+        )
+        team = Team.objects.using(dbname).create(organization=organization, name="Team 1 org 1")
+        user = User.objects.using(dbname).create(
+            email=f"test-{random.randint(1, 100000)}@posthog.com", password="password", first_name="first_name"
+        )
+        OrganizationMembership.objects.using(dbname).create(
+            user=user, organization=organization, level=OrganizationMembership.Level.OWNER
+        )
+
+        return organization, team, user
+
+    def setup_flags_in_db(self, dbname, team, user, flags, persons):
+        created_flags = []
+        created_persons = []
+        for flag in flags:
+            f = FeatureFlag.objects.using(dbname).create(
+                team=team,
+                rollout_percentage=flag.get("rollout_percentage") or None,
+                filters=flag.get("filters") or {},
+                name=flag["name"],
+                key=flag["key"],
+                ensure_experience_continuity=flag.get("ensure_experience_continuity") or False,
+                created_by=user,
+            )
+            created_flags.append(f)
+        for person in persons:
+            p = Person.objects.using(dbname).create(
+                team=team,
+                properties=person["properties"],
+            )
+            created_persons.append(p)
+            for distinct_id in person["distinct_ids"]:
+                PersonDistinctId.objects.using(dbname).create(person=p, distinct_id=distinct_id, team=team)
+
+        return created_flags, created_persons
 
     def setUp(self):
         cache.clear()
         super().setUp()
 
-        self.organization = Organization.objects.using('replica').create(name="Org 1")
-        self.team = Team.objects.using('replica').create(organization=self.organization, name="Team 1 org 1")
-        self.user = User.objects.using('replica').create(email='test@posthog.com', password='password', first_name='first_name')
-        OrganizationMembership.objects.using('replica').create(user=self.user, organization=self.organization, level=OrganizationMembership.Level.OWNER)
-        
-        print('here!')
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
         # self.client.force_login(self.user)
-
-        print('passed!')
-
-        # postgres_healthcheck.set_connection(True)
-
-        # with connections["default"].cursor() as cursor:
-        #     # cursor.execute("CREATE USER posthog2 WITH PASSWORD 'password'")
-        #     cursor.execute("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO posthog2")
-        #     cursor.execute("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO posthog2")
-    
-        # :TRICKY: TEST MIRROR replication doesn't work in django, so we manually set the cursor going to the replica to go
-        # to the default db.
-        # connections['replica']._orig_cursor = connections['replica'].cursor
-        # connections['replica'].cursor = connections['default'].cursor
-
-    # def tearDown(self):
-    #     connections['replica'].cursor = connections['replica']._orig_cursor
-    #     super().tearDown()
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
@@ -2135,9 +2160,10 @@ class TestDecideUsesReadReplica(TestCase):
         self,
         data=None,
         origin="http://127.0.0.1:8000",
-        api_version=1,
+        api_version=3,
         distinct_id="example_id",
         groups={},
+        person_props={},
         geoip_disable=False,
         ip="127.0.0.1",
     ):
@@ -2151,6 +2177,7 @@ class TestDecideUsesReadReplica(TestCase):
                         "distinct_id": distinct_id,
                         "groups": groups,
                         "geoip_disable": geoip_disable,
+                        "person_properties": person_props,
                     },
                 )
             },
@@ -2158,74 +2185,65 @@ class TestDecideUsesReadReplica(TestCase):
             REMOTE_ADDR=ip,
         )
 
-    @pytest.mark.skip
     def test_healthcheck_uses_read_replica(self):
-        with freeze_time("2021-01-01T00:00:00Z") as frozen_time, self.assertNumQueries(1, using="replica"), self.assertNumQueries(2, using="default"):
-            response = self._post_decide(api_version=3)
+        org_replica, team_replica, user_replica = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org_replica, team_replica, user_replica
+        # this create fills up team cache^
+
+        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(1, using="replica"), self.assertNumQueries(
+            1, using="default"
+        ):
+            response = self._post_decide()
             # Replica queries:
             # E   1. SELECT 1
             # Main DB queries:
-            # E   1. SELECT "posthog_team". -- fill up team cache
-            # E   2. SELECT "posthog_featureflag"."id", -- fill up feature flags cache
+            # E   1. SELECT "posthog_featureflag"."id", -- fill up feature flags cache
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual({}, response.json()["featureFlags"])
 
-    @pytest.mark.skip
+    @patch("posthog.models.feature_flag.flag_matching.get_feature_flags_for_team_in_cache")
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
-    def test_decide_uses_read_replica(self, mock_is_connected):
-            self.client.logout()
-        # with self.settings(READ_REPLICA_OPT_IN=["decide"], POSTHOG_POSTGRES_READ_HOST="localhost"):
-            Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-            FeatureFlag.objects.create(
-                team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+    def test_decide_uses_read_replica(self, mock_is_connected, mock_get_feature_flags_for_team_in_cache):
+        self.client.logout()
+
+        org_replica, team_replica, user_replica = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org_replica, team_replica, user_replica
+
+        with mute_selected_signals():  # without creating/updating in clickhouse
+            persons = [{"distinct_ids": ["example_id"], "properties": {"email": "tim@posthog.com"}}]
+            flags = [
+                {
+                    "rollout_percentage": 50,
+                    "name": "Beta feature",
+                    "key": "beta-feature",
+                },
+                {
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                    "name": "This is a feature flag with default params, no filters.",
+                    "key": "default-no-prop-flag",
+                },  # Should be enabled for everyone
+                {
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "posthog", "operator": "icontains", "type": "person"}
+                                ],
+                                "rollout_percentage": None,
+                            }
+                        ]
+                    },
+                    "name": "This is a feature flag with default params, no filters.",
+                    "key": "default-flag",
+                },
+            ]
+            flags_replica, persons_replica = self.setup_flags_in_db(
+                "replica", team_replica, user_replica, flags, persons
             )
-            FeatureFlag.objects.create(
-                team=self.team,
-                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-                name="This is a feature flag with default params, no filters.",
-                key="default-flag",
-                created_by=self.user,
-            )  # Should be enabled for everyone
 
-            # Test number of queries with multiple property filter feature flags
-            FeatureFlag.objects.create(
-                team=self.team,
-                filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-                rollout_percentage=50,
-                name="Filter by property",
-                key="filer-by-property",
-                created_by=self.user,
-            )
-            FeatureFlag.objects.create(
-                team=self.team,
-                filters={"groups": [{"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]}]},
-                name="Filter by property 2",
-                key="filer-by-property-2",
-                created_by=self.user,
-            )
-            # this populated feature flag cache^
+            mock_get_feature_flags_for_team_in_cache.return_value = flags_replica
 
-            # with connections["replica"].cursor() as cursor:
-            #     cursor.execute("SELECT COUNT(*) FROM posthog_featureflag")
-            #     self.assertEqual(cursor.fetchone()[0], 4)
-
-            with self.assertNumQueries(4, using="replica"), self.assertNumQueries(1, using="default"):
-                response = self._post_decide(api_version=3)
-                # Replica queries:
-                # E   1. SAVEPOINT "s4343514496_x2"
-                # E   2. SET LOCAL statement_timeout = 600
-                # E   3. SELECT (true) AS "flag_41_condition_0", (true) AS "flag_42_condition_0" -- i.e. flag selection
-                # E   4. RELEASE SAVEPOINT "s4343514496_x2"
-                # Main db queries:
-                # E   1. SELECT "posthog_team" -- to populate team cache
-
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertIn("default-flag", response.json()["featureFlags"])
-                self.assertIn("beta-feature", response.json()["featureFlags"])
-                self.assertIn("filer-by-property-2", response.json()["featureFlags"])
-            
-            # same query again, should cache team check on main db
             with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
                 response = self._post_decide(api_version=3)
                 # Replica queries:
@@ -2235,63 +2253,95 @@ class TestDecideUsesReadReplica(TestCase):
                 # E   4. RELEASE SAVEPOINT "s4343514496_x2"
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertIn("default-flag", response.json()["featureFlags"])
-                self.assertIn("beta-feature", response.json()["featureFlags"])
-                self.assertIn("filer-by-property-2", response.json()["featureFlags"])
+                self.assertEqual(
+                    response.json()["featureFlags"],
+                    {
+                        "default-flag": True,
+                        "default-no-prop-flag": True,
+                        "beta-feature": True,
+                    },
+                )
+
+            # same query with property overrides, shouldn't go to db
+            with self.assertNumQueries(0, using="replica"), self.assertNumQueries(0, using="default"):
+                response = self._post_decide(person_props={"email": "tom@hi.com"})
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(
+                    response.json()["featureFlags"],
+                    {
+                        "default-flag": False,
+                        "default-no-prop-flag": True,
+                        "beta-feature": True,
+                    },
+                )
 
     @patch("posthog.models.feature_flag.flag_matching.get_feature_flags_for_team_in_cache")
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
-    def test_feature_flags_v3_consistent_flags_with_database_errors(self, mock_is_connected, mock_get_feature_flags_for_team_in_cache):
+    def test_feature_flags_v3_consistent_flags(self, mock_is_connected, mock_get_feature_flags_for_team_in_cache):
 
-        with mute_selected_signals(): # without creating/updating in clickhouse
-            person = Person.objects.using('replica').create(
-                team=self.team, properties={"email": "tim@posthog.com"}
-            )
-            print('team id', self.team.pk, self.team)
-            PersonDistinctId.objects.using('replica').create(person=person, distinct_id="example_id", team=self.team)
-            f1 = FeatureFlag.objects.using('replica').create(
-                team=self.team,
-                rollout_percentage=30,
-                name="Beta feature",
-                key="beta-feature",
-                created_by=self.user,
-                ensure_experience_continuity=True,
-            )
-            f2 = FeatureFlag.objects.using('replica').create(
-                team=self.team,
-                filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-                name="This is a feature flag with default params, no filters.",
-                key="default-flag",
-                created_by=self.user,
-            )  # Should be enabled for everyone
-            f3 = FeatureFlag.objects.using('replica').create(
-                team=self.team,
-                filters={
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+        # :TRICKY: This setup _writes_ to the "replica" db, not the main db,
+        # because Django MIRROR setting for replicas for tests doesn't work.
+        # It's able to write to the "replica" because in local dev, the replica is the main db :shrug:
+        # We just make sure that regular decide requests go to the replica, and write requests do not.
+
+        org_replica, team_replica, user_replica = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org_replica, team_replica, user_replica
+
+        with mute_selected_signals():  # without creating/updating in clickhouse
+            persons = [{"distinct_ids": ["example_id"], "properties": {"email": "tim@posthog.com"}}]
+            flags = [
+                {
+                    "rollout_percentage": 30,
+                    "name": "Beta feature",
+                    "key": "beta-feature",
+                    "ensure_experience_continuity": True,
+                },
+                {
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+                    "name": "This is a feature flag with default params, no filters.",
+                    "key": "default-no-prop-flag",
+                },  # Should be enabled for everyone
+                {
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "posthog", "operator": "icontains", "type": "person"}
+                                ],
+                                "rollout_percentage": None,
+                            }
                         ]
                     },
+                    "name": "This is a feature flag with default params, no filters.",
+                    "key": "default-flag",
                 },
-                name="This is a feature flag with multiple variants.",
-                key="multivariate-flag",
-                created_by=self.user,
-                ensure_experience_continuity=True,
+                {
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": None}],
+                        "multivariate": {
+                            "variants": [
+                                {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                                {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                                {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            ]
+                        },
+                    },
+                    "name": "This is a flag with multiple variants",
+                    "key": "multivariate-flag",
+                    "ensure_experience_continuity": True,
+                },
+            ]
+            flags_replica, persons_replica = self.setup_flags_in_db(
+                "replica", team_replica, user_replica, flags, persons
             )
 
-            mock_get_feature_flags_for_team_in_cache.return_value = [
-                f1, f2, f3
-            ]
+            person = persons_replica[0]
+
+            mock_get_feature_flags_for_team_in_cache.return_value = flags_replica
             # make sure caches are populated
-            response = self._post_decide(api_version=3)
+            response = self._post_decide()
 
-            print(Person.objects.using('replica').all())
-            print(FeatureFlag.objects.using('replica').all())
-
-            with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+            with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
                 # effectively 3 queries, wrapped around by an atomic transaction
                 # E   1. SAVEPOINT "s4379526528_x103"
                 # E   2. SET LOCAL statement_timeout = 300
@@ -2300,6 +2350,11 @@ class TestDecideUsesReadReplica(TestCase):
                 # E   4. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", "posthog_featureflaghashkeyoverride"."hash_key", "posthog_featureflaghashkeyoverride"."person_id" FROM "posthog_featureflaghashkeyoverride"
                 #            WHERE ("posthog_featureflaghashkeyoverride"."person_id" IN (7) AND "posthog_featureflaghashkeyoverride"."team_id" = 1)
                 # E   5. RELEASE SAVEPOINT "s4379526528_x103"
+                # effectively 2 queries, wrapped around by an atomic transaction
+                # E   6. SAVEPOINT "s4371088768_x5"
+                # E   7. SET LOCAL statement_timeout = 600
+                # E   8. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
+                # E   9. RELEASE SAVEPOINT "s4371088768_x5"
                 response = self._post_decide(api_version=3)
                 self.assertTrue(response.json()["featureFlags"]["beta-feature"])
                 self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -2308,54 +2363,297 @@ class TestDecideUsesReadReplica(TestCase):
                 )  # assigned by distinct_id hash
 
             # new person, merged from old distinct ID
-            PersonDistinctId.objects.using('replica').create(person=person, distinct_id="other_id", team=self.team)
+            PersonDistinctId.objects.using("replica").create(person=person, distinct_id="other_id", team=self.team)
 
-            # new request with hash key overrides should go to main database
-            with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+            # new request with hash key overrides but not writes should not go to main database
+            with self.assertNumQueries(9, using="replica"), self.assertNumQueries(4, using="default"):
+                # Replica queries:
+                #     effectively 4 queries, wrapped around by an atomic transaction
+                # E   1. SAVEPOINT "s4311909760_x3"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid" -- a.k.a select the person ids.
+                #        We select person overrides from replica DB when no inserts happened
+                # E   4. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",  - a.k.a select the flag overrides
+                # E   5. RELEASE SAVEPOINT "s4311909760_x3"
+                #     effectively 2 queries, wrapped around by an atomic transaction
+                # E   6. SAVEPOINT "s4371088768_x5"
+                # E   7. SET LOCAL statement_timeout = 600
+                # E   8. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
+                # E   9. RELEASE SAVEPOINT "s4371088768_x5"
+                # Main queries:
+                # E   1. SAVEPOINT "s4366026112_x2"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. (The insert hashkey overrides query)
+                # E                       WITH some CTEs,
+                # E                       INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                # E                           SELECT team_id, person_id, key, 'example_id'
+                # E                           FROM flags_to_override, target_person_ids
+                # E                           WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = 7)
+                # E                           ON CONFLICT DO NOTHING
+                # E   4. RELEASE SAVEPOINT "s4366026112_x2"
+
                 response = self._post_decide(
                     api_version=3,
                     data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
                 )
-                self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+                # :TRICKY: beta-feature should have been enabled, but the hash key override doesn't exist in the replica
+                self.assertFalse(response.json()["featureFlags"]["beta-feature"])
                 self.assertTrue(response.json()["featureFlags"]["default-flag"])
-                self.assertTrue(response.json()["errorsWhileComputingFlags"])
-            
-            # request with hash key overrides but no _new_ writes should go to replica
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
             # now main database is down, but does not affect replica
-            with connection.execute_wrapper(QueryTimeoutWrapper()):
+            with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
+                9, using="replica"
+            ), self.assertNumQueries(1, using="default"):
                 response = self._post_decide(
                     api_version=3,
                     data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
                 )
-                self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+                # :TRICKY: beta-feature should have been enabled, but the hash key override doesn't exist in the replica
+                self.assertFalse(response.json()["featureFlags"]["beta-feature"])
                 self.assertTrue(response.json()["featureFlags"]["default-flag"])
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+            # now replica is down, so errors computing flags should be true
+            with connections["replica"].execute_wrapper(QueryTimeoutWrapper()):
+                response = self._post_decide(
+                    api_version=3,
+                    data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+                )
+                # :TRICKY: beta-feature should have been enabled, but the hash key override doesn't exist in the replica
+                self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+                self.assertTrue("default-flag" not in response.json()["featureFlags"])
+                self.assertTrue(response.json()["featureFlags"]["default-no-prop-flag"])
                 self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-    @pytest.mark.skip
-    def test_feature_flags_v2_with_groups(self, *args):
-        # More in-depth tests in posthog/api/test/test_feature_flag.py
+    @patch("posthog.models.feature_flag.flag_matching.get_feature_flags_for_team_in_cache")
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+    def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(
+        self, mock_is_connected, mock_get_feature_flags_for_team_in_cache
+    ):
 
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
+        # :TRICKY: This setup writes to the "replica" and normal database both,
+        # because Django MIRROR setting for replicas for tests doesn't work.
+        # It's able to write to the "replica" because in local dev, the replica is the main db :shrug:
+        # We just make sure that decide requests go to the replica, and write requests do not.
+
+        org, team, user = self.setup_user_and_team_in_db("default")
+        self.organization, self.team, self.user = org, team, user
+
+        with mute_selected_signals():  # without creating/updating in clickhouse
+            persons = [{"distinct_ids": ["example_id"], "properties": {"email": "tim@posthog.com"}}]
+            flags = [
+                {
+                    "rollout_percentage": 30,
+                    "name": "Beta feature",
+                    "key": "beta-feature",
+                    "ensure_experience_continuity": True,
+                },
+                {
+                    "filters": {
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "posthog", "operator": "icontains", "type": "person"}
+                                ],
+                                "rollout_percentage": None,
+                            }
+                        ]
+                    },
+                    "name": "This is a feature flag with default params, no filters.",
+                    "key": "default-flag",
+                },  # Should be enabled for everyone
+                {
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": None}],
+                        "multivariate": {
+                            "variants": [
+                                {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                                {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                                {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                            ]
+                        },
+                    },
+                    "name": "This is a flag with multiple variants",
+                    "key": "multivariate-flag",
+                    "ensure_experience_continuity": True,
+                },
+            ]
+            flags_replica, persons_replica = self.setup_flags_in_db("default", team, user, flags, persons)
+
+            person = persons_replica[0]
+
+            mock_get_feature_flags_for_team_in_cache.return_value = flags_replica
+            # make sure caches are populated
+            response = self._post_decide(api_version=3)
+
+            with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
+                # E   1. SAVEPOINT "s4379526528_x103"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid"
+                #           WHERE ("posthog_persondistinctid"."distinct_id" IN ('example_id') AND "posthog_persondistinctid"."team_id" = 1)
+                # Hash key overrides query doesn't happen because person id above returns empty, because nothing in replica
+                # E   5. RELEASE SAVEPOINT "s4379526528_x103"
+                # effectively 2 queries, wrapped around by an atomic transaction
+                # E   6. SAVEPOINT "s4371088768_x5"
+                # E   7. SET LOCAL statement_timeout = 600
+                # E   8. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
+                # E   9. RELEASE SAVEPOINT "s4371088768_x5"
+                response = self._post_decide(api_version=3)
+                self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+                # TRICKY: default-flag is false because props don't exist in the replica
+                self.assertFalse(response.json()["featureFlags"]["default-flag"])
+                self.assertEqual(
+                    "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+                )  # assigned by distinct_id hash
+
+            # new person, merged from old distinct ID
+            PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
+
+            # request with hash key overrides and _new_ writes should go to main database
+            with self.assertNumQueries(4, using="replica"), self.assertNumQueries(9, using="default"):
+                # effectively 3 queries, wrapped around by an atomic transaction
+                # Replica queries:
+                # E   6. SAVEPOINT "s4371088768_x5"
+                # E   7. SET LOCAL statement_timeout = 600
+                # E   8. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
+                # E   9. RELEASE SAVEPOINT "s4371088768_x5"
+                # Main queries:
+                # E   1. SAVEPOINT "s4366026112_x2"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. (The insert hashkey overrides query)
+                # E                       WITH some CTEs,
+                # E                       INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+                # E                           SELECT team_id, person_id, key, 'example_id'
+                # E                           FROM flags_to_override, target_person_ids
+                # E                           WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = 7)
+                # E                           ON CONFLICT DO NOTHING
+                # E   4. RELEASE SAVEPOINT "s4366026112_x2"
+                # E   5. SAVEPOINT "s4311909760_x3"
+                # E   6. SET LOCAL statement_timeout = 300
+                # E   7. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid" -- a.k.a select the person for overrides.
+                #        We select person overrides from main DB in this case to prevent replication lag from giving us the wrong override values.
+                # E   8. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",  -- a.k.a get hash key overrides
+                # E   9. RELEASE SAVEPOINT "s4369565056_x3"
+
+                response = self._post_decide(
+                    api_version=3,
+                    data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+                )
+                # :TRICKY: beta-feature is enabled here, despite nothing in the replica, because
+                # # this time the override is coming from the main db! (compared to previous test, where this is false)
+                # And along similar vein, default-flag is false because props don't exist in the main db
+                self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+                self.assertFalse(response.json()["featureFlags"]["default-flag"])
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+    @patch("posthog.models.feature_flag.flag_matching.get_feature_flags_for_team_in_cache")
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+    def test_feature_flags_v2_with_groups(self, mock_is_connected, mock_get_feature_flags_for_team_in_cache):
         self.client.logout()
-        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
-        Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "realm": "cloud"}
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 100}]},
-            name="This is a group-based flag",
-            key="groups-flag",
-            created_by=self.user,
-        )
 
-        # caching flag definitions mean fewer queries
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="example_id")
-            self.assertEqual(response.json()["featureFlags"], {})
+        # :TRICKY: This setup _writes_ to the "replica" db, not the main db,
+        # because Django MIRROR setting for replicas for tests doesn't work.
+        # It's able to write to the "replica" because in local dev, the replica is the main db :shrug:
+        # We just make sure that regular decide requests go to the replica, and write requests do not.
 
-        with self.assertNumQueries(4):
-            response = self._post_decide(api_version=2, distinct_id="example_id", groups={"organization": "foo"})
-            self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
+        org_replica, team_replica, user_replica = self.setup_user_and_team_in_db("replica")
+        self.organization, self.team, self.user = org_replica, team_replica, user_replica
+
+        with mute_selected_signals():  # without creating/updating in clickhouse
+            persons = [{"distinct_ids": ["example_id"], "properties": {"email": "tim@posthog.com"}}]
+            flags = [
+                {
+                    "filters": {
+                        "aggregation_group_type_index": 1,
+                        "groups": [{"properties": [], "rollout_percentage": None}],
+                    },
+                    "name": "This is a feature flag with default params, no filters.",
+                    "key": "default-no-prop-group-flag",
+                },  # Should be enabled for everyone
+                {
+                    "filters": {
+                        "aggregation_group_type_index": 0,
+                        "groups": [
+                            {
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "value": "posthog",
+                                        "operator": "icontains",
+                                        "type": "group",
+                                        "group_type_index": 0,
+                                    }
+                                ],
+                                "rollout_percentage": None,
+                            }
+                        ],
+                    },
+                    "name": "This is a group-based flag",
+                    "key": "groups-flag",
+                },
+            ]
+            flags_replica, persons_replica = self.setup_flags_in_db(
+                "replica", team_replica, user_replica, flags, persons
+            )
+
+            mock_get_feature_flags_for_team_in_cache.return_value = flags_replica
+
+            GroupTypeMapping.objects.using("replica").create(
+                team=self.team, group_type="organization", group_type_index=0
+            )
+            GroupTypeMapping.objects.using("replica").create(team=self.team, group_type="project", group_type_index=1)
+
+            Group.objects.using("replica").create(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="foo",
+                group_properties={"email": "a@posthog.com"},
+                # created_at=timestamp,
+                version=0,
+            )
+
+            with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+                # E   1. SAVEPOINT "s4376692096_x2"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. SELECT "posthog_grouptypemapping"."id", -- a.k.a. get group type mappings
+                # E   4. RELEASE SAVEPOINT "s4376692096_x2"
+                response = self._post_decide(distinct_id="example_id")
+                self.assertEqual(
+                    response.json()["featureFlags"], {"default-no-prop-group-flag": False, "groups-flag": False}
+                )
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+            with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
+                # E   1. SAVEPOINT "s4303193472_x3"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
+                # E   4. RELEASE SAVEPOINT "s4303193472_x3"
+                # E   5. SAVEPOINT "s4303193472_x4"
+                # E   6. SET LOCAL statement_timeout = 600
+                # E   7. SELECT (UPPER(("posthog_group"."group_properties" ->> 'email')::text) AS "flag_182_condition_0" FROM "posthog_group" -- a.k.a get group0 conditions
+                # E   8. SELECT (true) AS "flag_181_condition_0" FROM "posthog_group" WHERE ("posthog_group"."team_id" = 91 -- a.k.a get group1 conditions
+                # E   9. RELEASE SAVEPOINT "s4303193472_x4"
+                response = self._post_decide(
+                    distinct_id="example_id", groups={"organization": "foo2", "project": "bar"}
+                )
+                self.assertEqual(
+                    response.json()["featureFlags"], {"groups-flag": False, "default-no-prop-group-flag": True}
+                )
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+            with self.assertNumQueries(9, using="replica"), self.assertNumQueries(0, using="default"):
+                # E   1. SAVEPOINT "s4303193472_x3"
+                # E   2. SET LOCAL statement_timeout = 300
+                # E   3. SELECT "posthog_grouptypemapping"."id", "posthog_grouptypemapping"."team_id", -- a.k.a get group type mappings
+                # E   4. RELEASE SAVEPOINT "s4303193472_x3"
+                # E   5. SAVEPOINT "s4303193472_x4"
+                # E   6. SET LOCAL statement_timeout = 600
+                # E   7. SELECT (UPPER(("posthog_group"."group_properties" ->> 'email')::text) AS "flag_182_condition_0" FROM "posthog_group" -- a.k.a get group0 conditions
+                # E   8. SELECT (true) AS "flag_181_condition_0" FROM "posthog_group" WHERE ("posthog_group"."team_id" = 91 -- a.k.a get group1 conditions
+                # E   9. RELEASE SAVEPOINT "s4303193472_x4"
+                response = self._post_decide(distinct_id="example_id", groups={"organization": "foo", "project": "bar"})
+                self.assertEqual(
+                    response.json()["featureFlags"], {"groups-flag": True, "default-no-prop-group-flag": True}
+                )
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
