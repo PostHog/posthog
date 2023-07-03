@@ -79,7 +79,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 if (
                     !ERROR_FILTER_WHITELIST.includes(actionKey) &&
                     (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
-                        (error?.status !== undefined && ![200, 201, 204, 409].includes(error.status)))
+                        (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                 ) {
                     lemonToast.error(
                         `${identifierToHuman(actionKey)} failed: ${

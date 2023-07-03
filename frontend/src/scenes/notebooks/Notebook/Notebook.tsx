@@ -170,7 +170,9 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
                 <FloatingSlashCommands />
-                {!notebook && notebookLoading ? (
+                {conflictWarningVisible ? (
+                    <NotebookConflictWarning />
+                ) : !notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />
                         <LemonSkeleton className="w-1/3 h-4" />
@@ -178,7 +180,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         <LemonSkeleton className="h-4" />
                     </div>
                 ) : !notebook ? (
-                    <NotFound object={'notebook'} />
+                    <NotFound object="notebook" />
                 ) : isEmpty && !editable ? (
                     <div className="NotebookEditor">
                         <h1>
@@ -212,11 +214,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                                 browser. It's a great place to gather ideas before turning into a saved Notebook!
                             </LemonBanner>
                         ) : null}
-                        {conflictWarningVisible ? (
-                            <NotebookConflictWarning />
-                        ) : (
-                            <EditorContent editor={_editor} className="flex flex-col flex-1" />
-                        )}
+                        <EditorContent editor={_editor} className="flex flex-col flex-1" />
                     </>
                 )}
             </div>

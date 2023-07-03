@@ -100,7 +100,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             before_update = None
 
         with transaction.atomic():
-            # Lock the database row so we ensure version updates are atomic
+            # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
 
             if validated_data.keys():
