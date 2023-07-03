@@ -24,7 +24,6 @@ import {
     UserType,
     MediaUploadResponse,
     SessionRecordingsResponse,
-    SessionRecordingPropertiesType,
     EventsListQueryParams,
     SessionRecordingPlaylistType,
     RoleType,
