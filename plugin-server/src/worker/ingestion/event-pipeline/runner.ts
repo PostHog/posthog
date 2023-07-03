@@ -2,6 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
+import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -65,6 +66,7 @@ export class EventPipelineRunner {
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
     private delayAcks: boolean
+    private eventsToDropByToken: Map<string, string[]>
 
     constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
@@ -73,12 +75,38 @@ export class EventPipelineRunner {
 
         // TODO: remove after successful rollout
         this.delayAcks = stringToBoolean(process.env.INGESTION_DELAY_WRITE_ACKS)
+
+        this.eventsToDropByToken = new Map()
+        process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID?.split(',').forEach((pair) => {
+            const [token, distinctID] = pair.split(':')
+            this.eventsToDropByToken.set(token, [...(this.eventsToDropByToken.get(token) || []), distinctID])
+        })
+    }
+
+    isEventBlacklisted(event: PipelineEvent): boolean {
+        // During incidents we can use the the env DROP_EVENTS_BY_TOKEN_DISTINCT_ID
+        // to drop events here before processing them which would allow us to catch up
+        const key = event.token || event.team_id?.toString()
+        if (!key) {
+            return false // for safety don't drop events here, they are later dropped in teamDataPopulation
+        }
+        const dropIds = this.eventsToDropByToken.get(key)
+        return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
+            if (this.isEventBlacklisted(event)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blacklisted',
+                    })
+                    .inc()
+                return this.registerLastStep('eventBlacklistingStep', null, [event])
+            }
             let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
             if (eventWithTeam != null) {
