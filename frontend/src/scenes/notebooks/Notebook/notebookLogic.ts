@@ -171,7 +171,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
-            (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus | undefined => {
+            (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
                 if (notebook?.is_template) {
                     return 'synced'
                 }
