@@ -22,7 +22,7 @@ const MOCK_BASIC_SURVEY: Survey = {
         first_name: 'Employee 427',
         email: 'test2@posthog.com',
     },
-    questions: [{ question: 'question 1?', type: SurveyQuestionType.Open }],
+    questions: [{ question: 'question 1?', type: SurveyQuestionType.Open, link: null }],
     conditions: null,
     linked_flag: null,
     linked_flag_id: null,
@@ -46,7 +46,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         first_name: 'Employee 427',
         email: 'test2@posthog.com',
     },
-    questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
+    questions: [{ question: 'question 2?', type: SurveyQuestionType.Open, link: null }],
     appearance: null,
     conditions: { url: 'posthog' },
     linked_flag: {
