@@ -265,14 +265,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             actions.reportUsageIfFullyLoaded()
         },
         reportUsageIfFullyLoaded: () => {
-            const partsOfRecordingAreStillLoading =
-                values.sessionPlayerMetaDataLoading ||
-                values.sessionPlayerSnapshotDataLoading ||
-                values.sessionEventsDataLoading ||
-                (values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-                    ? values.performanceEventsLoading
-                    : false)
-            if (!partsOfRecordingAreStillLoading) {
+            if (values.fullyLoaded) {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache, values),
@@ -591,8 +584,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.start,
                 s.end,
                 s.durationMs,
+                s.fullyLoaded,
             ],
-            (meta, snapshotsByWindowId, segments, bufferedToTime, start, end, durationMs): SessionPlayerData => ({
+            (
+                meta,
+                snapshotsByWindowId,
+                segments,
+                bufferedToTime,
+                start,
+                end,
+                durationMs,
+                fullyLoaded
+            ): SessionPlayerData => ({
                 pinnedCount: meta?.pinned_count ?? 0,
                 person: meta?.person ?? null,
                 start,
@@ -601,7 +604,32 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 snapshotsByWindowId,
                 segments,
                 bufferedToTime,
+                fullyLoaded,
             }),
+        ],
+
+        fullyLoaded: [
+            (s) => [
+                s.sessionPlayerMetaDataLoading,
+                s.sessionPlayerSnapshotDataLoading,
+                s.sessionEventsDataLoading,
+                s.hasAvailableFeature,
+                s.performanceEventsLoading,
+            ],
+            (
+                sessionPlayerMetaDataLoading,
+                sessionPlayerSnapshotDataLoading,
+                sessionEventsDataLoading,
+                hasAvailableFeature,
+                performanceEventsLoading
+            ): boolean => {
+                return (
+                    !sessionPlayerMetaDataLoading &&
+                    !sessionPlayerSnapshotDataLoading &&
+                    !sessionEventsDataLoading &&
+                    (hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE) ? !performanceEventsLoading : true)
+                )
+            },
         ],
 
         start: [
