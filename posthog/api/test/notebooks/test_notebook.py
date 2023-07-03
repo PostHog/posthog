@@ -110,7 +110,7 @@ class TestNotebooks(APIBaseTest):
         with freeze_time("2022-01-02"):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
-                {"content": {"some": "updated content"}, "version": response_json["version"]},
+                {"content": {"some": "updated content"}, "version": response_json["version"], "title": "New title"},
             )
 
         assert response.json()["short_id"] == short_id
@@ -127,6 +127,13 @@ class TestNotebooks(APIBaseTest):
                         "changes": [
                             {
                                 "action": "created",
+                                "after": "New title",
+                                "before": None,
+                                "field": "title",
+                                "type": "Notebook",
+                            },
+                            {
+                                "action": "created",
                                 "after": {"some": "updated content"},
                                 "before": None,
                                 "field": "content",
@@ -140,7 +147,7 @@ class TestNotebooks(APIBaseTest):
                                 "type": "Notebook",
                             },
                         ],
-                        "name": None,
+                        "name": "New title",
                         "short_id": response.json()["short_id"],
                         "trigger": None,
                         "type": None,
