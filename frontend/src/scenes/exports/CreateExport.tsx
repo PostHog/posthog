@@ -1,15 +1,14 @@
 import { dayjs } from 'lib/dayjs'
-import { useCallback, useRef, useState } from 'react'
-import { SceneExport } from '../sceneTypes'
-import { PureField } from '../../lib/forms/Field'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from '../../lib/lemon-ui/LemonInput/LemonInput'
-import { router } from 'kea-router'
-import { LemonButton } from '../../lib/lemon-ui/LemonButton'
-import { useCreateExport, useCurrentTeamId } from './api'
 import { LemonSelect } from '../../lib/lemon-ui/LemonSelect'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { PureField } from '../../lib/forms/Field'
+import { router } from 'kea-router'
+import { SceneExport } from '../sceneTypes'
+import { useCallback, useRef, useState } from 'react'
+import { useCreateExport, useCurrentTeamId } from './api'
 import { urls } from '../urls'
 
 // TODO: rewrite this to not use explicit refs for the form fields. Possibly use
@@ -62,7 +61,6 @@ export function CreateExport(): JSX.Element {
                     visible={startAtSelectVisible}
                     overlay={
                         <LemonCalendarSelect
-                            id="start-at"
                             value={exportStartAt}
                             onChange={(value) => {
                                 setExportStartAt(value)
@@ -93,7 +91,6 @@ export function CreateExport(): JSX.Element {
                     visible={endAtSelectVisible}
                     overlay={
                         <LemonCalendarSelect
-                            id="end-at"
                             value={exportEndAt}
                             onChange={(value) => {
                                 setExportEndAt(value)
