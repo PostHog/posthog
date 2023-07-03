@@ -68,8 +68,6 @@ export class EventPipelineRunner {
         this.hub = hub
         this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
-
-        // TODO: remove after successful rollout
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
