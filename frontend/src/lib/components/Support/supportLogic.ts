@@ -108,6 +108,8 @@ export const supportLogic = kea<supportLogicType>([
             kind: SupportTicketKind | null = null,
             target_area: SupportTicketTargetArea | null = null
         ) => ({ name, email, kind, target_area }),
+        openConfirmModal: () => true,
+        closeConfirmModal: () => true,
         submitZendeskTicket: (
             name: string,
             email: string,
@@ -128,6 +130,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 openSupportLoggedOutForm: () => true,
+                closeSupportForm: () => false,
+            },
+        ],
+        isConfirmModalOpen: [
+            false,
+            {
+                openConfirmModal: () => true,
+                closeConfirmModal: () => false,
                 closeSupportForm: () => false,
             },
         ],

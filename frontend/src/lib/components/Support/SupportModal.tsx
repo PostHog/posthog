@@ -41,8 +41,10 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 }
 
 export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
-    const { sendSupportRequest, isSupportFormOpen } = useValues(supportLogic)
-    const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
+    const { sendSupportRequest, isSupportFormOpen, isConfirmModalOpen, sendSupportRequestChanged } =
+        useValues(supportLogic)
+    const { setSendSupportRequestValue, openConfirmModal, closeConfirmModal, closeSupportForm } =
+        useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     if (!preflightLogic.values.preflight?.cloud) {
@@ -65,7 +67,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
     return (
         <LemonModal
             isOpen={isSupportFormOpen}
-            onClose={closeSupportForm}
+            onClose={sendSupportRequestChanged ? openConfirmModal : closeSupportForm}
             title={
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
@@ -73,7 +75,11 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
             }
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton form="support-modal-form" type="secondary" onClick={closeSupportForm}>
+                    <LemonButton
+                        form="support-modal-form"
+                        type="secondary"
+                        onClick={sendSupportRequestChanged ? openConfirmModal : closeSupportForm}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
@@ -136,6 +142,29 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
                     )}
                 </Field>
             </Form>
+            <LemonModal
+                isOpen={isConfirmModalOpen}
+                onClose={closeConfirmModal}
+                title="You are about to close this form"
+                footer={
+                    <div className="flex items-center gap-2">
+                        <LemonButton type="secondary" status="primary-alt" onClick={closeConfirmModal}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton type="primary" status="danger" onClick={closeSupportForm}>
+                            Close form
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <div>
+                    Do you really want to close the “
+                    {sendSupportRequest.kind
+                        ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
+                        : 'Leave a message with PostHog'}
+                    ” form?
+                </div>
+            </LemonModal>
         </LemonModal>
     )
 }
