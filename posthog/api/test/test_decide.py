@@ -2088,7 +2088,7 @@ class TestDecideUsesReadReplica(TestCase):
     # this user will be the one used to connect to the replica^^
 
     # switch to the db on which you want to give permissions
-    backslash c test_posthog
+    \c test_posthog
     GRANT SELECT ON ALL TABLES IN SCHEMA public TO posthog2;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO posthog2;
 
@@ -2101,7 +2101,7 @@ class TestDecideUsesReadReplica(TestCase):
     Django seems pretty shite at nagivating tested cursors to the right db. Would need to manually add them all the time, _sigh_ :/
     This test suite aims to be comprehensive, covering all decide code paths so we can catch if something is hitting the main db
     when it shouldn't be.
-    """
+    """  # noqa: W605
 
     databases = {"default", "replica"}
 
