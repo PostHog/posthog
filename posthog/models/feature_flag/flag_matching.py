@@ -718,9 +718,8 @@ def handle_feature_flag_exception(err: Exception, log_message: str = ""):
     if reason == "unknown":
         capture_exception(err)
 
-    # Whenever error occurs, by default assume the database connection is lost.
-    # We'll recover after the next healthcheck.
-    postgres_healthcheck.set_connection(False)
+    if isinstance(err, DatabaseError):
+        postgres_healthcheck.set_connection(False)
 
 
 def parse_exception_for_error_message(err: Exception):
