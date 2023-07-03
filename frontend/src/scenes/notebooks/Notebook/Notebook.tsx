@@ -23,7 +23,7 @@ import posthog from 'posthog-js'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
-import { NotebookConflictOverlay } from './NotebookConflictOverlay'
+import { NotebookConflictWarning } from './NotebookConflictWarning'
 
 export type NotebookProps = {
     shortId: string
@@ -38,7 +38,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, conflictOverlayVisible } = useValues(logic)
+    const { notebook, content, notebookLoading, isEmpty, conflictWarningVisible } = useValues(logic)
     const { setEditorRef, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
@@ -168,7 +168,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <div className={clsx('Notebook relative', !isExpanded && 'Notebook--compact')}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
                 <FloatingSlashCommands />
                 {!notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
@@ -212,8 +212,11 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                                 browser. It's a great place to gather ideas before turning into a saved Notebook!
                             </LemonBanner>
                         ) : null}
-                        <EditorContent editor={_editor} className="flex flex-col flex-1" />
-                        {conflictOverlayVisible && <NotebookConflictOverlay />}
+                        {conflictWarningVisible ? (
+                            <NotebookConflictWarning />
+                        ) : (
+                            <EditorContent editor={_editor} className="flex flex-col flex-1" />
+                        )}
                     </>
                 )}
             </div>

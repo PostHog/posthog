@@ -34,7 +34,7 @@ export const notebookLogic = kea<notebookLogicType>([
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         exportJSON: true,
-        showConflictOverlay: true,
+        showConflictWarning: true,
     }),
     reducers({
         localContent: [
@@ -57,10 +57,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 setReady: () => true,
             },
         ],
-        conflictOverlayVisible: [
+        conflictWarningVisible: [
             false,
             {
-                showConflictOverlay: () => true,
+                showConflictWarning: () => true,
                 loadNotebook: () => false,
             },
         ],
@@ -89,10 +89,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         throw new Error('Notebook not found')
                     }
 
-                    if (!values.notebook) {
-                        // If this is the first load we need to override the content fully
-                        values.editor?.commands.setContent(response.content)
-                    }
+                    values.editor?.commands.setContent(response.content)
 
                     return response
                 },
@@ -235,7 +232,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         saveNotebookFailure: ({ errorObject }) => {
             if (errorObject.code === 'conflict') {
-                actions.showConflictOverlay()
+                actions.showConflictWarning()
             }
         },
 
