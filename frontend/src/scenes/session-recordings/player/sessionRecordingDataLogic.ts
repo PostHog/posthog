@@ -625,8 +625,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 hasAvailableFeature,
                 performanceEventsLoading
             ): boolean => {
-                return !!(
-                    sessionPlayerSnapshotData?.snapshots?.length &&
+                return (
+                    !!sessionPlayerSnapshotData?.snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !sessionPlayerSnapshotDataLoading &&
                     !sessionEventsDataLoading &&
