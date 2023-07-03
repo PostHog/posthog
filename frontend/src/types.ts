@@ -675,6 +675,7 @@ export interface SessionPlayerData {
     durationMs: number
     start?: Dayjs
     end?: Dayjs
+    fullyLoaded: boolean
 }
 
 export enum SessionRecordingUsageType {
@@ -2058,13 +2059,16 @@ export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
     textColor?: string
+    submitButtonText?: string
+    descriptionTextColor?: string
 }
 
 export interface SurveyQuestion {
     type: SurveyQuestionType
     question: string
+    description?: string | null
     required?: boolean
-    link?: string | null
+    link: string | null
     choices?: string[] | null
 }
 
@@ -2383,8 +2387,7 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
-    // ID of feature flag
-    feature_flag?: number
+    feature_flag?: FeatureFlagBasicType
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -2838,6 +2841,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    expires_after?: Dayjs
 }
 
 export enum FeatureFlagReleaseType {

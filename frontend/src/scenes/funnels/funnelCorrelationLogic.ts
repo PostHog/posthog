@@ -7,7 +7,6 @@ import {
     InsightLogicProps,
 } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { funnelLogic } from './funnelLogic'
 import api from 'lib/api'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'
@@ -24,14 +23,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     key(keyForInsightLogicProps('insight_funnel')),
     path((key) => ['scenes', 'funnels', 'funnelCorrelationLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [
-            funnelLogic(props),
-            ['filters'],
-            funnelDataLogic(props),
-            ['querySource'],
-            teamLogic,
-            ['currentTeamId', 'currentTeam'],
-        ],
+        values: [funnelDataLogic(props), ['querySource'], teamLogic, ['currentTeamId', 'currentTeam']],
     })),
     actions({
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),

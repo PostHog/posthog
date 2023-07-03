@@ -1,5 +1,4 @@
 import { Meta } from '@storybook/react'
-import eventsResponse from './__mocks__/eventsResponse.json'
 import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { router } from 'kea-router'
@@ -18,9 +17,9 @@ export default {
     },
     decorators: [
         mswDecorator({
-            get: {
-                '/api/projects/:team_id/events': {
-                    results: eventsResponse,
+            post: {
+                '/api/projects/:team_id/query/': {
+                    results: [],
                 },
             },
         }),

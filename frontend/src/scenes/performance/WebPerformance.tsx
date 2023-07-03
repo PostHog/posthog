@@ -8,14 +8,10 @@ import { urls } from 'scenes/urls'
 import { useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
 import { IconPlay } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, RecentPerformancePageViewNode } from '~/queries/schema'
 import { humanFriendlyDuration } from 'lib/utils'
-import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { TZLabel } from 'lib/components/TZLabel'
 
 /*
  * show histogram of pageload instead of table
@@ -38,127 +34,73 @@ function WaterfallButton(props: { record: RecentPerformancePageView; onClick: ()
 }
 
 const EventsWithPerformanceTable = (): JSX.Element => {
-    const { recentPageViews, recentPageViewsLoading } = useValues(webPerformanceLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
-
-    const oldFashionedColumns: LemonTableColumn<
-        RecentPerformancePageView,
-        keyof RecentPerformancePageView | undefined
-    >[] = [
-        {
-            title: 'Page',
-            key: 'page_url',
-            width: '45%',
-            render: function render(_, item: RecentPerformancePageView) {
-                return <div className={'max-w-100 overflow-auto'}>{item.page_url}</div>
-            },
-        },
-        {
-            title: 'Page load',
-            key: 'duration',
-            render: function render(_, item: RecentPerformancePageView) {
-                return item.duration ? <>{humanFriendlyDuration(item.duration / 1000)}</> : <>-</>
-            },
-        },
-        {
-            title: 'timestamp',
-            key: 'timestamp',
-            render: function render(_, item: RecentPerformancePageView) {
-                return <TZLabel time={item.timestamp} />
-            },
-        },
-        {
-            title: '',
-            render: function render(_, item: RecentPerformancePageView) {
-                return <WaterfallButton record={item} onClick={() => console.log(item)} />
-            },
-        },
-    ]
-
     return (
         <>
             <div className="pt-4 border-t" />
-            {featureDataExploration ? (
-                <Query
-                    query={{
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.RecentPerformancePageViewNode,
-                            dateRange: {
-                                date_from: null,
-                                date_to: null,
+            <Query
+                query={{
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.RecentPerformancePageViewNode,
+                        dateRange: {
+                            date_from: null,
+                            date_to: null,
+                        },
+                    },
+                    columns: [
+                        'context.columns.page_url',
+                        'context.columns.duration',
+                        'timestamp',
+                        'context.columns.waterfallButton',
+                    ],
+                    showReload: true,
+                    showColumnConfigurator: false,
+                    showExport: false,
+                    showEventFilter: false,
+                    showPropertyFilter: false,
+                    showActions: false,
+                    expandable: false,
+                }}
+                context={{
+                    showOpenEditorButton: true,
+                    columns: {
+                        page_url: {
+                            title: 'Page',
+                            render: function RenderPageURL({
+                                record,
+                            }: {
+                                record: Required<RecentPerformancePageViewNode>['response']['results'][0]
+                            }) {
+                                return record.page_url ? (
+                                    <div className={'max-w-100 overflow-auto'}>{record.page_url}</div>
+                                ) : (
+                                    <>-</>
+                                )
                             },
                         },
-                        columns: [
-                            'context.columns.page_url',
-                            'context.columns.duration',
-                            'timestamp',
-                            'context.columns.waterfallButton',
-                        ],
-                        showReload: true,
-                        showColumnConfigurator: false,
-                        showExport: false,
-                        showEventFilter: false,
-                        showPropertyFilter: false,
-                        showActions: false,
-                        expandable: false,
-                    }}
-                    context={{
-                        columns: {
-                            page_url: {
-                                title: 'Page',
-                                render: function RenderPageURL({
-                                    record,
-                                }: {
-                                    record: Required<RecentPerformancePageViewNode>['response']['results'][0]
-                                }) {
-                                    return record.page_url ? (
-                                        <div className={'max-w-100 overflow-auto'}>{record.page_url}</div>
-                                    ) : (
-                                        <>-</>
-                                    )
-                                },
-                            },
-                            duration: {
-                                title: 'Page load',
-                                render: function RenderPageLoad({
-                                    record,
-                                }: {
-                                    record: Required<RecentPerformancePageViewNode>['response']['results'][0]
-                                }) {
-                                    return record.duration ? (
-                                        <>{humanFriendlyDuration(record.duration / 1000)}</>
-                                    ) : (
-                                        <>-</>
-                                    )
-                                },
-                            },
-                            waterfallButton: {
-                                title: '',
-                                render: function RenderWaterfallButton({
-                                    record,
-                                }: {
-                                    record: Required<RecentPerformancePageViewNode>['response']['results'][0]
-                                }) {
-                                    return <WaterfallButton record={record} onClick={() => console.log(record)} />
-                                },
+                        duration: {
+                            title: 'Page load',
+                            render: function RenderPageLoad({
+                                record,
+                            }: {
+                                record: Required<RecentPerformancePageViewNode>['response']['results'][0]
+                            }) {
+                                return record.duration ? <>{humanFriendlyDuration(record.duration / 1000)}</> : <>-</>
                             },
                         },
-                        showOpenEditorButton: !!featureFlags[FEATURE_FLAGS.HOGQL],
-                    }}
-                />
-            ) : (
-                <LemonTable
-                    data-attr="web-performance-table"
-                    dataSource={recentPageViews}
-                    loading={recentPageViewsLoading}
-                    columns={oldFashionedColumns}
-                    loadingSkeletonRows={20}
-                    emptyState={recentPageViewsLoading ? undefined : <>Did not load any performance events</>}
-                    rowKey={(row) => row.pageview_id}
-                />
-            )}
+                        waterfallButton: {
+                            title: '',
+                            render: function RenderWaterfallButton({
+                                record,
+                            }: {
+                                record: Required<RecentPerformancePageViewNode>['response']['results'][0]
+                            }) {
+                                return <WaterfallButton record={record} onClick={() => console.log(record)} />
+                            },
+                        },
+                    },
+                }}
+            />
         </>
     )
 }

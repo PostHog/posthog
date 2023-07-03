@@ -48,8 +48,10 @@ a11y/
 /test-results/
 /playwright-report/
 playwright/e2e-vrt/**/*-darwin.png
-# antlr4 generated temp files when "npm run grammar:build" crashes
-gen
+# ANTLR-generated temp files when "npm run grammar:build" crashes
+gen/
+# Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
+.antlr
 upgrade/
 hogvm/typescript/dist
 

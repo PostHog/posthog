@@ -41,6 +41,10 @@ class StringJSONDatabaseField(DatabaseField):
     pass
 
 
+class StringArrayDatabaseField(DatabaseField):
+    pass
+
+
 class DateDatabaseField(DatabaseField):
     pass
 
