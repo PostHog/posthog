@@ -624,7 +624,6 @@ def get_all_feature_flags(
             writing_hash_key_override = set_feature_flag_hash_key_overrides(
                 team_id, [distinct_id, hash_key_override], hash_key_override
             )
-            # TODO: Confirm this is set correctly
         except Exception as e:
             # If the database is in read-only mode, we can't handle experience continuity flags,
             # since the set_feature_flag_hash_key_overrides call will fail.
