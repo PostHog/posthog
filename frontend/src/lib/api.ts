@@ -276,6 +276,9 @@ class ApiRequest {
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
+    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
+    }
 
     // Recordings
     public recording(recordingId: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -830,6 +833,9 @@ const api = {
                 .cohortsDetail(cohortId)
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
+        },
+        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
+            return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
         async list(): Promise<PaginatedResponse<CohortType>> {
             // TODO: Remove hard limit and paginate cohorts
