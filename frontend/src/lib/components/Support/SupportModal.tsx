@@ -81,6 +81,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
                     </LemonButton>
                 </div>
             }
+            shouldCloseOnSecondaryAction={false}
         >
             <Form
                 logic={supportLogic}

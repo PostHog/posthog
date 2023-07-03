@@ -1,8 +1,12 @@
+import { useRef, useState } from 'react'
+import { CSSTransition } from 'react-transition-group'
+import clsx from 'clsx'
+import Modal from 'react-modal'
+
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import Modal from 'react-modal'
+
 import './LemonModal.scss'
-import clsx from 'clsx'
 
 interface LemonModalInnerProps {
     children?: React.ReactNode
@@ -26,6 +30,8 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    /** Wether the modal should close on a secondary action i.e. clicking on the overlay or pressing esc */
+    shouldCloseOnSecondaryAction?: boolean
     /** Expands the modal to fill the entire screen */
     fullScreen?: boolean
     /**
@@ -65,50 +71,62 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    shouldCloseOnSecondaryAction,
     fullScreen = false,
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
     getPopupContainer,
 }: LemonModalProps): JSX.Element {
+    const nodeRef = useRef(null)
+    const [animateClose, setAnimateClose] = useState(false)
+
     const modalContent = (
-        <>
-            {closable && (
-                <div className="LemonModal__closebutton">
-                    <LemonButton
-                        icon={<IconClose />}
-                        size="small"
-                        status="stealth"
-                        onClick={onClose}
-                        aria-label="close"
-                    />
-                </div>
-            )}
-
-            <div className="LemonModal__layout">
-                {simple ? (
-                    children
-                ) : (
-                    <>
-                        {title ? (
-                            <LemonModalHeader>
-                                <h3>{title}</h3>
-                                {description ? (
-                                    typeof description === 'string' ? (
-                                        <p>{description}</p>
-                                    ) : (
-                                        description
-                                    )
-                                ) : null}
-                            </LemonModalHeader>
-                        ) : null}
-
-                        {children ? <LemonModalContent>{children}</LemonModalContent> : null}
-                        {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
-                    </>
+        <CSSTransition
+            nodeRef={nodeRef}
+            in={animateClose}
+            onEntered={() => setAnimateClose(false)}
+            timeout={1250}
+            classNames="LemonModal__container--animate-close"
+        >
+            <div ref={nodeRef} className="LemonModal__container">
+                {closable && (
+                    <div className="LemonModal__closebutton">
+                        <LemonButton
+                            icon={<IconClose />}
+                            size="small"
+                            status="stealth"
+                            onClick={onClose}
+                            aria-label="close"
+                        />
+                    </div>
                 )}
+
+                <div className="LemonModal__layout">
+                    {simple ? (
+                        children
+                    ) : (
+                        <>
+                            {title ? (
+                                <LemonModalHeader>
+                                    <h3>{title}</h3>
+                                    {description ? (
+                                        typeof description === 'string' ? (
+                                            <p>{description}</p>
+                                        ) : (
+                                            description
+                                        )
+                                    ) : null}
+                                </LemonModalHeader>
+                            ) : null}
+
+                            {children ? <LemonModalContent>{children}</LemonModalContent> : null}
+                            {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
+                        </>
+                    )}
+                </div>
             </div>
-        </>
+        </CSSTransition>
     )
 
     width = !fullScreen ? width : undefined
@@ -121,7 +139,13 @@ export function LemonModal({
     ) : (
         <Modal
             isOpen={isOpen}
-            onRequestClose={onClose}
+            onRequestClose={() => {
+                if (shouldCloseOnSecondaryAction) {
+                    onClose?.()
+                } else {
+                    setAnimateClose(true)
+                }
+            }}
             shouldCloseOnOverlayClick={closable}
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
