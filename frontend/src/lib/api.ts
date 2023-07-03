@@ -1109,10 +1109,6 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
-        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
-            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
-        },
-
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },

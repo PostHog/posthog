@@ -308,7 +308,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
 
         loadSessionRecordingsSuccess: () => {
-            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
         },
 
         setSelectedRecordingId: () => {
