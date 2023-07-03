@@ -71,7 +71,7 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
-    shouldCloseOnSecondaryAction,
+    shouldCloseOnSecondaryAction = true,
     fullScreen = false,
     forceAbovePopovers = false,
     contentRef,
