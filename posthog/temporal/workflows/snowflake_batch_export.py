@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import tempfile
 from dataclasses import dataclass
-from string import Template
 
 import snowflake.connector
 from django.conf import settings
@@ -23,17 +22,6 @@ from posthog.temporal.workflows.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
-
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT $fields
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
-)
 
 
 class SnowflakeFileNotUploadedError(Exception):

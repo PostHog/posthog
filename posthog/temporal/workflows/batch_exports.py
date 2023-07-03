@@ -1,16 +1,16 @@
 import json
+from datetime import datetime
 from string import Template
 
 from aiochclient import ChClient
 
-from datetime import datetime
-
-
 SELECT_QUERY_TEMPLATE = Template(
     """
     SELECT $fields
-    FROM events
-    WHERE
+    FROM (
+      SELECT *
+      FROM events
+      WHERE
         -- These 'timestamp' checks are a heuristic to exploit the sort key.
         -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
         -- As a side-effect, this heuristic will discard historical loads older than 2 days.
@@ -19,6 +19,11 @@ SELECT_QUERY_TEMPLATE = Template(
         AND _timestamp >= toDateTime({data_interval_start}, 'UTC')
         AND _timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
+    )
+    GROUP BY
+        event,
+        distinct_id,
+        uuid
     """
 )
 
@@ -28,7 +33,7 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
     row = await client.fetchrow(
-        SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
+        SELECT_QUERY_TEMPLATE.substitute(fields="event, distinct_id, uuid, count(*) as count"),
         params={
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
@@ -37,6 +42,7 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     )
 
     if row is None:
+        print(row)
         raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
 
     return row["count"]
@@ -49,17 +55,16 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
     async for row in client.iterate(
         SELECT_QUERY_TEMPLATE.safe_substitute(
             fields="""
-                    uuid,
-                    timestamp,
-                    created_at,
                     event,
-                    properties,
-                    -- Point in time identity fields
                     distinct_id,
-                    person_id,
-                    person_properties,
+                    uuid,
+                    max(timestamp) as timestamp,
+                    any(created_at) as created_at,
+                    any(properties) as properties,
+                    any(person_id) as person_id,
+                    any(person_properties) as person_properties,
                     -- Autocapture fields
-                    elements_chain
+                    any(elements_chain) as elements_chain
                 """
         ),
         json=True,
