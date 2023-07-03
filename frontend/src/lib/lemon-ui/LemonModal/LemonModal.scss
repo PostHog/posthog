@@ -86,6 +86,11 @@
         }
     }
 
+    .LemonModal__container {
+        display: flex;
+        height: 100%;
+    }
+
     .LemonModal__container--animate-close-enter {
         .LemonModal__closebutton {
             animation-name: bounce;
