@@ -6,19 +6,23 @@ from uuid import UUID
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init, task_failure, task_success
 from django.conf import settings
 from django.db import connection
 from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
-from prometheus_client import Gauge
+from prometheus_client import Gauge, Counter
 
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
 from posthog.utils import get_crontab, get_instance_region
+
+TASKS_STARTED = Counter("celery_tasks_started", "Number of tasks started", labelnames=["task"])
+TASKS_SUCCEEDED = Counter("celery_tasks_succeeded", "Number of tasks succeeded", labelnames=["task"])
+TASKS_FAILED = Counter("celery_tasks_failed", "Number of tasks failed", labelnames=["task"])
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -211,12 +215,24 @@ def pre_run_signal_handler(task_id, task, **kwargs):
     tag_queries(kind="celery", id=task.name)
     set_default_clickhouse_workload_type(Workload.OFFLINE)
 
+    TASKS_STARTED.labels(task=task.name).inc()
+
 
 @task_postrun.connect
 def teardown_instrumentation(task_id, task, **kwargs):
     from posthog.clickhouse.query_tagging import reset_query_tags
 
     reset_query_tags()
+
+
+@task_success.connect
+def task_succeeded_handler(task, **kwargs):
+    TASKS_SUCCEEDED.labels(task=task.name).inc()
+
+
+@task_failure.connect
+def task_failed_handler(task, **kwargs):
+    TASKS_FAILED.labels(task=task.name).inc()
 
 
 @app.task(ignore_result=True)
