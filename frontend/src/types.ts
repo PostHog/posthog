@@ -675,6 +675,7 @@ export interface SessionPlayerData {
     durationMs: number
     start?: Dayjs
     end?: Dayjs
+    fullyLoaded: boolean
 }
 
 export enum SessionRecordingUsageType {
