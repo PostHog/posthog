@@ -192,9 +192,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 </div>
             </div>
             <LemonDivider />
-            <PureField label="Summary">
-                <SurveyReleaseSummary id={id} survey={survey} />
-            </PureField>
+            <SurveyReleaseSummary id={id} survey={survey} />
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
                 <LemonButton
@@ -226,29 +224,39 @@ export function SurveyReleaseSummary({ id, survey }: { id: string; survey: Surve
             <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
                 <FeatureFlagReleaseConditions readOnly />
             </BindLogic>
+
             {survey.conditions?.url && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>Url contains:</span>{' '}
-                    <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
-                </div>
+                <>
+                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Url contains:</span>{' '}
+                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
+                    </div>
+                </>
             )}
             {survey.conditions?.selector && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>Selector matches:</span>{' '}
-                    <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
-                </div>
+                <>
+                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Selector matches:</span>{' '}
+                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
+                    </div>
+                </>
             )}
             {survey.linked_flag_id && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>Feature flag enabled for:</span>{' '}
-                    {id !== 'new' ? (
-                        survey.linked_flag?.id ? (
-                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
-                        ) : null
-                    ) : (
-                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
-                    )}
-                </div>
+                <>
+                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                    <div className="flex flex-row font-medium gap-1">
+                        <span>Feature flag enabled for:</span>{' '}
+                        {id !== 'new' ? (
+                            survey.linked_flag?.id ? (
+                                <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                            ) : null
+                        ) : (
+                            <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                        )}
+                    </div>
+                </>
             )}
         </div>
     )

@@ -6,10 +6,8 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
-    AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagFilters,
-    FeatureFlagGroupType,
     PluginType,
     PropertyFilterType,
     PropertyOperator,
@@ -148,10 +146,6 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
-        setTargetingFlagFilters: (groups: FeatureFlagGroupType[]) => ({ groups }),
-        updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
-        addConditionSet: true,
-        removeConditionSet: (index: number) => ({ index }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
@@ -227,39 +221,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
-        targetingFlagFilters: [
-            null as Pick<FeatureFlagFilters, 'groups'> | null,
-            {
-                setTargetingFlagFilters: (_, { groups }) => {
-                    return { groups }
-                },
-                updateTargetingFlagFilters: (state, { index, properties }) => {
-                    if (state?.groups) {
-                        const groups = [...state.groups]
-                        if (properties !== undefined) {
-                            groups[index] = { ...groups[index], properties, rollout_percentage: 100 }
-                        }
-                        return { ...state, groups }
-                    }
-                    return state
-                },
-                removeConditionSet: (state, { index }) => {
-                    const groups = [...(state?.groups || [])]
-                    groups.splice(index, 1)
-                    return { ...state, groups }
-                },
-                addConditionSet: (state) => {
-                    if (state?.groups) {
-                        const groups = [...state.groups, { properties: [], rollout_percentage: 0, variant: null }]
-                        return { ...state, groups }
-                    } else {
-                        return {
-                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
-                        }
-                    }
-                },
-            },
-        ],
         dataTableQuery: [
             null as DataTableNode | null,
             {
@@ -278,21 +239,6 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
-            },
-        ],
-        propertySelectErrors: [
-            (s) => [s.survey],
-            (survey: NewSurvey) => {
-                return survey.targeting_flag_filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
-                    properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value:
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                                ? "Property filters can't be empty"
-                                : undefined,
-                    })),
-                }))
             },
         ],
         breadcrumbs: [

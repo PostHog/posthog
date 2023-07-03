@@ -1404,7 +1404,7 @@ export function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagR
                 )}
             </Row>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set
                 </LemonButton>
             )}
