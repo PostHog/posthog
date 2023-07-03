@@ -40,7 +40,7 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         }
 
         await hub.db.queuePluginLogEntry({
-            message: `Plugin loaded (instance ID ${hub.instanceId}).`,
+            message: `Plugin registered (instance ID ${hub.instanceId}).`,
             pluginConfig: pluginConfig,
             source: PluginLogEntrySource.System,
             type: PluginLogEntryType.Debug,
