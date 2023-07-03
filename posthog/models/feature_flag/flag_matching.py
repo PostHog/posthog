@@ -45,7 +45,7 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
     labelnames=["reason"],
 )
 
-DATABASE_FOR_FLAG_MATCHING = lambda: "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
+DATABASE_FOR_FLAG_MATCHING = "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
 
 
 class FeatureFlagMatchReason(str, Enum):
@@ -95,8 +95,8 @@ class FlagsMatcherCache:
         if self.failed_to_fetch_flags:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING()):
-                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING):
+                group_type_mapping_rows = GroupTypeMapping.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=self.team_id
                 )
                 return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
@@ -328,13 +328,13 @@ class FeatureFlagMatcher:
         try:
             # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
             # and not just the database query.
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING()):
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS * 2, DATABASE_FOR_FLAG_MATCHING):
                 all_conditions: Dict = {}
                 team_id = self.feature_flags[0].team_id
-                person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(
+                person_query: QuerySet = Person.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(
                     team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
                 )
-                basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING()).filter(team_id=team_id)
+                basic_group_query: QuerySet = Group.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(team_id=team_id)
                 group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
                 # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
                 # If no groups for a group type are passed in, we can skip querying for that group type,
@@ -636,7 +636,7 @@ def get_all_feature_flags(
     try:
         # when we're writing a hash_key_override, we query the main database, not the replica
         # this is because we need to make sure the write is successful before we read it
-        using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING()
+        using_database = "default" if writing_hash_key_override else DATABASE_FOR_FLAG_MATCHING
         person_overrides = {}
         with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, using_database):
             target_distinct_ids = [distinct_id]

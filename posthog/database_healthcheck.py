@@ -1,6 +1,6 @@
 import time
 from typing import Optional
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import connections
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -46,7 +46,7 @@ class DatabaseHealthcheck:
         from posthog.models.feature_flag.flag_matching import DATABASE_FOR_FLAG_MATCHING
 
         try:
-            with connections[DATABASE_FOR_FLAG_MATCHING()].cursor() as cursor:
+            with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
                 cursor.execute("SELECT 1")
             return True
         except Exception:
