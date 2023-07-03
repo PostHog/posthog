@@ -86,32 +86,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <Field name="description" label="Description (optional)">
                         <LemonTextArea data-attr="survey-description" />
                     </Field>
-                    <Field
-                        name="linked_flag_id"
-                        label="Link feature flag (optional)"
-                        info={
-                            <>
-                                Connecting to a feature flag will automatically enable this survey for everyone in the
-                                feature flag.
-                            </>
-                        }
-                    >
-                        {({ value, onChange }) => (
-                            <div className="flex">
-                                <FlagSelector value={value} onChange={onChange} />
-                                {value && (
-                                    <LemonButton
-                                        className="ml-2"
-                                        icon={<IconCancel />}
-                                        size="small"
-                                        status="stealth"
-                                        onClick={() => onChange(undefined)}
-                                        aria-label="close"
-                                    />
-                                )}
-                            </div>
-                        )}
-                    </Field>
                     {survey.questions.map((question: SurveyQuestion, index: number) => (
                         <Group name={`questions.${index}`} key={index}>
                             <Field name="type" label="Type" className="w-max">
@@ -139,13 +113,32 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <span className="text-muted">
                             Choose when the survey appears based on url, selector, and user properties.
                         </span>
-                        <span>
-                            <b>
-                                Warning: If there are no targeting options set, the survey will display on all domains
-                                to everyone.
-                            </b>
-                        </span>
-                        <LemonDivider />
+                        <Field
+                            name="linked_flag_id"
+                            label="Link feature flag (optional)"
+                            info={
+                                <>
+                                    Connecting to a feature flag will automatically enable this survey for everyone in
+                                    the feature flag.
+                                </>
+                            }
+                        >
+                            {({ value, onChange }) => (
+                                <div className="flex">
+                                    <FlagSelector value={value} onChange={onChange} />
+                                    {value && (
+                                        <LemonButton
+                                            className="ml-2"
+                                            icon={<IconCancel />}
+                                            size="small"
+                                            status="stealth"
+                                            onClick={() => onChange(undefined)}
+                                            aria-label="close"
+                                        />
+                                    )}
+                                </div>
+                            )}
+                        </Field>
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
