@@ -183,9 +183,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
-            if (survey.targeting_flag?.filters?.groups) {
-                actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
-            }
         },
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
