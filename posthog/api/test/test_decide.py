@@ -2084,7 +2084,7 @@ class TestDecideUsesReadReplica(TestCase):
 
     docker compose -f docker-compose.dev.yml exec db bash
     psql -U posthog
-    CREATE USER posthog2 WITH PASSWORD 'password';
+    CREATE USER posthog2 WITH PASSWORD 'posthog';
     # this user will be the one used to connect to the replica^^
 
     # switch to the db on which you want to give permissions
@@ -2094,7 +2094,7 @@ class TestDecideUsesReadReplica(TestCase):
 
     then run this test:
 
-    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='password' POSTHOG_DB_USER='posthog2'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
+    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
 
     or run locally with the same env vars.
 
