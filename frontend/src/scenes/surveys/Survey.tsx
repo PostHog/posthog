@@ -4,30 +4,18 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonTag,
-    LemonTextArea,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { FilterLogicalOperator, SurveyQuestion, Survey, FeatureFlagFilters, SurveyQuestionType } from '~/types'
+import { FilterLogicalOperator, SurveyQuestion, Survey, SurveyQuestionType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { IconCancel, IconDelete, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { SurveyView } from './SurveyView'
-import { cohortsModel } from '~/models/cohortsModel'
 import { SurveyAppearance } from './SurveyAppearance'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -54,10 +42,8 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, propertySelectErrors, targetingFlagFilters } =
-        useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, updateTargetingFlagFilters, removeConditionSet, addConditionSet } =
-        useActions(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey } = useValues(surveyLogic)
+    const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
     return (
         <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
@@ -182,77 +168,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             )}
                         </Field>
                         <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                        <PureField label="User properties">
-                            {(targetingFlagFilters?.groups || []).map((group, index) => (
-                                <>
-                                    {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2">OR</div>}
-                                    <div className="border rounded p-4">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                Matching <b>users</b> against the criteria
-                                            </div>
-                                            <LemonButton
-                                                icon={<IconDelete />}
-                                                status="muted"
-                                                size="small"
-                                                noPadding
-                                                onClick={() => removeConditionSet(index)}
-                                            />
-                                        </div>
-                                        <LemonDivider className="my-3" />
-                                        <div>
-                                            <PropertyFilters
-                                                orFiltering={true}
-                                                pageKey={`survey-${id}-targeting-${index}`}
-                                                propertyFilters={group.properties}
-                                                logicalRowDivider
-                                                addButton={
-                                                    <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
-                                                        Add condition
-                                                    </LemonButton>
-                                                }
-                                                onChange={(properties) => updateTargetingFlagFilters(index, properties)}
-                                                taxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.Cohorts,
-                                                ]}
-                                                hasRowOperator={false}
-                                                sendAllKeyUpdates
-                                                errorMessages={
-                                                    propertySelectErrors?.[index]?.properties?.some(
-                                                        (message) => !!message.value
-                                                    )
-                                                        ? propertySelectErrors[index].properties.map(
-                                                              (message, index) => {
-                                                                  return message.value ? (
-                                                                      <div
-                                                                          key={index}
-                                                                          className="text-danger flex items-center gap-1 text-sm"
-                                                                      >
-                                                                          <IconErrorOutline className="text-xl" />{' '}
-                                                                          {message.value}
-                                                                      </div>
-                                                                  ) : (
-                                                                      <></>
-                                                                  )
-                                                              }
-                                                          )
-                                                        : null
-                                                }
-                                            />
-                                        </div>
-                                    </div>
-                                </>
-                            ))}
-                        </PureField>
-                        <LemonButton
-                            type="secondary"
-                            className="mt-0 w-max"
-                            onClick={addConditionSet}
-                            icon={<IconPlus />}
-                        >
-                            Add condition set
-                        </LemonButton>
+                        <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                            <FeatureFlagReleaseConditions />
+                        </BindLogic>
                     </PureField>
                 </div>
                 <LemonDivider vertical />
@@ -274,17 +192,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 </div>
             </div>
             <LemonDivider />
-            <LemonCollapse
-                panels={[
-                    {
-                        key: '1',
-                        header: 'Release summary',
-                        content: (
-                            <SurveyReleaseSummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
-                        ),
-                    },
-                ]}
-            />
+            <PureField label="Summary">
+                <SurveyReleaseSummary id={id} survey={survey} />
+            </PureField>
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
                 <LemonButton
@@ -310,47 +220,12 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function SurveyReleaseSummary({
-    id,
-    survey,
-    targetingFlagFilters,
-}: {
-    id: string
-    survey: Survey | NewSurvey
-    targetingFlagFilters?: Pick<FeatureFlagFilters, 'groups'> | null
-}): JSX.Element {
-    const { cohortsById } = useValues(cohortsModel)
+export function SurveyReleaseSummary({ id, survey }: { id: string; survey: Survey | NewSurvey }): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div>
-                {survey.linked_flag_id ||
-                survey.conditions?.url ||
-                survey.conditions?.selector ||
-                targetingFlagFilters ? (
-                    <>
-                        This survey {survey.start_date ? 'is' : 'will be'} released to users who match <b>all</b> of the
-                        following:
-                    </>
-                ) : (
-                    <LemonTag type="highlight">
-                        <span className="text-sm">
-                            This survey {survey.start_date ? 'is' : 'will be'} released to everyone
-                        </span>
-                    </LemonTag>
-                )}
-            </div>
-            {survey.linked_flag_id && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>Feature flag enabled for:</span>{' '}
-                    {id !== 'new' ? (
-                        survey.linked_flag?.id ? (
-                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
-                        ) : null
-                    ) : (
-                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
-                    )}
-                </div>
-            )}
+            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                <FeatureFlagReleaseConditions readOnly />
+            </BindLogic>
             {survey.conditions?.url && (
                 <div className="flex flex-row font-medium gap-1">
                     <span>Url contains:</span>{' '}
@@ -363,64 +238,18 @@ export function SurveyReleaseSummary({
                     <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
                 </div>
             )}
-            {(targetingFlagFilters?.groups?.[0]?.properties?.length || 0) > 0 && (
+            {survey.linked_flag_id && (
                 <div className="flex flex-row font-medium gap-1">
-                    <span>User conditions:</span>{' '}
+                    <span>Feature flag enabled for:</span>{' '}
+                    {id !== 'new' ? (
+                        survey.linked_flag?.id ? (
+                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                        ) : null
+                    ) : (
+                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                    )}
                 </div>
             )}
-            {targetingFlagFilters?.groups?.map((group, index) => (
-                <>
-                    {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2 py-1">OR</div>}
-                    {group.properties?.map((property, idx) => (
-                        <>
-                            <div className="feature-flag-property-display" key={idx}>
-                                {idx === 0 ? (
-                                    <LemonButton
-                                        icon={<IconSubArrowRight className="arrow-right" />}
-                                        status="muted"
-                                        size="small"
-                                    />
-                                ) : (
-                                    <LemonButton
-                                        icon={<span className="text-sm">&</span>}
-                                        status="muted"
-                                        size="small"
-                                    />
-                                )}
-                                <span className="simple-tag tag-light-blue text-primary-alt">
-                                    {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
-                                </span>
-                                {isPropertyFilterWithOperator(property) ? (
-                                    <span>{allOperatorsToHumanName(property.operator)} </span>
-                                ) : null}
-
-                                {property.type === 'cohort' ? (
-                                    <a
-                                        href={urls.cohort(property.value)}
-                                        target="_blank"
-                                        rel="noopener"
-                                        className="simple-tag tag-light-blue text-primary-alt display-value"
-                                    >
-                                        {(property.value && cohortsById[property.value]?.name) ||
-                                            `ID ${property.value}`}
-                                    </a>
-                                ) : (
-                                    [...(Array.isArray(property.value) ? property.value : [property.value])].map(
-                                        (val, idx) => (
-                                            <span
-                                                key={idx}
-                                                className="simple-tag tag-light-blue text-primary-alt display-value"
-                                            >
-                                                {val}
-                                            </span>
-                                        )
-                                    )
-                                )}
-                            </div>
-                        </>
-                    ))}
-                </>
-            ))}
         </div>
     )
 }

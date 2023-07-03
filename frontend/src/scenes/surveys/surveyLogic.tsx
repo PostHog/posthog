@@ -23,6 +23,7 @@ import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 export interface NewSurvey
     extends Pick<
@@ -325,9 +326,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 })),
             }),
             submit: async (surveyPayload) => {
+                const flagval = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
+                const featureFlag = flagval.values.featureFlag
                 const surveyPayloadWithTargetingFlagFilters = {
                     ...surveyPayload,
-                    ...(values.targetingFlagFilters ? { targeting_flag_filters: values.targetingFlagFilters } : {}),
+                    ...{ targeting_flag_filters: featureFlag.filters },
                 }
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)
