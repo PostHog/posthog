@@ -323,7 +323,7 @@ export const personsLogic = kea<personsLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
-                if (sessionRecordingId) {
+                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
                     actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)

@@ -25,12 +25,13 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateToStaticCohort } = useActions(logic)
+    const { cohort, cohortLoading, cohortMissing, query, duplicatedStaticCohortLoading } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
 
@@ -67,6 +68,21 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 >
                                     Delete
                                 </LemonButton>
+                            )}
+                            {!isNewCohort && !cohort.is_static && (
+                                <>
+                                    <LemonDivider vertical />
+                                    <LemonButton
+                                        onClick={duplicateToStaticCohort}
+                                        type="secondary"
+                                        disabledReason={
+                                            cohort.is_calculating ? 'Cohort is still calculating' : undefined
+                                        }
+                                        loading={duplicatedStaticCohortLoading}
+                                    >
+                                        Duplicate as static cohort
+                                    </LemonButton>
+                                </>
                             )}
                             <LemonButton
                                 type="primary"
