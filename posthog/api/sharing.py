@@ -3,7 +3,6 @@ from datetime import timedelta
 from typing import Any, Dict, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
-import structlog
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -26,8 +25,6 @@ from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
-
-logger = structlog.get_logger(__name__)
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -197,7 +194,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                     "dashboard", "insight", "recording"
                 ).get(access_token=access_token)
             except SharingConfiguration.DoesNotExist:
-                logger.error("SharingConfiguration_access_token_match_not_found", access_token=access_token)
                 raise NotFound()
 
             if sharing_configuration and sharing_configuration.enabled:
@@ -210,7 +206,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         resource = self.get_object()
 
         if not resource:
-            logger.error("SharingConfiguration_resource_not_found", token=self.request.query_params.get("token"))
             raise NotFound()
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
@@ -226,11 +221,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             exported_data["accessToken"] = resource.access_token
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
             if not exported_asset:
-                logger.error(
-                    "SharingConfiguration_open_graph_image_asset_not_found",
-                    exported_asset_id=exported_asset.pk if exported_asset else None,
-                )
                 raise NotFound()
+
             return get_content_response(exported_asset, False)
         elif isinstance(resource, SharingConfiguration):
             exported_data["accessToken"] = resource.access_token
@@ -306,7 +298,5 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             return exported_asset_matches.first()
         else:
             export_asset = export_asset_for_opengraph(resource)
-            logger.info(
-                "SharingConfiguration_open_graph_image_asset_created_on_demand", exported_asset_id=export_asset.pk
-            )
+
             return export_asset

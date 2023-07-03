@@ -128,6 +128,11 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
         content = object_storage.read_bytes(asset.content_location)
 
     if not content:
+        logger.error(
+            "exported_asset.content-missing",
+            exported_asset_id=asset.id,
+            has_content=asset.has_content if asset else False,
+        )
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
