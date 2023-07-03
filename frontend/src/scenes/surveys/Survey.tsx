@@ -8,10 +8,9 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { FilterLogicalOperator, SurveyQuestion, Survey, SurveyQuestionType } from '~/types'
+import { SurveyQuestion, Survey, SurveyQuestionType, FilterLogicalOperator } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
@@ -109,9 +108,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             )}
                         </Group>
                     ))}
-                    <PureField label="Targeting (optional)" className="mt-4">
+                    <LemonDivider className="my-2" />
+                    <PureField label="Targeting (optional)">
                         <span className="text-muted">
-                            Choose when the survey appears based on url, selector, and user properties.
+                            Select release conditions for the survey based on url, class/id selector, and user
+                            properties.
                         </span>
                         <Field
                             name="linked_flag_id"
@@ -142,15 +143,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="Url">
+                                    <PureField label="Url contains:">
                                         <LemonInput
                                             value={value?.url}
                                             onChange={(urlVal) => onChange({ ...value, url: urlVal })}
                                             placeholder="ex: https://app.posthog.com"
                                         />
                                     </PureField>
-                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                                    <PureField label="Selector">
+                                    <PureField label="Selector matches:">
                                         <LemonInput
                                             value={value?.selector}
                                             onChange={(selectorVal) => onChange({ ...value, selector: selectorVal })}
@@ -160,9 +160,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 </>
                             )}
                         </Field>
-                        <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                         <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                            <FeatureFlagReleaseConditions />
+                            <div className="mt-2">
+                                <FeatureFlagReleaseConditions />
+                            </div>
                         </BindLogic>
                     </PureField>
                 </div>
@@ -217,39 +218,35 @@ export function SurveyReleaseSummary({ id, survey }: { id: string; survey: Surve
             <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
                 <FeatureFlagReleaseConditions readOnly />
             </BindLogic>
-
             {survey.conditions?.url && (
-                <>
-                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                    <div className="flex flex-row font-medium gap-1">
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="text-primary-alt text-xs font-semibold mb-1">{FilterLogicalOperator.And}</div>
+                    <div className="flex-row">
                         <span>Url contains:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>
-                </>
+                </div>
             )}
             {survey.conditions?.selector && (
-                <>
-                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                    <div className="flex flex-row font-medium gap-1">
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="text-primary-alt text-xs font-semibold mb-1">{FilterLogicalOperator.And}</div>
+                    <div className="flex-row">
                         <span>Selector matches:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
                     </div>
-                </>
+                </div>
             )}
             {survey.linked_flag_id && (
-                <>
-                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                    <div className="flex flex-row font-medium gap-1">
-                        <span>Feature flag enabled for:</span>{' '}
-                        {id !== 'new' ? (
-                            survey.linked_flag?.id ? (
-                                <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
-                            ) : null
-                        ) : (
-                            <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
-                        )}
-                    </div>
-                </>
+                <div className="flex flex-row font-medium gap-1">
+                    <span>Feature flag enabled for:</span>{' '}
+                    {id !== 'new' ? (
+                        survey.linked_flag?.id ? (
+                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                        ) : null
+                    ) : (
+                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                    )}
+                </div>
             )}
         </div>
     )
