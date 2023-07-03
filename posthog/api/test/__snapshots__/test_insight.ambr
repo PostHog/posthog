@@ -1082,17 +1082,6 @@
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.24
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
-# name: TestInsight.test_listing_insights_does_not_nplus1.26
-  '
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
