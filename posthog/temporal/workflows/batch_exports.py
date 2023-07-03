@@ -36,6 +36,7 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     )
 
     if row is None:
+        print(row)
         raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
 
     return row["count"]
