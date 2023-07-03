@@ -1937,6 +1937,9 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
         postgres_healthcheck.cache_clear()
         super().setUp(*args)
+        # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
@@ -2151,7 +2154,6 @@ class TestDecideUsesReadReplica(TestCase):
 
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
-        # self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
@@ -2205,7 +2207,6 @@ class TestDecideUsesReadReplica(TestCase):
     @patch("posthog.models.feature_flag.flag_matching.get_feature_flags_for_team_in_cache")
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_decide_uses_read_replica(self, mock_is_connected, mock_get_feature_flags_for_team_in_cache):
-        self.client.logout()
 
         org_replica, team_replica, user_replica = self.setup_user_and_team_in_db("replica")
         self.organization, self.team, self.user = org_replica, team_replica, user_replica
@@ -2550,8 +2551,6 @@ class TestDecideUsesReadReplica(TestCase):
     @patch("posthog.models.feature_flag.flag_matching.get_feature_flags_for_team_in_cache")
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_feature_flags_v2_with_groups(self, mock_is_connected, mock_get_feature_flags_for_team_in_cache):
-        self.client.logout()
-
         # :TRICKY: This setup _writes_ to the "replica" db, not the main db,
         # because Django MIRROR setting for replicas for tests doesn't work.
         # It's able to write to the "replica" because in local dev, the replica is the main db :shrug:
