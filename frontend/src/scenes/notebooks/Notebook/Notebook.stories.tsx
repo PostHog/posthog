@@ -12,6 +12,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
+        mockDate: '2023-07-04', // To stabilize relative dates
     },
     decorators: [
         mswDecorator({
