@@ -137,7 +137,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 )}
                                             </div>
                                             <LemonDivider />
-                                            <SurveyReleaseSummary id={id} survey={survey} />
+                                            <SurveyReleaseSummary
+                                                id={id}
+                                                survey={survey}
+                                                hasTargetingFlag={!!survey.targeting_flag}
+                                            />
                                         </div>
                                         <div className="w-full flex flex-col items-center">
                                             <LemonCollapse

@@ -151,6 +151,7 @@ export const surveyLogic = kea<surveyLogicType>([
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
         setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
+        setHasTargetingFlag: (hasTargetingFlag: boolean) => ({ hasTargetingFlag }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -182,6 +183,9 @@ export const surveyLogic = kea<surveyLogicType>([
             if (survey.start_date && survey.id !== 'new') {
                 actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            }
+            if (survey.targeting_flag) {
+                actions.setHasTargetingFlag(true)
             }
         },
         createSurveySuccess: ({ survey }) => {
@@ -230,6 +234,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
             },
         ],
+        hasTargetingFlag: [
+            false,
+            {
+                setHasTargetingFlag: (_, { hasTargetingFlag }) => hasTargetingFlag,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
@@ -269,11 +279,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 })),
             }),
             submit: async (surveyPayload) => {
-                const flagval = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                const featureFlag = flagval.values.featureFlag
-                const surveyPayloadWithTargetingFlagFilters = {
-                    ...surveyPayload,
-                    ...{ targeting_flag_filters: featureFlag.filters },
+                let surveyPayloadWithTargetingFlagFilters = surveyPayload
+                const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
+                const targetingFlag = flagLogic.values.featureFlag
+                if (values.hasTargetingFlag) {
+                    surveyPayloadWithTargetingFlagFilters = {
+                        ...surveyPayload,
+                        ...{ targeting_flag_filters: targetingFlag.filters },
+                    }
                 }
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)

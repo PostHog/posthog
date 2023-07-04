@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyQuestion, Survey, SurveyQuestionType, FilterLogicalOperator } from '~/types'
+import { SurveyQuestion, Survey, SurveyQuestionType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
@@ -41,8 +41,8 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey } = useActions(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
+    const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
 
     return (
         <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
@@ -78,7 +78,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 max-w-160">
+                <div className="flex flex-col gap-2 max-w-xl">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>
@@ -160,11 +160,35 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 </>
                             )}
                         </Field>
-                        <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                            <div className="mt-2">
-                                <FeatureFlagReleaseConditions />
-                            </div>
-                        </BindLogic>
+                        <PureField label="User properties">
+                            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                                {!hasTargetingFlag && (
+                                    <LemonButton
+                                        type="secondary"
+                                        className="w-max"
+                                        onClick={() => setHasTargetingFlag(true)}
+                                    >
+                                        Add user targeting
+                                    </LemonButton>
+                                )}
+                                {hasTargetingFlag && (
+                                    <>
+                                        <div className="mt-2">
+                                            <FeatureFlagReleaseConditions />
+                                        </div>
+                                        {id === 'new' && (
+                                            <LemonButton
+                                                type="secondary"
+                                                className="w-max"
+                                                onClick={() => setHasTargetingFlag(false)}
+                                            >
+                                                Remove all user targeting
+                                            </LemonButton>
+                                        )}
+                                    </>
+                                )}
+                            </BindLogic>
+                        </PureField>
                     </PureField>
                 </div>
                 <LemonDivider vertical />
@@ -186,7 +210,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 </div>
             </div>
             <LemonDivider />
-            <SurveyReleaseSummary id={id} survey={survey} />
+            <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
                 <LemonButton
@@ -212,15 +236,27 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     )
 }
 
-export function SurveyReleaseSummary({ id, survey }: { id: string; survey: Survey | NewSurvey }): JSX.Element {
+export function SurveyReleaseSummary({
+    id,
+    survey,
+    hasTargetingFlag,
+}: {
+    id: string
+    survey: Survey | NewSurvey
+    hasTargetingFlag: boolean
+}): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
             <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                <FeatureFlagReleaseConditions readOnly />
+                {!hasTargetingFlag && <div className="font-semibold">Release conditions</div>}
+                <span>
+                    Set targeting options if you want to restrict your survey's release. By default surveys will be
+                    released to everyone.
+                </span>
+                {hasTargetingFlag && <FeatureFlagReleaseConditions readOnly />}
             </BindLogic>
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
-                    <div className="text-primary-alt text-xs font-semibold mb-1">{FilterLogicalOperator.And}</div>
                     <div className="flex-row">
                         <span>Url contains:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
@@ -229,7 +265,6 @@ export function SurveyReleaseSummary({ id, survey }: { id: string; survey: Surve
             )}
             {survey.conditions?.selector && (
                 <div className="flex flex-col font-medium gap-1">
-                    <div className="text-primary-alt text-xs font-semibold mb-1">{FilterLogicalOperator.And}</div>
                     <div className="flex-row">
                         <span>Selector matches:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
