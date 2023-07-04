@@ -9,7 +9,6 @@ import clsx from 'clsx'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { FloatingSlashCommands } from './SlashCommands'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { Editor } from './Editor'
 import { NotebookLoadingState } from './NotebookLoadingState'
@@ -23,7 +22,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty, conflictWarningVisible } = useValues(logic)
+    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
@@ -34,6 +33,12 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
             loadNotebook()
         }
     }, [])
+
+    useEffect(() => {
+        if (editor) {
+            editor.setEditable(editable)
+        }
+    }, [editable])
 
     // TODO - Render a special state if the notebook is empty
 
@@ -56,8 +61,6 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
-                <FloatingSlashCommands />
-
                 {notebook.is_template && (
                     <LemonBanner
                         type="info"
@@ -86,7 +89,6 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
                 <Editor
                     initialContent={content}
-                    editable={editable}
                     onCreate={setEditor}
                     onUpdate={onEditorUpdate}
                     placeholder={({ node }: { node: any }) => {

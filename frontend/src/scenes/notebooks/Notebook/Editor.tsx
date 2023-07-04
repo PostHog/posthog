@@ -1,9 +1,9 @@
 import { useEditor, EditorContent } from '@tiptap/react'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { Editor } from './utils'
+import { Editor, EditorRange } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -14,7 +14,7 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
-import { SlashCommandsExtension } from './SlashCommands'
+import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent } from './utils'
 import { NotebookEditor } from '~/types'
 
@@ -24,13 +24,11 @@ const CustomDocument = ExtensionDocument.extend({
 
 export function Editor({
     initialContent,
-    editable,
     onCreate,
     onUpdate,
     placeholder,
 }: {
     initialContent: JSONContent
-    editable: boolean
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
@@ -55,9 +53,6 @@ export function Editor({
             NotebookNodePerson,
             NotebookNodeFlag,
             SlashCommandsExtension,
-
-            // Ensure this is last as a fallback for all PostHog links
-            // LinkExtension.configure({}),
         ],
         content: initialContent,
         editorProps: {
@@ -119,17 +114,20 @@ export function Editor({
             editorRef.current = editor
             onCreate({
                 getJSON: () => editor.getJSON(),
+                setEditable: (editable: boolean) => editor.setEditable(editable, false),
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 hasContent: () => !editor.isEmpty || false,
+                deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
             })
         },
         onUpdate: onUpdate,
-        onDestroy,
+        onDestroy: () => {},
     })
 
-    useEffect(() => {
-        _editor?.setEditable(editable, false)
-    }, [editable, _editor])
-
-    return <EditorContent editor={_editor} className="flex flex-col flex-1" />
+    return (
+        <>
+            <EditorContent editor={_editor} className="flex flex-col flex-1" />
+            {_editor && <FloatingSlashCommands editor={_editor} />}
+        </>
+    )
 }

@@ -182,7 +182,7 @@ export const notebookLogic = kea<notebookLogicType>([
         isEmpty: [
             (s) => [s.editor, s.content],
             (editor: NotebookEditor): boolean => {
-                return editor.hasContent()
+                return editor?.hasContent() || false
             },
         ],
 
