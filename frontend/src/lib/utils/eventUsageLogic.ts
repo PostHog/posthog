@@ -348,7 +348,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }>
         ) => ({ filters }),
         reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
-        reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportRemovedInsightFromDashboard: true,
@@ -911,9 +910,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportEntityFilterVisibilitySet: async ({ index, visible }) => {
             posthog.capture('entity filter visbility set', { index, visible })
-        },
-        reportPropertySelectOpened: async () => {
-            posthog.capture('property select toggle opened')
         },
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
