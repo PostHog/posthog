@@ -3,7 +3,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 import { posthogNodePasteRule, externalLinkPasteRule } from './utils'
 import { Link } from '@posthog/lemon-ui'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
     IconGauge,
     IconBarChart,
@@ -21,6 +21,9 @@ import {
     IconJournal,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
+import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
+import { useActions, useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const ICON_MAP = {
     dashboard: <IconGauge />,
@@ -40,19 +43,32 @@ const ICON_MAP = {
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const { shortId } = useValues(notebookLogic)
+    const { notebookSideBarShown } = useValues(notebookSidebarLogic)
+    const { setNotebookSideBarShown, selectNotebook } = useActions(notebookSidebarLogic)
+
     const href: string = props.node.attrs.href
 
-    const [path, icon] = useMemo(() => {
+    const [path, pathStart, internal] = useMemo(() => {
         const path = href.replace(window.location.origin, '')
         const pathStart = path.split('/')[1]?.toLowerCase()
+        const internal = href.startsWith(window.location.origin)
 
-        return [path, ICON_MAP[pathStart] || <IconLink />]
+        return [path, pathStart, internal]
     }, [href])
+
+    const handleOnClick = useCallback(() => {
+        if (internal && !notebookSideBarShown) {
+            selectNotebook(shortId)
+            setNotebookSideBarShown(true)
+        }
+    }, [internal, shortId, setNotebookSideBarShown, selectNotebook])
 
     return (
         <NodeViewWrapper as="span">
             <Link
                 to={path}
+                onClick={handleOnClick}
                 // target={external ? '_blank' : '_self'}
                 className={clsx(
                     'py-px px-1 rounded',
@@ -60,7 +76,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                     !props.selected && 'bg-primary-highlight'
                 )}
             >
-                <span>{icon}</span> {path}
+                <span>{ICON_MAP[pathStart] || <IconLink />}</span> {path}
             </Link>
         </NodeViewWrapper>
     )
