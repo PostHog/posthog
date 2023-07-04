@@ -1,5 +1,4 @@
-import { useRef, useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import Modal from 'react-modal'
 
@@ -7,6 +6,8 @@ import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import './LemonModal.scss'
+import { Tooltip } from '../Tooltip'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 interface LemonModalInnerProps {
     children?: React.ReactNode
@@ -30,8 +31,8 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
-    /** Wether the modal should close on a secondary action i.e. clicking on the overlay or pressing esc */
-    shouldCloseOnSecondaryAction?: boolean
+    /** If there is unsaved input that's not persisted, the modal can't be closed closed on overlay click. */
+    hasUnsavedInput?: boolean
     /** Expands the modal to fill the entire screen */
     fullScreen?: boolean
     /**
@@ -71,7 +72,7 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
-    shouldCloseOnSecondaryAction = true,
+    hasUnsavedInput,
     fullScreen = false,
     forceAbovePopovers = false,
     contentRef,
@@ -79,54 +80,74 @@ export function LemonModal({
     getPopupContainer,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
-    const [animateClose, setAnimateClose] = useState(false)
+    const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
+
+    useEffect(() => setIgnoredOverlayClickCount(0), [hasUnsavedInput]) // Reset when there no longer is unsaved input
 
     const modalContent = (
-        <CSSTransition
-            nodeRef={nodeRef}
-            in={animateClose}
-            onEntered={() => setAnimateClose(false)}
-            timeout={1250}
-            classNames="LemonModal__container--animate-close"
-        >
-            <div ref={nodeRef} className="LemonModal__container">
-                {closable && (
-                    <div className="LemonModal__closebutton">
+        <div ref={nodeRef} className="LemonModal__container">
+            {closable && (
+                // The key causes the div to be re-rendered, which restarts the animation,
+                // providing immediate visual feedback on click
+                <div
+                    key={ignoredOverlayClickCount}
+                    className={clsx(
+                        'LemonModal__close',
+                        ignoredOverlayClickCount > 0 && 'LemonModal__close--highlighted'
+                    )}
+                >
+                    <Tooltip
+                        visible={!!ignoredOverlayClickCount || undefined}
+                        title={
+                            ignoredOverlayClickCount ? (
+                                <>
+                                    You have unsaved input that will be discarded.
+                                    <br />
+                                    Use the <IconClose /> button to close explicitly.
+                                </>
+                            ) : (
+                                <>
+                                    Close <KeyboardShortcut escape />
+                                </>
+                            )
+                        }
+                    >
                         <LemonButton
                             icon={<IconClose />}
                             size="small"
                             status="stealth"
                             onClick={onClose}
                             aria-label="close"
+                            onMouseEnter={() => setIgnoredOverlayClickCount(0)}
                         />
-                    </div>
-                )}
-
-                <div className="LemonModal__layout">
-                    {simple ? (
-                        children
-                    ) : (
-                        <>
-                            {title ? (
-                                <LemonModalHeader>
-                                    <h3>{title}</h3>
-                                    {description ? (
-                                        typeof description === 'string' ? (
-                                            <p>{description}</p>
-                                        ) : (
-                                            description
-                                        )
-                                    ) : null}
-                                </LemonModalHeader>
-                            ) : null}
-
-                            {children ? <LemonModalContent>{children}</LemonModalContent> : null}
-                            {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
-                        </>
-                    )}
+                    </Tooltip>
                 </div>
+            )}
+
+            <div className="LemonModal__layout">
+                {simple ? (
+                    children
+                ) : (
+                    <>
+                        {title ? (
+                            <LemonModalHeader>
+                                <h3>{title}</h3>
+                                {description ? (
+                                    typeof description === 'string' ? (
+                                        <p>{description}</p>
+                                    ) : (
+                                        description
+                                    )
+                                ) : null}
+                            </LemonModalHeader>
+                        ) : null}
+
+                        {children ? <LemonModalContent>{children}</LemonModalContent> : null}
+                        {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
+                    </>
+                )}
             </div>
-        </CSSTransition>
+        </div>
     )
 
     width = !fullScreen ? width : undefined
@@ -139,11 +160,12 @@ export function LemonModal({
     ) : (
         <Modal
             isOpen={isOpen}
-            onRequestClose={() => {
-                if (shouldCloseOnSecondaryAction) {
-                    onClose?.()
+            onRequestClose={(e) => {
+                if (hasUnsavedInput && e.type === 'click') {
+                    // Only ignore clicks, not Esc
+                    setIgnoredOverlayClickCount(ignoredOverlayClickCount + 1)
                 } else {
-                    setAnimateClose(true)
+                    onClose?.()
                 }
             }}
             shouldCloseOnOverlayClick={closable}

@@ -62,11 +62,14 @@
         transform: scale(1);
         opacity: 1;
     }
-    .LemonModal__closebutton {
+    .LemonModal__close {
         position: absolute;
         top: 1.25rem;
         right: 1.25rem;
         z-index: 1;
+        &.LemonModal__close--highlighted {
+            animation: tilt-shake 400ms;
+        }
     }
 
     // We nest the content in layout so that "simple" modal implementations can use this class as well
@@ -89,14 +92,6 @@
     .LemonModal__container {
         display: flex;
         height: 100%;
-    }
-
-    .LemonModal__container--animate-close-enter {
-        .LemonModal__closebutton {
-            animation-name: bounce;
-            transform-origin: center bottom;
-            animation-duration: 1250ms;
-        }
     }
 }
 
@@ -136,33 +131,20 @@
     border-top: none;
 }
 
-// https://github.com/animate-css/animate.css
-@keyframes bounce {
-    from,
-    20%,
-    53%,
-    to {
-        animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
-        transform: translate3d(0, 0, 0);
+@keyframes tilt-shake {
+    0% {
+        transform: rotate(0deg);
     }
-
-    40%,
-    43% {
-        animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
-        transform: translate3d(0, -30px, 0) scaleY(1.1);
+    16.666% {
+        transform: rotate(12deg);
     }
-
-    70% {
-        animation-timing-function: cubic-bezier(0.755, 0.05, 0.855, 0.06);
-        transform: translate3d(0, -15px, 0) scaleY(1.05);
+    50% {
+        transform: rotate(-10deg);
     }
-
-    80% {
-        transition-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
-        transform: translate3d(0, 0, 0) scaleY(0.95);
+    83.333% {
+        transform: rotate(8deg);
     }
-
-    90% {
-        transform: translate3d(0, -4px, 0) scaleY(1.02);
+    100% {
+        transform: rotate(0deg);
     }
 }
