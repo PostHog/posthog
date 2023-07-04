@@ -65,6 +65,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
 
             if cached_result_package and cached_result_package.get("result"):
                 cached_result_package["is_cached"] = True
+                cached_result_package["cache_key"] = cache_key
                 statsd.incr("posthog_cached_function_cache_hit", tags={"route": route})
                 return cached_result_package
             else:
@@ -78,6 +79,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                 timestamp = now()
                 fresh_result_package["last_refresh"] = timestamp
                 fresh_result_package["is_cached"] = False
+                fresh_result_package["cache_key"] = cache_key
                 update_cached_state(team.pk, cache_key, timestamp, fresh_result_package)
 
         return fresh_result_package
