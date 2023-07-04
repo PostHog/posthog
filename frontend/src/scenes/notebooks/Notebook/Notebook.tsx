@@ -10,6 +10,7 @@ import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecord
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
+import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
 import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
