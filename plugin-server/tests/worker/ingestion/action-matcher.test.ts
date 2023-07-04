@@ -38,7 +38,9 @@ describe('ActionMatcher', () => {
     })
 
     /** Return a test action created on a common base using provided steps. */
-    async function createTestAction(partialSteps: Partial<ActionStep>[]): Promise<Action> {
+    async function createTestAction(
+        partialSteps: Partial<ActionStep>[]
+    ): Promise<Omit<Action, 'is_calculating' | 'last_calculated_at'>> {
         const action: RawAction = {
             id: actionCounter++,
             team_id: 2,
@@ -75,7 +77,8 @@ describe('ActionMatcher', () => {
         await insertRow(hub.db.postgres, 'posthog_action', action)
         await Promise.all(steps.map((step) => insertRow(hub.db.postgres, 'posthog_actionstep', step)))
         await hub.actionManager.reloadAction(action.team_id, action.id)
-        return { ...action, steps, hooks: [] }
+        const { is_calculating: _, last_calculated_at: __, ...actionFromDb } = action
+        return { ...actionFromDb, steps, hooks: [] }
     }
 
     /** Return a test event created on a common base using provided property overrides. */
