@@ -28,7 +28,7 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     ) : logItem?.detail.name ? (
         <>{logItem?.detail.name}</>
     ) : (
-        <>unknown</>
+        <i>Untitled</i>
     )
 }
 
