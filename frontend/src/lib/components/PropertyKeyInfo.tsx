@@ -191,7 +191,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $pageview_id: {
             label: 'Pageview ID',
-            description: 'The ID for the pageview event.',
+            description: 'PostHog's internal ID for matching events to a pageview.',
         },
         $pageleave: {
             label: 'Pageleave',
