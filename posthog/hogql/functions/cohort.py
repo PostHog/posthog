@@ -8,9 +8,6 @@ from posthog.schema import HogQLNotice
 
 
 def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.Expr:
-    if len(args) != 1:
-        raise HogQLException("cohort() takes exactly one argument", node=node)
-
     arg = args[0]
     if not isinstance(arg, ast.Constant):
         raise HogQLException("cohort() takes only constant arguments", node=arg)
@@ -39,7 +36,7 @@ def cohort(node: ast.Expr, args: List[ast.Expr], context: HogQLContext) -> ast.E
                 HogQLNotice(
                     start=arg.start,
                     end=arg.end,
-                    message=f"Searching for cohort by name. Replace with numeric id {cohorts[0][0]} to protect against renames.",
+                    message=f"Searching for cohort by name. Replace with numeric ID {cohorts[0][0]} to protect against renaming.",
                     fix=str(cohorts[0][0]),
                 )
             )

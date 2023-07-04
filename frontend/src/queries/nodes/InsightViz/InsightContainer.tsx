@@ -19,7 +19,7 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -29,7 +29,7 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { InsightLegendButtonDataExploration } from 'lib/components/InsightLegend/InsightLegendButton'
+import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsight } from 'scenes/insights/views/Funnels/FunnelInsight'
@@ -174,7 +174,7 @@ export function InsightContainer({
                         </div>
                     )}
 
-                    <InsightsTableDataExploration
+                    <InsightsTable
                         isLegend
                         filterKey="trends_TRENDS"
                         canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
@@ -226,7 +226,7 @@ export function InsightContainer({
                         <div>
                             {isFunnels ? <FunnelCanvasLabel /> : null}
                             {isPaths ? <PathCanvasLabel /> : null}
-                            {!disableLegendButton && <InsightLegendButtonDataExploration />}
+                            {!disableLegendButton && <InsightLegendButton />}
                         </div>
                     </div>
                     {!!BlockingEmptyState ? (

@@ -1,32 +1,19 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { BindLogic, useValues } from 'kea'
-import { LegacyInsightContainer } from 'scenes/insights/LegacyInsightContainer'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, ItemMode } from '~/types'
+import { InsightShortId } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { posthogNodePasteRule } from './utils'
 import { urls } from 'scenes/urls'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const logic = insightLogic({ dashboardItemId: props.node.attrs.id })
-    const { insightProps } = useValues(logic)
-
     const href = `/insights/${props.node.attrs.id}`
 
     return (
         <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <div className="insights-container" data-attr="insight-view">
-                    <LegacyInsightContainer
-                        insightMode={ItemMode.Sharing}
-                        disableHeader
-                        disableLastComputation
-                        disableTable
-                    />
-                </div>
-            </BindLogic>
+            <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
         </NodeWrapper>
     )
 }

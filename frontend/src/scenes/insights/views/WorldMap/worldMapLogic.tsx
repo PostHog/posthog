@@ -1,5 +1,5 @@
 import { kea, props, key, path, connect, actions, reducers, selectors } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { InsightLogicProps, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from '../../sharedUtils'
 import type { worldMapLogicType } from './worldMapLogicType'
@@ -8,8 +8,8 @@ export const worldMapLogic = kea<worldMapLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'WorldMap', 'worldMapLogic', key]),
-    connect(() => ({
-        values: [insightLogic, ['insight', 'filters']],
+    connect((props: InsightLogicProps) => ({
+        values: [insightVizDataLogic(props), ['insightData', 'trendsFilter', 'series']],
     })),
     actions({
         showTooltip: (countryCode: string, countrySeries: TrendResult | null) => ({ countryCode, countrySeries }),
@@ -39,19 +39,19 @@ export const worldMapLogic = kea<worldMapLogicType>([
     }),
     selectors({
         countryCodeToSeries: [
-            (s) => [s.insight],
-            (insight): Record<string, TrendResult> =>
+            (s) => [s.insightData],
+            (insightData): Record<string, TrendResult> =>
                 Object.fromEntries(
-                    Array.isArray(insight.result)
-                        ? insight.result.map((series: TrendResult) => [series.breakdown_value, series])
+                    Array.isArray(insightData?.result)
+                        ? (insightData?.result as TrendResult[]).map((series) => [series.breakdown_value, series])
                         : []
                 ),
         ],
         maxAggregatedValue: [
-            (s) => [s.insight],
-            (insight) =>
-                Array.isArray(insight.result)
-                    ? Math.max(...insight.result.map((series: TrendResult) => series.aggregated_value))
+            (s) => [s.insightData],
+            (insightData) =>
+                Array.isArray(insightData?.result)
+                    ? Math.max(...(insightData?.result as TrendResult[]).map((series) => series.aggregated_value))
                     : 0,
         ],
     }),

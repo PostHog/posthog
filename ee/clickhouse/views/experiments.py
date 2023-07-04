@@ -13,7 +13,7 @@ from ee.clickhouse.queries.experiments.funnel_experiment_result import Clickhous
 from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.caching.insight_cache import update_cached_state
@@ -32,7 +32,7 @@ EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
 
 
 def _calculate_experiment_results(experiment: Experiment):
-    filter = Filter(experiment.filters)
+    filter = Filter(experiment.filters, team=experiment.team)
 
     experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
         ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
@@ -46,7 +46,7 @@ def _calculate_experiment_results(experiment: Experiment):
 
 
 def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int):
-    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
+    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
 
     # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
     calculate_func = lambda: ClickhouseSecondaryExperimentResult(
@@ -98,6 +98,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
+    feature_flag = MinimalFeatureFlagSerializer(read_only=True)
 
     class Meta:
         model = Experiment
@@ -108,7 +109,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "feature_flag_key",
-            # get the FF id as well to link to FF UI
             "feature_flag",
             "parameters",
             "secondary_metrics",
@@ -152,6 +152,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         properties = validated_data["filters"].get("properties", [])
 
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
+
         default_variants = [
             {"key": "control", "name": "Control Group", "rollout_percentage": 50},
             {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
@@ -161,9 +164,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "groups": [{"properties": properties, "rollout_percentage": None}],
             "multivariate": {"variants": variants or default_variants},
         }
-
-        if validated_data["filters"].get("aggregation_group_type_index") is not None:
-            filters["aggregation_group_type_index"] = validated_data["filters"]["aggregation_group_type_index"]
 
         feature_flag_serializer = FeatureFlagSerializer(
             data={
@@ -218,23 +218,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 ):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
 
-        feature_flag_properties = validated_data.get("filters", {}).get("properties")
-        serialized_data_filters = {**feature_flag.filters}
-        if feature_flag_properties is not None:
-            serialized_data_filters = {**serialized_data_filters, "groups": [{"properties": feature_flag_properties}]}
-
-        feature_flag_group_type_index = validated_data.get("filters", {}).get("aggregation_group_type_index")
-        # Only update the group type index when filters are sent
-        if validated_data.get("filters"):
-            serialized_data_filters = {
-                **serialized_data_filters,
-                "aggregation_group_type_index": feature_flag_group_type_index,
-            }
-            serializer = FeatureFlagSerializer(
-                feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
+        properties = validated_data.get("filters", {}).get("properties")
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

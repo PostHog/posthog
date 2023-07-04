@@ -387,6 +387,14 @@ class RetentionType(str, Enum):
     retention_first_time = "retention_first_time"
 
 
+class SavedInsightNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("SavedInsightNode", const=True)
+    shortId: str
+
+
 class SessionPropertyFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1145,6 +1153,7 @@ class InsightVizNode(BaseModel):
 class Model(BaseModel):
     __root__: Union[
         DataTableNode,
+        SavedInsightNode,
         InsightVizNode,
         TrendsQuery,
         FunnelsQuery,

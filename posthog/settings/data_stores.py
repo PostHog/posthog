@@ -50,6 +50,9 @@ def postgres_config(host: str) -> dict:
             "sslcert": os.getenv("POSTHOG_POSTGRES_CLI_SSL_CRT", None),
             "sslkey": os.getenv("POSTHOG_POSTGRES_CLI_SSL_KEY", None),
         },
+        "TEST": {
+            "MIRROR": "default",
+        },
     }
 
 

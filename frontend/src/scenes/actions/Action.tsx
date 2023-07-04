@@ -1,15 +1,12 @@
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { EventsTable } from 'scenes/events'
 import { urls } from 'scenes/urls'
 import { ActionType } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
@@ -19,15 +16,10 @@ export const scene: SceneExport = {
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
-    const fixedFilters = { action_id: id }
-
     const { push } = useActions(router)
 
     const { action } = useValues(actionLogic)
     const { loadAction } = useActions(actionLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     return (
         <>
@@ -50,29 +42,19 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                         This is the list of <strong>recent</strong> events that match this action.
                     </p>
                     <div className="pt-4 border-t" />
-                    {featureDataExploration ? (
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.EventsQuery,
-                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    actionId: id,
-                                },
-                                full: true,
-                                showEventFilter: false,
-                                showPropertyFilter: false,
-                            }}
-                        />
-                    ) : (
-                        <EventsTable
-                            fixedFilters={fixedFilters}
-                            sceneUrl={urls.action(id)}
-                            fetchMonths={3}
-                            pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
-                            showEventFilter={false}
-                        />
-                    )}
+                    <Query
+                        query={{
+                            kind: NodeKind.DataTableNode,
+                            source: {
+                                kind: NodeKind.EventsQuery,
+                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                actionId: id,
+                            },
+                            full: true,
+                            showEventFilter: false,
+                            showPropertyFilter: false,
+                        }}
+                    />
                 </div>
             )}
         </>

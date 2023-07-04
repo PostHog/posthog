@@ -273,9 +273,7 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueries } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightLogicProps)
     )
@@ -295,12 +293,6 @@ function InsightCardInternal(
     }
     if (insightLoading) {
         loading = true
-    }
-    if (!!erroredQueryId) {
-        apiErrored = true
-    }
-    if (!!timedOutQueryId) {
-        timedOut = true
     }
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
@@ -352,7 +344,7 @@ function InsightCardInternal(
                     >
                         {!!insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
-                        ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
+                        ) : canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly />
                         ) : (
                             <QueriesUnsupportedHere />

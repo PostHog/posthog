@@ -28,7 +28,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.4.2.11}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:23.6.1.1524}
         restart: on-failure
         depends_on:
             - kafka

@@ -12,7 +12,7 @@ import {
     propertyDefinitionsTableLogic,
 } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
+import { UsageDisabledWarning } from 'scenes/data-management/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'

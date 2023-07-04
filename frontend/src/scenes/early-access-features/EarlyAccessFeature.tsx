@@ -70,7 +70,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
                                 >
-                                    {isNewEarlyAccessFeature ? 'Save Draft' : 'Save'}
+                                    {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                                 </LemonButton>
                             </>
                         ) : (
