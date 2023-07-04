@@ -387,8 +387,8 @@ export class SessionManager {
     }
 
     public async destroy(): Promise<void> {
-        this.unsubscribe()
         this.destroying = true
+        this.unsubscribe()
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort()
             this.inProgressUpload = null

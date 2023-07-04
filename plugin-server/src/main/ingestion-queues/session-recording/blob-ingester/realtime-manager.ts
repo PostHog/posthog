@@ -1,6 +1,7 @@
 import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
+import { Counter } from 'prom-client'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
@@ -8,6 +9,18 @@ import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
+
+export const counterRealtimeSnapshotSubscriptionStarted = new Counter({
+    name: 'realtime_snapshots_subscription_started_counter',
+    help: 'Indicates that this consumer received a request to subscribe to provide realtime snapshots for a session',
+    labelNames: ['team_id', 'session_id'],
+})
+
+export const counterRealtimeSnapshotSubscriptionFinished = new Counter({
+    name: 'realtime_snapshots_subscription_finished_counter',
+    help: 'Indicates that this consumer finished providing realtime snapshots for a session',
+    labelNames: ['team_id', 'session_id'],
+})
 
 const Keys = {
     snapshots(teamId: number, suffix: string): string {
@@ -19,7 +32,7 @@ const Keys = {
 /**
  * RealtimeManager
  *
- * This class is responsible for realtime access and optimising the session managers via commiting interim offsets to redis
+ * This class is responsible for realtime access and optimising the session managers via committing interim offsets to redis
  */
 export class RealtimeManager extends EventEmitter {
     private pubsubRedis: Redis | undefined
@@ -39,9 +52,13 @@ export class RealtimeManager extends EventEmitter {
 
     public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
         this.on(`subscription::${teamId}::${sessionId}`, cb)
+        status.info('🔌', 'RealtimeManager subscribed to realtime snapshots', { teamId, sessionId })
+        counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
+            status.info('🔌', 'RealtimeManager unsubscribed from realtime snapshots', { teamId, sessionId })
+            counterRealtimeSnapshotSubscriptionFinished.inc({ team_id: teamId.toString() })
         }
     }
 
@@ -145,6 +162,7 @@ export class RealtimeManager extends EventEmitter {
                 return client.del(key)
             })
         } catch (error) {
+            captureException(error, { tags: { teamId, sessionId }, extra: { key } })
             status.error('🧨', 'RealtimeManager failed to clear all messages from redis', {
                 error,
                 key,
