@@ -34,9 +34,8 @@ import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from
 import { teamLogic } from '../teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -84,8 +83,6 @@ export const insightLogic = kea<insightLogicType>([
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
             groupsModel,
             ['aggregationLabel'],
             cohortsModel,
@@ -152,13 +149,10 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
-                    const load_query_insight_query_params = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
-                        ? '&include_query_insights=true'
-                        : ''
                     const response = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
                             shortId
-                        )}${load_query_insight_query_params}`
+                        )}&include_query_insights=true`
                     )
                     if (response?.results?.[0]) {
                         return response.results[0]
@@ -392,13 +386,12 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDashboardQueries],
-            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDashboardQueries) =>
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
+            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
                 summarizeInsight(insight.query, insight.filters || {}, {
                     aggregationLabel,
                     cohortsById,
                     mathDefinitions,
-                    isUsingDashboardQueries,
                 }).slice(0, 400),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
@@ -561,12 +554,6 @@ export const insightLogic = kea<insightLogicType>([
                     using_entity_session_property_filter ||
                     using_global_session_property_filter
                 )
-            },
-        ],
-        isUsingDashboardQueries: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.HOGQL]
             },
         ],
     }),

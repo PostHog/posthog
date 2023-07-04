@@ -273,7 +273,7 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { insightLoading, isUsingDashboardQueries } = useValues(insightLogic(insightLogicProps))
+    const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
         funnelDataLogic(insightLogicProps)
     )
@@ -344,7 +344,7 @@ function InsightCardInternal(
                     >
                         {!!insight.result ? (
                             <Query query={insight.query} cachedResults={insight.result} readOnly />
-                        ) : isUsingDashboardQueries && canMakeQueryAPICalls ? (
+                        ) : canMakeQueryAPICalls ? (
                             <Query query={insight.query} readOnly />
                         ) : (
                             <QueriesUnsupportedHere />

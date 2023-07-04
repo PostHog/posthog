@@ -1,25 +1,36 @@
 import './SurveyAppearance.scss'
 import { LemonInput } from '@posthog/lemon-ui'
-import { useState } from 'react'
-import { SurveyAppearance as SurveyAppearanceType } from '~/types'
+import { SurveyAppearance as SurveyAppearanceType, SurveyQuestionType } from '~/types'
+import { defaultSurveyAppearance } from './surveyLogic'
 
 interface SurveyAppearanceProps {
-    // type: string
+    type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
+    description?: string | null
+    link?: string | null
     readOnly?: boolean
     onAppearanceChange: (appearance: SurveyAppearanceType) => void
 }
 export function SurveyAppearance({
+    type,
     question,
     appearance,
+    description,
+    link,
     readOnly,
     onAppearanceChange,
 }: SurveyAppearanceProps): JSX.Element {
     return (
         <>
             <h3 className="mb-4 text-center">Preview</h3>
-            <BaseAppearance question={question} appearance={appearance} />
+            <BaseAppearance
+                type={type}
+                question={question}
+                description={description}
+                appearance={appearance}
+                link={link}
+            />
             {!readOnly && (
                 <div className="flex flex-col">
                     <div className="mt-2">Background color</div>
@@ -27,7 +38,7 @@ export function SurveyAppearance({
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
                     />
-                    <div className="mt-2">Text color</div>
+                    <div className="mt-2">Question text color</div>
                     <LemonInput
                         value={appearance?.textColor}
                         onChange={(textColor) => onAppearanceChange({ ...appearance, textColor })}
@@ -36,6 +47,16 @@ export function SurveyAppearance({
                     <LemonInput
                         value={appearance?.submitButtonColor}
                         onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
+                    />
+                    <div className="mt-2">Description text color</div>
+                    <LemonInput
+                        value={appearance?.descriptionTextColor || defaultSurveyAppearance.descriptionTextColor}
+                        onChange={(descriptionTextColor) => onAppearanceChange({ ...appearance, descriptionTextColor })}
+                    />
+                    <div className="mt-2">Submit button text</div>
+                    <LemonInput
+                        value={appearance?.submitButtonText || defaultSurveyAppearance.submitButtonText}
+                        onChange={(submitButtonText) => onAppearanceChange({ ...appearance, submitButtonText })}
                     />
                 </div>
             )}
@@ -67,9 +88,19 @@ const posthogLogoSVG = (
     </svg>
 )
 // This should be synced to the UI of the surveys app plugin
-function BaseAppearance({ question, appearance }: { question: string; appearance: SurveyAppearanceType }): JSX.Element {
-    const [hasText, setHasText] = useState(false)
-
+function BaseAppearance({
+    type,
+    question,
+    appearance,
+    description,
+    link,
+}: {
+    type: SurveyQuestionType
+    question: string
+    appearance: SurveyAppearanceType
+    description?: string | null
+    link?: string | null
+}): JSX.Element {
     return (
         <form className="survey-form" style={{ backgroundColor: appearance.backgroundColor }}>
             <div className="survey-box">
@@ -86,23 +117,26 @@ function BaseAppearance({ question, appearance }: { question: string; appearance
                     <div className="survey-question" style={{ color: appearance.textColor }}>
                         {question}
                     </div>
-                    <textarea
-                        className="survey-textarea"
-                        name="survey"
-                        rows={4}
-                        onChange={(event) => setHasText(!!event?.target.value)}
-                    />
+                    {description && (
+                        <div className="description" style={{ color: appearance.descriptionTextColor }}>
+                            {description}
+                        </div>
+                    )}
+                    {type === SurveyQuestionType.Open && (
+                        <textarea className="survey-textarea" name="survey" rows={4} />
+                    )}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
                         <button
                             className="form-submit"
                             type="button"
-                            disabled={!hasText}
-                            onClick={() => {}}
+                            onClick={() => {
+                                link && type === SurveyQuestionType.Link ? window.open(link) : null
+                            }}
                             style={{ backgroundColor: appearance.submitButtonColor }}
                         >
-                            Submit
+                            {appearance.submitButtonText || 'Submit'}
                         </button>
                     </div>
                     <div className="footer-branding">powered by {posthogLogoSVG} PostHog</div>

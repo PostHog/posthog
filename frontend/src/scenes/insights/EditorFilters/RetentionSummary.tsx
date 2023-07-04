@@ -7,7 +7,6 @@ import {
     retentionOptions,
 } from 'scenes/retention/constants'
 import { FilterType, EditorFilterProps, RetentionType } from '~/types'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
@@ -127,7 +126,6 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                         className="inline-flex items-center"
                     >
                         Go to docs
-                        <IconOpenInNew className="ml-2" />
                     </Link>
                 </p>
             </div>

@@ -56,7 +56,9 @@ export function makeHealthCheck(queue: KafkaJSIngestionConsumer) {
 
     const isHealthy = async () => {
         // Consumer has heartbeat within the session timeout, so it is healthy.
-        if (Date.now() - lastHeartbeat < sessionTimeout) {
+        const milliSecondsToLastHeartbeat = Date.now() - lastHeartbeat
+        if (milliSecondsToLastHeartbeat < sessionTimeout) {
+            status.info('👍', 'Consumer heartbeat is healthy', { milliSecondsToLastHeartbeat, sessionTimeout })
             return true
         }
 
@@ -65,8 +67,11 @@ export function makeHealthCheck(queue: KafkaJSIngestionConsumer) {
         try {
             const { state } = await queue.consumer.describeGroup()
 
+            status.info('ℹ️', 'Consumer group state', { state })
+
             return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
         } catch (error) {
+            status.error('🚨', 'Error checking consumer group state', { error })
             return false
         }
     }

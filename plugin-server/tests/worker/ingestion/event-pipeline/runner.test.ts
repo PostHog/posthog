@@ -92,6 +92,7 @@ describe('EventPipelineRunner', () => {
                 timing: jest.fn(),
             },
         }
+        process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = 'drop_token:drop_id,drop_token_all:*'
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
@@ -117,6 +118,40 @@ describe('EventPipelineRunner', () => {
                 'createEventStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
+        })
+
+        it('drops blacklisted events', async () => {
+            const event = {
+                ...pipelineEvent,
+                token: 'drop_token',
+                distinct_id: 'drop_id',
+            }
+            await runner.runEventPipeline(event)
+            expect(runner.steps).toEqual([])
+        })
+
+        it('does not drop blacklisted token mismatching distinct_id events', async () => {
+            const event = {
+                ...pipelineEvent,
+                token: 'drop_token',
+            }
+            await runner.runEventPipeline(event)
+            expect(runner.steps).toEqual([
+                'populateTeamDataStep',
+                'pluginsProcessEventStep',
+                'processPersonsStep',
+                'prepareEventStep',
+                'createEventStep',
+            ])
+        })
+
+        it('drops blacklisted events by *', async () => {
+            const event = {
+                ...pipelineEvent,
+                token: 'drop_token_all',
+            }
+            await runner.runEventPipeline(event)
+            expect(runner.steps).toEqual([])
         })
 
         it('emits metrics for every step', async () => {

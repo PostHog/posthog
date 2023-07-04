@@ -36,7 +36,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['filters', 'insight', 'isUsingDashboardQueries', 'savedInsight'],
+            ['filters', 'insight', 'savedInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             [
@@ -150,12 +150,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
-            } else if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+            } else if (values.isQueryBasedInsight) {
                 filters = {}
             }
 
             let query = undefined
-            if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+            if (values.isQueryBasedInsight) {
                 query = values.query
             }
 

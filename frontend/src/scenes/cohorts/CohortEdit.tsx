@@ -11,7 +11,7 @@ import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { CohortTypeEnum } from 'lib/constants'
 import { AvailableFeature } from '~/types'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import Dragger from 'antd/lib/upload/Dragger'
@@ -20,23 +20,20 @@ import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Persons } from 'scenes/persons/Persons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
     const logic = cohortEditLogic(logicProps)
-    const { deleteCohort, setOuterGroupsType, setQuery } = useActions(logic)
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(logic)
+    const { deleteCohort, setOuterGroupsType, setQuery, duplicateToStaticCohort } = useActions(logic)
+    const { cohort, cohortLoading, cohortMissing, query, duplicatedStaticCohortLoading } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -71,6 +68,21 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 >
                                     Delete
                                 </LemonButton>
+                            )}
+                            {!isNewCohort && !cohort.is_static && (
+                                <>
+                                    <LemonDivider vertical />
+                                    <LemonButton
+                                        onClick={duplicateToStaticCohort}
+                                        type="secondary"
+                                        disabledReason={
+                                            cohort.is_calculating ? 'Cohort is still calculating' : undefined
+                                        }
+                                        loading={duplicatedStaticCohortLoading}
+                                    >
+                                        Duplicate as static cohort
+                                    </LemonButton>
+                                </>
                             )}
                             <LemonButton
                                 type="primary"
@@ -214,10 +226,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.
                                 </div>
-                            ) : featureDataExploration ? (
-                                <Query query={query} setQuery={setQuery} />
                             ) : (
-                                <Persons cohort={cohort.id} />
+                                <Query query={query} setQuery={setQuery} />
                             )}
                         </div>
                     </>
