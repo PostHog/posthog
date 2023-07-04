@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User
+from posthog.models.notebook.notebook import Notebook
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -56,12 +57,14 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         my_insights = list(Insight.objects.filter(created_by=user).values_list("id", flat=True))
         my_feature_flags = list(FeatureFlag.objects.filter(created_by=user).values_list("id", flat=True))
+        my_notebooks = list(Notebook.objects.filter(created_by=user).values_list("id", flat=True))
         other_peoples_changes = (
             self.queryset.exclude(user=user)
             .filter(team_id=self.team.id)
             .filter(
                 Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                 | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
+                | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks))
             )
             .order_by("-created_at")
         )[:10]
