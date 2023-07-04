@@ -3,8 +3,6 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
-<<<<<<< HEAD
-=======
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
@@ -12,7 +10,6 @@ import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecord
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
->>>>>>> 491d468c2 (Links as marks not nodes)
 import { sampleOne } from 'lib/utils'
 import { NotFound } from 'lib/components/NotFound'
 import clsx from 'clsx'
@@ -22,6 +19,7 @@ import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
+import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 export type NotebookProps = {
     shortId: string

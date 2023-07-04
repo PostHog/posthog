@@ -5,6 +5,7 @@ import {
     ChainedCommands as EditorCommands,
     Range as EditorRange,
 } from '@tiptap/core'
+import { NotebookNodeType } from '~/types'
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface JSONContent extends TTJSONContent {}
@@ -24,11 +25,21 @@ export interface NotebookEditor {
 export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     const selection = editor.state.selection
     const { $anchor, empty } = selection
-    const isEmptyTextBlock = $anchor.parent.isTextblock && !$anchor.parent.type.spec.code && !$anchor.parent.textContent
+    const isEmptyTextBlock =
+        $anchor.parent.isTextblock && !$anchor.parent.type.spec.code && !textContent($anchor.parent)
 
     if (empty && isEmptyTextBlock) {
         return true
     }
 
     return false
+}
+
+const textContent = (node: any): string => {
+    return getText(node, {
+        blockSeparator: ' ',
+        textSerializers: {
+            [NotebookNodeType.Link]: ({ node }) => node.attrs.href,
+        },
+    })
 }
