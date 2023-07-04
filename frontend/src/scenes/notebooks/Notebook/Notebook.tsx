@@ -77,7 +77,6 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                 },
             }),
             NotebookNodeLink,
-
             NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
