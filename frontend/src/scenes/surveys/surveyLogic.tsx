@@ -44,13 +44,19 @@ export interface NewSurvey
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
-export const defaultSurveyAppearance = { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' }
+export const defaultSurveyAppearance = {
+    backgroundColor: 'white',
+    submitButtonColor: '#2C2C2C',
+    textColor: 'black',
+    submitButtonText: 'Submit',
+    descriptionTextColor: 'black',
+}
 
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    questions: [{ type: SurveyQuestionType.Open, question: '' }],
+    questions: [{ type: SurveyQuestionType.Open, question: '', link: null }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
@@ -311,7 +317,12 @@ export const surveyLogic = kea<surveyLogicType>([
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name, questions }) => ({
                 name: !name && 'Please enter a name.',
-                questions: questions.map(({ question }) => ({ question: !question && 'Please enter a question.' })),
+                questions: questions.map((question) => ({
+                    question: !question.question && 'Please enter a question.',
+                    ...(question.type === SurveyQuestionType.Link
+                        ? { link: !question.link && 'Please enter a url for the link.' }
+                        : {}),
+                })),
             }),
             submit: async (surveyPayload) => {
                 const surveyPayloadWithTargetingFlagFilters = {

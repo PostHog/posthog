@@ -5,6 +5,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
   "bufferedToTime": 0,
   "durationMs": 11868,
   "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": false,
   "person": {
     "created_at": "2023-05-01T14:46:20.838000Z",
     "distinct_ids": [
@@ -37,6 +38,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata and sna
   "bufferedToTime": 11868,
   "durationMs": 11868,
   "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": true,
   "person": {
     "created_at": "2023-05-01T14:46:20.838000Z",
     "distinct_ids": [
@@ -2116,6 +2118,7 @@ exports[`sessionRecordingPlayerLogic loading session core loads metadata only by
   "bufferedToTime": 0,
   "durationMs": 11868,
   "end": "2023-05-01T14:46:32.745Z",
+  "fullyLoaded": false,
   "person": {
     "created_at": "2023-05-01T14:46:20.838000Z",
     "distinct_ids": [

@@ -189,6 +189,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Pageview',
             description: 'When a user loads (or reloads) a page.',
         },
+        $pageview_id: {
+            label: 'Pageview ID',
+            description: "PostHog's internal ID for matching events to a pageview.",
+            system: true,
+        },
         $pageleave: {
             label: 'Pageleave',
             description: 'When a user leaves a page.',
@@ -197,6 +202,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
+        },
+        $autocapture_disabled_server_side: {
+            label: 'Autocapture disabled server-side',
+            description: 'If autocapture has been disabled server-side.',
+            system: true,
         },
         $screen: {
             label: 'Screen',
@@ -250,23 +260,23 @@ export const KEY_MAPPING: KeyMappingInterface = {
         // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
         $group_0: {
             label: 'Group 1',
-            hide: true,
+            system: true,
         },
         $group_1: {
             label: 'Group 2',
-            hide: true,
+            system: true,
         },
         $group_2: {
             label: 'Group 3',
-            hide: true,
+            system: true,
         },
         $group_3: {
             label: 'Group 4',
-            hide: true,
+            system: true,
         },
         $group_4: {
             label: 'Group 5',
-            hide: true,
+            system: true,
         },
         $group_set: {
             label: 'Group Set',
@@ -283,12 +293,12 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $window_id: {
             label: 'Window ID',
             description: 'Unique window ID for session recording disambiguation',
-            hide: true,
+            system: true,
         },
         $session_id: {
             label: 'Session ID',
             description: 'Unique session ID for session recording disambiguation',
-            hide: true,
+            system: true,
         },
         $rageclick: {
             label: 'Rageclick',
@@ -413,23 +423,23 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Browser Performance',
             description:
                 'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
-            hide: true,
+            system: true,
         },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
-            hide: true,
+            system: true,
         },
         $sentry_event_id: {
             label: 'Sentry Event ID',
             description: 'This is the Sentry key for an event.',
             examples: ['byroc2ar9ee4ijqp'],
-            hide: true,
+            system: true,
         },
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
-            hide: true,
+            system: true,
         },
         $sentry_exception_message: {
             label: 'Sentry exception message',
@@ -485,13 +495,13 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $ce_version: {
             label: '$ce_version',
             description: '',
-            hide: true,
+            system: true,
         },
         $anon_distinct_id: {
             label: 'Anon Distinct ID',
             description: 'If the user was previously anonymous, their anonymous ID will be set here.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            hide: true,
+            system: true,
         },
         $event_type: {
             label: 'Event Type',
@@ -502,20 +512,20 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
-            hide: true,
+            system: true,
         },
         $time: {
             label: '$time (deprecated)',
             description:
                 'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
-            hide: true,
+            system: true,
             examples: ['1681211521.345'],
         },
         $device_id: {
             label: 'Device ID',
             description: 'Unique ID for that device, consistent even if users are logging in/out.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            hide: true,
+            system: true,
         },
         // GeoIP
         $geoip_city_name: {
