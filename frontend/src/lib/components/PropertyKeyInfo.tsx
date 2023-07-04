@@ -1,9 +1,10 @@
 import './PropertyKeyInfo.scss'
-import { Popover } from 'antd'
-import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { KeyMapping, PropertyFilterValue } from '~/types'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import clsx from 'clsx'
+import { Popover } from 'lib/lemon-ui/Popover'
+import React, { useState } from 'react'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -48,12 +49,12 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $current_url: {
             label: 'Current URL',
-            description: 'The URL visited for this event, including all the trimings.',
+            description: 'The URL visited at the time of the event.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $initial_current_url: {
             label: 'Initial Current URL',
-            description: 'The first URL the user visited, including all the trimings.',
+            description: 'The first URL the user visited.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $browser_version: {
@@ -726,44 +727,6 @@ interface PropertyKeyInfoInterface {
     className?: string
 }
 
-function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
-    return (
-        <span className="PropertyKeyInfo">
-            <span className="PropertyKeyInfoLogo" />
-            {data.label}
-        </span>
-    )
-}
-
-function PropertyKeyDescription({
-    data,
-    value,
-    propertyType,
-}: {
-    data: KeyMapping
-    value: string
-    propertyType?: PropertyDefinition['property_type'] | null
-}): JSX.Element {
-    return (
-        <span>
-            {data.description ? <p>{data.description}</p> : null}
-            {data.examples ? (
-                <p>
-                    <i>Example: </i>
-                    {data.examples.join(', ')}
-                </p>
-            ) : null}
-            {data.description || data.examples ? <hr /> : null}
-            <div>
-                <span>
-                    Sent as <code className="p-1">{value}</code>
-                </span>
-                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
-            </div>
-        </span>
-    )
-}
-
 export function getKeyMapping(
     value: string | PropertyFilterValue | undefined,
     type: 'event' | 'element'
@@ -825,56 +788,71 @@ export function getPropertyLabel(
 export function PropertyKeyInfo({
     value,
     type = 'event',
-    tooltipPlacement = undefined,
     disablePopover = false,
     disableIcon = false,
     ellipsis = true,
     className = '',
 }: PropertyKeyInfoInterface): JSX.Element {
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
     value = value?.toString() ?? '' // convert to string
 
     const data = getKeyMapping(value, type)
     const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
-    // By this point, property is a PH defined property
     const innerContent = (
-        <span className={clsx('PropertyKeyInfo', className)}>
-            {!disableIcon && !!data && <span className="PropertyKeyInfoLogo" />}
-            <span
-                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}
-                title={valueDisplayText}
-            >
+        <span
+            className={clsx('PropertyKeyInfo', className)}
+            aria-label={valueDisplayText}
+            title={ellipsis && disablePopover ? valueDisplayText : undefined}
+        >
+            {!disableIcon && !!data && <span className="PropertyKeyInfo__logo" />}
+            <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
                 {valueDisplayElement}
             </span>
         </span>
     )
 
-    if (!data || disablePopover) {
-        return innerContent
-    }
-
-    const popoverProps = tooltipPlacement
-        ? {
-              visible: true,
-              placement: tooltipPlacement,
-          }
-        : {
-              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
-          }
-
-    const popoverTitle = <PropertyKeyTitle data={data} />
-    const popoverContent = <PropertyKeyDescription data={data} value={value} />
-
-    return (
+    return !data || disablePopover ? (
+        innerContent
+    ) : (
         <Popover
-            overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`PropertyKeyInfoTooltip ${className || ''}`}
-            title={popoverTitle}
-            content={popoverContent}
-            {...popoverProps}
+            className={className}
+            overlay={
+                <div className="PropertyKeyInfo__overlay">
+                    <div className="PropertyKeyInfo__header">
+                        {!!data && <span className="PropertyKeyInfo__logo" />}
+                        {data.label}
+                    </div>
+                    {data.description || data.examples ? (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <div>
+                                {data.description ? <p>{data.description}</p> : null}
+                                {data.examples ? (
+                                    <p>
+                                        <i>Example value{data.examples.length === 1 ? '' : 's'}: </i>
+                                        {data.examples.join(', ')}
+                                    </p>
+                                ) : null}
+                            </div>
+                        </>
+                    ) : null}
+                    <LemonDivider className="my-3" />
+                    <div>
+                        Sent as <code>{value}</code>
+                    </div>
+                </div>
+            }
+            visible={popoverVisible}
+            showArrow
+            placement="right"
         >
-            {innerContent}
+            {React.cloneElement(innerContent, {
+                onMouseEnter: () => setPopoverVisible(true),
+                onMouseLeave: () => setPopoverVisible(false),
+            })}
         </Popover>
     )
 }
