@@ -366,6 +366,7 @@ class FeatureFlagMatcher:
                             Filter(data=condition).property_groups.flat,
                             override_property_values=target_properties,
                             cohorts_cache=self.cohorts_cache,
+                            using_database=DATABASE_FOR_FLAG_MATCHING,
                         )
 
                         # TRICKY: Due to property overrides for cohorts, we sometimes shortcircuit the condition check.

@@ -2274,6 +2274,154 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+    def test_decide_uses_read_replica_for_cohorts_based_flags(self, mock_is_connected):
+
+        org, team, user = self.setup_user_and_team_in_db("default")
+        self.organization, self.team, self.user = org, team, user
+
+        cohort_dynamic = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "email", "value": "tim@posthog.com", "type": "person"},
+                                {"key": "email", "value": "tim3@posthog.com", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort_static = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="cohort2",
+        )
+
+        persons = [
+            {"distinct_ids": ["example_id"], "properties": {"email": "tim@posthog.com"}},
+            {"distinct_ids": ["cohort_founder"], "properties": {"email": "tim2@posthog.com"}},
+            {"distinct_ids": ["cohort_secondary"], "properties": {"email": "tim3@posthog.com"}},
+        ]
+        flags = [
+            {
+                "filters": {"groups": [{"properties": [{"key": "id", "value": cohort_static.pk, "type": "cohort"}]}]},
+                "name": "This is a feature flag with default params, no filters.",
+                "key": "static-flag",
+            },
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "value": cohort_dynamic.pk, "type": "cohort"}],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+                "name": "This is a feature flag with default params, no filters.",
+                "key": "dynamic-flag",
+            },
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "id", "value": cohort_dynamic.pk, "type": "cohort"},
+                                {"key": "id", "value": cohort_static.pk, "type": "cohort"},
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+                "name": "This is a feature flag with default params, no filters.",
+                "key": "both-flag",
+            },
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "id", "value": cohort_dynamic.pk, "type": "cohort"}],
+                        },
+                        {
+                            "properties": [{"key": "id", "value": cohort_static.pk, "type": "cohort"}],
+                        },
+                    ]
+                },
+                "name": "This is a feature flag with default params, no filters.",
+                "key": "either-flag",
+            },
+        ]
+        self.setup_flags_in_db("default", team, user, flags, persons)
+
+        cohort_static.insert_users_by_list(["cohort_founder", "cohort_secondary"])
+
+        # make sure we have the flags in cache
+        response = self._post_decide(api_version=3)
+
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self._post_decide(api_version=3, distinct_id="cohort_founder")
+            # Replica queries:
+            # E   1. SET LOCAL statement_timeout = 600
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
+            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "static-flag": True,
+                    "dynamic-flag": False,
+                    "both-flag": False,
+                    "either-flag": True,
+                },
+            )
+
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self._post_decide(api_version=3, distinct_id="example_id")
+            # Replica queries:
+            # E   1. SET LOCAL statement_timeout = 600
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
+            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "static-flag": False,
+                    "dynamic-flag": True,
+                    "both-flag": False,
+                    "either-flag": True,
+                },
+            )
+
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
+            # Replica queries:
+            # E   1. SET LOCAL statement_timeout = 600
+            # E   2. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. static cohort selection
+            # E   3. SELECT "posthog_cohort"."id", "posthog_cohort"."name", -- i.e. dynamic cohort selection
+            # E   4. SELECT EXISTS(SELECT (1) AS "a" FROM "posthog_cohortpeople" U0 WHERE (U0."cohort_id" = 28 AND U0."cohort_id" = 28 AND U0."person_id" = "posthog_person"."id") LIMIT 1) AS "flag_47_condition_0",  -- a.k.a flag selection query
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "static-flag": True,
+                    "dynamic-flag": True,
+                    "both-flag": True,
+                    "either-flag": True,
+                },
+            )
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
     def test_feature_flags_v3_consistent_flags(self, mock_is_connected):
 
         org, team, user = self.setup_user_and_team_in_db("default")
