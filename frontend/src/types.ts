@@ -2981,6 +2981,12 @@ export enum NotebookNodeType {
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
 
+export interface NotebookEditor {
+    getJSON: () => JSONContent
+    setContent: (content: JSONContent) => void
+    hasContent: () => boolean
+}
+
 export interface DataWarehouseCredential {
     access_key: string
     access_secret: string
