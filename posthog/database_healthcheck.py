@@ -2,6 +2,10 @@ import time
 from typing import Optional
 from django.db import connections
 import structlog
+from django.conf import settings
+
+DATABASE_FOR_FLAG_MATCHING = "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
+
 
 logger = structlog.get_logger(__name__)
 
@@ -43,8 +47,6 @@ class DatabaseHealthcheck:
         return round(time.time() / self.time_interval)
 
     def is_postgres_connected_check(self) -> bool:
-        from posthog.models.feature_flag.flag_matching import DATABASE_FOR_FLAG_MATCHING
-
         try:
             with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
                 cursor.execute("SELECT 1")

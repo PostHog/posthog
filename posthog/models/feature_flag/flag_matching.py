@@ -11,7 +11,6 @@ from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q
 from django.db.models.query import QuerySet
-from django.conf import settings
 from sentry_sdk.api import capture_exception
 
 from posthog.models.filters import Filter
@@ -24,7 +23,7 @@ from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
-from posthog.database_healthcheck import postgres_healthcheck
+from posthog.database_healthcheck import postgres_healthcheck, DATABASE_FOR_FLAG_MATCHING
 
 from .feature_flag import (
     FeatureFlag,
@@ -44,8 +43,6 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "Failed decide requests with reason.",
     labelnames=["reason"],
 )
-
-DATABASE_FOR_FLAG_MATCHING = "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
 
 
 class FeatureFlagMatchReason(str, Enum):
