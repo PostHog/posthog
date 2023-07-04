@@ -123,6 +123,7 @@ describe('sessionRecordingDataLogic', () => {
                         segments: [],
                         person: null,
                         snapshotsByWindowId: {},
+                        fullyLoaded: false,
                     },
                 })
             resumeKeaLoadersErrors()
