@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import type { eventUsageLogicType } from './eventUsageLogicType'
 import {
-    AnnotationType,
     FilterType,
     DashboardType,
     PersonType,
@@ -226,8 +225,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
     },
     actions: {
-        reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
-        reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
         reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
@@ -255,13 +252,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }),
         reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
-        reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
-        reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
-            stepKey,
-            extraArgs,
-        }),
         reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
         reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
             nameProvided,
@@ -309,7 +301,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             pinned,
             source,
         }),
-        reportDashboardDropdownNavigation: true,
         reportDashboardFrontEndUpdate: (
             attribute: 'name' | 'description' | 'tags',
             originalLength: number,
@@ -324,21 +315,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
-        reportProjectHomeItemClicked: (
-            module: string,
-            item: string,
-            extraProps?: Record<string, string | boolean | number | undefined>
-        ) => ({ module, item, extraProps }),
-        reportProjectHomeSeen: (teamHasData: boolean) => ({ teamHasData }),
-        reportInsightHistoryItemClicked: (itemType: string, displayLocation?: string) => ({
-            itemType,
-            displayLocation,
-        }),
-        reportEventSearched: (searchTerm: string, extraProps?: Record<string, number>) => ({
-            searchTerm,
-            extraProps,
-        }),
-        reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
         reportInsightFilterRemoved: (index: number) => ({ index }),
         reportInsightFilterAdded: (newLength: number, source: GraphSeriesAddedSource) => ({ newLength, source }),
         reportInsightFilterSet: (
@@ -352,14 +328,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportRemovedInsightFromDashboard: true,
-        reportInsightsTabReset: true,
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
-        reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
-        reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
             playerData: SessionPlayerData,
@@ -368,7 +341,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             delay?: number,
             loadedFromBlobStorage?: boolean
         ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
-        reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
