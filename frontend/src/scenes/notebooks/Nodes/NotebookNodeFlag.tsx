@@ -19,7 +19,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeWrapper
             nodeType={NotebookNodeType.FeatureFlag}
-            title="FeatureFlag"
+            title="Feature Flag"
             {...props}
             href={urls.featureFlag(id)}
             heightEstimate={'3rem'}
@@ -32,7 +32,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (
                         <>
-                            <span className="flex-1 font-semibold truncate">{featureFlag.name}</span>
+                            <span className="flex-1 font-semibold truncate">{featureFlag.name} meme</span>
                             <span
                                 className={clsx(
                                     'text-white rounded px-1',

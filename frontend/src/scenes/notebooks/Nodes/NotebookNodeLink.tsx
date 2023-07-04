@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
-import { posthogNodePasteRule } from './utils'
+import { posthogNodePasteRule, externalLinkPasteRule } from './utils'
 import { Link } from '@posthog/lemon-ui'
 import { useMemo } from 'react'
 import {
@@ -18,6 +18,7 @@ import {
     IconCohort,
     IconComment,
     IconLink,
+    IconJournal,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 
@@ -28,6 +29,7 @@ const ICON_MAP = {
     feature_flags: <IconFlag />,
     early_access_features: <IconRocketLaunch />,
     experiments: <IconExperiment />,
+    notebooks: <IconJournal />,
     'web-performance': <IconCoffee />,
     events: <IconLive />,
     'data-management': <IconUnverifiedEvent />,
@@ -51,9 +53,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
         <NodeViewWrapper as="span">
             <Link
                 to={path}
+                // target={external ? '_blank' : '_self'}
                 className={clsx(
                     'py-px px-1 rounded',
-                    props.selected && 'bg-primary-light text-white',
+                    props.selected && 'bg-primary-light',
                     !props.selected && 'bg-primary-highlight'
                 )}
             >
@@ -96,6 +99,13 @@ export const NotebookNodeLink = Node.create({
     addPasteRules() {
         return [
             posthogNodePasteRule({
+                find: '(.+)',
+                type: this.type,
+                getAttributes: (match) => {
+                    return { href: match[0] }
+                },
+            }),
+            externalLinkPasteRule({
                 find: '(.+)',
                 type: this.type,
                 getAttributes: (match) => {
