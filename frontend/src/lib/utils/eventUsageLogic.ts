@@ -530,32 +530,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
             posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
         },
-        reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
-            posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
-        },
-        reportAnnotationViewed: async ({ annotations }, breakpoint) => {
-            if (!annotations) {
-                // If value is `null` the component has been unmounted, don't report
-                return
-            }
-
-            await breakpoint(500) // Debounce calls to make sure we don't report accidentally hovering over an annotation.
-
-            for (const annotation of annotations) {
-                /* Report one event per annotation */
-                const properties = {
-                    total_items_count: annotations.length,
-                    content_length: annotation.content?.length || 0,
-                    scope: annotation.scope,
-                    deleted: annotation.deleted,
-                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,
-                    creation_type: annotation.creation_type,
-                    created_at: annotation.created_at,
-                    updated_at: annotation.updated_at,
-                }
-                posthog.capture('annotation viewed', properties)
-            }
-        },
         reportPersonDetailViewed: async (
             {
                 person,
@@ -723,11 +697,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             await breakpoint(500)
             posthog.capture('bookmarklet drag start')
         },
-        reportIngestionBookmarkletCollapsible: async ({ activePanels }, breakpoint) => {
-            breakpoint(500)
-            const action = activePanels.includes('bookmarklet') ? 'shown' : 'hidden'
-            posthog.capture(`ingestion bookmarklet panel ${action}`)
-        },
         reportProjectCreationSubmitted: async ({
             projectCount,
             nameLength,
@@ -743,10 +712,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportProjectNoticeDismissed: async ({ key }) => {
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
-        },
-        reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {
-            // Fired after the user attempts to start an onboarding step (e.g. clicking on create project)
-            posthog.capture('onboarding step triggered', { step: stepKey, ...extraArgs })
         },
         reportBulkInviteAttempted: async ({
             inviteesCount,
@@ -811,11 +776,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)
         },
-        reportDashboardDropdownNavigation: async () => {
-            /* Triggered when a user navigates using the dropdown in the header.
-             */
-            posthog.capture(`dashboard dropdown navigated`)
-        },
         reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
                 attribute,
@@ -844,38 +804,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionLandingSeen: async () => {
             posthog.capture('ingestion landing seen')
         },
-        reportProjectHomeItemClicked: async ({ module, item, extraProps }) => {
-            const defaultProps = { module, item }
-            const eventProps = extraProps ? { ...defaultProps, ...extraProps } : defaultProps
-            posthog.capture('project home item clicked', eventProps)
-        },
-        reportProjectHomeSeen: async ({ teamHasData }) => {
-            posthog.capture('project home seen', { team_has_data: teamHasData })
-        },
 
-        reportInsightHistoryItemClicked: async ({ itemType, displayLocation }) => {
-            posthog.capture('insight history item clicked', { item_type: itemType, display_location: displayLocation })
-            if (displayLocation === 'project home') {
-                // Special case to help w/ project home reporting.
-                posthog.capture('project home item clicked', {
-                    module: 'insights',
-                    item: 'recent_analysis',
-                    item_type: itemType,
-                    display_location: displayLocation,
-                })
-            }
-        },
-
-        reportEventSearched: async ({ searchTerm, extraProps }) => {
-            // This event is only captured on PostHog Cloud
-            if (values.realm === 'cloud') {
-                // Triggered when a search is executed for an action/event (mainly for use on insights)
-                posthog.capture('event searched', { searchTerm, ...extraProps })
-            }
-        },
-        reportInsightFilterUpdated: async ({ type, index, name }) => {
-            posthog.capture('filter updated', { type, index, name })
-        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -900,14 +829,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRemovedInsightFromDashboard: async () => {
             posthog.capture('removed insight from dashboard')
         },
-        reportInsightsTabReset: async () => {
-            posthog.capture('insights tab reset')
-        },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
-        },
-        reportInsightShortUrlVisited: (props) => {
-            posthog.capture('insight short url visited', props)
         },
         reportSavedInsightFilterUsed: ({ filterKeys }) => {
             posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
@@ -939,9 +862,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 loadedFromBlobStorage,
             }
             posthog.capture(`recording ${type}`, payload)
-        },
-        reportPersonMerged: (props) => {
-            posthog.capture('merge person completed', props)
         },
         reportPersonSplit: (props) => {
             posthog.capture('split person started', props)
