@@ -128,6 +128,10 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
         content = object_storage.read_bytes(asset.content_location)
 
     if not content:
+        # if we don't have content, the asset is invalid, so, expire it
+        asset.expires_after = now()
+        asset.save()
+
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
