@@ -254,6 +254,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             ),
         }
     }
+
     if (logItem.activity == 'deleted') {
         return {
             description: (
@@ -264,6 +265,40 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             ),
         }
     }
+
+    if (logItem.activity == 'exported for opengraph image') {
+        return {
+            description: (
+                <>
+                    <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}{' '}
+                    as an image for the shared insight link.
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'sharing enabled') {
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    {logItem.detail.name}.
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'sharing disabled') {
+        return {
+            description: (
+                <>
+                    <strong>{logItem.user.first_name}</strong> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
+                    insight: {logItem.detail.name}.
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let extendedDescription: JSX.Element | undefined

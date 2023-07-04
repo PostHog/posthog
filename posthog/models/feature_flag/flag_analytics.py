@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
 
+# :NOTE: When making changes here, make sure you run test_no_interference_between_different_types_of_new_incoming_increments
+# locally. It's not included in CI because of tricky patching freeze time in thread issues.
+
 
 def get_team_request_key(team_id: int, request_type: FlagRequestType) -> str:
     if request_type == FlagRequestType.DECIDE:

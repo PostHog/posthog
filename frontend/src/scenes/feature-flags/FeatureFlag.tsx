@@ -889,6 +889,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
+                                                disabled={
+                                                    !!(
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                    )
+                                                }
                                             />
                                         </Field>
                                     </Col>
@@ -973,7 +979,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             icon={<IconPlus />}
                             disabledReason={
                                 featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                    ? 'Cannot add variants to a feature flag that is part of an experiment'
+                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
                                     : undefined
                             }
                             tooltipPlacement="topLeft"
