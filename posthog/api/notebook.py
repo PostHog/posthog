@@ -26,6 +26,7 @@ def log_notebook_activity(
     activity: str,
     notebook_id: str,
     notebook_short_id: str,
+    notebook_name: str,
     organization_id: UUIDT,
     team_id: int,
     user: User,
@@ -38,7 +39,7 @@ def log_notebook_activity(
         item_id=notebook_id,
         scope="Notebook",
         activity=activity,
-        detail=Detail(changes=changes, short_id=notebook_short_id),
+        detail=Detail(changes=changes, short_id=notebook_short_id, name=notebook_name),
     )
 
 
@@ -82,6 +83,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             activity="created",
             notebook_id=notebook.id,
             notebook_short_id=str(notebook.short_id),
+            notebook_name=notebook.title,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
@@ -115,6 +117,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             activity="updated",
             notebook_id=str(updated_notebook.id),
             notebook_short_id=str(updated_notebook.short_id),
+            notebook_name=updated_notebook.title,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,

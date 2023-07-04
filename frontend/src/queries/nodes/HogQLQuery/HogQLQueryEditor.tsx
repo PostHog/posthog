@@ -9,7 +9,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
+import type { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
