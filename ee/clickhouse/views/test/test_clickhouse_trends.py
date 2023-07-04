@@ -102,6 +102,7 @@ def test_includes_only_intervals_within_range(client: Client):
             ),
         )
         assert trends == {
+            "cache_key": "cache_1cee0654697e2ccb76f55bf9819fa560",
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -175,6 +176,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
         )
 
         assert interval_3_trend == {
+            "cache_key": "cache_c84c87e5a5ed024f7d58f8b595d3520f",
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -217,6 +219,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
         )
 
         assert interval_2_trend == {
+            "cache_key": "cache_e8f9b616177401821103116f3d0bce7b",
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -259,6 +262,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
         )
 
         assert interval_1_trend == {
+            "cache_key": "cache_5f8472b0f02abd54cddcfa81779628c4",
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -343,6 +347,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
         )
 
         assert interval_3_trend == {
+            "cache_key": "cache_c84c87e5a5ed024f7d58f8b595d3520f",
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -385,6 +390,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
         )
 
         assert interval_1_trend == {
+            "cache_key": "cache_5f8472b0f02abd54cddcfa81779628c4",
             "is_cached": False,
             "last_refresh": "2021-09-20T16:00:00Z",
             "next": None,
@@ -515,7 +521,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_insight_trends_basic(self):
-
         events_by_person = {
             "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)}],
             "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)}],
@@ -523,7 +528,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         created_people = journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -563,7 +567,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         created_people = journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -612,7 +615,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_insight_trends_clean_arg(self):
-
         events_by_actor = {
             "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3), "properties": {"key": "val"}}],
             "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)}],
@@ -620,7 +622,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
         created_actors = journeys_for(events_by_actor, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -647,7 +648,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_insight_trends_aggregate(self):
-
         events_by_person = {
             "1": [{"event": "$pageview", "timestamp": datetime(2012, 1, 13, 3)}],
             "2": [{"event": "$pageview", "timestamp": datetime(2012, 1, 14, 3)}],
@@ -685,7 +685,6 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_insight_trends_cumulative(self):
-
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "some_val"})
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "some_val"})
         _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"key": "some_val"})
@@ -1035,7 +1034,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1062,7 +1060,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1102,7 +1099,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1152,7 +1148,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1204,7 +1199,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1241,7 +1235,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1288,7 +1281,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1346,7 +1338,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-
             request = TrendsRequestBreakdown(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1401,7 +1392,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-14T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",
@@ -1430,7 +1420,6 @@ class ClickhouseTestTrendsCaching(ClickhouseTestMixin, LicensedTestMixin, APIBas
         journeys_for(events_by_person, self.team)
 
         with freeze_time("2012-01-16T04:01:34.000Z"):
-
             request = TrendsRequest(
                 date_from="-14d",
                 display="ActionsLineGraph",

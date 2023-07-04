@@ -450,6 +450,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response_data,
             {
+                "cache_key": "cache_ffbb9f54fff9053db81fa4ff0e913435",
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -508,6 +509,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response_data,
             {
+                "cache_key": "cache_0c0db0650f89774b9295e7c2dcb34d74",
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
@@ -566,6 +568,7 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             response_data,
             {
+                "cache_key": "cache_11b5c1c3904943d6cc9ca7aeb263d795",
                 "is_cached": False,
                 "timezone": "UTC",
                 "result": {
