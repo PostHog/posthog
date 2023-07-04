@@ -16,6 +16,12 @@ import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage, now } from './utils'
 
+export const counterRealtimeSnapshotSubscriptionStarted = new Counter({
+    name: 'realtime_snapshots_subscription_started_counter',
+    help: 'Indicates that this consumer received a request to subscribe to provide realtime snapshots for a session',
+    labelNames: ['team_id'],
+})
+
 export const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
@@ -80,6 +86,11 @@ export class SessionManager {
         void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
         this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+            status.info('🔌', 'blob_ingester_session_manager RealtimeManager subscribed to realtime snapshots', {
+                teamId,
+                sessionId,
+            })
+            counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
             void this.startRealtime()
         })
     }
@@ -387,8 +398,8 @@ export class SessionManager {
     }
 
     public async destroy(): Promise<void> {
-        this.unsubscribe()
         this.destroying = true
+        this.unsubscribe()
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort()
             this.inProgressUpload = null

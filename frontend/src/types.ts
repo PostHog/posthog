@@ -2494,7 +2494,8 @@ export interface KeyMapping {
     label: string
     description?: string | JSX.Element
     examples?: string[]
-    hide?: boolean
+    /** System properties are hidden in properties table by default. */
+    system?: boolean
 }
 
 export interface TileParams {

@@ -29,13 +29,13 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
     const visibleSystemProperties: Properties = {}
     let systemPropsCount = 0
     for (const key of Object.keys(event.properties)) {
-        if (KEY_MAPPING.event[key] && KEY_MAPPING.event[key].hide) {
+        if (KEY_MAPPING.event[key] && KEY_MAPPING.event[key].system) {
             systemPropsCount += 1
             if (showSystemProps) {
                 visibleSystemProperties[key] = event.properties[key]
             }
         }
-        if (!KEY_MAPPING.event[key] || !KEY_MAPPING.event[key].hide) {
+        if (!KEY_MAPPING.event[key] || !KEY_MAPPING.event[key].system) {
             displayedEventProperties[key] = event.properties[key]
         }
     }
