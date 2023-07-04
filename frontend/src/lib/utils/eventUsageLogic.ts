@@ -225,7 +225,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
     },
     actions: {
+        // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
+        reportPersonsModalViewed: (params: any) => ({
+            params,
+        }),
+        reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
+        // insights
         reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
         reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
@@ -247,18 +253,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             changedFilters,
             isUsingSessionAnalysis,
         }),
-        reportPersonsModalViewed: (params: any) => ({
-            params,
-        }),
-        reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
-        reportBookmarkletDragged: true,
-        reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
-        reportProjectNoticeDismissed: (key: string) => ({ key }),
-        reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
-        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
-            nameProvided,
-            instanceEmailAvailable,
-        }),
         reportFunnelCalculated: (
             eventCount: number,
             actionCount: number,
@@ -274,7 +268,48 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             success,
             error,
         }),
+        // insight filters
         reportFunnelStepReordered: true,
+        reportInsightFilterRemoved: (index: number) => ({ index }),
+        reportInsightFilterAdded: (newLength: number, source: GraphSeriesAddedSource) => ({ newLength, source }),
+        reportInsightFilterSet: (
+            filters: Array<{
+                id: string | number | null
+                type?: EntityType
+            }>
+        ) => ({ filters }),
+        reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
+        reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
+        reportPropertyGroupFilterAdded: true,
+        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
+            type,
+            groupsLength,
+        }),
+        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
+            type,
+            filtersLength,
+        }),
+        // insight funnel correlation
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
+            filters,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            propertiesTable,
+        }),
+        reportCorrelationInteraction: (
+            correlationType: FunnelCorrelation['result_type'],
+            action: string,
+            props?: Record<string, any>
+        ) => ({ correlationType, action, props }),
+        reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
+        reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
+        reportBookmarkletDragged: true,
+        reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
+        reportProjectNoticeDismissed: (key: string) => ({ key }),
+        reportBulkInviteAttempted: (inviteesCount: number, namesCount: number) => ({ inviteesCount, namesCount }),
+        reportInviteAttempted: (nameProvided: boolean, instanceEmailAvailable: boolean) => ({
+            nameProvided,
+            instanceEmailAvailable,
+        }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -315,20 +350,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
-        reportInsightFilterRemoved: (index: number) => ({ index }),
-        reportInsightFilterAdded: (newLength: number, source: GraphSeriesAddedSource) => ({ newLength, source }),
-        reportInsightFilterSet: (
-            filters: Array<{
-                id: string | number | null
-                type?: EntityType
-            }>
-        ) => ({ filters }),
-        reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
         reportRemovedInsightFromDashboard: true,
-        reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
@@ -343,18 +368,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
-            filters,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
-            propertiesTable,
-        }),
-        reportCorrelationInteraction: (
-            correlationType: FunnelCorrelation['result_type'],
-            action: string,
-            props?: Record<string, any>
-        ) => ({ correlationType, action, props }),
-        reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
-        reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportRecordingsListFetched: (loadTime: number, listingVersion: '1' | '2' | '3') => ({
             loadTime,
             listingVersion,
@@ -396,15 +409,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             endDate,
             duration,
             significant,
-        }),
-        reportPropertyGroupFilterAdded: true,
-        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
-            type,
-            groupsLength,
-        }),
-        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
-            type,
-            filtersLength,
         }),
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
