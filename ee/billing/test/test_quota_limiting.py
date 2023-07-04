@@ -71,7 +71,9 @@ class TestQuotaLimiting(BaseTest):
                     timestamp=now() - relativedelta(hours=1),
                     team=self.team,
                 )
+        import time
 
+        time.sleep(5)
         result = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
         assert result["events"] == {org_id: 1612137599}
