@@ -10,16 +10,10 @@ import { createRedis } from '../../../../utils/utils'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
 
-export const counterRealtimeSnapshotSubscriptionStarted = new Counter({
-    name: 'realtime_snapshots_subscription_started_counter',
-    help: 'Indicates that this consumer received a request to subscribe to provide realtime snapshots for a session',
-    labelNames: ['team_id', 'session_id'],
-})
-
 export const counterRealtimeSnapshotSubscriptionFinished = new Counter({
     name: 'realtime_snapshots_subscription_finished_counter',
     help: 'Indicates that this consumer finished providing realtime snapshots for a session',
-    labelNames: ['team_id', 'session_id'],
+    labelNames: ['team_id'],
 })
 
 const Keys = {
@@ -52,8 +46,6 @@ export class RealtimeManager extends EventEmitter {
 
     public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
         this.on(`subscription::${teamId}::${sessionId}`, cb)
-        status.info('🔌', 'RealtimeManager subscribed to realtime snapshots', { teamId, sessionId })
-        counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
