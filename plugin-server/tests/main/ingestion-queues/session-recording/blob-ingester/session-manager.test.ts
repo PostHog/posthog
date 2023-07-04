@@ -216,7 +216,7 @@ describe('session-manager', () => {
         expect(createReadStream).not.toHaveBeenCalled()
 
         // Manually modify the date to simulate this being idle for too long
-        sessionManager.buffer.createdAt = now.minus({ milliseconds: 3000 }).toMillis()
+        sessionManager.buffer.createdAt = now.minus({ milliseconds: 6000 }).toMillis()
         await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
         expect(createReadStream).toHaveBeenCalled()
     })

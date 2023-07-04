@@ -52,11 +52,13 @@ export class RealtimeManager extends EventEmitter {
 
     public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
         this.on(`subscription::${teamId}::${sessionId}`, cb)
-        counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString(), session_id: sessionId })
+        status.info('🔌', 'RealtimeManager subscribed to realtime snapshots', { teamId, sessionId })
+        counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
-            counterRealtimeSnapshotSubscriptionFinished.inc({ team_id: teamId.toString(), session_id: sessionId })
+            status.info('🔌', 'RealtimeManager unsubscribed from realtime snapshots', { teamId, sessionId })
+            counterRealtimeSnapshotSubscriptionFinished.inc({ team_id: teamId.toString() })
         }
     }
 
@@ -160,6 +162,7 @@ export class RealtimeManager extends EventEmitter {
                 return client.del(key)
             })
         } catch (error) {
+            captureException(error, { tags: { teamId, sessionId }, extra: { key } })
             status.error('🧨', 'RealtimeManager failed to clear all messages from redis', {
                 error,
                 key,
