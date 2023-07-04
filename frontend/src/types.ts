@@ -2976,10 +2976,7 @@ export enum NotebookNodeType {
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
-}
-
-export enum NotebookMarkType {
-    Link = 'link',
+    Link = 'ph-link',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

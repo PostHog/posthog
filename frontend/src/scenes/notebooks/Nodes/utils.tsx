@@ -46,7 +46,7 @@ export function posthogNodePasteRule(options: {
     })
 }
 
-export function linkPasteRule(options: {
+export function posthogMarkPasteRule(options: {
     find: string
     type: MarkType
     getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
@@ -56,7 +56,22 @@ export function linkPasteRule(options: {
         type: options.type,
         getAttributes: (match) => {
             const attrs = options.getAttributes(match)
-            posthog.capture('notebook node pasted', { node_type: options.type.name })
+            posthog.capture('notebook link pasted', { node_type: options.type.name })
+            return attrs
+        },
+    })
+}
+
+export function externalMarkPasteRule(options: {
+    find: string
+    type: MarkType
+    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+}): PasteRule {
+    return markPasteRule({
+        find: createUrlRegex(options.find, '(https?|mailto)://'),
+        type: options.type,
+        getAttributes: (match) => {
+            const attrs = options.getAttributes(match)
             return attrs
         },
     })
