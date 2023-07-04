@@ -31,7 +31,7 @@ describe('runAsyncHandlersStep()', () => {
             nextStep: (...args: any[]) => args,
             hub: {
                 capabilities: {
-                    processAsyncHandlers: true,
+                    processAsyncOnEventHandlers: true,
                 },
                 actionMatcher: {
                     match: jest.fn().mockResolvedValue(['action1', 'action2']),

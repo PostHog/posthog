@@ -170,7 +170,9 @@ export interface PluginsServerConfig {
         | 'ingestion'
         | 'ingestion-overflow'
         | 'async'
-        | 'exports'
+        | 'async-onevent'
+        | 'async-webhooks'
+        | 'exports' // TODO: remove once onevent and webhooks split is out
         | 'jobs'
         | 'scheduler'
         | 'analytics-ingestion'
@@ -254,6 +256,8 @@ export interface PluginServerCapabilities {
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
+    processAsyncOnEventHandlers?: boolean
+    processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     http?: boolean

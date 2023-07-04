@@ -98,6 +98,10 @@ function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string 
             return 'RECORDINGS-BLOB-INGESTION'
         case 'async':
             return 'ASYNC'
+        case 'async-onevent':
+            return 'ASYNC-ONEVENT'
+        case 'async-webhooks':
+            return 'ASYNC-WEBHOOKS'
         case 'exports':
             return 'EXPORTS'
         case 'jobs':
