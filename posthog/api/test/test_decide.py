@@ -2100,6 +2100,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
     POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog'  ./bin/tests posthog/api/test/test_decide.py::TestDecideUsesReadReplica
 
     or run locally with the same env vars.
+    For local run, also change postgres_config in data_stores.py so you can have a different user for the read replica.
+
+    POSTHOG_DB_NAME='posthog' READ_REPLICA_OPT_IN='decide' POSTHOG_POSTGRES_READ_HOST='localhost'  POSTHOG_DB_PASSWORD='posthog' POSTHOG_DB_USER='posthog' POSTHOG_DB_PASSWORD_READ_REPLICA='password' POSTHOG_DB_USER_READ_REPLICA='posthog2' ./bin/start
 
     This test suite aims to be comprehensive, covering all decide code paths so we can catch if something is hitting the main db
     when it shouldn't be.
@@ -2383,11 +2386,18 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         # now main database is down, but does not affect replica
 
-        # TODO: Walk through this case, see things work fine - db down, but replica up, the INSERT should still have been called because we're
-        # not sure yet that overrides already exist.
         with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
             5, using="replica"
         ), self.assertNumQueries(1, using="default"):
+            # Replica queries:
+            # E   1. SET LOCAL statement_timeout = 300
+            # E   2. SELECT "posthog_persondistinctid"."person_id", -- i.e person from distinct ids
+            # E   3. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", -- i.e. hash key overrides (note this would've gone to main db if insert did not fail)
+            # E   4. SET LOCAL statement_timeout = 600
+            # E   5. SELECT (true) AS "flag_13_condition_0", (true) AS "flag_14_condition_0", -- flag matching
+            # Main queries:
+            # E   1. SET LOCAL statement_timeout = 300 --> failed here, even before it could insert
+
             response = self._post_decide(
                 api_version=3,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example22_id"},

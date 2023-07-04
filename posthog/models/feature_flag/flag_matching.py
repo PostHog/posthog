@@ -629,7 +629,10 @@ def get_all_feature_flags(
             # since the set_feature_flag_hash_key_overrides call will fail.
 
             # For this case, and for any other case, do not error out on decide, just continue assuming continuity couldn't happen.
-            handle_feature_flag_exception(e, "[Feature Flags] Error while setting feature flag hash key overrides")
+            # At the same time, don't set db down, because the read-replica might still be up.
+            handle_feature_flag_exception(
+                e, "[Feature Flags] Error while setting feature flag hash key overrides", set_healthcheck=False
+            )
 
     # This is the read-path for experience continuity. We need to get the overrides, and to do that, we get the person_id.
     try:
@@ -724,14 +727,14 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: List[str], h
     return False
 
 
-def handle_feature_flag_exception(err: Exception, log_message: str = ""):
+def handle_feature_flag_exception(err: Exception, log_message: str = "", set_healthcheck: bool = True):
     logger.exception(log_message)
     reason = parse_exception_for_error_message(err)
     FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
     if reason == "unknown":
         capture_exception(err)
 
-    if isinstance(err, DatabaseError):
+    if isinstance(err, DatabaseError) and set_healthcheck:
         postgres_healthcheck.set_connection(False)
 
 
