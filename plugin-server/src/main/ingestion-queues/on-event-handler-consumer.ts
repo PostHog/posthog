@@ -14,11 +14,9 @@ import { KafkaJSIngestionConsumer } from './kafka-queue'
 export const startAsyncHandlerConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
     piscina,
-    kind,
 }: {
     hub: Hub
     piscina: Piscina
-    kind: 'onEvent' | 'webhooks' | 'async'
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -29,16 +27,71 @@ export const startAsyncHandlerConsumer = async ({
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
     */
-    status.info('🔁', `Starting ${kind} handler consumer`)
+    status.info('🔁', `Starting async handler consumer`)
 
-    let queue: KafkaJSIngestionConsumer
-    if (kind == 'onEvent') {
-        queue = buildOnEventIngestionConsumer({ hub, piscina })
-    } else if (kind == 'webhooks') {
-        queue = buildWebhooksIngestionConsumer({ hub, piscina })
-    } else {
-        queue = buildAsyncIngestionConsumer({ hub, piscina })
-    }
+    const queue = buildAsyncIngestionConsumer({ hub, piscina })
+
+    await queue.start()
+
+    schedule.scheduleJob('0 * * * * *', async () => {
+        await queue.emitConsumerGroupMetrics()
+    })
+
+    const isHealthy = makeHealthCheck(queue)
+
+    return { queue, isHealthy: () => isHealthy() }
+}
+
+export const startAsyncOnEventHandlerConsumer = async ({
+    hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
+    piscina,
+}: {
+    hub: Hub
+    piscina: Piscina
+}) => {
+    /*
+        Consumes analytics events from the Kafka topic `clickhouse_events_json`
+        and processes any onEvent plugin handlers configured for the team. This
+        also includes `exportEvents` handlers defined in plugins as these are
+        also handled via modifying `onEvent` to call `exportEvents`.
+
+        At the moment this is just a wrapper around `IngestionConsumer`. We may
+        want to further remove that abstraction in the future.
+    */
+    status.info('🔁', `Starting onEvent handler consumer`)
+
+    const queue = buildOnEventIngestionConsumer({ hub, piscina })
+
+    await queue.start()
+
+    schedule.scheduleJob('0 * * * * *', async () => {
+        await queue.emitConsumerGroupMetrics()
+    })
+
+    const isHealthy = makeHealthCheck(queue)
+
+    return { queue, isHealthy: () => isHealthy() }
+}
+
+export const startAsyncWebhooksHandlerConsumer = async ({
+    hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
+    piscina,
+}: {
+    hub: Hub
+    piscina: Piscina
+}) => {
+    /*
+        Consumes analytics events from the Kafka topic `clickhouse_events_json`
+        and processes any onEvent plugin handlers configured for the team. This
+        also includes `exportEvents` handlers defined in plugins as these are
+        also handled via modifying `onEvent` to call `exportEvents`.
+
+        At the moment this is just a wrapper around `IngestionConsumer`. We may
+        want to further remove that abstraction in the future.
+    */
+    status.info('🔁', `Starting webhooks handler consumer`)
+
+    const queue = buildWebhooksIngestionConsumer({ hub, piscina })
 
     await queue.start()
 

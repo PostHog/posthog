@@ -296,7 +296,6 @@ export async function startPluginsServer(
             const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startAsyncHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
-                kind: 'async',
             })
 
             onEventHandlerConsumer = onEventQueue
