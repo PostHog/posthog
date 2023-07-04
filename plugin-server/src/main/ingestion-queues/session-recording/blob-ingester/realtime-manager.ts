@@ -46,6 +46,7 @@ export class RealtimeManager extends EventEmitter {
 
     public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
         this.on(`subscription::${teamId}::${sessionId}`, cb)
+        status.info('🔌', 'RealtimeManager registered event listener for subscription events', { teamId, sessionId })
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
