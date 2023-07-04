@@ -13,6 +13,7 @@ import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
+import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { NotFound } from 'lib/components/NotFound'
@@ -23,7 +24,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
-import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 export type NotebookProps = {
     shortId: string

@@ -20,7 +20,6 @@ import {
     IconLink,
     IconJournal,
 } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import { useActions, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
@@ -66,16 +65,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     return (
         <NodeViewWrapper as="span">
-            <Link
-                to={path}
-                onClick={handleOnClick}
-                target={internal ? undefined : '_blank'}
-                className={clsx(
-                    'py-px px-1 rounded',
-                    props.selected && 'bg-primary-light',
-                    !props.selected && 'bg-primary-highlight'
-                )}
-            >
+            <Link to={path} onClick={handleOnClick} target={internal ? undefined : '_blank'} className="p-1 rounded">
                 <span>{ICON_MAP[pathStart] || <IconLink />}</span>
                 <span>{path}</span>
             </Link>
@@ -108,10 +98,6 @@ export const NotebookNodeLink = Node.create({
     renderHTML({ HTMLAttributes }) {
         return [NotebookNodeType.Link, mergeAttributes(HTMLAttributes)]
     },
-
-    // textSerializer({ node }) {
-    //     return node.attrs.href
-    // },
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)

@@ -73,6 +73,10 @@
         top: 0;
         z-index: 1;
     }
+
+    span::selection {
+        color: var(--primary);
+    }
 }
 
 .NotebookFloatingButton {
