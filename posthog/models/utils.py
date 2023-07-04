@@ -7,7 +7,7 @@ from random import Random, choice
 from time import time
 from typing import Any, Callable, Dict, Iterator, Optional, Set, Type, TypeVar
 
-from django.db import IntegrityError, connection, models, transaction
+from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
 from django.db.models.constraints import BaseConstraint
@@ -270,11 +270,11 @@ class UniqueConstraintByExpression(BaseConstraint):
 
 
 @contextmanager
-def execute_with_timeout(timeout: int) -> Iterator[CursorWrapper]:
+def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[CursorWrapper]:
     """
     Sets a transaction local timeout for the current transaction.
     """
-    with transaction.atomic():
-        with connection.cursor() as cursor:
+    with transaction.atomic(using=database):
+        with connections[database].cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield cursor

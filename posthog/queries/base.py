@@ -215,7 +215,10 @@ def lookup_q(key: str, value: Any) -> Q:
 
 
 def property_to_Q(
-    property: Property, override_property_values: Dict[str, Any] = {}, cohorts_cache: Optional[Dict[int, Cohort]] = None
+    property: Property,
+    override_property_values: Dict[str, Any] = {},
+    cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    using_database: str = "default",
 ) -> Q:
 
     if property.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
@@ -227,23 +230,23 @@ def property_to_Q(
         cohort_id = int(cast(Union[str, int], value))
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
-                cohorts_cache[cohort_id] = Cohort.objects.get(pk=cohort_id)
+                cohorts_cache[cohort_id] = Cohort.objects.using(using_database).get(pk=cohort_id)
             cohort = cohorts_cache[cohort_id]
         else:
-            cohort = Cohort.objects.get(pk=cohort_id)
+            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
 
         if cohort.is_static:
             return Q(
                 Exists(
-                    CohortPeople.objects.filter(
-                        cohort_id=cohort_id, person_id=OuterRef("id"), cohort__id=cohort_id
-                    ).only("id")
+                    CohortPeople.objects.using(using_database)
+                    .filter(cohort_id=cohort_id, person_id=OuterRef("id"), cohort__id=cohort_id)
+                    .only("id")
                 )
             )
         else:
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.
-            return property_group_to_Q(cohort.properties, override_property_values, cohorts_cache)
+            return property_group_to_Q(cohort.properties, override_property_values, cohorts_cache, using_database)
 
     # short circuit query if key exists in override_property_values
     if property.key in override_property_values and property.operator != "is_not_set":
@@ -289,6 +292,7 @@ def property_group_to_Q(
     property_group: PropertyGroup,
     override_property_values: Dict[str, Any] = {},
     cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    using_database: str = "default",
 ) -> Q:
 
     filters = Q()
@@ -298,7 +302,9 @@ def property_group_to_Q(
 
     if isinstance(property_group.values[0], PropertyGroup):
         for group in property_group.values:
-            group_filter = property_group_to_Q(cast(PropertyGroup, group), override_property_values, cohorts_cache)
+            group_filter = property_group_to_Q(
+                cast(PropertyGroup, group), override_property_values, cohorts_cache, using_database
+            )
             if property_group.type == PropertyOperatorType.OR:
                 filters |= group_filter
             else:
@@ -306,7 +312,7 @@ def property_group_to_Q(
     else:
         for property in property_group.values:
             property = cast(Property, property)
-            property_filter = property_to_Q(property, override_property_values, cohorts_cache)
+            property_filter = property_to_Q(property, override_property_values, cohorts_cache, using_database)
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
                     filters |= ~property_filter
@@ -325,6 +331,7 @@ def properties_to_Q(
     properties: List[Property],
     override_property_values: Dict[str, Any] = {},
     cohorts_cache: Optional[Dict[int, Cohort]] = None,
+    using_database: str = "default",
 ) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
@@ -336,7 +343,10 @@ def properties_to_Q(
         return filters
 
     return property_group_to_Q(
-        PropertyGroup(type=PropertyOperatorType.AND, values=properties), override_property_values, cohorts_cache
+        PropertyGroup(type=PropertyOperatorType.AND, values=properties),
+        override_property_values,
+        cohorts_cache,
+        using_database,
     )
 
 

@@ -597,7 +597,7 @@ const api = {
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
-            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest | null> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
@@ -624,12 +624,17 @@ const api = {
                     // TODO allow someone to load _only_ property definitions?
                     return new ApiRequest().dataManagementActivity()
                 },
+                [ActivityScope.NOTEBOOK]: () => {
+                    // not implemented
+                    return null
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            return requestForScope[activityLogProps.scope](activityLogProps)
-                .withQueryString(toParams(pagingParameters))
-                .get()
+            const request = requestForScope[activityLogProps.scope](activityLogProps)
+            return request !== null
+                ? request.withQueryString(toParams(pagingParameters)).get()
+                : Promise.resolve({ results: [], count: 0 })
         },
     },
 

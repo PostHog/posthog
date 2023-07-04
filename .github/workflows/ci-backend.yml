@@ -242,7 +242,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.10.10']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:23.4.2.11']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:23.6.1.1524']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
