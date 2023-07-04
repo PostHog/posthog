@@ -1227,7 +1227,7 @@ export class DB {
                     updated_at
                 FROM posthog_action
                 WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
-            `,
+                `,
                 [restHookActionIds],
                 'fetchActions'
             )
@@ -1273,7 +1273,20 @@ export class DB {
     public async fetchAction(id: Action['id']): Promise<Action | null> {
         const rawActions: RawAction[] = (
             await this.postgresQuery(
-                `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
+                `
+                SELECT
+                    id,
+                    team_id,
+                    name,
+                    description,
+                    created_at,
+                    created_by_id,
+                    deleted,
+                    post_to_slack,
+                    slack_message_format,
+                    updated_at
+                FROM posthog_action WHERE id = $1 AND deleted = FALSE
+                `,
                 [id],
                 'fetchActions'
             )

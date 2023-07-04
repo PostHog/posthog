@@ -875,7 +875,9 @@ export interface RawAction {
     deleted: boolean
     post_to_slack: boolean
     slack_message_format: string
+    is_calculating: boolean
     updated_at: string
+    last_calculated_at: string
 }
 
 /** Usable Action model. */

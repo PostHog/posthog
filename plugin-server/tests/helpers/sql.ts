@@ -66,7 +66,9 @@ export async function resetTestDatabase(
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',
+            is_calculating: false,
             updated_at: new Date().toISOString(),
+            last_calculated_at: new Date().toISOString(),
         } as RawAction)
         await insertRow(db, 'posthog_actionstep', {
             id: teamIdToCreate + 911,
