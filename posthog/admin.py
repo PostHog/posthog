@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy as _
 
 from posthog.models import (
     Action,
+    AsyncDeletion,
     FeatureFlag,
     GroupTypeMapping,
     Insight,
@@ -365,3 +366,25 @@ class PersonDistinctIdAdmin(admin.ModelAdmin):
     list_display = ("id", "team", "distinct_id", "version")
     list_filter = ("version",)
     search_fields = ("id", "distinct_id")
+
+
+@admin.register(AsyncDeletion)
+class AsyncDeletionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "deletion_type",
+        "group_type_index",
+        "team_id",
+        "key",
+        "created_by",
+        "created_at",
+        "delete_verified_at",
+    )
+    list_filter = ("deletion_type", "delete_verified_at")
+    search_fields = ("key",)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
