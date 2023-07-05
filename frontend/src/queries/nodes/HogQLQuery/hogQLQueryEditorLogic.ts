@@ -6,6 +6,8 @@ import { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import { Monaco } from '@monaco-editor/react'
 import api from 'lib/api'
+import { posthog } from 'posthog-js'
+import { combineUrl } from 'kea-router'
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface ModelMarker extends editor.IMarkerData {}
@@ -97,12 +99,18 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             }
         },
         draftFromPrompt: async () => {
+            posthog.capture('prompted HogQL AI', { prompt: values.prompt })
             try {
-                const result = await api.get(`api/projects/@current/query/draft_sql/?prompt=${values.prompt}`)
+                const result = await api.get(
+                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                        prompt: values.prompt,
+                        current_query: values.queryInput,
+                    }).url
+                )
                 const { sql } = result
                 actions.setQueryInput(sql)
             } catch (e) {
-                actions.setPromptError(e.detail)
+                actions.setPromptError((e as { code: string; detail: string }).detail)
             } finally {
                 actions.draftFromPromptComplete()
             }

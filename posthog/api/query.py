@@ -130,10 +130,11 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         if not isinstance(request.user, User):
             raise NotAuthenticated()
         prompt = request.GET.get("prompt")
+        current_query = request.GET.get("current_query")
         if not prompt:
             raise ValidationError({"prompt": ["This field is required."]}, code="required")
         try:
-            result = write_sql_from_prompt(prompt, user=request.user, team=self.team)
+            result = write_sql_from_prompt(prompt, current_query=current_query, user=request.user, team=self.team)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})

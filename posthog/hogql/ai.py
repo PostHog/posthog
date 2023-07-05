@@ -34,6 +34,8 @@ SCHEMA_MESSAGE = (
     'is stored in `properties` fields, accessed like `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.'
 )
 
+CURRENT_QUERY_MESSAGE = "The query I've currently got so far is:\n{current_query_input}\nTweak it instead of writing a new one if it's relevant."
+
 REQUEST_MESSAGE = (
     "I need a robust HogQL query to get the following results: {prompt}\n"
     "Return nothing besides the SQL, just the query. "
@@ -45,7 +47,7 @@ class PromptUnclear(Exception):
     pass
 
 
-def write_sql_from_prompt(prompt: str, *, team: "Team", user: "User") -> str:
+def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
     database = create_hogql_database(team.pk)
     context = HogQLContext(team_id=team.pk, enable_select_queries=True, database=database)
     serialized_database = serialize_database(database)
@@ -72,19 +74,22 @@ def write_sql_from_prompt(prompt: str, *, team: "Team", user: "User") -> str:
             "content": REQUEST_MESSAGE.format(prompt=prompt),
         },
     ]
+    if current_query:
+        messages.insert(
+            -1, {"role": "user", "content": CURRENT_QUERY_MESSAGE.format(current_query_input=current_query)}
+        )
 
     candidate_sql: Optional[str] = None
     error: Optional[str] = None
-    result = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        temperature=0.8,
-        n=3,  # More likelihood one of the results is valid HogQL
-        messages=messages,
-        user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
-    )
 
-    for choice in result["choices"]:
-        content: str = choice["message"]["content"].removesuffix(";")
+    for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
+        result = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            temperature=0.8,
+            messages=messages,
+            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        )
+        content: str = result["choices"][0]["message"]["content"].removesuffix(";")
         if content.startswith("UNCLEAR:"):
             error = content.removeprefix("UNCLEAR:").strip()
             continue
@@ -94,9 +99,9 @@ def write_sql_from_prompt(prompt: str, *, team: "Team", user: "User") -> str:
         except HogQLException:
             continue
         else:
-            return content
+            break
 
     if candidate_sql:
         return candidate_sql
-
-    raise PromptUnclear(error)
+    else:
+        raise PromptUnclear(error)
