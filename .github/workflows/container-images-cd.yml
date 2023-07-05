@@ -33,6 +33,17 @@ jobs:
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
 
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@v4
+              with:
+                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
+                  tags: |
+                      type=schedule
+                      type=ref,event=branch
+                      type=ref,event=tag
+                      type=ref,event=pr
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
 
