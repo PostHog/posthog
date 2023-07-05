@@ -39,8 +39,14 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 FROM events
                                 WHERE event IN ['$pageview', '$autocapture']
                                 AND session_id IN [${sessionIds}]
-                                AND timestamp >= '${dayjs(oldestTimestamp).format('YYYY-MM-DD HH:mm:ss')}'
-                                AND timestamp <= '${dayjs(newestTimestamp).format('YYYY-MM-DD HH:mm:ss')}'
+                                -- the timestamp range here is only to avoid querying too much of the events table
+                                -- we don't really care about the absolute value, 
+                                -- but we do care about whether timezones have an odd impact
+                                -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                AND timestamp >= '${dayjs(oldestTimestamp)
+                                    .subtract(1, 'day')
+                                    .format('YYYY-MM-DD HH:mm:ss')}'
+                                AND timestamp <= '${dayjs(newestTimestamp).add(1, 'day').format('YYYY-MM-DD HH:mm:ss')}'
                                 GROUP BY session_id`,
                     }
 
