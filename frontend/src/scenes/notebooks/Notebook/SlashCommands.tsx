@@ -5,7 +5,7 @@ import { FloatingMenu, ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { isCurrentNodeEmpty, Editor, EditorCommands, EditorRange } from './utils'
+import { Editor, EditorCommands, EditorRange } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -254,23 +254,25 @@ const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
 })
 
 export function FloatingSlashCommands({ editor }: { editor: Editor }): JSX.Element | null {
-    const shouldShow = useCallback((): boolean => {
-        if (!editor) {
-            return false
-        }
-        if (editor.view.hasFocus() && editor.isEditable && editor.isActive('paragraph') && isCurrentNodeEmpty(editor)) {
-            return true
-        }
+    // const { editor } = useValues(notebookLogic)
 
-        return false
-    }, [editor])
+    // const shouldShow = useCallback((): boolean => {
+    //     if (!editor) {
+    //         return false
+    //     }
+    //     if (editor.view.hasFocus() && editor.isEditable && editor.isActive('paragraph') && isCurrentNodeEmpty(editor)) {
+    //         return true
+    //     }
+
+    //     return false
+    // }, [editor])
 
     return editor ? (
         <FloatingMenu
             editor={editor}
             tippyOptions={{ duration: 100, placement: 'left' }}
             className="NotebookFloatingButton"
-            shouldShow={shouldShow}
+            // shouldShow={shouldShow(editor)}
         >
             <LemonButtonWithDropdown
                 size="small"

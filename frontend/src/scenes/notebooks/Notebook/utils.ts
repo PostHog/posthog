@@ -9,7 +9,6 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface JSONContent extends TTJSONContent {}
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface Editor extends TTEditor {}
 
 export { ChainedCommands as EditorCommands, Range as EditorRange } from '@tiptap/core'
 
@@ -21,8 +20,22 @@ export interface NotebookEditor {
     deleteRange: (range: EditorRange) => EditorCommands
 }
 
+export const shouldShowFloatingMenu = (editor: TTEditor): boolean => {
+    if (
+        !editor ||
+        !editor.view.hasFocus() ||
+        !editor.isEditable ||
+        !editor.isActive('paragraph') ||
+        !isCurrentNodeEmpty(editor)
+    ) {
+        return false
+    }
+
+    return true
+}
+
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
-export const isCurrentNodeEmpty = (editor: Editor): boolean => {
+export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     const selection = editor.state.selection
     const { $anchor, empty } = selection
     const isEmptyTextBlock = $anchor.parent.isTextblock && !$anchor.parent.type.spec.code && !$anchor.parent.textContent

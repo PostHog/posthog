@@ -1,9 +1,11 @@
+import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
+import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
-import { Editor, EditorRange } from './utils'
+import { EditorRange, isCurrentNodeEmpty, shouldShowFloatingMenu } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -14,7 +16,7 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
-import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
+import { SlashCommandsExtension } from './SlashCommands'
 import { JSONContent } from './utils'
 import { NotebookEditor } from '~/types'
 
@@ -33,7 +35,7 @@ export function Editor({
     onUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
 }): JSX.Element {
-    const editorRef = useRef<Editor>()
+    const editorRef = useRef<TTEditor>()
 
     const _editor = useEditor({
         extensions: [
@@ -43,6 +45,24 @@ export function Editor({
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
+            }),
+            FloatingMenu.configure({
+                shouldShow: ({ editor }) => {
+                    console.log('Floating extension')
+                    if (!editor) {
+                        return false
+                    }
+                    if (
+                        editor.view.hasFocus() &&
+                        editor.isEditable &&
+                        editor.isActive('paragraph') &&
+                        isCurrentNodeEmpty(editor)
+                    ) {
+                        return true
+                    }
+
+                    return false
+                },
             }),
             NotebookNodeLink,
 
@@ -115,6 +135,7 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 setEditable: (editable: boolean) => editor.setEditable(editable, false),
+                shouldShowFloatingMenu: () => shouldShowFloatingMenu(editor),
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 hasContent: () => !editor.isEmpty || false,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
@@ -127,7 +148,7 @@ export function Editor({
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {_editor && <FloatingSlashCommands editor={_editor} />}
+            {/* {_editor && <FloatingSlashCommands editor={_editor} />} */}
         </>
     )
 }

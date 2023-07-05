@@ -41,6 +41,9 @@ dependencies:
   '@tiptap/extension-document':
     specifier: 2.0.3
     version: 2.0.3(@tiptap/core@2.0.3)
+  '@tiptap/extension-floating-menu':
+    specifier: ^2.0.3
+    version: 2.0.3(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3)
   '@tiptap/extension-link':
     specifier: 2.0.3
     version: 2.0.3(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3)
@@ -13330,7 +13333,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
