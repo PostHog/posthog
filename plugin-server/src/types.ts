@@ -72,6 +72,34 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
+export enum PluginServerMode {
+    ingestion = 'ingestion',
+    ingestion_overflow = 'ingestion-overflow',
+    plugins_async = 'async',
+    async_onevent = 'async-onevent',
+    async_webhooks = 'async-webhooks',
+    plugins_exports = 'exports', // TODO: remove once onevent and webhooks split is out
+    jobs = 'jobs',
+    scheduler = 'scheduler',
+    analytics_ingestion = 'analytics-ingestion',
+    recordings_ingestion = 'recordings-ingestion',
+    recordings_blob_ingestion = 'recordings-blob-ingestion',
+}
+
+export const stringToPluginServerMode: { [key: string]: PluginServerMode } = {
+    ingestion: PluginServerMode.ingestion,
+    'ingestion-overflow': PluginServerMode.ingestion_overflow,
+    async: PluginServerMode.plugins_async,
+    'async-onevent': PluginServerMode.async_onevent,
+    'async-webhooks': PluginServerMode.async_webhooks,
+    exports: PluginServerMode.plugins_exports,
+    jobs: PluginServerMode.jobs,
+    scheduler: PluginServerMode.scheduler,
+    'analytics-ingestion': PluginServerMode.analytics_ingestion,
+    'recordings-ingestion': PluginServerMode.recordings_ingestion,
+    'recordings-blob-ingestion': PluginServerMode.recordings_blob_ingestion,
+}
+
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
@@ -166,19 +194,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
-    PLUGIN_SERVER_MODE:
-        | 'ingestion'
-        | 'ingestion-overflow'
-        | 'async'
-        | 'async-onevent'
-        | 'async-webhooks'
-        | 'exports' // TODO: remove once onevent and webhooks split is out
-        | 'jobs'
-        | 'scheduler'
-        | 'analytics-ingestion'
-        | 'recordings-ingestion'
-        | 'recordings-blob-ingestion'
-        | null
+    PLUGIN_SERVER_MODE: PluginServerMode | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
