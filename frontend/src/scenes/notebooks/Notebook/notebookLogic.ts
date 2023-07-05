@@ -34,6 +34,7 @@ export const notebookLogic = kea<notebookLogicType>([
         loadNotebook: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         exportJSON: true,
+        showConflictWarning: true,
     }),
     reducers({
         localContent: [
@@ -50,21 +51,27 @@ export const notebookLogic = kea<notebookLogicType>([
                 setEditorRef: (_, { editor }) => editor,
             },
         ],
-
         ready: [
             false,
             {
                 setReady: () => true,
             },
         ],
+        conflictWarningVisible: [
+            false,
+            {
+                showConflictWarning: () => true,
+                loadNotebookSuccess: () => false,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         notebook: [
-            undefined as NotebookType | undefined,
+            null as NotebookType | null,
             {
                 loadNotebook: async () => {
                     // NOTE: This is all hacky and temporary until we have a backend
-                    let response: NotebookType | undefined
+                    let response: NotebookType | null
 
                     if (props.shortId === SCRATCHPAD_NOTEBOOK.short_id) {
                         response = {
@@ -73,7 +80,8 @@ export const notebookLogic = kea<notebookLogicType>([
                             version: 0,
                         }
                     } else if (props.shortId.startsWith('template-')) {
-                        response = values.notebookTemplates.find((template) => template.short_id === props.shortId)
+                        response =
+                            values.notebookTemplates.find((template) => template.short_id === props.shortId) || null
                     } else {
                         response = await api.notebooks.get(props.shortId)
                     }
@@ -95,28 +103,37 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
-                    const response = await api.notebooks.update(values.notebook.short_id, {
-                        version: values.notebook.version,
-                        content: notebook.content,
-                        title: notebook.title,
-                    })
+                    try {
+                        const response = await api.notebooks.update(values.notebook.short_id, {
+                            version: values.notebook.version,
+                            content: notebook.content,
+                            title: notebook.title,
+                        })
 
-                    // If the object is identical then no edits were made, so we can safely clear the local changes
-                    if (notebook.content === values.localContent) {
-                        actions.clearLocalContent()
+                        // If the object is identical then no edits were made, so we can safely clear the local changes
+                        if (notebook.content === values.localContent) {
+                            actions.clearLocalContent()
+                        }
+
+                        return response
+                    } catch (error: any) {
+                        if (error.code === 'conflict') {
+                            actions.showConflictWarning()
+                            return null
+                        } else {
+                            throw error
+                        }
                     }
-
-                    return response
                 },
             },
         ],
 
         newNotebook: [
-            undefined as NotebookType | undefined,
+            null as NotebookType | null,
             {
                 duplicateNotebook: async () => {
                     if (!values.notebook) {
-                        return
+                        return null
                     }
 
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
