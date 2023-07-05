@@ -1,12 +1,12 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
+import { KAFKA_ON_EVENT_RETRIES_1, KAFKA_ON_EVENT_RETRIES_2 } from '../../../config/kafka-topics'
 import { RawClickHouseEvent } from '../../../types'
 import { convertToIngestionEvent } from '../../../utils/event'
 import { groupIntoBatches } from '../../../utils/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
-import { KAFKA_ON_EVENT_RETRIES_1, KAFKA_ON_EVENT_RETRIES_2 } from '../../../config/kafka-topics'
 
 // TODO: remove once we've migrated
 export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: KafkaJSIngestionConsumer): Promise<void> {
@@ -98,13 +98,14 @@ export async function eachBatchAppsOnEventHandlers(
             payload.pause()
             setTimeout(() => payload.resume(), waitTime)
         }
-
-        await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
     }
 
-    export async function eachBatchWebhooksHandlers(
-        payload: EachBatchPayload,
-        queue: KafkaJSIngestionConsumer
-    ): Promise<void> {
-        await eachBatch(payload, queue, eachMessageWebhooksHandlers, groupIntoBatches, 'async_handlers_webhooks')
-    }
+    await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
+}
+
+export async function eachBatchWebhooksHandlers(
+    payload: EachBatchPayload,
+    queue: KafkaJSIngestionConsumer
+): Promise<void> {
+    await eachBatch(payload, queue, eachMessageWebhooksHandlers, groupIntoBatches, 'async_handlers_webhooks')
+}
