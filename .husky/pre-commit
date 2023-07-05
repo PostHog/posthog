@@ -3,7 +3,7 @@
 
 # Check if staged files contain any added or modified PNGs - skip when merging
 if \
-  ! git rev-parse -q --verify MERGE_HEAD \
+  git rev-parse -q --verify MERGE_HEAD \
   && git diff --cached --name-status | grep '^[AM]' | grep -q '.png$'
 then
   # Error if OptiPNG is not installed

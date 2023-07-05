@@ -94,24 +94,28 @@
     transform: rotate(45deg);
     background: var(--bg-light);
 
-    &--top {
+    [data-placement^='bottom'] & {
+        top: -0.25rem;
         border-top: 1px solid var(--border);
         border-left: 1px solid var(--border);
     }
 
-    &--bottom {
+    [data-placement^='top'] & {
+        bottom: -0.25rem;
         border-bottom: 1px solid var(--border);
         border-right: 1px solid var(--border);
     }
 
-    &--right {
-        border-bottom: 1px solid var(--border);
-        border-left: 1px solid var(--border);
-    }
-
-    &--left {
+    [data-placement^='left'] & {
+        right: -0.25rem;
         border-top: 1px solid var(--border);
         border-right: 1px solid var(--border);
+    }
+
+    [data-placement^='right'] & {
+        left: -0.25rem;
+        border-bottom: 1px solid var(--border);
+        border-left: 1px solid var(--border);
     }
 
     .Popover--actionable & {

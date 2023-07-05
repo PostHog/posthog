@@ -24,7 +24,6 @@ import {
     UserType,
     MediaUploadResponse,
     SessionRecordingsResponse,
-    SessionRecordingPropertiesType,
     EventsListQueryParams,
     SessionRecordingPlaylistType,
     RoleType,
@@ -275,6 +274,9 @@ class ApiRequest {
 
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
     // Recordings
@@ -594,7 +596,7 @@ const api = {
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
-            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest | null> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
@@ -621,12 +623,17 @@ const api = {
                     // TODO allow someone to load _only_ property definitions?
                     return new ApiRequest().dataManagementActivity()
                 },
+                [ActivityScope.NOTEBOOK]: () => {
+                    // not implemented
+                    return null
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            return requestForScope[activityLogProps.scope](activityLogProps)
-                .withQueryString(toParams(pagingParameters))
-                .get()
+            const request = requestForScope[activityLogProps.scope](activityLogProps)
+            return request !== null
+                ? request.withQueryString(toParams(pagingParameters)).get()
+                : Promise.resolve({ results: [], count: 0 })
         },
     },
 
@@ -830,6 +837,9 @@ const api = {
                 .cohortsDetail(cohortId)
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
+        },
+        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
+            return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
         async list(): Promise<PaginatedResponse<CohortType>> {
             // TODO: Remove hard limit and paginate cohorts
@@ -1103,10 +1113,6 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
-        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
-            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
-        },
-
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },

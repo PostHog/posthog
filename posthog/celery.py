@@ -198,6 +198,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="find feature flags with enriched analytics",
         )
 
+        sender.add_periodic_task(
+            # once a day a random minute after midnight
+            crontab(hour=0, minute=randrange(0, 40)),
+            delete_expired_exported_assets.s(),
+            name="delete expired exported assets",
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -217,6 +224,13 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog.clickhouse.query_tagging import reset_query_tags
 
     reset_query_tags()
+
+
+@app.task(ignore_result=True)
+def delete_expired_exported_assets() -> None:
+    from posthog.models import ExportedAsset
+
+    ExportedAsset.delete_expired_assets()
 
 
 @app.task(ignore_result=True)

@@ -17,7 +17,7 @@ import {
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { FilterLogicalOperator, SurveyQuestion, SurveyType, Survey, FeatureFlagFilters } from '~/types'
+import { FilterLogicalOperator, SurveyQuestion, Survey, FeatureFlagFilters, SurveyQuestionType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconCancel, IconDelete, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -100,12 +100,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <Field name="description" label="Description (optional)">
                         <LemonTextArea data-attr="survey-description" />
                     </Field>
-                    <Field name="type" label="Type" className="w-max">
-                        <LemonSelect
-                            data-attr="survey-type"
-                            options={[{ label: 'Popover', value: SurveyType.Popover }]}
-                        />
-                    </Field>
                     <Field
                         name="linked_flag_id"
                         label="Link feature flag (optional)"
@@ -134,9 +128,25 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </Field>
                     {survey.questions.map((question: SurveyQuestion, index: number) => (
                         <Group name={`questions.${index}`} key={index}>
+                            <Field name="type" label="Type" className="w-max">
+                                <LemonSelect
+                                    options={[
+                                        { label: 'Open text', value: SurveyQuestionType.Open },
+                                        { label: 'Link', value: SurveyQuestionType.Link },
+                                    ]}
+                                />
+                            </Field>
                             <Field name="question" label="Question">
                                 <LemonInput value={question.question} />
                             </Field>
+                            <Field name="description" label="Question description (optional)">
+                                <LemonTextArea value={question.description || ''} />
+                            </Field>
+                            {question.type === SurveyQuestionType.Link && (
+                                <Field name="link" label="Link" info="Make sure to include https:// in the url.">
+                                    <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                                </Field>
+                            )}
                         </Group>
                     ))}
                     <PureField label="Targeting (optional)" className="mt-4">
@@ -250,10 +260,13 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <Field name="appearance" label="">
                         {({ value, onChange }) => (
                             <SurveyAppearance
+                                type={survey.questions[0].type}
                                 question={survey.questions[0].question}
+                                description={survey.questions[0].description}
                                 onAppearanceChange={(appearance) => {
                                     onChange(appearance)
                                 }}
+                                link={survey.questions[0].link}
                                 appearance={value || defaultSurveyAppearance}
                             />
                         )}

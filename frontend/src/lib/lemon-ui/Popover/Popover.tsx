@@ -118,7 +118,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement,
         strategy: 'fixed',
         middleware: [
-            offset(4),
+            offset(showArrow ? 8 : 4),
             ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
             shift(),
             size({
@@ -129,24 +129,16 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     floating.style.width = sameWidth ? `${rects.reference.width}px` : 'initial'
                 },
             }),
-            arrow({ element: arrowRef, padding: 8 }),
+            ...(showArrow ? [arrow({ element: arrowRef, padding: 8 })] : []),
             ...(middleware ?? []),
         ],
     })
     const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
 
-    const arrowStaticSide = {
-        top: 'bottom',
-        right: 'left',
-        bottom: 'top',
-        left: 'right',
-    }[effectivePlacement.split('-')[0]] as string
-
     const arrowStyle = middlewareData.arrow
         ? {
               left: `${middlewareData.arrow.x}px`,
               top: `${middlewareData.arrow.y}px`,
-              [arrowStaticSide]: '-0.25rem',
           }
         : {}
 
@@ -242,11 +234,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                     // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
                                     <div
                                         ref={arrowRef}
-                                        className={clsx(
-                                            'Popover__arrow',
-                                            `Popover__arrow--${arrowStaticSide}`,
-                                            actionable && 'Popover--actionable'
-                                        )}
+                                        className="Popover__arrow"
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={arrowStyle}
                                     />

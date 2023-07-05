@@ -379,6 +379,7 @@ def get_event(request):
                 request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
             )
 
+        # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
         site_url = request.build_absolute_uri("/")[:-1]
         ip = get_ip_address(request)
 

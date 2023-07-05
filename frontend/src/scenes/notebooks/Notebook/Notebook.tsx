@@ -23,6 +23,7 @@ import posthog from 'posthog-js'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
+import { NotebookConflictWarning } from './NotebookConflictWarning'
 
 export type NotebookProps = {
     shortId: string
@@ -37,7 +38,7 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId })
-    const { notebook, content, notebookLoading, isEmpty } = useValues(logic)
+    const { notebook, content, notebookLoading, isEmpty, conflictWarningVisible } = useValues(logic)
     const { setEditorRef, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
 
@@ -169,7 +170,9 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
         <BindLogic logic={notebookLogic} props={{ shortId }}>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
                 <FloatingSlashCommands />
-                {!notebook && notebookLoading ? (
+                {conflictWarningVisible ? (
+                    <NotebookConflictWarning />
+                ) : !notebook && notebookLoading ? (
                     <div className="space-y-4 px-8 py-4">
                         <LemonSkeleton className="w-1/2 h-8" />
                         <LemonSkeleton className="w-1/3 h-4" />
@@ -177,7 +180,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
                         <LemonSkeleton className="h-4" />
                     </div>
                 ) : !notebook ? (
-                    <NotFound object={'notebook'} />
+                    <NotFound object="notebook" />
                 ) : isEmpty && !editable ? (
                     <div className="NotebookEditor">
                         <h1>

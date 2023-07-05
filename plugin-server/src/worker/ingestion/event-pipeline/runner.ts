@@ -2,6 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
+import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -13,7 +14,7 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-import { runAsyncHandlersStep } from './runAsyncHandlersStep'
+import { processOnEventStep, processWebhooksStep } from './runAsyncHandlersStep'
 
 const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
@@ -63,17 +64,44 @@ export class EventPipelineRunner {
 
     // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
     poEEmbraceJoin: boolean
+    private eventsToDropByToken: Map<string, string[]>
 
     constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
         this.originalEvent = originalEvent
         this.poEEmbraceJoin = poEEmbraceJoin
+
+        this.eventsToDropByToken = new Map()
+        process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID?.split(',').forEach((pair) => {
+            const [token, distinctID] = pair.split(':')
+            this.eventsToDropByToken.set(token, [...(this.eventsToDropByToken.get(token) || []), distinctID])
+        })
+    }
+
+    isEventBlacklisted(event: PipelineEvent): boolean {
+        // During incidents we can use the the env DROP_EVENTS_BY_TOKEN_DISTINCT_ID
+        // to drop events here before processing them which would allow us to catch up
+        const key = event.token || event.team_id?.toString()
+        if (!key) {
+            return false // for safety don't drop events here, they are later dropped in teamDataPopulation
+        }
+        const dropIds = this.eventsToDropByToken.get(key)
+        return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
+            if (this.isEventBlacklisted(event)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blacklisted',
+                    })
+                    .inc()
+                return this.registerLastStep('eventBlacklistingStep', null, [event])
+            }
             let result: EventPipelineResult
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
             if (eventWithTeam != null) {
@@ -128,12 +156,32 @@ export class EventPipelineRunner {
         return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person], [eventAck])
     }
 
-    async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
+    async runWebhooksEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
         try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
-            await this.runStep(runAsyncHandlersStep, [this, event], event.teamId, false)
-            this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
-            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event])
+            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
+            await this.runStep(processWebhooksStep, [this, event], event.teamId, false)
+            this.hub.statsd?.increment('kafka_queue.webhooks.processed')
+            return this.registerLastStep('processWebhooksStep', event.teamId, [event])
+        } catch (error) {
+            if (error instanceof DependencyUnavailableError) {
+                // If this is an error with a dependency that we control, we want to
+                // ensure that the caller knows that the event was not processed,
+                // for a reason that we control and that is transient.
+                throw error
+            }
+
+            silentFailuresAsyncHandlers.inc()
+
+            return { lastStep: error.step, args: [], error: error.message }
+        }
+    }
+
+    async runAppsOnEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
+        try {
+            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'onEvent' })
+            await this.runStep(processOnEventStep, [this, event], event.teamId, false)
+            this.hub.statsd?.increment('kafka_queue.onevent.processed')
+            return this.registerLastStep('processOnEventStep', event.teamId, [event])
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 // If this is an error with a dependency that we control, we want to
@@ -175,10 +223,13 @@ export class EventPipelineRunner {
                 description: step.name,
             },
             async () => {
-                const timeout = timeoutGuard('Event pipeline step stalled. Timeout warning after 30 sec!', {
-                    step: step.name,
-                    event: JSON.stringify(this.originalEvent),
-                })
+                const timeout = timeoutGuard(
+                    `Event pipeline step stalled. Timeout warning after 30 sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+                    {
+                        step: step.name,
+                        event: JSON.stringify(this.originalEvent),
+                    }
+                )
                 try {
                     const result = await step(...args)
                     pipelineStepCompletionCounter.labels(step.name).inc()

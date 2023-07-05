@@ -24,7 +24,7 @@ import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analyt
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
-import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
+import { startAsyncHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
@@ -287,12 +287,13 @@ export async function startPluginsServer(
             })
         }
 
+        // TODO: Add split for webhooks and onEvent
         if (capabilities.processAsyncHandlers) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startAsyncHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
             })
