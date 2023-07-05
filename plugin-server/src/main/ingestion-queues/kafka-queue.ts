@@ -25,7 +25,7 @@ export class KafkaJSIngestionConsumer {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     public consumerReady: boolean
-    public topic: string
+    public topics: string[]
     public consumerGroupId: string
     public eachBatch: KafkaJSBatchFunction
     public consumer: Consumer
@@ -36,13 +36,13 @@ export class KafkaJSIngestionConsumer {
     constructor(
         pluginsServer: Hub,
         piscina: Piscina,
-        topic: string,
+        topics: string[],
         consumerGroupId: string,
         batchHandler: KafkaJSBatchFunction
     ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.topic = topic
+        this.topics = topics
         this.consumerGroupId = consumerGroupId
         this.consumer = KafkaJSIngestionConsumer.buildConsumer(
             this.kafka,
@@ -82,7 +82,7 @@ export class KafkaJSIngestionConsumer {
         const timeout = timeoutGuard(
             `Kafka queue is slow to start. Waiting over 1 minute to join the consumer group`,
             {
-                topics: [this.topic],
+                topics: this.topics,
             },
             60000
         )
@@ -174,7 +174,7 @@ export class KafkaJSIngestionConsumer {
         }
         try {
             await this.consumer.disconnect()
-        } catch {}
+        } catch { }
 
         this.consumerReady = false
     }

@@ -1,6 +1,6 @@
 import * as schedule from 'node-schedule'
 
-import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
+import { KAFKA_EVENTS_JSON, KAFKA_ON_EVENT_RETRIES_1, KAFKA_ON_EVENT_RETRIES_2, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
@@ -109,7 +109,7 @@ export const buildAsyncIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscin
     return new KafkaJSIngestionConsumer(
         hub,
         piscina,
-        KAFKA_EVENTS_JSON,
+        [KAFKA_EVENTS_JSON],
         `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
         eachBatchAsyncHandlers
     )
@@ -119,7 +119,7 @@ export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; pisc
     return new KafkaJSIngestionConsumer(
         hub,
         piscina,
-        KAFKA_EVENTS_JSON,
+        [KAFKA_EVENTS_JSON, KAFKA_ON_EVENT_RETRIES_1, KAFKA_ON_EVENT_RETRIES_2],
         `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
         eachBatchAppsOnEventHandlers
     )
@@ -129,7 +129,7 @@ export const buildWebhooksIngestionConsumer = ({ hub, piscina }: { hub: Hub; pis
     return new KafkaJSIngestionConsumer(
         hub,
         piscina,
-        KAFKA_EVENTS_JSON,
+        [KAFKA_EVENTS_JSON],
         `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
         eachBatchWebhooksHandlers
     )

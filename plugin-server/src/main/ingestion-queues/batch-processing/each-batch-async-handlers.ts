@@ -6,6 +6,7 @@ import { groupIntoBatches } from '../../../utils/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
+import { KAFKA_ON_EVENT_RETRIES_1, KAFKA_ON_EVENT_RETRIES_2 } from '../../../config/kafka-topics'
 
 // TODO: remove once we've migrated
 export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: KafkaJSIngestionConsumer): Promise<void> {
@@ -74,16 +75,36 @@ export async function eachMessageWebhooksHandlers(
     })
 }
 
+const TOPIC_PROCESSING_DELAY: Record<string, number> = {
+    [KAFKA_ON_EVENT_RETRIES_1]: 60000,
+    [KAFKA_ON_EVENT_RETRIES_2]: 60000,
+}
+
 export async function eachBatchAppsOnEventHandlers(
     payload: EachBatchPayload,
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
-    await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
-}
+    // Get the first message from the batch, and use the topic to determine the
+    // delay for this batch. This allows us to delay the processing of the batch
+    // until the retry delay has passed.
+    const firstMessage = payload.batch.messages[0]
+    const delay = TOPIC_PROCESSING_DELAY[payload.batch.topic]
+    if (delay) {
+        const now = Date.now()
+        const messageTimestamp = new Date(firstMessage.timestamp).getTime()
+        const messageDelay = now - messageTimestamp
+        if (messageDelay < delay) {
+            const waitTime = delay - messageDelay
+            payload.pause()
+            setTimeout(() => payload.resume(), waitTime)
+        }
 
-export async function eachBatchWebhooksHandlers(
-    payload: EachBatchPayload,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
-    await eachBatch(payload, queue, eachMessageWebhooksHandlers, groupIntoBatches, 'async_handlers_webhooks')
-}
+        await eachBatch(payload, queue, eachMessageAppsOnEventHandlers, groupIntoBatches, 'async_handlers_on_event')
+    }
+
+    export async function eachBatchWebhooksHandlers(
+        payload: EachBatchPayload,
+        queue: KafkaJSIngestionConsumer
+    ): Promise<void> {
+        await eachBatch(payload, queue, eachMessageWebhooksHandlers, groupIntoBatches, 'async_handlers_webhooks')
+    }
