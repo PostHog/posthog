@@ -275,30 +275,28 @@ export function isHogQlAggregation(hogQl: string): boolean {
     )
 }
 
+function formatHogQlValue(value: any): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(formatHogQlValue).join(', ')}]`
+    } else if (dayjs.isDayjs(value)) {
+        return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+    } else if (typeof value === 'string') {
+        return `'${value}'`
+    } else if (typeof value === 'number') {
+        return String(value)
+    } else if (value === null) {
+        throw new Error(
+            `null cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+        )
+    } else {
+        throw new Error(`Unsupported interpolated value type: ${typeof value}`)
+    }
+}
+
 /**
  * Template tag for HogQL formatting. Handles formatting of values for you.
  * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
  */
 export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
-    return strings.reduce((acc, str, i) => {
-        if (i === strings.length - 1) {
-            return acc + str
-        }
-        const tentativeValue = values[i]
-        let formattedValue: string
-        if (dayjs.isDayjs(tentativeValue)) {
-            formattedValue = tentativeValue.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
-        } else if (typeof tentativeValue === 'string') {
-            formattedValue = `'${tentativeValue}'`
-        } else if (typeof tentativeValue === 'number') {
-            formattedValue = String(tentativeValue)
-        } else if (tentativeValue === null) {
-            throw new Error(
-                `NULL cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
-            )
-        } else {
-            throw new Error(`Unsupported interpolated value type: ${typeof tentativeValue}`)
-        }
-        return acc + str + formattedValue
-    }, '')
+    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
 }

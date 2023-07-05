@@ -14,14 +14,19 @@ describe('hogql tag', () => {
     it('properly returns query with no substitutions', () => {
         expect(hogql`SELECT * FROM events`).toEqual('SELECT * FROM events')
     })
+
     it('properly returns query with string and number substitutions', () => {
-        expect(hogql`SELECT * FROM events WHERE properties.foo = ${'bar'}`).toEqual(
-            "SELECT * FROM events WHERE properties.foo = 'bar'"
-        )
-        expect(hogql`SELECT * FROM events WHERE properties.baz = ${3}`).toEqual(
-            'SELECT * FROM events WHERE properties.baz = 3'
+        expect(hogql`SELECT * FROM events WHERE properties.foo = ${'bar'} AND properties.baz = ${3}`).toEqual(
+            "SELECT * FROM events WHERE properties.foo = 'bar' AND properties.baz = 3"
         )
     })
+
+    it('properly returns query with string array substitution', () => {
+        expect(hogql`SELECT * FROM events WHERE properties.foo IN ${['bar', 'baz']}`).toEqual(
+            "SELECT * FROM events WHERE properties.foo IN ['bar', 'baz']"
+        )
+    })
+
     it('properly returns query with date substitution in UTC', () => {
         teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone: 'UTC' } as TeamType)
         expect(hogql`SELECT * FROM events WHERE timestamp > ${dayjs('2023-04-04T04:04:00Z')}`).toEqual(

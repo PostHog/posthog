@@ -29,7 +29,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     await breakpoint(100)
 
                     const startTime = performance.now()
-                    const sessionIds = sessions.map((x) => `'${x.id}'`).join(',')
+                    const sessionIds = sessions.map((x) => x.id)
 
                     const oldestTimestamp = sessions.map((x) => x.start_time).sort()[0]
                     const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
@@ -39,7 +39,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         query: hogql`SELECT properties.$session_id as session_id, any(properties) as properties
                                 FROM events
                                 WHERE event IN ['$pageview', '$autocapture']
-                                AND session_id IN [${sessionIds}]
+                                AND session_id IN ${sessionIds}
                                 -- the timestamp range here is only to avoid querying too much of the events table
                                 -- we don't really care about the absolute value, 
                                 -- but we do care about whether timezones have an odd impact
