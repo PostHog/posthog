@@ -48,8 +48,8 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Build and push container images
-              id: build
+            - name: Build and push container image for linux/amd64
+              id: build-amd64
               uses: depot/build-push-action@v1
               with:
                   project: x19jffd9zf # posthog
@@ -57,8 +57,28 @@ jobs:
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
-                  tags: posthog/posthog:latest
-                  platforms: linux/amd64,linux/arm64
+                  tags: ${{ steps.meta.outputs.tags }}-amd64
+                  platforms: linux/amd64
+
+            - name: Build and push container image for linux/arm64
+              id: build-arm64
+              uses: depot/build-push-action@v1
+              with:
+                  project: x19jffd9zf # posthog
+                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  cache-from: type=gha # always pull the layers from GHA
+                  cache-to: type=gha,mode=max # always push the layers to GHA
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}-arm64
+                  platforms: linux/arm64
+
+            - name: Set output
+              id: vars
+              run: |
+                echo "digest=${{ steps.build-arm64.outputs.digest }}" >> $GITHUB_OUTPUT
+
+          outputs:
+            digest: ${{ steps.vars.outputs.digest }}
 
     posthog_cloud_build:
         name: Build and push PostHog Cloud
@@ -159,6 +179,6 @@ jobs:
                   event-type: ingestion_deploy
                   client-payload: |
                       {
-                        "image_tag": "${{ steps.build.outputs.digest }}",
+                        "image_tag": "${{ needs.posthog_build.outputs.digest }}"
                       }
 
