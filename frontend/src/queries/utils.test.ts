@@ -1,0 +1,38 @@
+import { dayjs } from 'lib/dayjs'
+import { hogql } from './utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { initKeaTests } from '~/test/init'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { AppContext, TeamType } from '~/types'
+
+window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+
+describe('hogql tag', () => {
+    initKeaTests()
+    teamLogic.mount()
+
+    it('properly returns query with no substitutions', () => {
+        expect(hogql`SELECT * FROM events`).toEqual('SELECT * FROM events')
+    })
+    it('properly returns query with string and number substitutions', () => {
+        expect(hogql`SELECT * FROM events WHERE properties.foo = ${'bar'}`).toEqual(
+            "SELECT * FROM events WHERE properties.foo = 'bar'"
+        )
+        expect(hogql`SELECT * FROM events WHERE properties.baz = ${3}`).toEqual(
+            'SELECT * FROM events WHERE properties.baz = 3'
+        )
+    })
+    it('properly returns query with date substitution in UTC', () => {
+        teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone: 'UTC' } as TeamType)
+        expect(hogql`SELECT * FROM events WHERE timestamp > ${dayjs('2023-04-04T04:04:00Z')}`).toEqual(
+            "SELECT * FROM events WHERE timestamp > '2023-04-04 04:04:00'"
+        )
+    })
+
+    it('properly returns query with date substitution in non-UTC', () => {
+        teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone: 'Europe/Moscow' } as TeamType)
+        expect(hogql`SELECT * FROM events WHERE timestamp > ${dayjs('2023-04-04T04:04:00Z')}`).toEqual(
+            "SELECT * FROM events WHERE timestamp > '2023-04-04 07:04:00'" // Offset by 3 hours
+        )
+    })
+})

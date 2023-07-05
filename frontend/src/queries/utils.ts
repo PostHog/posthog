@@ -29,6 +29,8 @@ import {
     SavedInsightNode,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
@@ -271,4 +273,32 @@ export function isHogQlAggregation(hogQl: string): boolean {
         hogQl.includes('min(') ||
         hogQl.includes('max(')
     )
+}
+
+/**
+ * Template tag for HogQL formatting. Handles formatting of values for you.
+ * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
+ */
+export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
+    return strings.reduce((acc, str, i) => {
+        if (i === strings.length - 1) {
+            return acc + str
+        }
+        const tentativeValue = values[i]
+        let formattedValue: string
+        if (dayjs.isDayjs(tentativeValue)) {
+            formattedValue = tentativeValue.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+        } else if (typeof tentativeValue === 'string') {
+            formattedValue = `'${tentativeValue}'`
+        } else if (typeof tentativeValue === 'number') {
+            formattedValue = String(tentativeValue)
+        } else if (tentativeValue === null) {
+            throw new Error(
+                `NULL cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+            )
+        } else {
+            throw new Error(`Unsupported interpolated value type: ${typeof tentativeValue}`)
+        }
+        return acc + str + formattedValue
+    }, '')
 }
