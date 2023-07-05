@@ -221,9 +221,9 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
 
 export const eventUsageLogic = kea<eventUsageLogicType>({
     path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: {
+    connect: () => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    },
+    }),
     actions: {
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
