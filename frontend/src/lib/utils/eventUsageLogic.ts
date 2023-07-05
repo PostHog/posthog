@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import type { eventUsageLogicType } from './eventUsageLogicType'
