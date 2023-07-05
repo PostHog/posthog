@@ -72,75 +72,6 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}-arm64
                   platforms: linux/arm64
 
-            - name: Set output
-              id: vars
-              run: |
-                echo "digest=${{ steps.build-arm64.outputs.digest }}" >> $GITHUB_OUTPUT
-
-          outputs:
-            digest: ${{ steps.vars.outputs.digest }}
-
-    posthog_cloud_build:
-        name: Build and push PostHog Cloud
-        if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
-        permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-            contents: read # allow at least reading the repo contents, add other permissions if necessary
-            packages: read # allow pull from ghcr.io
-        needs: [posthog_build]
-
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v3
-
-            - name: Update git SHA
-              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Checkout PostHog Cloud code
-              run: |
-                  mkdir cloud/
-                  cd cloud/
-                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
-
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@v1
-              with:
-                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@v1
-
-            - name: Build container images
-              id: build
-              uses: depot/build-push-action@v1
-              with:
-                  project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
-                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:latest
-                  platforms: linux/amd64,linux/arm64
-                  file: Dockerfile.cloud
-                  context: cloud
-                  # Use the non-cloud image as base image and extend it with
-                  # the posthog-cloud code we've checked out.
-                  build-args: |
-                      BASE_IMAGE=posthog/posthog:latest
-
             - name: get deployer token
               id: deployer
               uses: getsentry/action-github-app-token@v2
@@ -157,11 +88,9 @@ jobs:
                   repo: posthog-cloud-infra
                   owner: PostHog
                   event_type: posthog_cloud_build
-                  # TODO: switch image_tag to a SHA. We currently use 'latest'
-                  # to avoid checksum mismatch on multiple platforms.
                   message: |
                       {
-                        "image_tag": "latest",
+                        "image_tag": "${{ steps.build-arm64.outputs.digest }}",
                         "context": ${{ toJson(github) }}
                       }
 
@@ -179,6 +108,5 @@ jobs:
                   event-type: ingestion_deploy
                   client-payload: |
                       {
-                        "image_tag": "${{ needs.posthog_build.outputs.digest }}"
+                        "image_tag": "${{ steps.build-arm64.outputs.digest }}"
                       }
-
