@@ -172,6 +172,8 @@ export function overrideWithEnv(
         ![
             'ingestion',
             'async',
+            'async-onevent',
+            'async-webhooks',
             'exports',
             'scheduler',
             'jobs',
