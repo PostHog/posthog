@@ -275,11 +275,29 @@ export function isHogQlAggregation(hogQl: string): boolean {
     )
 }
 
+export interface HogQLIdentifier {
+    __hogql_identifier: true
+    identifier: string
+}
+
+function hogQlIdentifier(identifier: string): HogQLIdentifier {
+    return {
+        __hogql_identifier: true,
+        identifier,
+    }
+}
+
+function isHogQlIdentifier(value: any): value is HogQLIdentifier {
+    return !!value?.__hogql_identifier
+}
+
 function formatHogQlValue(value: any): string {
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQlValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
         return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+    } else if (isHogQlIdentifier(value)) {
+        return escapePropertyAsHogQlIdentifier(value.identifier)
     } else if (typeof value === 'string') {
         return `'${value}'`
     } else if (typeof value === 'number') {
@@ -300,3 +318,4 @@ function formatHogQlValue(value: any): string {
 export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
     return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
 }
+hogql.identifier = hogQlIdentifier

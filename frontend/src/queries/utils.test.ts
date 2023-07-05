@@ -15,6 +15,16 @@ describe('hogql tag', () => {
         expect(hogql`SELECT * FROM events`).toEqual('SELECT * FROM events')
     })
 
+    it('properly returns query with simple identifier substition', () => {
+        expect(hogql`SELECT * FROM ${hogql.identifier('events')}`).toEqual('SELECT * FROM events')
+    })
+
+    it('properly returns query with escaped identifier substition', () => {
+        expect(hogql`SELECT properties.${hogql.identifier('odd property')} FROM events`).toEqual(
+            'SELECT properties."odd property" FROM events'
+        )
+    })
+
     it('properly returns query with string and number substitutions', () => {
         expect(hogql`SELECT * FROM events WHERE properties.foo = ${'bar'} AND properties.baz = ${3}`).toEqual(
             "SELECT * FROM events WHERE properties.foo = 'bar' AND properties.baz = 3"
