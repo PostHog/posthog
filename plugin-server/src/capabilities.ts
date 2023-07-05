@@ -64,6 +64,18 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncHandlers: true,
                 ...sharedCapabilities,
             }
+        case 'async-onevent':
+            return {
+                mmdb: true,
+                processAsyncOnEventHandlers: true,
+                ...sharedCapabilities,
+            }
+        case 'async-webhooks':
+            return {
+                mmdb: true,
+                processAsyncWebhooksHandlers: true,
+                ...sharedCapabilities,
+            }
         case 'jobs': {
             return {
                 mmdb: true,

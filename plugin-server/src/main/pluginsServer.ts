@@ -24,7 +24,11 @@ import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analyt
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
-import { startAsyncHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
+import {
+    startAsyncHandlerConsumer,
+    startAsyncOnEventHandlerConsumer,
+    startAsyncWebhooksHandlerConsumer,
+} from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
@@ -287,7 +291,7 @@ export async function startPluginsServer(
             })
         }
 
-        // TODO: Add split for webhooks and onEvent
+        // TODO: remove once onevent and webhooks split is fully out
         if (capabilities.processAsyncHandlers) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
@@ -301,6 +305,42 @@ export async function startPluginsServer(
             onEventHandlerConsumer = onEventQueue
 
             healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
+        if (capabilities.processAsyncOnEventHandlers) {
+            if (capabilities.processAsyncHandlers) {
+                throw Error('async and onEvent together are not allowed - would export twice')
+            }
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } =
+                await startAsyncOnEventHandlerConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            onEventHandlerConsumer = onEventQueue
+
+            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
+        if (capabilities.processAsyncWebhooksHandlers) {
+            if (capabilities.processAsyncHandlers) {
+                throw Error('async and webhooks together are not allowed - would send twice')
+            }
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: onEventQueue, isHealthy: isWebhooksIngestionHealthy } =
+                await startAsyncWebhooksHandlerConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            onEventHandlerConsumer = onEventQueue
+
+            healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
 
         // If we have
@@ -318,7 +358,7 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncHandlers
+                ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
                     ? {
                           'reload-action': async (message) =>
                               await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
