@@ -15,7 +15,7 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-import { runAsyncHandlersStep } from './runAsyncHandlersStep'
+import { processOnEventStep, processWebhooksStep } from './runAsyncHandlersStep'
 
 const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
@@ -166,12 +166,32 @@ export class EventPipelineRunner {
         }
     }
 
-    async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
+    async runWebhooksEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
         try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
-            await this.runStep(runAsyncHandlersStep, [this, event], event.teamId, false)
-            this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
-            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event])
+            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
+            await this.runStep(processWebhooksStep, [this, event], event.teamId, false)
+            this.hub.statsd?.increment('kafka_queue.webhooks.processed')
+            return this.registerLastStep('processWebhooksStep', event.teamId, [event])
+        } catch (error) {
+            if (error instanceof DependencyUnavailableError) {
+                // If this is an error with a dependency that we control, we want to
+                // ensure that the caller knows that the event was not processed,
+                // for a reason that we control and that is transient.
+                throw error
+            }
+
+            silentFailuresAsyncHandlers.inc()
+
+            return { lastStep: error.step, args: [], error: error.message }
+        }
+    }
+
+    async runAppsOnEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
+        try {
+            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'onEvent' })
+            await this.runStep(processOnEventStep, [this, event], event.teamId, false)
+            this.hub.statsd?.increment('kafka_queue.onevent.processed')
+            return this.registerLastStep('processOnEventStep', event.teamId, [event])
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 // If this is an error with a dependency that we control, we want to
@@ -213,10 +233,13 @@ export class EventPipelineRunner {
                 description: step.name,
             },
             async () => {
-                const timeout = timeoutGuard('Event pipeline step stalled. Timeout warning after 30 sec!', {
-                    step: step.name,
-                    event: JSON.stringify(this.originalEvent),
-                })
+                const timeout = timeoutGuard(
+                    `Event pipeline step stalled. Timeout warning after 30 sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
+                    {
+                        step: step.name,
+                        event: JSON.stringify(this.originalEvent),
+                    }
+                )
                 try {
                     const result = await step(...args)
                     pipelineStepCompletionCounter.labels(step.name).inc()
