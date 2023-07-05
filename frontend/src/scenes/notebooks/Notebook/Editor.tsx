@@ -18,6 +18,8 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
+import { NotebookNodeTimestampList } from '../Nodes/NotebookNodeTimestampList'
+import { NotebookNodeTimestampItem } from '../Nodes/NotebookNodeTimestampItem'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -64,7 +66,8 @@ export function Editor({
                 },
             }),
             NotebookNodeLink,
-
+            NotebookNodeTimestampList,
+            NotebookNodeTimestampItem,
             NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,

@@ -2975,6 +2975,8 @@ export enum NotebookNodeType {
     Insight = 'ph-insight',
     Query = 'ph-query',
     Recording = 'ph-recording',
+    TimestampList = 'phTimestampList',
+    TimestampItem = 'phTimestampItem',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',

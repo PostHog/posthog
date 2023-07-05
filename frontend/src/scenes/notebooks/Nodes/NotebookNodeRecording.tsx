@@ -1,5 +1,5 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
+import { NodeViewContent, ReactNodeViewRenderer } from '@tiptap/react'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
@@ -30,6 +30,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             <div style={{ height: HEIGHT }}>
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
+            <NodeViewContent />
         </NodeWrapper>
     )
 }
@@ -39,6 +40,7 @@ export const NotebookNodeRecording = Node.create({
     group: 'block',
     atom: true,
     draggable: true,
+    content: 'inline*',
 
     addAttributes() {
         return {
