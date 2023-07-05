@@ -173,7 +173,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         loadPersons: async ({ url }) => {
             const offset = url ? parseInt(new URL(url).searchParams.get('offset') || '0') : 0
             if (offset === 0) {
-                cache.requestedPersons.length = 0 // Clear cache
+                cache.requestedPersons = []
             }
         },
     })),

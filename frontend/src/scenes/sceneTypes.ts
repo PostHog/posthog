@@ -58,6 +58,7 @@ export enum Scene {
     AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
+    Site = 'Site',
     WebPerformance = 'WebPerformance',
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
@@ -114,8 +115,12 @@ export interface SceneConfig {
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
-    /** Hides most navigation UI, like the sidebar and breadcrumbs. */
-    plain?: boolean
+    /**
+     * If 1, the scene is rendered with no padding.
+     * If 2, most navigation UI (sidebar, breadcrumbs) is also hidden.
+     * Otherwise full navigation is shown.
+     */
+    plain?: 0 | 1 | 2
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
@@ -124,6 +129,6 @@ export interface SceneConfig {
     instanceLevel?: boolean
     /** Route requires organization access (used e.g. by breadcrumbs) */
     organizationBased?: boolean
-    /** Route requires project access (used e.g. by breadcrumbs). `true` implies `organizationBased` */
+    /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
 }

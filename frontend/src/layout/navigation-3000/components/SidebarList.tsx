@@ -5,7 +5,7 @@ import { IconCheckmark, IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
 import { BasicListItem, ExtendedListItem, ExtraListItemContext, SidebarCategory } from '../types'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { navigation3000Logic } from '../navigationLogic'
 import { captureException } from '@sentry/react'
 import { KeyboardShortcut } from './KeyboardShortcut'
@@ -103,6 +103,16 @@ function SidebarListItem({
     )
     if (!item.url || item.isNamePlaceholder) {
         formattedName = <i>{formattedName}</i>
+    }
+    if (item.tag) {
+        formattedName = (
+            <>
+                {formattedName}
+                <LemonTag type={item.tag.status} size="small" className="ml-2">
+                    {item.tag.text}
+                </LemonTag>
+            </>
+        )
     }
 
     const { onRename } = item
@@ -264,6 +274,7 @@ function SidebarListItem({
                 !!item.marker?.status && `SidebarListItem--marker-status-${item.marker.status}`,
                 'summary' in item && 'SidebarListItem--extended'
             )}
+            aria-disabled={!item.url}
             aria-current={active ? 'page' : undefined}
             style={style} // eslint-disable-line react/forbid-dom-props
         >

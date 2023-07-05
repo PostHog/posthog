@@ -15,8 +15,8 @@ export function Navigation({ children }: { children: any }): JSX.Element {
         <div className="h-screen flex flex-col">
             {activeScene !== Scene.Ingestion && <TopBar />}
             <SideBar>
-                <div className={clsx('main-app-content', sceneConfig?.plain && 'main-app-content--plain')}>
-                    {!sceneConfig?.plain && (
+                <div className={clsx('main-app-content', !!sceneConfig?.plain && 'main-app-content--plain')}>
+                    {sceneConfig?.plain !== 2 && (
                         <>
                             <BillingAlertsV2 />
                             {!sceneConfig?.hideProjectNotice && <ProjectNotice />}

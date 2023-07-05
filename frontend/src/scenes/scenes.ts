@@ -210,11 +210,16 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Ingestion]: {
         projectBased: true,
-        plain: true,
+        plain: 2,
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
+    },
+    [Scene.Site]: {
+        projectBased: true,
+        hideProjectNotice: true,
+        plain: 1,
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -252,7 +257,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
-        plain: true,
+        plain: 2,
     },
     // Instance management routes
     [Scene.SystemStatus]: {
@@ -282,7 +287,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
-        plain: true,
+        plain: 2,
     },
     [Scene.Feedback]: {
         projectBased: true,
@@ -433,6 +438,7 @@ export const routes: Record<string, Scene> = {
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
+    [urls.site(':url')]: Scene.Site,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.login2FA()]: Scene.Login2FA,

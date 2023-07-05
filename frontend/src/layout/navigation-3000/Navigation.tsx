@@ -8,9 +8,12 @@ import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
 import { themeLogic } from './themeLogic'
 import { navigation3000Logic } from './navigationLogic'
+import clsx from 'clsx'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     useMountedLogic(themeLogic)
+    const { sceneConfig } = useValues(sceneLogic)
     const { activeNavbarItem } = useValues(navigation3000Logic)
 
     useEffect(() => {
@@ -25,8 +28,13 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
             <NotebookSideBar>
                 <main>
                     <Breadcrumbs />
-                    <div className="Navigation3000__scene">
-                        <div className="Navigation3000__content">{children}</div>
+                    <div
+                        className={clsx(
+                            'Navigation3000__scene',
+                            !!sceneConfig?.plain && 'Navigation3000__scene--plain'
+                        )}
+                    >
+                        {children}
                     </div>
                 </main>
             </NotebookSideBar>
