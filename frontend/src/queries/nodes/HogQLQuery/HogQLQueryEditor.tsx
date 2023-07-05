@@ -10,6 +10,8 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { IDisposable, editor as importedEditor } from 'monaco-editor'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -46,24 +48,26 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 data-attr="hogql-query-editor"
                 className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full'}
             >
-                <div className="flex gap-2">
-                    <LemonInput
-                        className="grow"
-                        prefix={<IconAutoAwesome />}
-                        value={prompt}
-                        onPressEnter={() => draftFromPrompt()}
-                        onChange={(value) => setPrompt(value)}
-                        placeholder="What would you like to know?"
-                    />
-                    <LemonButton
-                        type="primary"
-                        onClick={() => draftFromPrompt()}
-                        disabledReason={!prompt ? 'Provide a prompt first' : null}
-                        loading={promptLoading}
-                    >
-                        Think
-                    </LemonButton>
-                </div>
+                <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG} match>
+                    <div className="flex gap-2">
+                        <LemonInput
+                            className="grow"
+                            prefix={<IconAutoAwesome />}
+                            value={prompt}
+                            onPressEnter={() => draftFromPrompt()}
+                            onChange={(value) => setPrompt(value)}
+                            placeholder="What would you like to know?"
+                        />
+                        <LemonButton
+                            type="primary"
+                            onClick={() => draftFromPrompt()}
+                            disabledReason={!prompt ? 'Provide a prompt first' : null}
+                            loading={promptLoading}
+                        >
+                            Think
+                        </LemonButton>
+                    </div>
+                </FlaggedFeature>
                 {promptError ? (
                     <div className="text-danger flex items-center gap-1 text-sm">
                         <IconErrorOutline className="text-xl mr-2" />
