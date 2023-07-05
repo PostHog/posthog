@@ -467,8 +467,9 @@ export class SessionRecordingBlobIngester {
         await Promise.allSettled(destroyPromises)
     }
 
-    // Given a topic and partition and a list of offsets, commit the highest offset that is no longer found across any of the existing sessions.
-    // This approach is fault tolerant in that if anything goes wrong, the next commit on that partition will work
+    // Given a topic and partition and a list of offsets, commit the highest offset
+    // that is no longer found across any of the existing sessions.
+    // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
     private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
         let potentiallyBlockingSession: SessionManager | undefined
 
@@ -508,7 +509,7 @@ export class SessionRecordingBlobIngester {
         void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
-            this.batchConsumer?.consumer.commitSync({
+            this.batchConsumer?.consumer.commit({
                 topic,
                 partition,
                 // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
@@ -522,12 +523,8 @@ export class SessionRecordingBlobIngester {
                 extra: { partition, offsetToCommit: highestOffsetToCommit, sessionId },
                 tags: { partition },
             })
-            if (e.message !== 'Broker: Specified group generation id is not valid') {
-                // If this is not a known error that happens when you commit just after a re-balance
-                // then we throw instead of swallowing
-                // TODO: ideally we'd only swallow this if it really was just after re-balance
-                throw e
-            }
+
+            throw e
         }
     }
 }
