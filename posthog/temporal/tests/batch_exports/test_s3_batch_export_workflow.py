@@ -8,16 +8,15 @@ from uuid import uuid4
 import boto3
 import pytest
 from aiochclient import ChClient
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import Client as HttpClient
 from django.test import override_settings
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
 from ee.clickhouse.materialized_columns.columns import materialize
-
-from asgiref.sync import sync_to_async
-
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
 from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
@@ -311,9 +310,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client):
-    """
-    Test that the whole workflow not just the activity works. It should update
-    the batch export run status to completed, as well as updating the record
+    """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
+
+    It should update the batch export run status to completed, as well as updating the record
     count.
     """
     ch_client = ChClient(
@@ -326,12 +325,12 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     destination_data = {
         "type": "S3",
         "config": {
-            "bucket_name": "my-production-s3-bucket",
+            "bucket_name": "posthog",
             "region": "us-east-1",
-            "prefix": "posthog-events/",
+            "prefix": "posthog-events",
             "batch_window_size": 3600,
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
         },
     }
 
@@ -354,9 +353,9 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-20 14:30:00.000000",
-            "created_at": "2023-04-20 14:30:00.000000",
-            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": "2023-04-25 13:30:00.000000",
+            "created_at": "2023-04-25 13:30:00.000000",
+            "_timestamp": "2023-04-25 13:30:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,
@@ -367,9 +366,9 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
         {
             "uuid": str(uuid4()),
             "event": "test",
-            "timestamp": "2023-04-25 14:30:00.000000",
-            "created_at": "2023-04-25 14:30:00.000000",
-            "_timestamp": "2023-04-25 14:30:00",
+            "timestamp": "2023-04-25 14:29:00.000000",
+            "created_at": "2023-04-25 14:29:00.000000",
+            "_timestamp": "2023-04-25 14:29:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "team_id": team.pk,

@@ -20,19 +20,16 @@ SELECT_QUERY_TEMPLATE = Template(
         AND _timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
     )
-    GROUP BY
-        event,
-        distinct_id,
-        uuid
+    GROUP BY ALL
     """
 )
 
 
-async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str) -> int:
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
-    row = await client.fetchrow(
+    rows = await client.fetch(
         SELECT_QUERY_TEMPLATE.substitute(fields="event, distinct_id, uuid, count(*) as count"),
         params={
             "team_id": team_id,
@@ -41,11 +38,10 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
         },
     )
 
-    if row is None:
-        print(row)
+    if rows is None:
         raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
 
-    return row["count"]
+    return sum(int(row["count"]) for row in rows)
 
 
 async def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
@@ -58,7 +54,7 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
                     event,
                     distinct_id,
                     uuid,
-                    max(timestamp) as timestamp,
+                    any(timestamp) as timestamp,
                     any(created_at) as created_at,
                     any(properties) as properties,
                     any(person_id) as person_id,
