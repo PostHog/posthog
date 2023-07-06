@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, RecordingFilters } from '~/types'
+import { NotebookMode, NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
@@ -15,6 +15,7 @@ import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const HEIGHT = 'calc(100vh - 20rem)'
 
@@ -35,7 +36,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { activeSessionRecording, nextSessionRecording } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
-    const content = !activeSessionRecording?.id ? (
+    const isShared = props.extension.options.viewMode === NotebookMode.Share
+
+    const content = isShared ? (
+        <NotebookNodeCannotShare type={'playlists'} />
+    ) : !activeSessionRecording?.id ? (
         <RecordingsLists {...recordingPlaylistLogicProps} />
     ) : (
         <>
@@ -63,6 +68,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             title="Session Replays"
             href={urls.replay(undefined, filters)}
             heightEstimate={HEIGHT}
+            compact={isShared}
         >
             <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
         </NodeWrapper>

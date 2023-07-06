@@ -19,6 +19,8 @@ export interface NodeWrapperProps extends NodeViewProps {
     heightEstimate?: number | string
     href?: string
     resizeable?: boolean
+    // for example when displaying "cannot share" content and we can show a smaller container
+    compact?: boolean
 }
 
 export function NodeWrapper({
@@ -31,13 +33,15 @@ export function NodeWrapper({
     resizeable = true,
     node,
     updateAttributes,
+    compact,
 }: NodeWrapperProps): JSX.Element {
     const { shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = node.attrs.height
+    const height = compact ? '4rem' : node.attrs.height
+    const skeletonHeight = compact ? '4rem' : heightEstimate
 
     useEffect(() => {
         if (selected && shortId) {
@@ -79,7 +83,7 @@ export function NodeWrapper({
                 {!inView ? (
                     <>
                         <div className="h-4" /> {/* Placeholder for the drag handle */}
-                        <div style={{ height: heightEstimate }}>
+                        <div style={{ height: skeletonHeight }}>
                             <LemonSkeleton className="h-full" />
                         </div>
                     </>
@@ -109,7 +113,8 @@ export function NodeWrapper({
                         <div
                             ref={contentRef}
                             className={clsx(
-                                'flex flex-col relative z-0 overflow-hidden min-h-40',
+                                'flex flex-col relative z-0 overflow-hidden',
+                                !compact && 'min-h-40',
                                 resizeable && 'resize-y'
                             )}
                             // eslint-disable-next-line react/forbid-dom-props

@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { NotebookMode, NotebookNodeType } from '~/types'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { IconFlag, IconRecording } from 'lib/lemon-ui/icons'
@@ -10,11 +10,13 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { posthogNodePasteRule } from './utils'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { id } = props.node.attrs
     const logic = featureFlagLogic({ id })
     const { featureFlag, featureFlagLoading } = useValues(logic)
+    const isShared = props.extension.options.viewMode === NotebookMode.Share
 
     return (
         <NodeWrapper
@@ -24,42 +26,47 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.featureFlag(id)}
             heightEstimate={'3rem'}
             resizeable={false}
+            compact={isShared}
         >
-            <div className="border rounded bg-bg-light">
-                <div className="flex items-center gap-2 p-4">
-                    <IconFlag className="text-lg" />
-                    {featureFlagLoading ? (
-                        <LemonSkeleton className="h-6 flex-1" />
-                    ) : (
-                        <>
-                            <span className="flex-1 font-semibold truncate">{featureFlag.name}</span>
-                            <span
-                                className={clsx(
-                                    'text-white rounded px-1',
-                                    featureFlag.active ? 'bg-success' : 'bg-muted-alt'
-                                )}
-                            >
-                                {featureFlag.active ? 'Enabled' : 'Disabled'}
-                            </span>
-                        </>
-                    )}
-                </div>
+            {isShared ? (
+                <NotebookNodeCannotShare type={'flags'} />
+            ) : (
+                <div className="border rounded bg-bg-light">
+                    <div className="flex items-center gap-2 p-4">
+                        <IconFlag className="text-lg" />
+                        {featureFlagLoading ? (
+                            <LemonSkeleton className="h-6 flex-1" />
+                        ) : (
+                            <>
+                                <span className="flex-1 font-semibold truncate">{featureFlag.name}</span>
+                                <span
+                                    className={clsx(
+                                        'text-white rounded px-1',
+                                        featureFlag.active ? 'bg-success' : 'bg-muted-alt'
+                                    )}
+                                >
+                                    {featureFlag.active ? 'Enabled' : 'Disabled'}
+                                </span>
+                            </>
+                        )}
+                    </div>
 
-                {props.selected ? (
-                    <>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2">
-                            <p>More info here!</p>
-                        </div>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2 flex justify-end">
-                            <LemonButton type="secondary" size="small" icon={<IconRecording />}>
-                                View Replays
-                            </LemonButton>
-                        </div>
-                    </>
-                ) : null}
-            </div>
+                    {props.selected ? (
+                        <>
+                            <LemonDivider className="my-0" />
+                            <div className="p-2">
+                                <p>More info here!</p>
+                            </div>
+                            <LemonDivider className="my-0" />
+                            <div className="p-2 flex justify-end">
+                                <LemonButton type="secondary" size="small" icon={<IconRecording />}>
+                                    View Replays
+                                </LemonButton>
+                            </div>
+                        </>
+                    ) : null}
+                </div>
+            )}
         </NodeWrapper>
     )
 }

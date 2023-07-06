@@ -12,7 +12,7 @@ import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
-import { NotebookType } from '~/types'
+import { NotebookMode, NotebookType } from '~/types'
 
 export type NotebookProps = {
     shortId: string
@@ -105,6 +105,7 @@ export function Notebook({ shortId, cachedNotebook, editable = false }: Notebook
 
                         return ''
                     }}
+                    viewMode={cachedNotebook ? NotebookMode.Share : undefined}
                 />
             </div>
         </BindLogic>

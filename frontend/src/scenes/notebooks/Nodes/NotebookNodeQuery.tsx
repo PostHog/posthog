@@ -3,11 +3,12 @@ import { ReactNodeViewRenderer } from '@tiptap/react'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { NotebookMode, NotebookNodeType } from '~/types'
 import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
 import { useEffect, useMemo, useState } from 'react'
+import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -30,6 +31,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { insightProps } = useValues(logic)
 
     const [editing, setEditing] = useState(false)
+
+    const isShared = props.extension.options.viewMode === NotebookMode.Share
 
     useEffect(() => {
         // We probably want a dedicated edit button for this
@@ -58,10 +61,20 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [query, editing])
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={DEFAULT_HEIGHT} {...props}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
-            </BindLogic>
+        <NodeWrapper
+            nodeType={NotebookNodeType.Query}
+            title={title}
+            heightEstimate={DEFAULT_HEIGHT}
+            compact={isShared}
+            {...props}
+        >
+            {isShared ? (
+                <NotebookNodeCannotShare type={'queries'} />
+            ) : (
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
+                </BindLogic>
+            )}
         </NodeWrapper>
     )
 }

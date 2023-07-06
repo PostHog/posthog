@@ -5,9 +5,10 @@ import {
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { NotebookMode, NotebookNodeType } from '~/types'
 import { urls } from 'scenes/urls'
 import { posthogNodePasteRule } from './utils'
+import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const HEIGHT = 500
 
@@ -18,6 +19,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         playerKey: `notebook-${id}`,
         autoPlay: false,
     }
+    const isShared = props.extension.options.viewMode === NotebookMode.Share
 
     return (
         <NodeWrapper
@@ -26,10 +28,15 @@ const Component = (props: NodeViewProps): JSX.Element => {
             title="Recording"
             href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             heightEstimate={HEIGHT}
+            compact={isShared}
         >
-            <div style={{ height: HEIGHT }}>
-                <SessionRecordingPlayer {...recordingLogicProps} />
-            </div>
+            {isShared ? (
+                <NotebookNodeCannotShare type={'recordings'} />
+            ) : (
+                <div style={{ height: HEIGHT }}>
+                    <SessionRecordingPlayer {...recordingLogicProps} />
+                </div>
+            )}
         </NodeWrapper>
     )
 }

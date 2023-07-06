@@ -18,6 +18,7 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
+import { NotebookMode } from '~/types'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -28,11 +29,13 @@ export function Editor({
     onCreate,
     onUpdate,
     placeholder,
+    viewMode,
 }: {
     initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
+    viewMode?: NotebookMode
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
 
@@ -65,12 +68,24 @@ export function Editor({
             }),
             NotebookNodeLink,
 
-            NotebookNodeInsight,
-            NotebookNodeQuery,
-            NotebookNodeRecording,
-            NotebookNodePlaylist,
-            NotebookNodePerson,
-            NotebookNodeFlag,
+            NotebookNodeInsight.configure({
+                viewMode: viewMode,
+            }),
+            NotebookNodeQuery.configure({
+                viewMode: viewMode,
+            }),
+            NotebookNodeRecording.configure({
+                viewMode: viewMode,
+            }),
+            NotebookNodePlaylist.configure({
+                viewMode: viewMode,
+            }),
+            NotebookNodePerson.configure({
+                viewMode: viewMode,
+            }),
+            NotebookNodeFlag.configure({
+                viewMode: viewMode,
+            }),
             SlashCommandsExtension,
         ],
         content: initialContent,

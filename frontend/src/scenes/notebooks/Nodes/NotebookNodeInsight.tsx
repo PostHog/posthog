@@ -1,19 +1,32 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
-import { InsightShortId } from '~/types'
+import { InsightShortId, NotebookMode } from '~/types'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { posthogNodePasteRule } from './utils'
 import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
+import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const href = `/insights/${props.node.attrs.id}`
+    const isShared = props.extension.options.viewMode === NotebookMode.Share
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Insight} title="Insight" href={href} heightEstimate="16rem" {...props}>
-            <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
+        <NodeWrapper
+            nodeType={NotebookNodeType.Insight}
+            title="Insight"
+            href={href}
+            heightEstimate={'16rem'}
+            compact={isShared}
+            {...props}
+        >
+            {isShared ? (
+                <NotebookNodeCannotShare type={'insights'} />
+            ) : (
+                <Query query={{ kind: NodeKind.SavedInsightNode, shortId: props.node.attrs.id }} />
+            )}
         </NodeWrapper>
     )
 }
