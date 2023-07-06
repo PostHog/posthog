@@ -9,7 +9,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { notebookSidebarLogic } from './Notebook/notebookSidebarLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline, IconShare } from 'lib/lemon-ui/icons'
+import { IconArrowRight, IconDelete, IconEllipsis, IconExport, IconHelpOutline } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { notebooksListLogic } from './Notebook/notebooksListLogic'
 import { router } from 'kea-router'
@@ -87,13 +87,13 @@ export function NotebookScene(): JSX.Element {
                         items={[
                             {
                                 items: [
-                                    sharingIsAllowed && {
-                                        label: 'Share',
-                                        icon: <IconShare />,
-                                        onClick: () => {
-                                            push(urls.notebookShare(notebookId))
+                                    sharingIsAllowed &&
+                                        !notebook?.is_template && {
+                                            label: 'Share',
+                                            onClick: () => {
+                                                push(urls.notebookShare(notebookId))
+                                            },
                                         },
-                                    },
                                     {
                                         label: 'Export JSON',
                                         icon: <IconExport />,

@@ -34,10 +34,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     selectors(() => ({
         notebookId: [() => [(_, props) => props], (props): string => props.shortId],
 
-        sharingIsAllowed: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.NOTEBOOKS_SHARING],
-        ],
+        sharingIsAllowed: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_SHARING]],
 
         breadcrumbs: [
             (s) => [s.notebook, s.notebookLoading],
