@@ -36,6 +36,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "id",
             "dashboard",
             "insight",
+            "notebook",
             "export_format",
             "created_at",
             "has_content",
@@ -49,14 +50,22 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         if not data.get("export_format"):
             raise ValidationError("Must provide export format")
 
-        if not data.get("dashboard") and not data.get("insight") and not data.get("export_context"):
-            raise ValidationError("Either dashboard, insight or export_context is required for an export.")
+        if (
+            not data.get("dashboard")
+            and not data.get("insight")
+            and not data.get("notebook")
+            and not data.get("export_context")
+        ):
+            raise ValidationError("Either dashboard, insight, notebook or export_context is required for an export.")
 
         if data.get("dashboard") and data["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
 
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
+
+        if data.get("notebook") and data["notebook"].team.id != self.context["team_id"]:
+            raise ValidationError({"notebook": ["This notebook does not belong to your team."]})
 
         data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
 

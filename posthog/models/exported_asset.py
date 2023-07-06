@@ -49,6 +49,7 @@ class ExportedAsset(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    notebook = models.ForeignKey("posthog.Notebook", on_delete=models.CASCADE, null=True)
 
     # Content related fields
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
@@ -86,6 +87,8 @@ class ExportedAsset(models.Model):
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+        elif self.notebook:
+            filename = f"{filename}-{slugify(str(self.notebook.title or 'Untitled'))}"
 
         filename = f"{filename}.{ext}"
 
@@ -96,7 +99,12 @@ class ExportedAsset(models.Model):
         return self.export_format.split("/")[1]
 
     def get_analytics_metadata(self):
-        return {"export_format": self.export_format, "dashboard_id": self.dashboard_id, "insight_id": self.insight_id}
+        return {
+            "export_format": self.export_format,
+            "dashboard_id": self.dashboard_id,
+            "insight_id": self.insight_id,
+            "notebook_id": self.notebook_id,
+        }
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
         token = get_public_access_token(self, expiry_delta)
@@ -117,7 +125,7 @@ def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
 
 def asset_for_token(token: str) -> ExportedAsset:
     info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
-    asset = ExportedAsset.objects.select_related("dashboard", "insight").get(pk=info["id"])
+    asset = ExportedAsset.objects.select_related("dashboard", "insight", "Notebook").get(pk=info["id"])
 
     return asset
 
@@ -125,7 +133,7 @@ def asset_for_token(token: str) -> ExportedAsset:
 def get_content_response(asset: ExportedAsset, download: bool = False):
     content = asset.content
     if not content and asset.content_location:
-        content = object_storage.read_bytes(asset.content_location)
+        content = object_storage.read_bytes(str(asset.content_location))
 
     if not content:
         # if we don't have content, the asset is invalid, so, expire it

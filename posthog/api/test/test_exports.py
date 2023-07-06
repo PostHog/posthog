@@ -14,6 +14,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
+from posthog.models.notebook.notebook import Notebook
 from posthog.models.team import Team
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -31,6 +32,7 @@ class TestExports(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
+    notebook: Notebook = None
 
     def teardown_method(self, method) -> None:
         s3 = resource(
@@ -57,6 +59,9 @@ class TestExports(APIBaseTest):
             created_by=cls.user,
             name="example insight",
         )
+        cls.notebook = Notebook.objects.create(
+            team=cls.team, created_by=cls.user, title="example notebook", content={"some": "content"}
+        )
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
         )
@@ -76,6 +81,32 @@ class TestExports(APIBaseTest):
             "filename": "export-example-dashboard.png",
             "has_content": False,
             "insight": None,
+            "export_context": None,
+            # without an expiry being set at creation, the default is 6 months
+            "expires_after": (now() + timedelta(weeks=26))
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        }
+
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+    @patch("posthog.api.exports.exporter")
+    def test_can_create_new_valid_export_notebook(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports", {"export_format": "image/png", "notebook": self.notebook.id}
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data == {
+            "id": data["id"],
+            "created_at": data["created_at"],
+            "dashboard": None,
+            "insight": None,
+            "notebook": str(self.notebook.id),
+            "export_format": "image/png",
+            "filename": "export-example-notebook.png",
+            "has_content": False,
             "export_context": None,
             # without an expiry being set at creation, the default is 6 months
             "expires_after": (now() + timedelta(weeks=26))

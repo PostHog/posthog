@@ -46,9 +46,9 @@ IMAGE_EXPORT_TIMER = Summary(
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 ScreenWidth = Literal[800, 1920]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".ExportedNotebook"]
 
-# NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
+# NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
     options = Options()
@@ -71,10 +71,10 @@ def get_driver() -> webdriver.Chrome:
 
 def _export_to_png(exported_asset: ExportedAsset) -> None:
     """
-    Exporting an Insight means:
-    1. Loading the Insight from the web app in a dedicated rendering mode
+    Exporting a thing means:
+    1. Loading the thing from the web app in a dedicated rendering mode
     2. Waiting for the page to have fully loaded before taking a screenshot to disk
-    3. Loading that screenshot into memory and saving the data representation to the relevant Insight
+    3. Loading that screenshot into memory and saving the data representation to the relevant exported asset
     4. Cleanup: Remove the old file and close the browser session
     """
 
@@ -105,8 +105,12 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
+        elif exported_asset.notebook is not None:
+            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            wait_for_css_selector = ".ExportedNotebook"
+            screenshot_width = 800
         else:
-            raise Exception(f"Export is missing required dashboard or insight ID")
+            raise Exception(f"Asset is not valid for image export: " + str(exported_asset.id))
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
@@ -184,9 +188,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
                     _export_to_png(exported_asset)
                 IMAGE_EXPORT_SUCCEEDED_COUNTER.labels(team_id=exported_asset.team.id).inc()
             else:
-                raise NotImplementedError(
-                    f"Export to format {exported_asset.export_format} is not supported for insights"
-                )
+                raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
         except Exception as e:
             if exported_asset:
                 team_id = str(exported_asset.team.id)

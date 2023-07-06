@@ -5,6 +5,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .notebook.notebook import Notebook
 from ..batch_exports.models import (
     BatchExport,
     BatchExportDestination,
@@ -89,6 +90,7 @@ __all__ = [
     "Integration",
     "MessagingRecord",
     "MigrationStatus",
+    "Notebook",
     "NotificationViewed",
     "Organization",
     "OrganizationDomain",
