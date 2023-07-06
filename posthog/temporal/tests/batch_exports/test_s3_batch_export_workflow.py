@@ -322,7 +322,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name):
-    """Test the full S3 workflow targetting a MinIO bucket.
+    """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
     The workflow should update the batch export run status to completed and produce the expected
     records to the MinIO bucket.

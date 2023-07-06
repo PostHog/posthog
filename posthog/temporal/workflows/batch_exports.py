@@ -22,7 +22,7 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 
-async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str):
+async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str) -> int:
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
