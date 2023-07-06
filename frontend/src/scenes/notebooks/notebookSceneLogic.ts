@@ -5,6 +5,8 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type NotebookSceneLogicProps = {
     shortId: string
@@ -15,7 +17,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     props({} as NotebookSceneLogicProps),
     key(({ shortId }) => shortId),
     connect((props: NotebookSceneLogicProps) => ({
-        values: [notebookLogic(props), ['notebook', 'notebookLoading']],
+        values: [notebookLogic(props), ['notebook', 'notebookLoading'], featureFlagLogic, ['featureFlags']],
         actions: [notebookLogic(props), ['loadNotebook']],
     })),
     actions({
@@ -31,6 +33,11 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
     }),
     selectors(() => ({
         notebookId: [() => [(_, props) => props], (props): string => props.shortId],
+
+        sharingIsAllowed: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.NOTEBOOKS_SHARING],
+        ],
 
         breadcrumbs: [
             (s) => [s.notebook, s.notebookLoading],

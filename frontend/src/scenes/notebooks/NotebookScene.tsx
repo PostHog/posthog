@@ -30,7 +30,7 @@ export const scene: SceneExport = {
 }
 
 export function NotebookScene(): JSX.Element {
-    const { notebookId, mode } = useValues(notebookSceneLogic)
+    const { notebookId, mode, sharingIsAllowed } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
     const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
     const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
@@ -87,7 +87,7 @@ export function NotebookScene(): JSX.Element {
                         items={[
                             {
                                 items: [
-                                    {
+                                    sharingIsAllowed && {
                                         label: 'Share',
                                         icon: <IconShare />,
                                         onClick: () => {
