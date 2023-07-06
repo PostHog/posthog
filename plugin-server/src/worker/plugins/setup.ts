@@ -27,41 +27,41 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
 
-            // For anything other than the ingestion pods or overflow pods, we need to
-            // load everything.
-            //
-            // For scheduler, we need to load all the scheduler plugins as we do not
-            // know what the capabilities are before the first time we have loaded a
-            // plugin. This is because the capabilities column in the plugin table
-            // is only updated when the plugin is loaded.
-            //
-            // A more sustainable solution would be to have Django send a message to
-            // Kafka then a plugin is update and have e.g. the scheduler, or the
-            // graphile job worker process, listen to that message and update the
-            // capabilities column in the plugin table, as well as transpiling the
-            // plugin.
-            //
-            // We can then e.g. send a signal that the plugin has been updated and
-            // the plugin servers should reload it. Once we can rely on the data in
-            // postgres to be up to date we can then narrow down the query we use to
-            // load the plugin and plugin config data by e.g. filtering on
-            // `'schedules' in capabilities` of something along those lines.
-            //
-            // It would be wise to have a way of identifying the date at which the
-            // plugin was last updated via the process described above, so that we
-            // can avoid reloading the plugin if it has not been updated since the
-            // last time we loaded it.
-            //
-            // For now we just use the blunt instrument of loading all the plugins
-            // for some plugin-server instances.
-            //
-            // We use an env var to control this so that we can easily switch it
-            // on and off for different plugin-server instances.
             if (
                 process.env.PLUGINS_LAZY_VM !== 'true' &&
                 !hub.capabilities.ingestion &&
                 !hub.capabilities.ingestionOverflow
             ) {
+                // For anything other than the ingestion pods or overflow pods, we need to
+                // load everything.
+                //
+                // For scheduler, we need to load all the scheduler plugins as we do not
+                // know what the capabilities are before the first time we have loaded a
+                // plugin. This is because the capabilities column in the plugin table
+                // is only updated when the plugin is loaded.
+                //
+                // A more sustainable solution would be to have Django send a message to
+                // Kafka then a plugin is update and have e.g. the scheduler, or the
+                // graphile job worker process, listen to that message and update the
+                // capabilities column in the plugin table, as well as transpiling the
+                // plugin.
+                //
+                // We can then e.g. send a signal that the plugin has been updated and
+                // the plugin servers should reload it. Once we can rely on the data in
+                // postgres to be up to date we can then narrow down the query we use to
+                // load the plugin and plugin config data by e.g. filtering on
+                // `'schedules' in capabilities` of something along those lines.
+                //
+                // It would be wise to have a way of identifying the date at which the
+                // plugin was last updated via the process described above, so that we
+                // can avoid reloading the plugin if it has not been updated since the
+                // last time we loaded it.
+                //
+                // For now we just use the blunt instrument of loading all the plugins
+                // for some plugin-server instances.
+                //
+                // We use an env var to control this so that we can easily switch it
+                // on and off for different plugin-server instances.
                 pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
             }
 
