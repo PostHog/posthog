@@ -5,7 +5,7 @@ import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from 
 import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
-import { JSONContent, Editor } from './utils'
+import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -26,7 +26,7 @@ export const notebookLogic = kea<notebookLogicType>([
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
     }),
     actions({
-        setEditorRef: (editor: Editor) => ({ editor }),
+        setEditor: (editor: NotebookEditor) => ({ editor }),
         onEditorUpdate: true,
         setLocalContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearLocalContent: true,
@@ -46,9 +46,9 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         editor: [
-            null as Editor | null,
+            null as NotebookEditor | null,
             {
-                setEditorRef: (_, { editor }) => editor,
+                setEditor: (_, { editor }) => editor,
             },
         ],
         ready: [
@@ -92,7 +92,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     if (!values.notebook) {
                         // If this is the first load we need to override the content fully
-                        values.editor?.commands.setContent(response.content)
+                        values.editor?.setContent(response.content)
                     }
 
                     return response
@@ -166,9 +166,9 @@ export const notebookLogic = kea<notebookLogicType>([
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
         content: [
             (s) => [s.notebook, s.localContent],
-            (notebook, localContent): JSONContent | undefined => {
+            (notebook, localContent): JSONContent => {
                 // We use the local content is set otherwise the notebook content
-                return localContent || notebook?.content
+                return localContent || notebook?.content || []
             },
         ],
         title: [
@@ -181,8 +181,8 @@ export const notebookLogic = kea<notebookLogicType>([
 
         isEmpty: [
             (s) => [s.editor, s.content],
-            (editor): boolean => {
-                return editor?.isEmpty ?? false
+            (editor: NotebookEditor): boolean => {
+                return editor?.isEmpty() || false
             },
         ],
 
