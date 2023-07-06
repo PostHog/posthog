@@ -1,32 +1,34 @@
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer, KafkaJSProtocolError } from 'kafkajs'
-import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, Consumer, KafkaJSProtocolError } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
-import { createPostgresPool, delay } from '../utils/utils'
+import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import Piscina from '../worker/piscina'
+import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
-import { IngestionConsumer } from './ingestion-queues/kafka-queue'
-import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
+import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
+import {
+    startAsyncHandlerConsumer,
+    startAsyncOnEventHandlerConsumer,
+    startAsyncWebhooksHandlerConsumer,
+} from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
@@ -41,7 +43,7 @@ const { version } = require('../../package.json')
 export type ServerInstance = {
     hub: Hub
     piscina: Piscina
-    queue: IngestionConsumer | null
+    queue: KafkaJSIngestionConsumer | IngestionConsumer | null
     stop: () => Promise<void>
 }
 
@@ -77,14 +79,14 @@ export async function startPluginsServer(
     // 2. this queue consumes from the plugin_events_ingestion topic.
     // 3. update or creates people in the Persons table in pg with the new event
     //    data.
-    // 4. passes he event through `processEvent` on any plugins that the team
+    // 4. passes the event through `processEvent` on any plugins that the team
     //    has enabled.
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
-    let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
-    let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
-
-    let onEventHandlerConsumer: IngestionConsumer | undefined
+    let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
+    let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -130,6 +132,7 @@ export async function startPluginsServer(
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
+            webhooksHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
@@ -290,12 +293,13 @@ export async function startPluginsServer(
             })
         }
 
+        // TODO: remove once onevent and webhooks split is fully out
         if (capabilities.processAsyncHandlers) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startAsyncHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
             })
@@ -303,6 +307,42 @@ export async function startPluginsServer(
             onEventHandlerConsumer = onEventQueue
 
             healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
+        if (capabilities.processAsyncOnEventHandlers) {
+            if (capabilities.processAsyncHandlers) {
+                throw Error('async and onEvent together are not allowed - would export twice')
+            }
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } =
+                await startAsyncOnEventHandlerConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            onEventHandlerConsumer = onEventQueue
+
+            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
+        if (capabilities.processAsyncWebhooksHandlers) {
+            if (capabilities.processAsyncHandlers) {
+                throw Error('async and webhooks together are not allowed - would send twice')
+            }
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: webhooksQueue, isHealthy: isWebhooksIngestionHealthy } =
+                await startAsyncWebhooksHandlerConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            webhooksHandlerConsumer = webhooksQueue
+
+            healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
 
         // If we have
@@ -320,7 +360,7 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncHandlers
+                ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
                     ? {
                           'reload-action': async (message) =>
                               await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
@@ -376,17 +416,28 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
-            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
+            const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, blobServerConfig)
+            const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
+            const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
+
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(teamManager, serverConfig, s3)
+            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
+                stopSessionRecordingBlobConsumer = async () => {
+                    // Tricky - in some cases the hub is responsible, in which case it will drain and clear. Otherwise we are responsible.
+                    if (!hub?.db.redisPool) {
+                        await redisPool.drain()
+                        await redisPool.clear()
+                    }
+
+                    await ingester.stop()
+                }
                 joinSessionRecordingBlobConsumer = () => batchConsumer.join()
                 healthChecks['session-recordings-blob'] = () => batchConsumer.isHealthy() ?? false
             }

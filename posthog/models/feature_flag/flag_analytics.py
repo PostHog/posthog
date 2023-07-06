@@ -1,15 +1,22 @@
 from typing import TYPE_CHECKING, Tuple
 from posthog.constants import FlagRequestType
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.redis import redis, get_client
 import time
 from sentry_sdk import capture_exception
 from django.conf import settings
+from posthog.client import sync_execute
+from datetime import datetime
+
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+
+# :NOTE: When making changes here, make sure you run test_no_interference_between_different_types_of_new_incoming_increments
+# locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
 
 def get_team_request_key(team_id: int, request_type: FlagRequestType) -> str:
@@ -102,3 +109,30 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
         pass
     except Exception as error:
         capture_exception(error)
+
+
+def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
+
+    result = sync_execute(
+        """
+        SELECT team_id, JSONExtractString(properties, 'feature_flag') as flag_key
+        FROM events
+        WHERE timestamp between %(begin)s AND %(end)s AND event = '$feature_view'
+        GROUP BY team_id, flag_key
+    """,
+        {"begin": begin, "end": end},
+    )
+
+    for row in result:
+        team_id = row[0]
+        flag_key = row[1]
+
+        try:
+            flag = FeatureFlag.objects.get(team_id=team_id, key=flag_key)
+            if not flag.has_enriched_analytics:
+                flag.has_enriched_analytics = True
+                flag.save()
+        except FeatureFlag.DoesNotExist:
+            pass
+        except Exception as e:
+            capture_exception(e)

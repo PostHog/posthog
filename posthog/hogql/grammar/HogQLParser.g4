@@ -21,7 +21,7 @@ selectStmt:
     havingClause?
     windowClause?
     orderByClause?
-    limitClause?
+    (limitAndOffsetClause | offsetOnlyClause)?
     settingsClause?
     ;
 
@@ -36,11 +36,16 @@ groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnEx
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
-limitClause: LIMIT limitExpr ((WITH TIES) | BY columnExprList)?;
+limitAndOffsetClause
+    : LIMIT columnExpr (COMMA columnExpr)? ((WITH TIES) | BY columnExprList)? // compact OFFSET-optional form
+    | LIMIT columnExpr (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
+    | LIMIT columnExpr OFFSET columnExpr (BY columnExprList)? // verbose OFFSET-included form with BY
+    ;
+offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
 
 joinExpr
-    : joinExpr (GLOBAL | LOCAL)? joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
+    : joinExpr joinOp? JOIN joinExpr joinConstraintClause  # JoinExprOp
     | joinExpr joinOpCross joinExpr                                          # JoinExprCrossOp
     | tableExpr FINAL? sampleClause?                                         # JoinExprTable
     | LPAREN joinExpr RPAREN                                                 # JoinExprParens
@@ -53,7 +58,7 @@ joinOp
     | ((ALL | ANY)? FULL OUTER? | FULL OUTER? (ALL | ANY)?)                         # JoinOpFull
     ;
 joinOpCross
-    : (GLOBAL|LOCAL)? CROSS JOIN
+    : CROSS JOIN
     | COMMA
     ;
 joinConstraintClause
@@ -63,7 +68,6 @@ joinConstraintClause
     ;
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
-limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
 ratioExpr: numberLiteral (SLASH numberLiteral)?;
@@ -112,25 +116,32 @@ columnExpr
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | columnExpr DOT identifier                                                           # ColumnExprPropertyAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
-    | left=columnExpr ( operator=ASTERISK                                                               // multiply
-                 | operator=SLASH                                                                  // divide
-                 | operator=PERCENT                                                                // modulo
-                 ) right=columnExpr                                                             # ColumnExprPrecedence1
-    | left=columnExpr ( operator=PLUS                                                                   // plus
-                 | operator=DASH                                                                   // minus
-                 | operator=CONCAT                                                                 // concat
-                 ) right=columnExpr                                                             # ColumnExprPrecedence2
-    | left=columnExpr ( operator=EQ_DOUBLE                                                              // equals
-                 | operator=EQ_SINGLE                                                              // equals
-                 | operator=NOT_EQ                                                                 // notEquals
-                 | operator=LE                                                                     // lessOrEquals
-                 | operator=GE                                                                     // greaterOrEquals
-                 | operator=LT                                                                     // less
-                 | operator=GT                                                                     // greater
-                 | operator=GLOBAL? NOT? IN                                                        // in, notIn, globalIn, globalNotIn
-                 | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
-                 ) right=columnExpr                                                             # ColumnExprPrecedence3
+    | left=columnExpr ( operator=ASTERISK                                                 // *
+                 | operator=SLASH                                                         // /
+                 | operator=PERCENT                                                       // %
+                 ) right=columnExpr                                                       # ColumnExprPrecedence1
+    | left=columnExpr ( operator=PLUS                                                     // +
+                 | operator=DASH                                                          // -
+                 | operator=CONCAT                                                        // ||
+                 ) right=columnExpr                                                       # ColumnExprPrecedence2
+    | left=columnExpr ( operator=EQ_DOUBLE                                                // =
+                 | operator=EQ_SINGLE                                                     // ==
+                 | operator=NOT_EQ                                                        // !=
+                 | operator=LT_EQ                                                         // <=
+                 | operator=LT                                                            // <
+                 | operator=GT_EQ                                                         // >=
+                 | operator=GT                                                            // >
+                 | operator=NOT? IN COHORT?                                               // in, not in; in cohort; not in cohort
+                 | operator=NOT? (LIKE | ILIKE)                                           // like, not like, ilike, not ilike
+                 | operator=REGEX_SINGLE                                                  // ~
+                 | operator=REGEX_DOUBLE                                                  // =~
+                 | operator=NOT_REGEX                                                     // !~
+                 | operator=IREGEX_SINGLE                                                 // ~*
+                 | operator=IREGEX_DOUBLE                                                 // =~*
+                 | operator=NOT_IREGEX                                                    // !~*
+                 ) right=columnExpr                                                       # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
+    | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr

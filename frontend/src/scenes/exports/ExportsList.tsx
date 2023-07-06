@@ -1,9 +1,10 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from '../urls'
 import { LemonButton } from '../../lib/lemon-ui/LemonButton'
+import { More } from '../../lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from '../../lib/lemon-ui/LemonDivider'
 import { LemonTag } from '../../lib/lemon-ui/LemonTag/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { IconPlay, IconPause, IconDelete } from 'lib/lemon-ui/icons'
 import { useCurrentTeamId, useExports, useExportAction, useDeleteExport, BatchExport } from './api'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
@@ -17,6 +18,9 @@ export interface ExportActionButtonsProps {
     currentTeamId: number
     export_: BatchExport
     loading: boolean
+    buttonFullWidth: boolean
+    buttonType: 'primary' | 'secondary' | 'tertiary'
+    dividerVertical: boolean
     updateCallback: (signal: AbortSignal | undefined) => void
 }
 
@@ -24,6 +28,9 @@ export function ExportActionButtons({
     currentTeamId,
     export_,
     loading,
+    buttonFullWidth,
+    buttonType,
+    dividerVertical,
     updateCallback,
 }: ExportActionButtonsProps): JSX.Element {
     const { executeExportAction: pauseExport, error: pauseError } = useExportAction(currentTeamId, export_.id, 'pause')
@@ -36,13 +43,13 @@ export function ExportActionButtons({
     const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
     return (
-        <div className={clsx('flex flex-wrap gap-2')}>
+        <>
             <LemonButton
                 status="primary"
-                type="secondary"
+                type={buttonType}
                 onClick={() => {
                     export_.paused
-                        ? resumeExport()
+                        ? resumeExport(undefined)
                               .then(() => {
                                   updateCallback(undefined)
                                   lemonToast['success'](
@@ -64,7 +71,7 @@ export function ExportActionButtons({
                                       }
                                   )
                               })
-                        : pauseExport()
+                        : pauseExport(undefined)
                               .then(() => {
                                   updateCallback(undefined)
                                   lemonToast['info'](
@@ -87,14 +94,53 @@ export function ExportActionButtons({
                                   )
                               })
                 }}
-                icon={export_.paused ? <IconPlay /> : <IconPause />}
-                tooltip={export_.paused ? 'Resume this BatchExport' : 'Pause this BatchExport'}
+                tooltip={export_.paused ? 'Resume this paused BatchExport' : 'Pause this active BatchExport'}
                 disabled={loading}
                 loading={loading}
-            />
+                fullWidth={buttonFullWidth}
+            >
+                {export_.paused ? 'Resume' : 'Pause'}
+            </LemonButton>
+            {export_.paused ? (
+                <LemonButton
+                    status="primary"
+                    type={buttonType}
+                    onClick={() => {
+                        resumeExport({ backfill: true })
+                            .then(() => {
+                                updateCallback(undefined)
+                                lemonToast['success'](
+                                    <>
+                                        <b>{export_.name}</b> has been resumed
+                                    </>,
+                                    {
+                                        toastId: `resume-export-success-${export_.id}`,
+                                    }
+                                )
+                            })
+                            .catch(() => {
+                                lemonToast['error'](
+                                    <>
+                                        <b>{export_.name}</b> could not be resumed: {resumeError}
+                                    </>,
+                                    {
+                                        toastId: `resume-export-error-${export_.id}`,
+                                    }
+                                )
+                            })
+                    }}
+                    tooltip={'Resume this paused BatchExport and trigger backfilling for any runs missed while paused'}
+                    disabled={loading}
+                    loading={loading}
+                    fullWidth={buttonFullWidth}
+                >
+                    Resume and backfill
+                </LemonButton>
+            ) : undefined}
+            <LemonDivider vertical={dividerVertical} />
             <LemonButton
                 status="danger"
-                type="secondary"
+                type={buttonType}
                 onClick={() => {
                     deleteExport()
                         .then(() => {
@@ -119,12 +165,65 @@ export function ExportActionButtons({
                             )
                         })
                 }}
-                icon={<IconDelete />}
                 tooltip="Permanently delete this BatchExport"
                 disabled={loading}
                 loading={loading}
+                fullWidth={buttonFullWidth}
+            >
+                Delete
+            </LemonButton>
+        </>
+    )
+}
+
+export interface SubExportActionButtonsProps {
+    currentTeamId: number
+    export_: BatchExport
+    loading: boolean
+    updateCallback: (signal: AbortSignal | undefined) => void
+}
+
+export function InlineExportActionButtons({
+    currentTeamId,
+    export_,
+    loading,
+    updateCallback,
+}: SubExportActionButtonsProps): JSX.Element {
+    return (
+        <div className={clsx('flex flex-wrap gap-2')}>
+            <ExportActionButtons
+                export_={export_}
+                currentTeamId={currentTeamId}
+                loading={loading}
+                updateCallback={updateCallback}
+                buttonFullWidth={false}
+                buttonType={'secondary'}
+                dividerVertical={true}
             />
         </div>
+    )
+}
+
+export function NestedExportActionButtons({
+    currentTeamId,
+    export_,
+    loading,
+    updateCallback,
+}: SubExportActionButtonsProps): JSX.Element {
+    return (
+        <More
+            overlay={
+                <ExportActionButtons
+                    export_={export_}
+                    currentTeamId={currentTeamId}
+                    loading={loading}
+                    updateCallback={updateCallback}
+                    buttonFullWidth={true}
+                    buttonType={'tertiary'}
+                    dividerVertical={false}
+                />
+            }
+        />
     )
 }
 
@@ -210,7 +309,7 @@ export function Exports(): JSX.Element {
                         title: 'Actions',
                         render: function Render(_, export_) {
                             return (
-                                <ExportActionButtons
+                                <NestedExportActionButtons
                                     currentTeamId={currentTeamId}
                                     export_={export_}
                                     loading={loading}

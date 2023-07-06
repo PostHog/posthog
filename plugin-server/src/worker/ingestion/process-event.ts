@@ -205,14 +205,11 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        const ack = this.kafkaProducer.queueMessage({
+        const ack = this.kafkaProducer.produce({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            messages: [
-                {
-                    key: uuid,
-                    value: JSON.stringify(rawEvent),
-                },
-            ],
+            key: uuid,
+            value: Buffer.from(JSON.stringify(rawEvent)),
+            waitForAck: true,
         })
 
         return [rawEvent, ack]
@@ -278,6 +275,7 @@ export interface SummarizedSessionRecordingEvent {
     console_log_count: number
     console_warn_count: number
     console_error_count: number
+    size: number
 }
 
 export const createSessionReplayEvent = (
@@ -365,6 +363,7 @@ export const createSessionReplayEvent = (
         console_log_count: consoleLogCount,
         console_warn_count: consoleWarnCount,
         console_error_count: consoleErrorCount,
+        size: Buffer.byteLength(JSON.stringify(properties), 'utf8'),
     }
 
     return data

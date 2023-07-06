@@ -53,7 +53,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Events]: {
         projectBased: true,
-        name: 'Live Events',
+        name: 'Event Explorer',
     },
     [Scene.Exports]: {
         projectBased: true,
@@ -161,6 +161,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
+    },
+    [Scene.DataWarehouse]: {
+        projectBased: true,
+        name: 'Data Warehouse',
+    },
+    [Scene.DataWarehouseTable]: {
+        projectBased: true,
+        name: 'Data Warehouse Table',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
@@ -393,6 +401,8 @@ export const routes: Record<string, Scene> = {
     [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
     [urls.surveys()]: Scene.Surveys,
     [urls.survey(':id')]: Scene.Survey,
+    [urls.dataWarehouse()]: Scene.DataWarehouse,
+    [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,

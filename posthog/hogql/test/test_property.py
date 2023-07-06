@@ -23,6 +23,8 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 
 
 class TestProperty(BaseTest):
+    maxDiff = None
+
     def _property_to_expr(self, property: Union[PropertyGroup, Property, dict, list], team: Optional[Team] = None):
         return clear_locations(property_to_expr(property, team=team or self.team))
 

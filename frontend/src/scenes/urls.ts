@@ -53,7 +53,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     exports: (): string => '/exports',
-    createExport: (): string => `/exports/new/`,
+    createExport: (): string => `/exports/new`,
     viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
@@ -99,6 +99,8 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
+    dataWarehouse: (): string => '/warehouse',
+    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
     survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,

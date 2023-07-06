@@ -20,6 +20,7 @@ import {
     LifecycleToggle,
     HogQLMathType,
     InsightLogicProps,
+    InsightShortId,
 } from '~/types'
 
 /**
@@ -45,6 +46,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
     // New queries, not yet implemented
@@ -83,6 +85,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
+    | SavedInsightNode
     | InsightVizNode
 
     // New queries, not yet implemented
@@ -134,13 +137,20 @@ export interface HogQLQuery extends DataNode {
     response?: HogQLQueryResponse
 }
 
+export interface HogQLNotice {
+    start?: number
+    end?: number
+    message: string
+    fix?: string
+}
+
 export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
-    error?: string
-    errorStart?: number
-    errorEnd?: number
+    errors: HogQLNotice[]
+    warnings: HogQLNotice[]
+    notices: HogQLNotice[]
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -302,6 +312,13 @@ export interface DataTableNode extends Node {
     showOpenEditorButton?: boolean
 }
 
+// Saved insight node
+
+export interface SavedInsightNode extends Node {
+    kind: NodeKind.SavedInsightNode
+    shortId: InsightShortId
+}
+
 // Insight viz node
 
 export interface InsightVizNode extends Node {
@@ -314,6 +331,7 @@ export interface InsightVizNode extends Node {
     showTable?: boolean
     showCorrelationTable?: boolean
     showLastComputation?: boolean
+    showLegendButton?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */

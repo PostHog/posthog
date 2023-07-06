@@ -1,6 +1,9 @@
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import {
+    processOnEventStep,
+    processWebhooksStep,
+} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
@@ -28,7 +31,7 @@ describe('runAsyncHandlersStep()', () => {
             nextStep: (...args: any[]) => args,
             hub: {
                 capabilities: {
-                    processAsyncHandlers: true,
+                    processAsyncOnEventHandlers: true,
                 },
                 actionMatcher: {
                     match: jest.fn().mockResolvedValue(['action1', 'action2']),
@@ -41,31 +44,22 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('stops processing', async () => {
-        const response = await runAsyncHandlersStep(runner, ingestionEvent)
+        const response = await processOnEventStep(runner, ingestionEvent)
 
         expect(response).toEqual(null)
     })
 
     it('does action matching and fires webhooks', async () => {
-        await runAsyncHandlersStep(runner, ingestionEvent)
+        await processWebhooksStep(runner, ingestionEvent)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
         expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, ['action1', 'action2'])
     })
 
     it('calls onEvent plugin methods', async () => {
-        await runAsyncHandlersStep(runner, ingestionEvent)
+        await processOnEventStep(runner, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
         expect(runOnSnapshot).not.toHaveBeenCalled()
-    })
-
-    it('still calls onEvent if actions lookup fails', async () => {
-        const error = new Error('Event matching failed')
-        jest.mocked(runner.hub.actionMatcher.match).mockRejectedValue(error)
-
-        await expect(runAsyncHandlersStep(runner, ingestionEvent)).rejects.toThrow(error)
-
-        expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
     })
 })

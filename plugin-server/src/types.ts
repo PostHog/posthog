@@ -30,7 +30,6 @@ import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
-import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -73,6 +72,34 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
+export enum PluginServerMode {
+    ingestion = 'ingestion',
+    ingestion_overflow = 'ingestion-overflow',
+    plugins_async = 'async',
+    async_onevent = 'async-onevent',
+    async_webhooks = 'async-webhooks',
+    plugins_exports = 'exports', // TODO: remove once onevent and webhooks split is out
+    jobs = 'jobs',
+    scheduler = 'scheduler',
+    analytics_ingestion = 'analytics-ingestion',
+    recordings_ingestion = 'recordings-ingestion',
+    recordings_blob_ingestion = 'recordings-blob-ingestion',
+}
+
+export const stringToPluginServerMode: { [key: string]: PluginServerMode } = {
+    ingestion: PluginServerMode.ingestion,
+    'ingestion-overflow': PluginServerMode.ingestion_overflow,
+    async: PluginServerMode.plugins_async,
+    'async-onevent': PluginServerMode.async_onevent,
+    'async-webhooks': PluginServerMode.async_webhooks,
+    exports: PluginServerMode.plugins_exports,
+    jobs: PluginServerMode.jobs,
+    scheduler: PluginServerMode.scheduler,
+    'analytics-ingestion': PluginServerMode.analytics_ingestion,
+    'recordings-ingestion': PluginServerMode.recordings_ingestion,
+    'recordings-blob-ingestion': PluginServerMode.recordings_blob_ingestion,
+}
+
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
@@ -95,6 +122,12 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    REDIS_URL: string
+    POSTHOG_REDIS_PASSWORD: string
+    POSTHOG_REDIS_HOST: string
+    POSTHOG_REDIS_PORT: number
+    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
+    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
@@ -104,6 +137,7 @@ export interface PluginsServerConfig {
     KAFKA_SASL_USER: string | undefined
     KAFKA_SASL_PASSWORD: string | undefined
     KAFKA_CLIENT_RACK: string | undefined
+    KAFKA_CONSUMPTION_USE_RDKAFKA: boolean
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
     KAFKA_CONSUMPTION_MAX_WAIT_MS: number // fetch.wait.max.ms rdkafka parameter
@@ -117,10 +151,6 @@ export interface PluginsServerConfig {
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
-    REDIS_URL: string
-    POSTHOG_REDIS_PASSWORD: string
-    POSTHOG_REDIS_HOST: string
-    POSTHOG_REDIS_PORT: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
@@ -131,8 +161,6 @@ export interface PluginsServerConfig {
     STATSD_PORT: number
     STATSD_PREFIX: string
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
-    REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
-    REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
@@ -166,17 +194,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
-    PLUGIN_SERVER_MODE:
-        | 'ingestion'
-        | 'ingestion-overflow'
-        | 'async'
-        | 'exports'
-        | 'jobs'
-        | 'scheduler'
-        | 'analytics-ingestion'
-        | 'recordings-ingestion'
-        | 'recordings-blob-ingestion'
-        | null
+    PLUGIN_SERVER_MODE: PluginServerMode | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -189,14 +207,19 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
-    SESSION_RECORDING_KAFKA_HOSTS: string
-    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
-    SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
+    SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: boolean
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
+    SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+
+    // Dedicated infra values
+    SESSION_RECORDING_KAFKA_HOSTS: string | undefined
+    SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
+    POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -232,7 +255,6 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
-    siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
     // geoip database, setup in workers
     mmdb?: ReaderModel
@@ -251,6 +273,8 @@ export interface PluginServerCapabilities {
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
+    processAsyncOnEventHandlers?: boolean
+    processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     http?: boolean
@@ -436,7 +460,8 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
+    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
+    runWebhooksHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 
@@ -1114,3 +1139,5 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
 }
+
+export type RedisPool = GenericPool<Redis>

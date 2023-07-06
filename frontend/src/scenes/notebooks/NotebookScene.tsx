@@ -31,12 +31,12 @@ export const scene: SceneExport = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, mode } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
-    const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
+    const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
     const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
     const { selectedNotebook, notebookSideBarShown } = useValues(notebookSidebarLogic)
 
-    if (!notebook && !notebookLoading) {
+    if (!notebook && !notebookLoading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
     }
 
@@ -63,7 +63,7 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-white z-10">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-light z-10">
                 <div className="flex gap-2 items-center">
                     {notebook?.is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />

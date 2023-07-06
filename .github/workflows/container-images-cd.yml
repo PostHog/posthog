@@ -33,17 +33,6 @@ jobs:
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
 
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@v4
-              with:
-                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
-                  tags: |
-                      type=schedule
-                      type=ref,event=branch
-                      type=ref,event=tag
-                      type=ref,event=pr
-
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
 
@@ -59,16 +48,27 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
             - name: Build and push container image for linux/amd64
               id: build-amd64
               uses: depot/build-push-action@v1
               with:
                   project: x19jffd9zf # posthog
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
-                  tags: ${{ steps.meta.outputs.tags }}-amd64
+                  tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-amd64
                   platforms: linux/amd64
 
             - name: Build and push container image for linux/arm64
@@ -80,7 +80,7 @@ jobs:
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
-                  tags: ${{ steps.meta.outputs.tags }}-arm64
+                  tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-arm64
                   platforms: linux/arm64
 
             - name: get deployer token

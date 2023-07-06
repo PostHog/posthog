@@ -1,5 +1,6 @@
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { TrendsFilter } from '~/queries/schema'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
@@ -14,13 +15,13 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
 ]
 
 export const formatAggregationAxisValue = (
-    filters: Partial<TrendsFilterType> | undefined,
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
     value: number | string
 ): string => {
     value = Number(value)
     let formattedValue = humanFriendlyNumber(value)
-    if (filters?.aggregation_axis_format) {
-        switch (filters?.aggregation_axis_format) {
+    if (trendsFilter?.aggregation_axis_format) {
+        switch (trendsFilter?.aggregation_axis_format) {
             case 'duration':
                 formattedValue = humanFriendlyDuration(value)
                 break
@@ -38,7 +39,9 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    return `${filters?.aggregation_axis_prefix || ''}${formattedValue}${filters?.aggregation_axis_postfix || ''}`
+    return `${trendsFilter?.aggregation_axis_prefix || ''}${formattedValue}${
+        trendsFilter?.aggregation_axis_postfix || ''
+    }`
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {

@@ -19,7 +19,7 @@ import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndef
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { BIN_COUNT_AUTO, NON_VALUES_ON_SERIES_DISPLAY_TYPES, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
-import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 import {
@@ -249,6 +249,7 @@ export function cleanFilters(
             // TODO: use FF for path_type undefined
             path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
             include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
+            paths_hogql_expression: filters.paths_hogql_expression || undefined,
             path_groupings: filters.path_groupings || [],
             exclude_events: filters.exclude_events || [],
             ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),

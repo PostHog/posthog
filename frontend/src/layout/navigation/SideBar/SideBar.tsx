@@ -9,6 +9,7 @@ import {
     IconCoffee,
     IconCohort,
     IconComment,
+    IconDatabase,
     IconExperiment,
     IconFlag,
     IconGauge,
@@ -205,7 +206,7 @@ function Pages(): JSX.Element {
                         icon={<IconLive />}
                         identifier={Scene.Events}
                         to={urls.events()}
-                        title={featureFlags[FEATURE_FLAGS.HOGQL] ? 'Event Explorer' : 'Live Events'}
+                        title={'Event Explorer'}
                     />
                     <PageButton
                         icon={<IconUnverifiedEvent />}
@@ -218,6 +219,15 @@ function Pages(): JSX.Element {
                         to={urls.persons()}
                         title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                     />
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
+                        <PageButton
+                            icon={<IconDatabase />}
+                            identifier={Scene.DataWarehouse}
+                            title={'Data Warehouse'}
+                            to={urls.dataWarehouse()}
+                            highlight="beta"
+                        />
+                    )}
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (

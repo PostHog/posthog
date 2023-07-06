@@ -1,9 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import * as Sentry from '@sentry/node'
 import * as fs from 'fs'
-import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
-import Redis from 'ioredis'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { hostname } from 'os'
@@ -32,10 +30,9 @@ import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
-import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { status } from '../status'
-import { createPostgresPool, createRedis, UUIDT } from '../utils'
+import { createPostgresPool, createRedisPool, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
@@ -140,19 +137,7 @@ export async function createHub(
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
-    const redisPool = createPool<Redis.Redis>(
-        {
-            create: () => createRedis(serverConfig),
-            destroy: async (client) => {
-                await client.quit()
-            },
-        },
-        {
-            min: serverConfig.REDIS_POOL_MIN_SIZE,
-            max: serverConfig.REDIS_POOL_MAX_SIZE,
-            autostart: true,
-        }
-    )
+    const redisPool = createRedisPool(serverConfig)
     status.info('👍', `Redis ready`)
 
     status.info('🤔', `Connecting to object storage...`)
@@ -179,7 +164,6 @@ export async function createHub(
     const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
 
@@ -228,7 +212,6 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
-        siteUrlManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
@@ -237,7 +220,7 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
+    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {

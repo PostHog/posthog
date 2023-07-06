@@ -55,6 +55,7 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
+        setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
@@ -94,6 +95,7 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
         splitMergeModalShown: [
@@ -305,11 +307,7 @@ export const personsLogic = kea<personsLogicType>({
         },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = { ...router.values.searchParams }
-
-                if (values.activeTab !== PersonsTabType.HISTORY) {
-                    delete searchParams['page']
-                }
+                const searchParams = {}
 
                 return [
                     router.values.location.pathname,
@@ -323,26 +321,16 @@ export const personsLogic = kea<personsLogicType>({
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/persons': ({}, searchParams) => {
-            const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
-            if (props.syncWithUrl && !featureDataExploration) {
-                actions.setListFilters(searchParams)
-                if (!values.persons.results.length && !values.personsLoading) {
-                    // Initial load
-                    actions.loadPersons()
-                }
-            }
-        },
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
-                if (sessionRecordingId) {
+                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
                     actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
-                    actions.navigateToTab(PersonsTabType.PROPERTIES)
+                if (!activeTab) {
+                    actions.setActiveTab(PersonsTabType.PROPERTIES)
                 }
 
                 if (rawPersonDistinctId) {

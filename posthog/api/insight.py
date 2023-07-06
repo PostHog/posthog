@@ -675,7 +675,16 @@ class InsightViewSet(
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
-                queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
+                insight = request.GET[INSIGHT]
+                if insight == "JSON":
+                    queryset = queryset.filter(query__isnull=False)
+                    queryset = queryset.exclude(query__kind="DataTableNode", query__source__kind="HogQLQuery")
+                elif insight == "SQL":
+                    queryset = queryset.filter(query__isnull=False)
+                    queryset = queryset.filter(query__kind="DataTableNode", query__source__kind="HogQLQuery")
+                else:
+                    queryset = queryset.filter(query__isnull=True)
+                    queryset = queryset.filter(filters__insight=insight)
             elif key == "search":
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"])
