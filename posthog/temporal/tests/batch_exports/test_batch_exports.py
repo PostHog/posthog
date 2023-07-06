@@ -48,7 +48,6 @@ async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
             team_id,
             properties,
             elements_chain,
-
             distinct_id,
             created_at,
             person_properties
@@ -117,8 +116,6 @@ async def test_get_rows_count(client):
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "elements_chain": "this that and the other",
         }
-        # NOTE: we have to do a lot here, otherwise we do not trigger a
-        # multipart upload, and the minimum part chunk size is 5MB.
         for i in range(10000)
     ]
     await insert_events(
@@ -127,7 +124,41 @@ async def test_get_rows_count(client):
     )
 
     row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    assert row_count == 10000
 
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_get_rows_count_handles_duplicates(client):
+    """Test the count of rows returned by get_rows_count are de-duplicated."""
+    team_id = randint(1, 1000000)
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "elements_chain": "this that and the other",
+        }
+        for i in range(10000)
+    ]
+    # Duplicate everything
+    duplicate_events = events * 2
+
+    await insert_events(
+        ch_client=client,
+        events=duplicate_events,
+    )
+
+    row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
     assert row_count == 10000
 
 
@@ -166,6 +197,51 @@ async def test_get_results_iterator(client):
     all_result = sorted(rows, key=operator.itemgetter("event"))
 
     assert len(all_expected) == len(all_result)
+
+    for expected, result in zip(all_expected, all_result):
+        for key, value in result.items():
+            # Some keys will be missing from result, so let's only check the ones we have.
+            assert value == expected[key], f"{key} value in {result} didn't match value in {expected}"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_get_results_iterator_handles_duplicates(client):
+    """Test the rows returned by get_results_iterator are de-duplicated."""
+    team_id = randint(1, 1000000)
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": f"test-{i}",
+            "_timestamp": "2023-04-20 14:30:00",
+            "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
+            "created_at": "2023-04-20 14:30:00.000000",
+            "distinct_id": str(uuid4()),
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team_id,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "elements_chain": "this that and the other",
+        }
+        for i in range(10000)
+    ]
+    duplicate_events = events * 2
+
+    await insert_events(
+        ch_client=client,
+        events=duplicate_events,
+    )
+
+    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    rows = [row for row in iter_]
+
+    all_expected = sorted(events, key=operator.itemgetter("event"))
+    all_result = sorted(rows, key=operator.itemgetter("event"))
+
+    assert len(all_expected) == len(all_result)
+    assert len([row["uuid"] for row in all_result]) == len(set(row["uuid"] for row in all_result))
 
     for expected, result in zip(all_expected, all_result):
         for key, value in result.items():
