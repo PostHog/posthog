@@ -49,7 +49,7 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter = 0
         this.initRetryTimeout = null
         this.ready = false
-        this.initializing = false
+        this.initializing = false // To be able to avoid doulbe initialization we set this flag once we start initializing
         this.vmResponseVariable = null
         this.pluginConfig = pluginConfig
         this.hub = hub
