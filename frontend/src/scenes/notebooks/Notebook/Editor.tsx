@@ -17,8 +17,7 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
-import { JSONContent } from './utils'
-import { NotebookEditor } from '~/types'
+import { JSONContent, NotebookEditor } from './utils'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -136,7 +135,7 @@ export function Editor({
                 getJSON: () => editor.getJSON(),
                 setEditable: (editable: boolean) => editor.setEditable(editable, false),
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
-                hasContent: () => !editor.isEmpty || false,
+                isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
             })
         },

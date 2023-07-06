@@ -10,8 +10,8 @@ import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
-import { Editor } from './Editor'
 import { NotebookLoadingState } from './NotebookLoadingState'
+import { Editor } from './Editor'
 
 export type NotebookProps = {
     shortId: string
@@ -38,7 +38,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
         if (editor) {
             editor.setEditable(editable)
         }
-    }, [editable])
+    }, [editor, editable])
 
     // TODO - Render a special state if the notebook is empty
 

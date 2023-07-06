@@ -16,7 +16,7 @@ export interface NotebookEditor {
     getJSON: () => JSONContent
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
-    hasContent: () => boolean
+    isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
 }
 

@@ -27,7 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
-import { JSONContent, EditorCommands, EditorRange } from 'scenes/notebooks/Notebook/utils'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -2980,14 +2980,6 @@ export enum NotebookNodeType {
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
-
-export interface NotebookEditor {
-    getJSON: () => JSONContent
-    setEditable: (editable: boolean) => void
-    setContent: (content: JSONContent) => void
-    hasContent: () => boolean
-    deleteRange: (range: EditorRange) => EditorCommands
-}
 
 export interface DataWarehouseCredential {
     access_key: string

@@ -2,10 +2,10 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { NotebookEditor, NotebookSyncStatus, NotebookType } from '~/types'
+import { NotebookSyncStatus, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
-import { JSONContent } from './utils'
+import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 import { downloadFile, slugify } from 'lib/utils'
@@ -182,7 +182,7 @@ export const notebookLogic = kea<notebookLogicType>([
         isEmpty: [
             (s) => [s.editor, s.content],
             (editor: NotebookEditor): boolean => {
-                return editor?.hasContent() || false
+                return editor?.isEmpty() || false
             },
         ],
 
