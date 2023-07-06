@@ -310,33 +310,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    # Check that the data was written to S3.
-    # List the objects in the bucket with the prefix.
-    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
-
-    # Check that there is only one object.
-    assert len(objects.get("Contents", [])) == 1
-
-    # Get the object.
-    key = objects["Contents"][0].get("Key")
-    assert key
-    object = s3_client.get_object(Bucket=bucket_name, Key=key)
-    data = object["Body"].read()
-
-    # Check that the data is correct.
-    json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
-    # Pull out the fields we inserted only
-
-    json_data.sort(key=lambda x: x["timestamp"])
-
-    # Remove team_id, _timestamp from events
-    expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
-    expected_events.sort(key=lambda x: x["timestamp"])
-
-    # First check one event, the first one, so that we can get a nice diff if
-    # the included data is different.
-    assert json_data[0] == expected_events[0]
-    assert json_data == expected_events
+    assert_events_in_s3(s3_client, bucket_name, prefix, events)
 
 
 @pytest.mark.django_db
