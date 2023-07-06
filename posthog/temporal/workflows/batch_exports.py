@@ -22,7 +22,7 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 
-async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str) -> int:
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -36,10 +36,9 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     )
 
     if row is None:
-        print(row)
         raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
 
-    return row["count"]
+    return sum(int(row["count"]) for row in row)
 
 
 async def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
