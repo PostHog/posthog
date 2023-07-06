@@ -90,7 +90,7 @@ def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_n
 
 
 @activity.defn
-async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
+async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> tuple[int, int]:
     """
     Activity streams data from ClickHouse to Snowflake.
 
@@ -105,6 +105,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
     this is the time
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    records_completed = 0
+    bytes_completed = 0
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -123,7 +125,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 inputs.data_interval_start,
                 inputs.data_interval_end,
             )
-            return
+            return (records_completed, bytes_completed)
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
@@ -183,6 +185,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     # Write the results to a local file
                     local_results_file.write(json.dumps(result).encode("utf-8"))
                     local_results_file.write("\n".encode("utf-8"))
+                    records_completed += 1
 
                     # Write results to Snowflake when the file reaches 50MB and
                     # reset the file, or if there is nothing else to write.
@@ -191,6 +194,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         and local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES
                     ):
                         activity.logger.info("Uploading to Snowflake")
+                        bytes_completed += local_results_file.tell()
 
                         # Flush the file to make sure everything is written
                         local_results_file.flush()
@@ -201,6 +205,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
 
                 # Flush the file to make sure everything is written
+                bytes_completed += local_results_file.tell()
                 local_results_file.flush()
                 put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
@@ -236,6 +241,8 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 local_results_file.close()
         finally:
             conn.close()
+
+        return (records_completed, bytes_completed)
 
 
 @workflow.defn(name="snowflake-export")
@@ -278,7 +285,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id, status="Completed", bytes_completed=0, records_completed=0
+        )
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
@@ -293,7 +302,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
         )
         try:
-            await workflow.execute_activity(
+            records_completed, bytes_completed = await workflow.execute_activity(
                 insert_into_snowflake_activity,
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=20),
@@ -317,6 +326,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             # If not, swap to repr(e)
             update_inputs.latest_error = str(e)
             raise
+
+        else:
+            update_inputs.bytes_completed = bytes_completed
+            update_inputs.records_completed = records_completed
 
         finally:
             await workflow.execute_activity(

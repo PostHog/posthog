@@ -145,9 +145,8 @@ def assert_events_in_s3(s3_client, bucket_name, key_prefix, events):
     # Get the object.
     key = objects["Contents"][0].get("Key")
     assert key
-    object = s3_client.get_object(Bucket=bucket_name, Key=key)
-    data = object["Body"].read()
-
+    s3_object = s3_client.get_object(Bucket=bucket_name, Key=key)
+    data = s3_object["Body"].read()
     # Check that the data is correct.
     json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
     # Pull out the fields we inserted only
@@ -311,6 +310,14 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     assert_events_in_s3(s3_client, bucket_name, prefix, events)
 
 
+def get_bytes_in_s3(s3_client, bucket_name, key_prefix):
+    """Return the bytes of a file uploaded to a test s3 bucket."""
+    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+    key = objects["Contents"][0].get("Key")
+    s3_object = s3_client.get_object(Bucket=bucket_name, Key=key)
+    return len(s3_object["Body"].read())
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_client, bucket_name):
@@ -419,6 +426,8 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
 
         run = runs[0]
         assert run.status == "Completed"
+        assert run.records_completed == 2
+        assert run.bytes_completed == get_bytes_in_s3(s3_client, bucket_name, prefix)
 
     assert_events_in_s3(s3_client, bucket_name, prefix, events)
 
@@ -548,5 +557,7 @@ async def test_s3_export_workflow_with_minio_bucket_produces_no_duplicates(clien
 
         run = runs[0]
         assert run.status == "Completed"
+        assert run.records_completed == 2
+        assert run.bytes_completed == get_bytes_in_s3(s3_client, bucket_name, prefix)
 
     assert_events_in_s3(s3_client, bucket_name, prefix, events)
