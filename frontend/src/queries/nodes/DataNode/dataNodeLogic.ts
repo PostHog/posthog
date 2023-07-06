@@ -366,7 +366,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         lastRefresh: [
             (s, p) => [p.query, s.response],
             (query, response): string | null => {
-                console.log('lastRefresh', query, response)
                 return isInsightQueryNode(query) && response && 'last_refresh' in response
                     ? response.last_refresh
                     : null
