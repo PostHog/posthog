@@ -4,10 +4,8 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_select
-
 from posthog.hogql.printer import print_ast
 from .database.database import create_hogql_database, serialize_database
-
 from posthog.utils import get_instance_region
 
 if TYPE_CHECKING:

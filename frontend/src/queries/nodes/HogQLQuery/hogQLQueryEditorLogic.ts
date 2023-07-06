@@ -13,6 +13,7 @@ import { query } from '~/queries/query'
 import type { Monaco } from '@monaco-editor/react'
 import api from 'lib/api'
 import { combineUrl } from 'kea-router'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -70,6 +71,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                     : null
             },
         ],
+        aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {
@@ -126,6 +128,11 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setModelMarkers(markers)
         },
         draftFromPrompt: async () => {
+            if (!values.aiAvailable) {
+                throw new Error(
+                    'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
+                )
+            }
             try {
                 const result = await api.get(
                     combineUrl(`api/projects/@current/query/draft_sql/`, {

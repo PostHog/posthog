@@ -27,7 +27,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const [monaco, editor] = monacoAndEditor ?? []
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, hasErrors, error, prompt, promptError, promptLoading } = useValues(logic)
+    const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt } = useActions(logic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -58,7 +58,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={() => draftFromPrompt()}
-                            disabledReason={!prompt ? 'Provide a prompt first' : null}
+                            disabledReason={
+                                !!prompt
+                                    ? 'Provide a prompt first'
+                                    : !aiAvailable
+                                    ? 'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
+                                    : null
+                            }
                             loading={promptLoading}
                         >
                             Think
