@@ -67,6 +67,10 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             }
         }
 
+        // This is distinguished from the 'Plugin loaded' log entry, which is
+        // when we have actually loaded the VM. Here we are just highlighting
+        // that the plugin-server knows about this plugin and will thus load the
+        // plugin on demand if needed.
         await hub.db.queuePluginLogEntry({
             message: `Plugin registered (instance ID ${hub.instanceId}).`,
             pluginConfig: pluginConfig,
