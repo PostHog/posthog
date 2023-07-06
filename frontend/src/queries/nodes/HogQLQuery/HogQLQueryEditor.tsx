@@ -5,13 +5,14 @@ import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 import MonacoEditor, { Monaco } from '@monaco-editor/react'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconAutoAwesome, IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import type { IDisposable, editor as importedEditor, languages } from 'monaco-editor'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -71,12 +72,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         </LemonButton>
                     </div>
                 </FlaggedFeature>
-                {promptError ? (
-                    <div className="text-danger flex items-center gap-1 text-sm">
-                        <IconErrorOutline className="text-xl mr-2" />
-                        {promptError}
-                    </div>
-                ) : null}
+                {promptError ? <LemonBanner type="error">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1">
                     <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
                         <LemonButtonWithDropdown
