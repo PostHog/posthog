@@ -52,5 +52,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(set_recording_v2_if_unset),
+        migrations.RunPython(set_recording_v2_if_unset, reverse_code=migrations.RunPython.noop),
     ]
