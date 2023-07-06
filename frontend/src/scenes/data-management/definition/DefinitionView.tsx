@@ -23,14 +23,11 @@ import {
 } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
-import { EventsTable } from 'scenes/events'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { combineUrl } from 'kea-router/lib/utils'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -56,12 +53,9 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         mode,
         isEvent,
         isProperty,
-        backDetailUrl,
     } = useValues(logic)
     const { setPageMode, deleteDefinition } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -251,30 +245,18 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     This is the list of recent events that match this definition.
                                 </p>
                                 <div className="pt-4 border-t" />
-                                {featureDataExploration ? (
-                                    <Query
-                                        query={{
-                                            kind: NodeKind.DataTableNode,
-                                            source: {
-                                                kind: NodeKind.EventsQuery,
-                                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                                event: definition.name,
-                                            },
-                                            full: true,
-                                            showEventFilter: false,
-                                        }}
-                                    />
-                                ) : (
-                                    <EventsTable
-                                        sceneUrl={backDetailUrl}
-                                        pageKey={`definition-page-${definition.id}`}
-                                        showEventFilter={false}
-                                        fetchMonths={3}
-                                        fixedFilters={{
-                                            event_filter: definition.name,
-                                        }}
-                                    />
-                                )}
+                                <Query
+                                    query={{
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.EventsQuery,
+                                            select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                            event: definition.name,
+                                        },
+                                        full: true,
+                                        showEventFilter: false,
+                                    }}
+                                />
                             </div>
                         </>
                     )}

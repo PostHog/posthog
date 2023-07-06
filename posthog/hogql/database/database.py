@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     BooleanDatabaseField,
     StringJSONDatabaseField,
+    StringArrayDatabaseField,
     LazyJoin,
     VirtualTable,
     Table,
@@ -154,6 +155,8 @@ def serialize_fields(field_input) -> List[SerialiedField]:
                 field_output.append({"key": field_key, "type": "boolean"})
             elif isinstance(field, StringJSONDatabaseField):
                 field_output.append({"key": field_key, "type": "json"})
+            elif isinstance(field, StringArrayDatabaseField):
+                field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
             field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
         elif isinstance(field, VirtualTable):

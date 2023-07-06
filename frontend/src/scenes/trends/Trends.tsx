@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
-import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
@@ -35,7 +35,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             return <BoldNumber />
         }
         if (display === ChartDisplayType.ActionsTable) {
-            const ActionsTable = InsightsTableDataExploration
+            const ActionsTable = InsightsTable
             return (
                 <ActionsTable
                     embedded

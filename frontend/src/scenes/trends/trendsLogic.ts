@@ -36,7 +36,7 @@ export const trendsLogic = kea<trendsLogicType>([
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility']],
+        actions: [insightLogic(props), ['toggleVisibility']],
     })),
 
     actions(() => ({
@@ -177,12 +177,15 @@ export const trendsLogic = kea<trendsLogicType>([
 
             const { filters } = values
             const response = await api.get(values.loadMoreBreakdownUrl)
-            insightLogic(props).actions.loadResultsSuccess({
-                ...values.insight,
-                result: [...values.results, ...(response.result ? response.result : [])],
-                filters: filters,
-                next: response.next,
-            })
+            insightLogic(props).actions.setInsight(
+                {
+                    ...values.insight,
+                    result: [...values.results, ...(response.result ? response.result : [])],
+                    filters: filters,
+                    next: response.next,
+                },
+                {}
+            )
             actions.setBreakdownValuesLoading(false)
         },
         toggleLifecycle: ({ lifecycleName }) => {

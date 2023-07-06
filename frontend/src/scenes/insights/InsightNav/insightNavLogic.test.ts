@@ -5,9 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { useMocks } from '~/mocks/jest'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 import { insightDataLogic } from '../insightDataLogic'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
@@ -15,7 +13,6 @@ describe('insightNavLogic', () => {
     let logic: ReturnType<typeof insightNavLogic.build>
     let builtInsightLogic: ReturnType<typeof insightLogic.build>
     let builtInsightDataLogic: ReturnType<typeof insightDataLogic.build>
-    let builtFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     describe('active view', () => {
         beforeEach(async () => {
@@ -30,12 +27,6 @@ describe('insightNavLogic', () => {
                 },
             })
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
-
-            builtFeatureFlagLogic = featureFlagLogic()
-            builtFeatureFlagLogic.mount()
-            builtFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL], {
-                [FEATURE_FLAGS.HOGQL]: false,
-            })
 
             const insightLogicProps: InsightLogicProps = {
                 dashboardItemId: 'new',
@@ -115,25 +106,6 @@ describe('insightNavLogic', () => {
                     builtInsightLogic.actions.loadInsightSuccess({ filters: { insight: InsightType.FUNNELS } })
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('sets view from loadResultsSuccess', async () => {
-                await expectLogic(logic, () => {
-                    builtInsightLogic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('sets QUERY view from loadResultsSuccess', async () => {
-                await expectLogic(logic, () => {
-                    builtInsightLogic.actions.loadResultsSuccess({
-                        filters: {},
-                        query: { kind: NodeKind.DataTableNode } as DataTableNode,
-                    })
-                }).toMatchValues({
-                    activeView: InsightType.JSON,
                 })
             })
         })

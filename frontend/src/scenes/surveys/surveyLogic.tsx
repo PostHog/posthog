@@ -44,13 +44,19 @@ export interface NewSurvey
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
 }
 
-export const defaultSurveyAppearance = { backgroundColor: 'white', submitButtonColor: '#2C2C2C', textColor: 'black' }
+export const defaultSurveyAppearance = {
+    backgroundColor: 'white',
+    submitButtonColor: '#2C2C2C',
+    textColor: 'black',
+    submitButtonText: 'Submit',
+    descriptionTextColor: 'black',
+}
 
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    questions: [{ type: SurveyQuestionType.Open, question: '' }],
+    questions: [{ type: SurveyQuestionType.Open, question: '', link: null }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
@@ -67,20 +73,21 @@ export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (surveyId: string): DataTableNode => {
+export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
             select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
-            event: 'survey sent',
+            where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+            after: survey.created_at,
             properties: [
                 {
                     type: PropertyFilterType.Event,
                     key: '$survey_id',
                     operator: PropertyOperator.Exact,
-                    value: surveyId,
+                    value: survey.id,
                 },
             ],
         },
@@ -177,8 +184,8 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey.id))
+            if (survey.start_date && survey.id !== 'new') {
+                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
             if (survey.targeting_flag?.filters?.groups) {
@@ -199,7 +206,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },
@@ -309,7 +317,12 @@ export const surveyLogic = kea<surveyLogicType>([
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name, questions }) => ({
                 name: !name && 'Please enter a name.',
-                questions: questions.map(({ question }) => ({ question: !question && 'Please enter a question.' })),
+                questions: questions.map((question) => ({
+                    question: !question.question && 'Please enter a question.',
+                    ...(question.type === SurveyQuestionType.Link
+                        ? { link: !question.link && 'Please enter a url for the link.' }
+                        : {}),
+                })),
             }),
             submit: async (surveyPayload) => {
                 const surveyPayloadWithTargetingFlagFilters = {

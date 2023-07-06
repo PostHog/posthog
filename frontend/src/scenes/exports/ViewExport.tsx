@@ -2,6 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { useValues } from 'kea'
 import { useCurrentTeamId, useExport, useExportRuns, BatchExport, BatchExportRun, useExportRunAction } from './api'
 import { PageHeader } from 'lib/components/PageHeader'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -9,7 +10,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconReplay } from 'lib/lemon-ui/icons'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { ExportActionButtons } from './ExportsList'
+import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import { InlineExportActionButtons } from './ExportsList'
 import { LemonTable } from '../../lib/lemon-ui/LemonTable'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -98,7 +100,7 @@ function ExportHeader({ currentTeamId, export_, loading, updateCallback }: Expor
                     </div>
                 }
                 buttons={
-                    <ExportActionButtons
+                    <InlineExportActionButtons
                         currentTeamId={currentTeamId}
                         export_={export_}
                         loading={loading}
@@ -142,14 +144,31 @@ type ExportRunKey = {
     workflow_id: string
 }
 
+function endOfDay(d: dayjs.Dayjs): dayjs.Dayjs {
+    return d.hour(23).second(59).minute(59)
+}
+
+function startOfDay(d: dayjs.Dayjs): dayjs.Dayjs {
+    return d.hour(0).second(0).minute(0)
+}
+
 const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
     // Displays a list of export runs for the given export ID. We use the
     // useCurrentTeamId hook to get the current team ID, and then use the
     // useExportRuns hook to fetch the export runs for that team and export ID.
+    const defaultDateRange: [dayjs.Dayjs, dayjs.Dayjs] = [startOfDay(dayjs().subtract(1, 'day')), endOfDay(dayjs())]
+    const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>(defaultDateRange)
+    const [dateRangeVisible, setDateRangeVisible] = useState<boolean>(false)
+
     const defaultNumberOfRuns = 25
     const [numberOfRuns, setNumberOfRuns] = useState<number>(defaultNumberOfRuns)
     const { currentTeamId } = useCurrentTeamId()
-    const { loading, exportRuns, error, updateCallback } = useExportRuns(currentTeamId, exportId, defaultNumberOfRuns)
+    const { loading, exportRuns, error, updateCallback } = useExportRuns(
+        currentTeamId,
+        exportId,
+        defaultNumberOfRuns,
+        dateRange
+    )
     // If the export runs are still undefined and we're loading, show a loading
     // message and placeholder.
     if (exportRuns === undefined) {
@@ -197,6 +216,34 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
         <>
             <h1>Export Runs</h1>
             <div className="flex gap-2 mb-4">
+                <Popover
+                    actionable
+                    onClickOutside={function noRefCheck() {
+                        setDateRangeVisible(false)
+                    }}
+                    visible={dateRangeVisible}
+                    overlay={
+                        <LemonCalendarRange
+                            value={dateRange}
+                            onChange={(range) => {
+                                setDateRange([startOfDay(range[0]), endOfDay(range[1])])
+                                setDateRangeVisible(false)
+                            }}
+                            onClose={function noRefCheck() {
+                                setDateRangeVisible(false)
+                            }}
+                        />
+                    }
+                >
+                    <LemonButton
+                        onClick={function onClick() {
+                            setDateRangeVisible(!dateRangeVisible)
+                        }}
+                        type="secondary"
+                    >
+                        {dateRange[0].format('MMMM D, YYYY')} - {dateRange[1].format('MMMM D, YYYY')}
+                    </LemonButton>
+                </Popover>
                 <LemonInput
                     type="number"
                     value={numberOfRuns}
@@ -210,7 +257,7 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                     icon={<IconRefresh />}
                     disabled={loading}
                     onClick={() => {
-                        updateCallback(undefined, numberOfRuns).then(() => {
+                        updateCallback(undefined, numberOfRuns, dateRange).then(() => {
                             if (error === undefined) {
                                 lemonToast['info'](<>Refreshed Export Runs</>, {
                                     toastId: `refreshed-export-runs-info`,
@@ -366,7 +413,7 @@ const ExportRuns = ({ exportId }: { exportId: string }): JSX.Element => {
                                         onClick={() => {
                                             resetExportRun()
                                                 .then(() => {
-                                                    updateCallback(undefined, numberOfRuns)
+                                                    updateCallback(undefined, numberOfRuns, dateRange)
                                                     lemonToast['success'](
                                                         <>
                                                             <b>{exportRun.id}</b> has been restarted

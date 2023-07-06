@@ -152,6 +152,6 @@ jobs:
                   # to avoid checksum mismatch on multiple platforms.
                   message: |
                       {
-                        "image_tag": "latest",
+                        "image_tag": "master",
                         "context": ${{ toJson(github) }}
                       }

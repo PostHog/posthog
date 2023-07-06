@@ -156,6 +156,25 @@ describe('capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer({ processAsyncHandlers: true }, { methods: [] })
                 expect(shouldSetupPlugin).toEqual(false)
             })
+
+            it.each(['onEvent', 'onSnapshot', 'exportEvents'])(
+                'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
+                (method) => {
+                    const shouldSetupPlugin = shouldSetupPluginInServer(
+                        { processAsyncOnEventHandlers: true },
+                        { methods: [method] }
+                    )
+                    expect(shouldSetupPlugin).toEqual(true)
+                }
+            )
+
+            it('returns false if plugin has none of onEvent, onSnapshot, or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { processAsyncOnEventHandlers: true },
+                    { methods: [] }
+                )
+                expect(shouldSetupPlugin).toEqual(false)
+            })
         })
     })
 

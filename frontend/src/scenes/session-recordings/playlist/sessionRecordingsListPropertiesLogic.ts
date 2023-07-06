@@ -1,10 +1,11 @@
 import { connect, kea, path, reducers, actions, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { SessionRecordingPropertiesType } from '~/types'
-import { toParams } from 'lib/utils'
+import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { dayjs } from 'lib/dayjs'
 
 // This logic is used to fetch properties for a list of recordings
 // It is used in a global way as the cached values can be re-used
@@ -15,41 +16,63 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
     })),
 
     actions({
-        loadPropertiesForSessions: (ids: string[]) => ({ ids }),
-        maybeLoadPropertiesForSessions: (ids: string[]) => ({ ids }),
+        loadPropertiesForSessions: (sessions: SessionRecordingType[]) => ({ sessions }),
+        maybeLoadPropertiesForSessions: (sessions: SessionRecordingType[]) => ({ sessions }),
     }),
 
     loaders(({ actions }) => ({
         recordingProperties: [
             [] as SessionRecordingPropertiesType[],
             {
-                loadPropertiesForSessions: async ({ ids }, breakpoint) => {
-                    const paramsDict = {
-                        session_ids: ids,
-                    }
-                    const params = toParams(paramsDict)
+                loadPropertiesForSessions: async ({ sessions }, breakpoint) => {
                     await breakpoint(100)
 
                     const startTime = performance.now()
-                    const response = await api.recordings.listProperties(params)
+                    const sessionIds = sessions.map((x) => `'${x.id}'`).join(',')
+
+                    const oldestTimestamp = sessions.map((x) => x.start_time).sort()[0]
+                    const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
+
+                    const hogql: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: `SELECT properties.$session_id as session_id, any(properties) as properties
+                                FROM events
+                                WHERE event IN ['$pageview', '$autocapture']
+                                AND session_id IN [${sessionIds}]
+                                -- the timestamp range here is only to avoid querying too much of the events table
+                                -- we don't really care about the absolute value, 
+                                -- but we do care about whether timezones have an odd impact
+                                -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                AND timestamp >= '${dayjs(oldestTimestamp)
+                                    .subtract(1, 'day')
+                                    .format('YYYY-MM-DD HH:mm:ss')}'
+                                AND timestamp <= '${dayjs(newestTimestamp).add(1, 'day').format('YYYY-MM-DD HH:mm:ss')}'
+                                GROUP BY session_id`,
+                    }
+
+                    const response = await api.query(hogql)
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
-                    return response.results
+                    return (response.results || []).map(
+                        (x: any): SessionRecordingPropertiesType => ({
+                            id: x[0],
+                            properties: JSON.parse(x[1] || '{}'),
+                        })
+                    )
                 },
             },
         ],
     })),
 
     listeners(({ actions, values }) => ({
-        maybeLoadPropertiesForSessions: ({ ids }) => {
-            // Check the cache store and only load if not already loaded
-            const newSessionIds = ids.filter((id) => !values.recordingPropertiesById[id])
+        maybeLoadPropertiesForSessions: ({ sessions }) => {
+            const newSessions = sessions.filter((session) => !values.recordingPropertiesById[session.id])
 
-            if (newSessionIds.length > 0) {
-                actions.loadPropertiesForSessions(newSessionIds)
+            if (newSessions.length > 0) {
+                actions.loadPropertiesForSessions(newSessions)
             }
         },
     })),

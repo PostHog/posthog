@@ -7,7 +7,6 @@ from pydantic import Field as PydanticField
 from posthog.hogql.base import Type, Expr, CTE, ConstantType, UnknownType
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.database.models import (
-    DatabaseField,
     FieldTraverser,
     LazyJoin,
     StringJSONDatabaseField,
@@ -20,6 +19,9 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     FloatDatabaseField,
+    FieldOrTable,
+    DatabaseField,
+    StringArrayDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -174,44 +176,72 @@ SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 class IntegerType(ConstantType):
     data_type: ConstantDataType = PydanticField("int", const=True)
 
+    def print_type(self) -> str:
+        return "Integer"
+
 
 class FloatType(ConstantType):
     data_type: ConstantDataType = PydanticField("float", const=True)
+
+    def print_type(self) -> str:
+        return "Float"
 
 
 class StringType(ConstantType):
     data_type: ConstantDataType = PydanticField("str", const=True)
 
+    def print_type(self) -> str:
+        return "String"
+
 
 class BooleanType(ConstantType):
     data_type: ConstantDataType = PydanticField("bool", const=True)
+
+    def print_type(self) -> str:
+        return "Boolean"
 
 
 class DateType(ConstantType):
     data_type: ConstantDataType = PydanticField("date", const=True)
 
+    def print_type(self) -> str:
+        return "Date"
+
 
 class DateTimeType(ConstantType):
     data_type: ConstantDataType = PydanticField("datetime", const=True)
 
+    def print_type(self) -> str:
+        return "DateTime"
+
 
 class UUIDType(ConstantType):
     data_type: ConstantDataType = PydanticField("uuid", const=True)
+
+    def print_type(self) -> str:
+        return "UUID"
 
 
 class ArrayType(ConstantType):
     data_type: ConstantDataType = PydanticField("array", const=True)
     item_type: ConstantType
 
+    def print_type(self) -> str:
+        return "Array"
+
 
 class TupleType(ConstantType):
     data_type: ConstantDataType = PydanticField("tuple", const=True)
     item_types: List[ConstantType]
 
+    def print_type(self) -> str:
+        return "Tuple"
+
 
 class CallType(Type):
     name: str
     arg_types: List[ConstantType]
+    param_types: Optional[List[ConstantType]] = None
     return_type: ConstantType
 
     def resolve_constant_type(self) -> ConstantType:
@@ -231,12 +261,18 @@ class FieldType(Type):
     name: str
     table_type: TableOrSelectType
 
-    def resolve_database_field(self) -> Optional[DatabaseField]:
+    def resolve_database_field(self) -> Optional[FieldOrTable]:
         if isinstance(self.table_type, BaseTableType):
             table = self.table_type.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)
         return None
+
+    def is_nullable(self) -> bool:
+        database_field = self.resolve_database_field()
+        if isinstance(database_field, DatabaseField):
+            return database_field.nullable
+        return True
 
     def resolve_constant_type(self) -> ConstantType:
         database_field = self.resolve_database_field()
@@ -260,6 +296,8 @@ class FieldType(Type):
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StringArrayDatabaseField):
+            return FieldType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
@@ -293,7 +331,7 @@ class Alias(Expr):
     expr: Expr
 
 
-class BinaryOperationOp(str, Enum):
+class ArithmeticOperationOp(str, Enum):
     Add = "+"
     Sub = "-"
     Mult = "*"
@@ -301,10 +339,10 @@ class BinaryOperationOp(str, Enum):
     Mod = "%"
 
 
-class BinaryOperation(Expr):
+class ArithmeticOperation(Expr):
     left: Expr
     right: Expr
-    op: BinaryOperationOp
+    op: ArithmeticOperationOp
 
 
 class And(Expr):
@@ -327,17 +365,21 @@ class CompareOperationOp(str, Enum):
     Eq = "=="
     NotEq = "!="
     Gt = ">"
-    GtE = ">="
+    GtEq = ">="
     Lt = "<"
-    LtE = "<="
+    LtEq = "<="
     Like = "like"
     ILike = "ilike"
     NotLike = "not like"
     NotILike = "not ilike"
     In = "in"
     NotIn = "not in"
+    InCohort = "in cohort"
+    NotInCohort = "not in cohort"
     Regex = "=~"
+    IRegex = "=~*"
     NotRegex = "!~"
+    NotIRegex = "!~*"
 
 
 class CompareOperation(Expr):
@@ -394,8 +436,18 @@ class Placeholder(Expr):
 
 class Call(Expr):
     name: str
+    """Function name"""
     args: List[Expr]
-    distinct: Optional[bool] = None
+    params: Optional[List[Expr]] = None
+    """
+    Parameters apply to some aggregate functions, see ClickHouse docs:
+    https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
+    """
+    distinct: bool = False
+
+
+class JoinConstraint(Expr):
+    expr: Expr
 
 
 class JoinExpr(Expr):
@@ -406,7 +458,7 @@ class JoinExpr(Expr):
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
-    constraint: Optional[Expr] = None
+    constraint: Optional["JoinConstraint"] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 

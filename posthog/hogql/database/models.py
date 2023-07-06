@@ -22,6 +22,7 @@ class DatabaseField(FieldOrTable):
 
     name: str
     array: Optional[bool]
+    nullable: Optional[bool]
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -37,6 +38,10 @@ class StringDatabaseField(DatabaseField):
 
 
 class StringJSONDatabaseField(DatabaseField):
+    pass
+
+
+class StringArrayDatabaseField(DatabaseField):
     pass
 
 

@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig } from '../types'
+import { LogLevel, PluginsServerConfig, stringToPluginServerMode } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -121,9 +121,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
+        // this defaults to true, but is used to disable for testing in production
+        SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: true,
+
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
-        SESSION_RECORDING_BLOB_PROCESSING_TEAMS: '', // TODO: Change this to 'all' when we release it fully
+
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
@@ -157,7 +160,14 @@ export function overrideWithEnv(
     const tmpConfig: any = { ...config }
     for (const key of Object.keys(config)) {
         if (typeof env[key] !== 'undefined') {
-            if (typeof defaultConfig[key] === 'number') {
+            if (key == 'PLUGIN_SERVER_MODE') {
+                const mode = env[key]
+                if (mode == null || mode in stringToPluginServerMode) {
+                    tmpConfig[key] = env[key]
+                } else {
+                    throw Error(`Invalid PLUGIN_SERVER_MODE ${env[key]}`)
+                }
+            } else if (typeof defaultConfig[key] === 'number') {
                 tmpConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
             } else if (typeof defaultConfig[key] === 'boolean') {
                 tmpConfig[key] = stringToBoolean(env[key])
@@ -167,23 +177,6 @@ export function overrideWithEnv(
         }
     }
     const newConfig: PluginsServerConfig = { ...tmpConfig }
-
-    if (
-        ![
-            'ingestion',
-            'async',
-            'exports',
-            'scheduler',
-            'jobs',
-            'ingestion-overflow',
-            'analytics-ingestion',
-            'recordings-ingestion',
-            'recordings-blob-ingestion',
-            null,
-        ].includes(newConfig.PLUGIN_SERVER_MODE)
-    ) {
-        throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
-    }
 
     if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
         throw Error(

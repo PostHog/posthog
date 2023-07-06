@@ -30,7 +30,6 @@ import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
 import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
-import { SiteUrlManager } from './worker/ingestion/site-url-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
@@ -71,6 +70,34 @@ export enum KafkaSaslMechanism {
     Plain = 'plain',
     ScramSha256 = 'scram-sha-256',
     ScramSha512 = 'scram-sha-512',
+}
+
+export enum PluginServerMode {
+    ingestion = 'ingestion',
+    ingestion_overflow = 'ingestion-overflow',
+    plugins_async = 'async',
+    async_onevent = 'async-onevent',
+    async_webhooks = 'async-webhooks',
+    plugins_exports = 'exports', // TODO: remove once onevent and webhooks split is out
+    jobs = 'jobs',
+    scheduler = 'scheduler',
+    analytics_ingestion = 'analytics-ingestion',
+    recordings_ingestion = 'recordings-ingestion',
+    recordings_blob_ingestion = 'recordings-blob-ingestion',
+}
+
+export const stringToPluginServerMode: { [key: string]: PluginServerMode } = {
+    ingestion: PluginServerMode.ingestion,
+    'ingestion-overflow': PluginServerMode.ingestion_overflow,
+    async: PluginServerMode.plugins_async,
+    'async-onevent': PluginServerMode.async_onevent,
+    'async-webhooks': PluginServerMode.async_webhooks,
+    exports: PluginServerMode.plugins_exports,
+    jobs: PluginServerMode.jobs,
+    scheduler: PluginServerMode.scheduler,
+    'analytics-ingestion': PluginServerMode.analytics_ingestion,
+    'recordings-ingestion': PluginServerMode.recordings_ingestion,
+    'recordings-blob-ingestion': PluginServerMode.recordings_blob_ingestion,
 }
 
 export interface PluginsServerConfig {
@@ -167,17 +194,7 @@ export interface PluginsServerConfig {
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
-    PLUGIN_SERVER_MODE:
-        | 'ingestion'
-        | 'ingestion-overflow'
-        | 'async'
-        | 'exports'
-        | 'jobs'
-        | 'scheduler'
-        | 'analytics-ingestion'
-        | 'recordings-ingestion'
-        | 'recordings-blob-ingestion'
-        | null
+    PLUGIN_SERVER_MODE: PluginServerMode | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -190,13 +207,14 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
-    SESSION_RECORDING_BLOB_PROCESSING_TEAMS: string
+    SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: boolean
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
+
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
@@ -237,7 +255,6 @@ export interface Hub extends PluginsServerConfig {
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
     eventsProcessor: EventsProcessor
-    siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
     // geoip database, setup in workers
     mmdb?: ReaderModel
@@ -256,6 +273,8 @@ export interface PluginServerCapabilities {
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
+    processAsyncOnEventHandlers?: boolean
+    processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean
     sessionRecordingBlobIngestion?: boolean
     http?: boolean
@@ -441,7 +460,8 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
+    runAppsOnEventPipeline: (event: PostIngestionEvent) => Promise<void>
+    runWebhooksHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PipelineEvent) => Promise<EventPipelineResult>
 }
 

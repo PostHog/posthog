@@ -104,9 +104,23 @@ runs:
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
-              pytest posthog -m "not async_migrations" \
+              pytest hogvm posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
+                  $PYTEST_ARGS
+
+        - name: Run Decide read replica tests
+          if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
+          env:
+              POSTHOG_DB_NAME: posthog
+              READ_REPLICA_OPT_IN: decide
+              POSTHOG_POSTGRES_READ_HOST: localhost
+              POSTHOG_DB_PASSWORD: posthog
+              POSTHOG_DB_USER: posthog
+          shell: bash
+          run: |
+              pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
+                  --durations=100 --durations-min=1.0 \
                   $PYTEST_ARGS
 
         - name: Run EE tests

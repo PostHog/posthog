@@ -1,6 +1,6 @@
 import cloudLogo from 'public/posthog-logo-cloud.svg'
 import demoLogo from 'public/posthog-logo-demo.svg'
-import defaultLogo from 'public/posthog-logo-default.svg'
+import defaultLogo from 'public/posthog-logo.svg'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { useValues } from 'kea'
 
