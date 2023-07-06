@@ -4,8 +4,6 @@ from django.db import migrations
 
 from structlog import get_logger
 
-from posthog.models.team import set_team_in_cache
-
 logger = get_logger(__name__)
 
 
@@ -30,17 +28,10 @@ def set_recording_v2_if_unset(apps, schema_editor):
 
     for page_number in paginator.page_range:
         page = paginator.page(page_number)
-        updated_teams = []
         for team in page.object_list:
             team.session_recording_version = "v2"
-            updated_teams.append(team)
-
-        Team.objects.bulk_update(updated_teams, ["session_recording_version"])
-        # now we can update the cache for each updated team
-        for team in updated_teams:
-            set_team_in_cache(team.api_token, team)
-
-        update_count += len(updated_teams)
+            team.save()
+            update_count += 1
 
     logger.info("finished_0336_set_recording_v2_if_unset", update_count=update_count)
 
