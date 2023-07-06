@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, listeners } from 'kea'
+import { actions, kea, reducers, path, listeners, selectors } from 'kea'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
 import { urlToAction } from 'kea-router'
@@ -53,6 +53,20 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             null as RefObject<HTMLElement> | null,
             {
                 setElementRef: (_, { element }) => element,
+            },
+        ],
+    })),
+
+    selectors(({ actions }) => ({
+        notebookLinkClicked: [
+            (s) => [s.notebookSideBarShown],
+            (notebookSideBarShown): ((shortId: string, internal: boolean) => void) => {
+                return (shortId: string, internal: boolean) => {
+                    if (!notebookSideBarShown && internal) {
+                        actions.selectNotebook(shortId)
+                        actions.setNotebookSideBarShown(true)
+                    }
+                }
             },
         ],
     })),
