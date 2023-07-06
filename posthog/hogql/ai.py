@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 import openai
+from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_select
@@ -11,6 +12,8 @@ from posthog.utils import get_instance_region
 
 if TYPE_CHECKING:
     from posthog.models import User, Team
+
+UNCLEAR_PREFIX = "UNCLEAR:"
 
 IDENTITY_MESSAGE = "HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. You write HogQL based on a prompt. You don't help with other knowledge."
 
@@ -30,16 +33,18 @@ GROUP BY week_of
 ORDER BY week_of DESC"""
 
 SCHEMA_MESSAGE = (
-    "My schema is:\n{schema_description}\nPerson or event metadata unspecified above, such as emails, "
-    'is stored in `properties` fields, accessed like `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.'
+    "My schema is:\n{schema_description}\nPerson or event metadata unspecified above (emails, names, etc.) "
+    'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.'
 )
 
-CURRENT_QUERY_MESSAGE = "The query I've currently got so far is:\n{current_query_input}\nTweak it instead of writing a new one if it's relevant."
+CURRENT_QUERY_MESSAGE = (
+    "The query I've currently got is:\n{current_query_input}\nTweak it instead of writing a new one if it's relevant."
+)
 
 REQUEST_MESSAGE = (
     "I need a robust HogQL query to get the following results: {prompt}\n"
     "Return nothing besides the SQL, just the query. "
-    'If my request doesn\'t make sense, return short and succint message starting with "UNCLEAR:". '
+    f'If my request doesn\'t make sense, return short and succint message starting with "{UNCLEAR_PREFIX}". '
 )
 
 
@@ -82,7 +87,10 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
     candidate_sql: Optional[str] = None
     error: Optional[str] = None
 
+    generated_valid_hogql = False
+    attempt_count = 0
     for _ in range(3):  # Try up to 3 times in case the generated SQL is not valid HogQL
+        attempt_count += 1
         result = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             temperature=0.8,
@@ -90,8 +98,8 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
         )
         content: str = result["choices"][0]["message"]["content"].removesuffix(";")
-        if content.startswith("UNCLEAR:"):
-            error = content.removeprefix("UNCLEAR:").strip()
+        if content.startswith(UNCLEAR_PREFIX):
+            error = content.removeprefix(UNCLEAR_PREFIX).strip()
             continue
         candidate_sql = content
         try:
@@ -99,7 +107,20 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         except HogQLException:
             continue
         else:
+            generated_valid_hogql = True
             break
+
+    report_user_action(
+        user,
+        "generated HogQL with AI",
+        {
+            "prompt": prompt,
+            "result": "valid_hogql"
+            if generated_valid_hogql
+            else ("invalid_hogql" if candidate_sql else "prompt_unclear"),
+            "attempt_count": attempt_count,
+        },
+    )
 
     if candidate_sql:
         return candidate_sql

@@ -12,7 +12,6 @@ import type { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import type { Monaco } from '@monaco-editor/react'
 import api from 'lib/api'
-import { posthog } from 'posthog-js'
 import { combineUrl } from 'kea-router'
 
 export interface ModelMarker extends editor.IMarkerData {
@@ -127,7 +126,6 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setModelMarkers(markers)
         },
         draftFromPrompt: async () => {
-            posthog.capture('prompted HogQL AI', { prompt: values.prompt })
             try {
                 const result = await api.get(
                     combineUrl(`api/projects/@current/query/draft_sql/`, {
