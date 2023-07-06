@@ -86,6 +86,7 @@ export async function startPluginsServer(
     let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
+    let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -131,6 +132,7 @@ export async function startPluginsServer(
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
+            webhooksHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
@@ -332,13 +334,13 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isWebhooksIngestionHealthy } =
+            const { queue: webhooksQueue, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
                     hub: hub,
                     piscina: piscina,
                 })
 
-            onEventHandlerConsumer = onEventQueue
+            webhooksHandlerConsumer = webhooksQueue
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
