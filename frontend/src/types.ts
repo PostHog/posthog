@@ -1197,6 +1197,7 @@ export interface BillingV2Type {
     available_plans?: BillingV2PlanType[]
     discount_percent?: number
     discount_amount_usd?: string
+    amount_off_expires_at?: Dayjs
 }
 
 export interface BillingV2PlanType {
