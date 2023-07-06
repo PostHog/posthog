@@ -25,6 +25,8 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
     }
 
     if (pluginConfig.vm?.initializing) {
+        // If we have already initialized the plugin, we don't need to do it
+        // again but rather we can wait for the Vm promise to resolve.
         await pluginConfig.vm?.resolveInternalVm
         return true
     }
