@@ -202,7 +202,7 @@ export class SessionOffsetHighWaterMark {
 
 /**
  * To test if the offset high-water mark functionality is introducing playback errors
- * here's a version that does nothing tht can be swapped in
+ * here's a version that does nothing that can be swapped in
  */
 export class NullSessionOffsetHighWaterMark extends SessionOffsetHighWaterMark {
     getWatermarkFor(_tp: TopicPartition): Record<string, number> {
