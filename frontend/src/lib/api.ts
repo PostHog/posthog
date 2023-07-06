@@ -1206,7 +1206,7 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(): Promise<PaginatedResponse<NotebookType>> {
-            return await new ApiRequest().notebooks().get()
+            return await new ApiRequest().notebooks().withQueryString('basic=true').get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })

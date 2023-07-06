@@ -50,6 +50,31 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "results": [],
         }
 
+    def test_basic_notebook_list(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"title": "Notebook One", "content": {"some": "kind", "of": "tip", "tap": "content"}},
+        ).json()
+        self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"title": "Notebook Two", "content": {"some": "kind", "of": "tip", "tap": "content"}},
+        ).json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?basic=true")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
+        assert set(response.json()["results"][0].keys()) == {
+            "id",
+            "short_id",
+            "title",
+            "version",
+            "deleted",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        }
+
     def test_cannot_list_deleted_notebook(self) -> None:
         notebook_one = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={}).json()
         notebook_two = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={}).json()

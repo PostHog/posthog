@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Type
 
 import structlog
 from django.db.models import QuerySet
@@ -19,7 +19,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -45,7 +45,39 @@ def log_notebook_activity(
     )
 
 
-class NotebookSerializer(serializers.ModelSerializer):
+class NotebookBasicSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Notebook objects. Used for listing and retrieving.
+    Does not include content
+    """
+
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = Notebook
+        fields = [
+            "id",
+            "short_id",
+            "title",
+            "version",
+            "deleted",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
+        read_only_fields = [
+            "id",
+            "short_id",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
+
+
+class NotebookSerializer(NotebookBasicSerializer):
     class Meta:
         model = Notebook
         fields = [
@@ -68,9 +100,6 @@ class NotebookSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
         ]
-
-    created_by = UserBasicSerializer(read_only=True)
-    last_modified_by = UserBasicSerializer(read_only=True)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
@@ -140,6 +169,11 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
     # TODO: Remove this once we have released notebooks
     include_in_docs = False
     lookup_field = "short_id"
+
+    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+        if self.action == "list" and str_to_bool(self.request.query_params.get("basic", "0")):
+            return NotebookBasicSerializer
+        return NotebookSerializer
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
