@@ -6,7 +6,6 @@
 # The stages are used to:
 #
 # - frontend-build: build the frontend (static assets)
-# - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -32,48 +31,6 @@ COPY frontend/ frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
-
-
-#
-# ---------------------------------------------------------
-#
-FROM node:18.12.1-bullseye-slim AS plugin-server-build
-WORKDIR /code/plugin-server
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "make" \
-    "g++" \
-    "gcc" \
-    "python3" \
-    "libssl-dev" \
-    "zlib1g-dev" \
-    && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    rm -rf /tmp/pnpm-store
-
-# Build the plugin server.
-#
-# Note: we run the build as a separate action to increase
-# the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-RUN pnpm build
-
-# As the plugin-server is now built, let’s keep
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
-
 
 #
 # ---------------------------------------------------------
@@ -164,11 +121,6 @@ RUN groupadd -g 1000 posthog && \
     useradd -u 999 -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
-
-# Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
