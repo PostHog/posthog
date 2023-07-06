@@ -62,6 +62,8 @@ export async function setupPlugins(hub: Hub): Promise<void> {
                 //
                 // We use an env var to control this so that we can easily switch it
                 // on and off for different plugin-server instances.
+                //
+                // TODO: remove the env var once we have rolled this out everywhere.
                 pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
             }
 
