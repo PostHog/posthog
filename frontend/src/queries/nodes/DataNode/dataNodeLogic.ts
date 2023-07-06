@@ -364,11 +364,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
         ],
         lastRefresh: [
-            (s, p) => [p.query, s.response],
-            (query, response): string | null => {
-                return isInsightQueryNode(query) && response && 'last_refresh' in response
-                    ? response.last_refresh
-                    : null
+            (s) => [s.response],
+            (response): string | null => {
+                return response && 'last_refresh' in response ? response.last_refresh : null
             },
         ],
         nextAllowedRefresh: [
