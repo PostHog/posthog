@@ -76,8 +76,8 @@ export async function eachMessageWebhooksHandlers(
 }
 
 const TOPIC_PROCESSING_DELAY: Record<string, number> = {
-    [KAFKA_ON_EVENT_RETRIES_1]: 60000,
-    [KAFKA_ON_EVENT_RETRIES_2]: 60000,
+    [KAFKA_ON_EVENT_RETRIES_1]: 60_000,  // 1 minute
+    [KAFKA_ON_EVENT_RETRIES_2]: 3_600_000,  // 1 hour
 }
 
 export async function eachBatchAppsOnEventHandlers(
@@ -86,7 +86,10 @@ export async function eachBatchAppsOnEventHandlers(
 ): Promise<void> {
     // Get the first message from the batch, and use the topic to determine the
     // delay for this batch. This allows us to delay the processing of the batch
-    // until the retry delay has passed.
+    // until the retry delay has passed. It's pretty course a check, probably
+    // better to do this on a message by messgae basis.
+    // TODO: handle delay message by message, otherwise we could get a batch
+    // that actually spans a pretty long time.
     const firstMessage = payload.batch.messages[0]
     const delay = TOPIC_PROCESSING_DELAY[payload.batch.topic]
     if (delay) {
@@ -96,7 +99,8 @@ export async function eachBatchAppsOnEventHandlers(
         if (messageDelay < delay) {
             const waitTime = delay - messageDelay
             payload.pause()
-            setTimeout(() => payload.resume(), waitTime)
+            setTimeout(() => queue.consumer.resume([{ topic: payload.batch.topic, partitions: [payload.batch.partition] }]), waitTime)
+            return
         }
     }
 

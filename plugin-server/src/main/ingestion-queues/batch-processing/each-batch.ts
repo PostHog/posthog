@@ -1,12 +1,21 @@
+import { RetryError } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
+import { KAFKA_EVENTS_JSON, KAFKA_ON_EVENT_RETRIES_1, KAFKA_ON_EVENT_RETRIES_2 } from '../../../config/kafka-topics'
+import { Hub, RawClickHouseEvent } from '../../../types'
+import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { latestOffsetTimestampGauge } from '../metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+const RETRY_TOPICS_LOOKUP = {
+    [KAFKA_EVENTS_JSON]: KAFKA_ON_EVENT_RETRIES_1,
+    [KAFKA_ON_EVENT_RETRIES_1]: KAFKA_ON_EVENT_RETRIES_2,
+}
 
 export async function eachBatch(
     /**
@@ -48,7 +57,26 @@ export async function eachBatch(
 
             const lastBatchMessage = messageBatch[messageBatch.length - 1]
             await Promise.all(
-                messageBatch.map((message: KafkaMessage) => eachMessage(message, queue).finally(() => heartbeat()))
+                messageBatch.map(async (message: KafkaMessage) => {
+                    try {
+                        const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                        const event = convertToIngestionEvent(clickHouseEvent)
+                        const eventWithTeam = convertToProcessedPluginEvent(event)
+                        const pluginMethodsToRun = getPluginMethodsForTeam(queue.pluginsServer, eventWithTeam.team_id, 'onEvent')
+                        return await eachMessage(message, queue).finally(() => heartbeat())
+                    }
+                    catch (error) {
+                        if (error instanceof RetryError) {
+                            // TODO: await for Kafka responses in batches
+                            const nextQueue = RETRY_TOPICS_LOOKUP[batch.topic]
+                            if (!nextQueue) {
+                                await queue.pluginsServer.kafkaProducer.queueMessage({ topic: nextQueue, messages: [{ ...message, }] })
+                            } else {
+                                status.error('🔥', `Failed to retry message on ${nextQueue}`, { error })
+                            }
+                        }
+                    }
+                })
             )
 
             // this if should never be false, but who can trust computers these days
@@ -70,8 +98,7 @@ export async function eachBatch(
 
         status.debug(
             '🧩',
-            `Kafka batch of ${batch.messages.length} events completed in ${
-                new Date().valueOf() - batchStartTimer.valueOf()
+            `Kafka batch of ${batch.messages.length} events completed in ${new Date().valueOf() - batchStartTimer.valueOf()
             }ms (${loggingKey})`
         )
     } finally {
@@ -79,3 +106,7 @@ export async function eachBatch(
         transaction.finish()
     }
 }
+function getPluginMethodsForTeam(pluginsServer: Hub, team_id: number, arg2: string) {
+    throw new Error('Function not implemented.')
+}
+

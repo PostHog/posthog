@@ -6,6 +6,7 @@ const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
+export const KAFKA_ON_EVENT = `${prefix}on_event${suffix}`
 export const KAFKA_ON_EVENT_RETRIES_1 = `${prefix}on_event_retries_1${suffix}`
 export const KAFKA_ON_EVENT_RETRIES_2 = `${prefix}on_event_retries_2${suffix}`
 export const KAFKA_PERSON = `${prefix}clickhouse_person${suffix}`
