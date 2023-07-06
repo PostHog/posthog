@@ -53,7 +53,8 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         [`/notebooks/${props.shortId}(/:mode)`]: (
             { mode } // url params
         ) => {
-            const newMode = mode === 'edit' ? NotebookMode.Edit : NotebookMode.View
+            const newMode =
+                mode === 'edit' ? NotebookMode.Edit : mode === 'share' ? NotebookMode.Share : NotebookMode.View
 
             if (newMode !== values.mode) {
                 actions.setNotebookMode(newMode)
@@ -65,6 +66,8 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
             setNotebookMode: () => {
                 return values.mode === NotebookMode.View
                     ? urls.notebook(props.shortId)
+                    : values.mode === NotebookMode.Share
+                    ? urls.notebookShare(props.shortId)
                     : urls.notebookEdit(props.shortId)
             },
         }

@@ -34,7 +34,7 @@ class SharingConfiguration(models.Model):
         if obj.team_id != self.team_id:  # type: ignore
             return False
 
-        for comparison in [self.insight, self.dashboard, self.recording]:
+        for comparison in [self.insight, self.dashboard, self.recording, self.notebook]:
             if comparison and comparison == obj:
                 return True
 

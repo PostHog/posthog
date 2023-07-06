@@ -24,6 +24,7 @@ export interface SharingModalBaseProps {
     insightShortId?: InsightShortId
     insight?: Partial<InsightModel>
     recordingId?: string
+    notebookShortId?: string
 
     title?: string
     previewIframe?: boolean
@@ -41,6 +42,7 @@ export function SharingModalContent({
     insightShortId,
     insight,
     recordingId,
+    notebookShortId,
     additionalParams,
     previewIframe = false,
 }: SharingModalBaseProps): JSX.Element {
@@ -48,6 +50,7 @@ export function SharingModalContent({
         dashboardId,
         insightShortId,
         recordingId,
+        notebookShortId,
         additionalParams,
     }
     const {
@@ -64,7 +67,15 @@ export function SharingModalContent({
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
     const showLegendCheckbox = insight?.filters?.insight === InsightType.TRENDS
-    const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
+    const resource = dashboardId
+        ? 'dashboard'
+        : insightShortId
+        ? 'insight'
+        : recordingId
+        ? 'recording'
+        : notebookShortId
+        ? 'notebook'
+        : 'this'
 
     useEffect(() => {
         setIframeLoaded(false)

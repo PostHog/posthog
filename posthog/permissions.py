@@ -248,7 +248,7 @@ class SharingTokenPermission(BasePermission):
             view, "sharing_enabled_actions"
         ), "this permission class requires the `sharing_enabled_actions` attribute to be set in the view."
 
-        # For now we assume we are only supporting get requests
+        # For now, we assume we are only supporting get requests
         if request.method != "GET" or view.action not in view.sharing_enabled_actions:
             return False
 

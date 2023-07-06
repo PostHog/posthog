@@ -2969,6 +2969,7 @@ export type NotebookType = NotebookListItemType & {
 export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
+    Share = 'share',
 }
 
 export enum NotebookNodeType {

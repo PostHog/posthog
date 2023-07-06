@@ -18,6 +18,7 @@ export interface SharingLogicProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     recordingId?: string
+    notebookShortId?: string
     additionalParams?: Record<string, any>
 }
 
@@ -37,12 +38,13 @@ const defaultEmbedConfig: EmbedConfig = {
 
 const propsToApiParams = async (
     props: SharingLogicProps
-): Promise<{ dashboardId?: number; insightId?: number; recordingId?: string }> => {
+): Promise<{ dashboardId?: number; insightId?: number; recordingId?: string; notebookShortId?: string }> => {
     const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
     return {
         dashboardId: props.dashboardId,
         insightId,
         recordingId: props.recordingId,
+        notebookShortId: props.notebookShortId,
     }
 }
 
@@ -50,8 +52,8 @@ export const sharingLogic = kea<sharingLogicType>([
     path(['lib', 'components', 'Sharing', 'sharingLogic']),
     props({} as SharingLogicProps),
     key(
-        ({ insightShortId, dashboardId, recordingId }) =>
-            `sharing-${insightShortId || dashboardId || recordingId || ''}`
+        ({ insightShortId, dashboardId, recordingId, notebookShortId }) =>
+            `sharing-${insightShortId || dashboardId || recordingId || notebookShortId || ''}`
     ),
     connect([preflightLogic, userLogic, dashboardsModel]),
 

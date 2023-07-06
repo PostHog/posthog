@@ -1,10 +1,12 @@
 from typing import List, Dict, Optional
 from unittest import mock
+from unittest.mock import patch, MagicMock
 
 from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.test.test_team import create_team
 from posthog.models import Team, Organization
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
@@ -255,3 +257,52 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": {"something": "here"}},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_get_via_valid_sharing_token(self, _patched_exporter_task: MagicMock) -> None:
+        notebook_one = Notebook.objects.create(team=self.team, created_by=self.user, title="notebook one")
+
+        enable_sharing_response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_one.short_id}/sharing", {"enabled": True}
+        )
+        assert enable_sharing_response.status_code == status.HTTP_200_OK, enable_sharing_response.json()
+        token = enable_sharing_response.json()["access_token"]
+
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_one.short_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        assert response.json()["short_id"] == notebook_one.short_id
+        assert response.json()["title"] == notebook_one.title
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_get_via_sharing_token(self, _patched_exporter_task: MagicMock) -> None:
+        other_team = create_team(organization=self.organization)
+
+        notebook_one = Notebook.objects.create(team=self.team, created_by=self.user, title="notebook one")
+        notebook_two = Notebook.objects.create(team=self.team, created_by=self.user, title="notebook two")
+
+        enable_sharing_response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_one.short_id}/sharing", {"enabled": True}
+        )
+        assert enable_sharing_response.status_code == status.HTTP_200_OK, enable_sharing_response.json()
+        token = enable_sharing_response.json()["access_token"]
+
+        self.client.logout()
+
+        # Unallowed routes
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_two.short_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(f"/api/projects/12345/notebooks?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/notebooks/{notebook_one.short_id}?sharing_access_token={token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

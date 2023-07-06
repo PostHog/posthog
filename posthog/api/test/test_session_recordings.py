@@ -612,6 +612,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         response = self.client.get(
             f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
         )

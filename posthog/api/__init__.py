@@ -269,9 +269,16 @@ project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
     ["team_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["team_id", "notebook_short_id"],
 )

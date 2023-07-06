@@ -93,9 +93,9 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         dashboard_id = context.get("dashboard_id")
         insight_id = context.get("insight_id")
         recording_id = context.get("recording_id")
-        notebook_id = context.get("notebook_id")
+        notebook_short_id = context.get("notebook_short_id")
 
-        if not dashboard_id and not insight_id and not recording_id and not notebook_id:
+        if not dashboard_id and not insight_id and not recording_id and not notebook_short_id:
             raise ValidationError("Either a dashboard, insight, notebook, or recording must be specified")
 
         if dashboard_id:
@@ -111,9 +111,9 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         if recording_id:
             # NOTE: Recordings are a special case as we don't want to query CH just for this.
             context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
-        if notebook_id:
+        if notebook_short_id:
             try:
-                context["notebook"] = Notebook.objects.get(id=notebook_id, team=self.team)
+                context["notebook"] = Notebook.objects.get(short_id=notebook_short_id, team=self.team)
             except Notebook.DoesNotExist:
                 raise NotFound("Notebook not found.")
 

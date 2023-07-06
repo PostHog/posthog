@@ -89,23 +89,22 @@ export function Exporter(props: ExportedData): JSX.Element {
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}
-            {(!whitelabel && dashboard) ||
-                (notebook && (
-                    <div className="text-center pb-4">
-                        {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
-                        <div>
-                            Made with{' '}
-                            <Link
-                                to={`https://posthog.com?utm_medium=in-product&utm_campaign=shared-${
-                                    dashboard ? 'dashboard' : 'notebook'
-                                }`}
-                                target="_blank"
-                            >
-                                PostHog — open-source product analytics
-                            </Link>
-                        </div>
+            {!whitelabel && (dashboard || notebook) && (
+                <div className="text-center pb-4">
+                    {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
+                    <div>
+                        Made with{' '}
+                        <Link
+                            to={`https://posthog.com?utm_medium=in-product&utm_campaign=shared-${
+                                dashboard ? 'dashboard' : 'notebook'
+                            }`}
+                            target="_blank"
+                        >
+                            PostHog — open-source product analytics
+                        </Link>
                     </div>
-                ))}
+                </div>
+            )}
         </div>
     )
 }

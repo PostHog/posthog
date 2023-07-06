@@ -174,4 +174,5 @@ export const urls = {
         }).url,
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
+    notebookShare: (shortId: string): string => `/notebooks/${shortId}/share`,
 }

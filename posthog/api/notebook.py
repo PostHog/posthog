@@ -12,13 +12,18 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import SharingAccessTokenAuthentication
 from posthog.exceptions import Conflict
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+    SharingTokenPermission,
+)
 from posthog.utils import relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -163,12 +168,20 @@ class NotebookSerializer(NotebookBasicSerializer):
 class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Notebook.objects.all()
     serializer_class = NotebookSerializer
+    authentication_classes = StructuredViewSetMixin.authentication_classes + [SharingAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     # TODO: Remove this once we have released notebooks
     include_in_docs = False
     lookup_field = "short_id"
+
+    sharing_enabled_actions = ["retrieve"]
+
+    def get_permissions(self):
+        if hasattr(self.request, "sharing_configuration"):
+            return [permission() for permission in [SharingTokenPermission]]
+        return super().get_permissions()
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if self.action == "list" and str_to_bool(self.request.query_params.get("basic", "0")):

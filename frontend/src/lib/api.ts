@@ -495,6 +495,10 @@ class ApiRequest {
         return this.notebooks(teamId).addPathComponent(id)
     }
 
+    public notebookSharing(id: NotebookType['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.notebook(id, teamId).addPathComponent('sharing')
+    }
+
     // Request finalization
 
     public async get(options?: ApiMethodOptions): Promise<any> {
@@ -1014,10 +1018,12 @@ const api = {
             dashboardId,
             insightId,
             recordingId,
+            notebookShortId,
         }: {
             dashboardId?: DashboardType['id']
             insightId?: InsightModel['id']
             recordingId?: SessionRecordingType['id']
+            notebookShortId?: NotebookType['short_id']
         }): Promise<SharingConfigurationType | null> {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
@@ -1025,6 +1031,8 @@ const api = {
                 ? new ApiRequest().insightSharing(insightId).get()
                 : recordingId
                 ? new ApiRequest().recordingSharing(recordingId).get()
+                : notebookShortId
+                ? new ApiRequest().notebookSharing(notebookShortId).get()
                 : null
         },
 
@@ -1033,10 +1041,12 @@ const api = {
                 dashboardId,
                 insightId,
                 recordingId,
+                notebookShortId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
+                notebookShortId?: NotebookType['short_id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
@@ -1046,6 +1056,8 @@ const api = {
                 ? new ApiRequest().insightSharing(insightId).update({ data })
                 : recordingId
                 ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                : notebookShortId
+                ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
                 : null
         },
     },
