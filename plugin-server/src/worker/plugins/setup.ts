@@ -27,13 +27,11 @@ export async function setupPlugins(hub: Hub): Promise<void> {
         } else {
             pluginConfig.vm = new LazyPluginVM(hub, pluginConfig)
 
-            if (
-                process.env.PLUGINS_LAZY_VM !== 'true' &&
-                !hub.capabilities.ingestion &&
-                !hub.capabilities.ingestionOverflow
-            ) {
+            if (process.env.PLUGINS_LAZY_VM !== 'true') {
                 // For anything other than the ingestion pods or overflow pods, we need to
-                // load everything.
+                // load everything. We don't explicitly check for capabilities
+                // here rather we use the env var such that we can verify that
+                // the change works in staging before we roll it out to prod.
                 //
                 // For scheduler, we need to load all the scheduler plugins as we do not
                 // know what the capabilities are before the first time we have loaded a
