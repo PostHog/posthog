@@ -21,7 +21,7 @@ import {
     IconJournal,
 } from 'lib/lemon-ui/icons'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
 const ICON_MAP = {
@@ -43,7 +43,7 @@ const ICON_MAP = {
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
-    const { notebookLinkClicked } = useValues(notebookSidebarLogic)
+    const { notebookLinkClicked } = useActions(notebookSidebarLogic)
 
     const href: string = props.node.attrs.href
 

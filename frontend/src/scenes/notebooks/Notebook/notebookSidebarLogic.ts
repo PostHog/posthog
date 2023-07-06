@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, listeners, selectors } from 'kea'
+import { actions, kea, reducers, path, listeners } from 'kea'
 
 import type { notebookSidebarLogicType } from './notebookSidebarLogicType'
 import { urlToAction } from 'kea-router'
@@ -17,6 +17,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
+        notebookLinkClicked: (shortId: string, internal: boolean) => ({ shortId, internal }),
     }),
 
     reducers(() => ({
@@ -57,20 +58,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         ],
     })),
 
-    selectors(({ actions }) => ({
-        notebookLinkClicked: [
-            (s) => [s.notebookSideBarShown],
-            (notebookSideBarShown): ((shortId: string, internal: boolean) => void) => {
-                return (shortId: string, internal: boolean) => {
-                    if (!notebookSideBarShown && internal) {
-                        actions.selectNotebook(shortId)
-                        actions.setNotebookSideBarShown(true)
-                    }
-                }
-            },
-        ],
-    })),
-
     subscriptions({
         notebookSideBarShown: (value, oldvalue) => {
             if (oldvalue !== undefined && value !== oldvalue) {
@@ -107,6 +94,12 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 actions.setDesiredWidth(
                     Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, cache.originalWidth - (desiredX - originX))
                 )
+            }
+        },
+        notebookLinkClicked: ({ shortId, internal }) => {
+            if (!values.notebookSideBarShown && internal) {
+                actions.selectNotebook(shortId)
+                actions.setNotebookSideBarShown(true)
             }
         },
     })),
