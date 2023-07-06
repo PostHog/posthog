@@ -363,7 +363,10 @@ export const instrumentEachBatchKafkaJS = async (
         statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
             topic: topic,
         })
-        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`, {
+            stack: error.stack,
+            error: error,
+        })
         if (error.type === 'UNKNOWN_MEMBER_ID') {
             status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
         }
