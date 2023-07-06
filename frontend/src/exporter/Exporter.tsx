@@ -14,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { exporterViewLogic } from './exporterViewLogic'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { ExportedNotebook } from '~/exporter/ExportedNotebook/ExportedNotebook'
 
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
@@ -85,24 +85,27 @@ export function Exporter(props: ExportedData): JSX.Element {
                     noInspector={!showInspector}
                 />
             ) : notebook ? (
-                <Notebook shortId={notebook.short_id} cachedNotebook={notebook} />
+                <ExportedNotebook notebook={notebook} />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}
-            {!whitelabel && dashboard && (
-                <div className="text-center pb-4">
-                    {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
-                    <div>
-                        Made with{' '}
-                        <Link
-                            to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
-                            target="_blank"
-                        >
-                            PostHog — open-source product analytics
-                        </Link>
+            {(!whitelabel && dashboard) ||
+                (notebook && (
+                    <div className="text-center pb-4">
+                        {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
+                        <div>
+                            Made with{' '}
+                            <Link
+                                to={`https://posthog.com?utm_medium=in-product&utm_campaign=shared-${
+                                    dashboard ? 'dashboard' : 'notebook'
+                                }`}
+                                target="_blank"
+                            >
+                                PostHog — open-source product analytics
+                            </Link>
+                        </div>
                     </div>
-                </div>
-            )}
+                ))}
         </div>
     )
 }

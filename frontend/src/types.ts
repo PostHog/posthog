@@ -2432,12 +2432,14 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface TrendsExperimentResults {

@@ -29,6 +29,7 @@ export class KafkaJSIngestionConsumer {
     public consumerGroupId: string
     public eachBatch: KafkaJSBatchFunction
     public consumer: Consumer
+    public sessionTimeout: number
     private kafka: Kafka
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
@@ -44,10 +45,12 @@ export class KafkaJSIngestionConsumer {
         this.kafka = pluginsServer.kafka!
         this.topic = topic
         this.consumerGroupId = consumerGroupId
+        this.sessionTimeout = pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS
         this.consumer = KafkaJSIngestionConsumer.buildConsumer(
             this.kafka,
             consumerGroupId,
-            this.pluginsServer.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS
+            this.pluginsServer.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS,
+            this.sessionTimeout
         )
         this.wasConsumerRan = false
 
@@ -183,10 +186,16 @@ export class KafkaJSIngestionConsumer {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    private static buildConsumer(kafka: Kafka, groupId: string, rebalanceTimeout: number | null): Consumer {
+    private static buildConsumer(
+        kafka: Kafka,
+        groupId: string,
+        rebalanceTimeout: number | null,
+        sessionTimeout: number
+    ): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
+            sessionTimeout: sessionTimeout,
             readUncommitted: false,
             rebalanceTimeout: rebalanceTimeout ?? undefined,
         })
@@ -363,7 +372,10 @@ export const instrumentEachBatchKafkaJS = async (
         statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
             topic: topic,
         })
-        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`, {
+            stack: error.stack,
+            error: error,
+        })
         if (error.type === 'UNKNOWN_MEMBER_ID') {
             status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
         }

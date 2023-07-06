@@ -136,7 +136,7 @@ export const buildWebhooksIngestionConsumer = ({ hub, piscina }: { hub: Hub; pis
 }
 
 export function makeHealthCheck(queue: KafkaJSIngestionConsumer) {
-    const sessionTimeout = 30000
+    const sessionTimeout = queue.sessionTimeout
     const { HEARTBEAT } = queue.consumer.events
     let lastHeartbeat: number = Date.now()
     queue.consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
