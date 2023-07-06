@@ -32,7 +32,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -96,6 +96,10 @@ export const experimentLogic = kea<experimentLogicType>([
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['updateQuerySource'],
         ],
+        logic: [
+            insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+            insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+        ],
     })),
     actions({
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
@@ -105,12 +109,14 @@ export const experimentLogic = kea<experimentLogicType>([
             sampleSize,
         }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
+        updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         launchExperiment: true,
         endExperiment: true,
@@ -120,6 +126,8 @@ export const experimentLogic = kea<experimentLogicType>([
         checkFlagImplementationWarning: true,
         openExperimentGoalModal: true,
         closeExperimentGoalModal: true,
+        openExperimentExposureModal: true,
+        closeExperimentExposureModal: true,
     }),
     reducers({
         experiment: [
@@ -233,6 +241,20 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeExperimentGoalModal: () => false,
             },
         ],
+        isExperimentExposureModalOpen: [
+            false,
+            {
+                openExperimentExposureModal: () => true,
+                closeExperimentExposureModal: () => false,
+            },
+        ],
+        experimentValuesChangedLocally: [
+            false,
+            {
+                setExperiment: () => true,
+                loadExperiment: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
@@ -322,6 +344,28 @@ export const experimentLogic = kea<experimentLogicType>([
         setQuery: ({ query }) => {
             actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
         },
+        setExperimentExposureInsight: async ({ filters }) => {
+            const newInsightFilters = cleanFilters({
+                insight: InsightType.TRENDS,
+                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                ...filters,
+            })
+
+            const { updateQuerySource } = insightVizDataLogic({
+                dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID,
+            }).actions
+            updateQuerySource(filtersToQueryNode(newInsightFilters))
+        },
+        // // sync form value `filters` with query
+        [insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }).actionTypes.setQuery]: ({ query }) => {
+            actions.setExperiment({
+                parameters: {
+                    custom_exposure_filter: queryNodeToFilter((query as InsightVizNode).source),
+                    feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
+                },
+            })
+        },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
             if (!experiment?.start_date) {
@@ -355,11 +399,25 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ filters: filtersToUpdate })
             actions.closeExperimentGoalModal()
         },
+        updateExperimentExposure: async ({ filters }) => {
+            actions.updateExperiment({
+                parameters: {
+                    custom_exposure_filter: filters,
+                    feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
+                },
+            })
+            actions.closeExperimentExposureModal()
+        },
         updateExperimentSecondaryMetrics: async ({ metrics }) => {
             actions.updateExperiment({ secondary_metrics: metrics })
         },
         closeExperimentGoalModal: () => {
-            if (values.experimentChanged) {
+            if (values.experimentValuesChangedLocally) {
+                actions.loadExperiment()
+            }
+        },
+        closeExperimentExposureModal: () => {
+            if (values.experimentValuesChangedLocally) {
                 actions.loadExperiment()
             }
         },
@@ -454,6 +512,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         openExperimentGoalModal: async () => {
             actions.setNewExperimentInsight(values.experiment?.filters)
+        },
+        openExperimentExposureModal: async () => {
+            actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
     })),
     loaders(({ actions, props, values }) => ({
