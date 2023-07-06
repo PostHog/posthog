@@ -96,7 +96,7 @@ def create_hogql_database(team_id: int) -> Database:
     return database
 
 
-class _SerialiedFieldBase(TypedDict):
+class _SerializedFieldBase(TypedDict):
     key: str
     type: Literal[
         "integer",
@@ -112,14 +112,14 @@ class _SerialiedFieldBase(TypedDict):
     ]
 
 
-class SerialiedField(_SerialiedFieldBase, total=False):
+class SerializedField(_SerializedFieldBase, total=False):
     fields: List[str]
     table: str
     chain: List[str]
 
 
-def serialize_database(database: Database) -> Dict[str, List[SerialiedField]]:
-    tables: Dict[str, List[SerialiedField]] = {}
+def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
+    tables: Dict[str, List[SerializedField]] = {}
 
     for table_key in database.__fields__.keys():
         field_input: Dict[str, Any] = {}
@@ -129,14 +129,14 @@ def serialize_database(database: Database) -> Dict[str, List[SerialiedField]]:
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[SerialiedField] = serialize_fields(field_input)
+        field_output: List[SerializedField] = serialize_fields(field_input)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[SerialiedField]:
-    field_output: List[SerialiedField] = []
+def serialize_fields(field_input) -> List[SerializedField]:
+    field_output: List[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
             pass
