@@ -89,6 +89,14 @@ export const detectPropertyDefinitionTypes = (value: unknown, key: string): Prop
         return PropertyType.String
     }
 
+    if (key === '$feature_flag_response') {
+        // $feature_flag_response properties should always be detected as strings.
+        // These are feature flag values, and can be boolean or string.
+        // Sometimes the first value sent is boolean (because flag isn't enabled) while
+        // subsequent values are not. We don't want this to be misunderstood as a boolean.
+        return PropertyType.String
+    }
+
     if (typeof value === 'number') {
         propertyType = PropertyType.Numeric
 

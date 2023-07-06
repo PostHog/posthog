@@ -31,7 +31,7 @@ from posthog.utils import generate_cache_key, get_safe_cache
 EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
 
 
-def _calculate_experiment_results(experiment: Experiment):
+def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
     filter = Filter(experiment.filters, team=experiment.team)
 
     experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
@@ -42,10 +42,10 @@ def _calculate_experiment_results(experiment: Experiment):
         filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
     ).get_results()
 
-    return _experiment_results_cached(experiment, "primary", filter, calculate_func)
+    return _experiment_results_cached(experiment, "primary", filter, calculate_func, refresh=refresh)
 
 
-def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int):
+def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int, refresh: bool = False):
     filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
 
     # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
@@ -53,10 +53,12 @@ def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: i
         filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
     ).get_results()["result"]
 
-    return _experiment_results_cached(experiment, "secondary", filter, calculate_func)
+    return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
 
 
-def _experiment_results_cached(experiment: Experiment, results_type: str, filter: Filter, calculate_func: Callable):
+def _experiment_results_cached(
+    experiment: Experiment, results_type: str, filter: Filter, calculate_func: Callable, refresh: bool
+):
     cache_filter = filter.shallow_clone(
         {
             "date_from": experiment.start_date,
@@ -71,7 +73,7 @@ def _experiment_results_cached(experiment: Experiment, results_type: str, filter
 
     cached_result_package = get_safe_cache(cache_key)
 
-    if cached_result_package and cached_result_package.get("result"):
+    if cached_result_package and cached_result_package.get("result") and not refresh:
         cached_result_package["is_cached"] = True
         statsd.incr(
             "posthog_cached_function_cache_hit", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
@@ -258,10 +260,12 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     def results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
+        refresh = request.query_params.get("refresh") is not None
+
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
-        result = _calculate_experiment_results(experiment)
+        result = _calculate_experiment_results(experiment, refresh)
 
         return Response(result)
 
@@ -273,6 +277,8 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     @action(methods=["GET"], detail=True)
     def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+
+        refresh = request.query_params.get("refresh") is not None
 
         if not experiment.secondary_metrics:
             raise ValidationError("Experiment has no secondary metrics")
@@ -290,7 +296,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        result = _calculate_secondary_experiment_results(experiment, parsed_id)
+        result = _calculate_secondary_experiment_results(experiment, parsed_id, refresh)
 
         return Response(result)
 

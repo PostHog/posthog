@@ -156,6 +156,7 @@ export function SecondaryMetrics({
                         <MetricSelector
                             dashboardItemId={SEONDARY_METRIC_INSIGHT_ID}
                             setPreviewInsight={setPreviewInsight}
+                            showDateRangeBanner={isExperimentRunning}
                         />
                     </Field>
                 </Form>
