@@ -64,7 +64,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         currentAndUpgradePlans: [
-            (s, p) => [p.product],
+            (_s, p) => [p.product],
             (product) => {
                 const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
                 const currentPlan = product.plans?.[currentPlanIndex]
