@@ -251,13 +251,18 @@ def create_batch_export_run(
     return run
 
 
-def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str | None):
+def update_batch_export_run(run_id: UUID, **kwargs) -> None:
     """Update the status of an BatchExportRun with given id.
 
     Arguments:
-        id: The id of the BatchExportRun to update.
+        run_id: The id of the BatchExportRun to update.
+        **kwargs: Arbitrary BatchExportRun attributes to update. Values
+            set to None will be ignored to avoid overwriting them with NULL in the
+            database.
     """
-    updated = BatchExportRun.objects.filter(id=run_id).update(status=status, latest_error=latest_error)
+    set_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+    updated = BatchExportRun.objects.filter(id=run_id).update(**set_kwargs)
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 

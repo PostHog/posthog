@@ -85,6 +85,9 @@ class BatchExportRun(UUIDModel):
     last_updated_at: models.DateTimeField = models.DateTimeField(
         auto_now=True, help_text="The timestamp at which this BatchExportRun was last updated."
     )
+    bytes_completed: models.BigIntegerField = models.BigIntegerField(
+        null=True, help_text="The amount of bytes that have been exported."
+    )
 
 
 class BatchExport(UUIDModel):

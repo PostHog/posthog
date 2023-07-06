@@ -63,7 +63,7 @@ class S3InsertInputs:
 
 
 @activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs):
+async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
     """
     Activity streams data from ClickHouse to S3. It currently only creates a
     single file per run, and uploads as a multipart upload.
@@ -74,6 +74,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     files.
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
+    records_completed = 0
+    bytes_completed = 0
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -93,7 +95,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 inputs.data_interval_end,
                 count,
             )
-            return
+            return (records_completed, bytes_completed)
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
@@ -184,6 +186,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 # Write the results to a local file
                 local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
+                records_completed += 1
 
                 # Write results to S3 when the file reaches 50MB and reset the
                 # file, or if there is nothing else to write.
@@ -192,6 +195,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
                 ):
                     activity.logger.info("Uploading part %s", part_number)
+                    bytes_completed += local_results_file.tell()
 
                     local_results_file.seek(0)
                     response = s3_client.upload_part(
@@ -211,6 +215,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     # Reset the file
                     local_results_file.seek(0)
                     local_results_file.truncate()
+
+            bytes_completed += local_results_file.tell()
 
             # Upload the last part
             local_results_file.seek(0)
@@ -233,6 +239,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             UploadId=upload_id,
             MultipartUpload={"Parts": parts},
         )
+
+        return (records_completed, bytes_completed)
 
 
 @workflow.defn(name="s3-export")
@@ -275,7 +283,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(id=run_id, status="Completed")
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=run_id, status="Completed", bytes_completed=0, records_completed=0
+        )
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -288,7 +298,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
         )
         try:
-            await workflow.execute_activity(
+            records_completed, bytes_completed = await workflow.execute_activity(
                 insert_into_s3_activity,
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
@@ -307,6 +317,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             workflow.logger.exception("S3 BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
             raise
+
+        else:
+            update_inputs.bytes_completed = bytes_completed
+            update_inputs.records_completed = records_completed
 
         finally:
             await workflow.execute_activity(
