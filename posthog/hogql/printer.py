@@ -22,6 +22,7 @@ from posthog.hogql.functions import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import Table, FunctionCallTable
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -95,6 +96,7 @@ def print_prepared_ast(
 class JoinExprResponse:
     printed_sql: str
     where: Optional[ast.Expr] = None
+    ctes: Optional[List[str]] = None
 
 
 class _Printer(Visitor):
@@ -156,6 +158,7 @@ class _Printer(Visitor):
         where = node.where
 
         joined_tables = []
+        ctes = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
@@ -164,6 +167,7 @@ class _Printer(Visitor):
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
+            ctes.extend(visited_join.ctes or [])
 
             # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
@@ -227,6 +231,8 @@ class _Printer(Visitor):
 
         response = " ".join([clause for clause in clauses if clause])
 
+        response = f"WITH {', '.join(ctes)} {response}" if ctes else response
+
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
         if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
@@ -238,6 +244,7 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
+        ctes = []
 
         if node.join_type is not None:
             join_strings.append(node.join_type)
@@ -257,6 +264,9 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
+                if isinstance(table_type.table, S3Table):
+                    ctes.append(f"{node.alias} AS (SELECT * FROM {sql})")
+                    sql = table_type.table.to_printed_hogql()
             else:
                 sql = table_type.table.to_printed_hogql()
             join_strings.append(sql)
@@ -295,7 +305,7 @@ class _Printer(Visitor):
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
-        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
+        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, ctes=ctes if ctes else None)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
