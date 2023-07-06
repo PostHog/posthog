@@ -6,6 +6,7 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
 import { EditorRange, isCurrentNodeEmpty } from './utils'
+import Underline from '@tiptap/extension-underline'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -18,6 +19,7 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
+import { BacklinkCommandsExtension } from './BacklinkCommands'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -72,6 +74,7 @@ export function Editor({
             NotebookNodePerson,
             NotebookNodeFlag,
             SlashCommandsExtension,
+            BacklinkCommandsExtension,
         ],
         content: initialContent,
         editorProps: {

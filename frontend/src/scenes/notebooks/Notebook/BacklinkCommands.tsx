@@ -1,13 +1,19 @@
-import { Extension, Editor } from '@tiptap/core'
+import { Extension } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
+import { PluginKey } from '@tiptap/pm/state'
+
 import { Popover } from 'lib/lemon-ui/Popover'
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef } from 'react'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { EditorRange } from './utils'
+import { useValues } from 'kea'
+import { notebookLogic } from './notebookLogic'
 
 type BacklinkCommandsProps = {
-    editor: Editor
     query?: string
-    range?: Range
+    range?: EditorRange
     decorationNode?: any
 }
 
@@ -24,74 +30,55 @@ const BacklinkCommandsPopover = forwardRef<BacklinkCommandsRef, BacklinkCommands
     )
 })
 
-const BacklinkCommands = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(function SlashCommands(
-    { editor, query },
-    ref
-): JSX.Element | null {
-    const [selectedIndex, setSelectedIndex] = useState(0)
-
-    useEffect(() => {
-        setSelectedIndex(0)
-    }, [query])
+const BacklinkCommands = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(function BacklinkCommands({
+    range = { from: 0, to: 0 },
+    query,
+}): JSX.Element | null {
+    const { editor } = useValues(notebookLogic)
 
     const onPressEnter = (): void => {
-        const nodeAfter = editor.view.state.selection.$to.nodeAfter
-        const overrideSpace = nodeAfter?.text?.startsWith(' ')
-
-        if (overrideSpace) {
-            // range.to += 1
+        if (!editor) {
+            return
         }
 
-        // editor
-        //     .chain()
-        //     .focus()
-        //     .insertContentAt(range, [
-        //         {
-        //             type: 'meme',
-        //             attrs: {},
-        //             // attrs: props,
-        //         },
-        //         {
-        //             type: 'text',
-        //             text: ' ',
-        //         },
-        //     ])
-        //     .run()
-
-        window.getSelection()?.collapseToEnd()
+        editor
+            .deleteRange(range)
+            .insertContentAt(range, [
+                { type: 'text', marks: [{ type: 'underline' }], text: ' ' },
+                { type: 'text', text: ' ' },
+            ])
+            .run()
     }
-    const onPressUp = (): void => {
-        console.log(selectedIndex)
-    }
-    const onPressDown = (): void => {}
-    const onPressLeft = (): void => {}
-    const onPressRight = (): void => {}
-
-    useImperativeHandle(ref, () => ({
-        onKeyDown: (event: KeyboardEvent) => {
-            const keyMappings = {
-                ArrowUp: onPressUp,
-                ArrowDown: onPressDown,
-                ArrowLeft: onPressLeft,
-                ArrowRight: onPressRight,
-                Enter: onPressEnter,
-            }
-
-            if (keyMappings[event.key]) {
-                keyMappings[event.key]()
-                return true
-            }
-
-            return false
-        },
-    }))
 
     if (!editor) {
         return null
     }
 
-    return <div className="">This is the list</div>
+    const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
+        groupType: TaxonomicFilterGroupType.Events,
+        value: query,
+        onChange: onPressEnter,
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.Persons,
+            TaxonomicFilterGroupType.Actions,
+            TaxonomicFilterGroupType.Cohorts,
+            TaxonomicFilterGroupType.Insights,
+            TaxonomicFilterGroupType.FeatureFlags,
+            TaxonomicFilterGroupType.Plugins,
+            TaxonomicFilterGroupType.Experiments,
+            TaxonomicFilterGroupType.Dashboards,
+        ],
+        optionsFromProp: undefined,
+        popoverEnabled: true,
+        selectFirstItem: true,
+        taxonomicFilterLogicKey: 'notebook',
+    }
+
+    return <TaxonomicFilter {...taxonomicFilterLogicProps} />
 })
+
+const BacklinkCommandsPluginKey = new PluginKey('backlink-commands')
 
 export const BacklinkCommandsExtension = Extension.create({
     name: 'backlink-commands',
@@ -99,8 +86,9 @@ export const BacklinkCommandsExtension = Extension.create({
     addProseMirrorPlugins() {
         return [
             Suggestion({
+                pluginKey: BacklinkCommandsPluginKey,
                 editor: this.editor,
-                char: '£',
+                char: '#',
                 render: () => {
                     let renderer: ReactRenderer<BacklinkCommandsRef>
 
