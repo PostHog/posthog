@@ -48,6 +48,7 @@ import { Query } from '~/queries/Query/Query'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -92,6 +93,7 @@ export function Experiment(): JSX.Element {
         archiveExperiment,
         resetRunningExperiment,
         loadExperiment,
+        loadExperimentResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
@@ -559,6 +561,23 @@ export function Experiment(): JSX.Element {
                             )}
                             {experiment && isExperimentRunning && (
                                 <div className="flex flex-row gap-2">
+                                    <>
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={() => loadExperimentResults(true)}
+                                                        fullWidth
+                                                        data-attr="refresh-experiment"
+                                                    >
+                                                        Refresh experiment results
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                        <LemonDivider vertical />
+                                    </>
                                     <Popconfirm
                                         placement="topLeft"
                                         title={
@@ -950,6 +969,7 @@ export function Experiment(): JSX.Element {
                                             ),
                                             showTable: true,
                                             showLegendButton: false,
+                                            showLastComputation: true,
                                         }}
                                         context={{
                                             insightProps: {
@@ -959,6 +979,7 @@ export function Experiment(): JSX.Element {
                                                     filters: transformResultFilters(experimentResults.filters),
                                                     result: experimentResults.insight,
                                                     disable_baseline: true,
+                                                    last_refresh: experimentResults?.last_refresh,
                                                 },
                                                 doNotLoad: true,
                                             },
