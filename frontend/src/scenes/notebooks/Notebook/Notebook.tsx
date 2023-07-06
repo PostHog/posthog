@@ -24,10 +24,12 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
+import { NotebookType } from '~/types'
 
 export type NotebookProps = {
     shortId: string
     editable?: boolean
+    cachedNotebook?: NotebookType
 }
 
 const CustomDocument = ExtensionDocument.extend({
@@ -36,8 +38,8 @@ const CustomDocument = ExtensionDocument.extend({
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ shortId })
+export function Notebook({ shortId, cachedNotebook, editable = false }: NotebookProps): JSX.Element {
+    const logic = notebookLogic({ shortId, cachedNotebook })
     const { notebook, content, notebookLoading, isEmpty, conflictWarningVisible } = useValues(logic)
     const { setEditorRef, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)

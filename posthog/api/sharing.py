@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
+from posthog.api.notebook import NotebookSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import SessionRecordingSerializer
 from posthog.models import SharingConfiguration, Team
@@ -21,6 +22,7 @@ from posthog.models.activity_logging.activity_log import log_activity, Detail, C
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
+from posthog.models.notebook.notebook import Notebook
 from posthog.models.session_recording import SessionRecording
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -58,6 +60,7 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
         data={
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,
+            "notebook": resource.notebook.pk if resource.notebook else None,
             "export_format": "image/png",
             "expires_after": now() + timedelta(hours=3),
         },
@@ -78,7 +81,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     pagination_class = None
-    queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
+    queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording", "notebook")
     serializer_class = SharingConfigurationSerializer
     include_in_docs = False
 
@@ -90,9 +93,10 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         dashboard_id = context.get("dashboard_id")
         insight_id = context.get("insight_id")
         recording_id = context.get("recording_id")
+        notebook_id = context.get("notebook_id")
 
-        if not dashboard_id and not insight_id and not recording_id:
-            raise ValidationError("Either a dashboard, insight or recording must be specified")
+        if not dashboard_id and not insight_id and not recording_id and not notebook_id:
+            raise ValidationError("Either a dashboard, insight, notebook, or recording must be specified")
 
         if dashboard_id:
             try:
@@ -107,6 +111,11 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         if recording_id:
             # NOTE: Recordings are a special case as we don't want to query CH just for this.
             context["recording"] = SessionRecording.get_or_build(recording_id, team=self.team)
+        if notebook_id:
+            try:
+                context["notebook"] = Notebook.objects.get(id=notebook_id, team=self.team)
+            except Notebook.DoesNotExist:
+                raise NotFound("Notebook not found.")
 
         return context
 
@@ -118,8 +127,11 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         dashboard = context.get("dashboard")
         insight = context.get("insight")
         recording = context.get("recording")
+        notebook = context.get("notebook")
 
-        config_kwargs = dict(team_id=self.team_id, insight=insight, dashboard=dashboard, recording=recording)
+        config_kwargs = dict(
+            team_id=self.team_id, insight=insight, dashboard=dashboard, recording=recording, notebook=notebook
+        )
 
         try:
             instance = SharingConfiguration.objects.get(**config_kwargs)
@@ -254,7 +266,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard
+        add_og_tags = resource.insight or resource.dashboard or resource.notebook
         asset_description = ""
 
         if resource.insight and not resource.insight.deleted:
@@ -274,6 +286,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
+        elif resource.notebook and not resource.notebook.deleted:
+            asset_title = resource.notebook.title or "Untitled"
+            notebook_data = NotebookSerializer(resource.notebook, context=context).data
+            exported_data.update({"notebook": notebook_data})
         else:
             raise NotFound()
 

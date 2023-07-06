@@ -14,11 +14,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { exporterViewLogic } from './exporterViewLogic'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
-    const { type, dashboard, insight, recording, accessToken, ...exportOptions } = exportedData
+    const { type, dashboard, insight, recording, notebook, accessToken, ...exportOptions } = exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -83,6 +84,8 @@ export function Exporter(props: ExportedData): JSX.Element {
                     autoPlay={false}
                     noInspector={!showInspector}
                 />
+            ) : notebook ? (
+                <Notebook shortId={notebook.short_id} cachedNotebook={notebook} />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}

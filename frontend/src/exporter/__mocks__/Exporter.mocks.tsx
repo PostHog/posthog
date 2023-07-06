@@ -7,6 +7,7 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
+    NotebookType,
 } from '~/types'
 import { FunnelLayout, ShownAsValue } from 'lib/constants'
 
@@ -1437,3 +1438,92 @@ export const dashboard: DashboardType = {
     effective_privilege_level: 37,
     tags: [],
 }
+
+export const notebook = {
+    short_id: 'BF5V6QRk',
+    title: 'Example Exported Notebook! 🥳',
+    content: {
+        type: 'doc',
+        content: [
+            {
+                type: 'heading',
+                attrs: {
+                    level: 1,
+                },
+                content: [
+                    {
+                        text: 'Example Exported Notebook! 🥳',
+                        type: 'text',
+                    },
+                ],
+            },
+            {
+                type: 'paragraph',
+                content: [
+                    {
+                        text: 'Notebooks are a powerful way of working with all of the various parts of PostHog, allowing you to bring Insights, Replays, Feature Flags, Events and much more into one place. Whether it is an ',
+                        type: 'text',
+                    },
+                    {
+                        text: 'ad-hoc analysis',
+                        type: 'text',
+                        marks: [
+                            {
+                                type: 'bold',
+                            },
+                        ],
+                    },
+                    {
+                        text: ' or a ',
+                        type: 'text',
+                    },
+                    {
+                        text: 'bug investigation',
+                        type: 'text',
+                        marks: [
+                            {
+                                type: 'bold',
+                            },
+                        ],
+                    },
+                    {
+                        text: ' or a ',
+                        type: 'text',
+                    },
+                    {
+                        text: 'feature release',
+                        type: 'text',
+                        marks: [
+                            {
+                                type: 'bold',
+                            },
+                        ],
+                    },
+                    {
+                        text: '. We have only just got started with Notebooks so try it out and let us know what you think.',
+                        type: 'text',
+                    },
+                ],
+            },
+        ],
+    },
+    version: 0,
+    created_at: '2023-06-19T16:05:39.318986Z',
+    created_by: {
+        id: 17167,
+        uuid: '01830cdb-626b-0000-1f82-98ea06a5e75e',
+        distinct_id: 'NqCqvZGlRnjkrqXDUfjrj889UfgJWMV5Gzoluet5W65',
+        first_name: 'Annika',
+        email: 'annika@posthog.com',
+        is_email_verified: true,
+    },
+    last_modified_at: '2023-06-19T16:05:39.318458Z',
+    last_modified_by: {
+        id: 17167,
+        uuid: '01830cdb-626b-0000-1f82-98ea06a5e75e',
+        distinct_id: 'NqCqvZGlRnjkrqXDUfjrj889UfgJWMV5Gzoluet5W65',
+        first_name: 'Annika',
+        email: 'annika@posthog.com',
+        is_email_verified: true,
+    },
+} satisfies NotebookType

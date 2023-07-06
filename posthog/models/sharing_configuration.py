@@ -13,6 +13,7 @@ class SharingConfiguration(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    notebook = models.ForeignKey("posthog.Notebook", on_delete=models.CASCADE, null=True)
     recording: models.ForeignKey = models.ForeignKey(
         "SessionRecording",
         related_name="sharing_configurations",

@@ -15,6 +15,7 @@ const SYNC_DELAY = 1000
 
 export type NotebookLogicProps = {
     shortId: string
+    cachedNotebook?: NotebookType
 }
 
 export const notebookLogic = kea<notebookLogicType>([
@@ -36,12 +37,15 @@ export const notebookLogic = kea<notebookLogicType>([
         exportJSON: true,
         showConflictWarning: true,
     }),
-    reducers({
+    reducers(({ props }) => ({
         localContent: [
-            null as JSONContent | null,
+            props.cachedNotebook?.content || null,
             { persist: true },
             {
-                setLocalContent: (_, { jsonContent }) => jsonContent,
+                setLocalContent: (_, { jsonContent }) => {
+                    // don't allow any local changes if a cached notebook is present
+                    return props.cachedNotebook?.content || jsonContent
+                },
                 clearLocalContent: () => null,
             },
         ],
@@ -64,12 +68,16 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-    }),
+    })),
     loaders(({ values, props, actions }) => ({
         notebook: [
             null as NotebookType | null,
             {
                 loadNotebook: async () => {
+                    if (props.cachedNotebook) {
+                        return props.cachedNotebook
+                    }
+
                     // NOTE: This is all hacky and temporary until we have a backend
                     let response: NotebookType | null
 
@@ -99,6 +107,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
 
                 saveNotebook: async ({ notebook }) => {
+                    if (props.cachedNotebook) {
+                        return props.cachedNotebook
+                    }
+
                     if (!values.notebook) {
                         return values.notebook
                     }
@@ -132,7 +144,7 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookType | null,
             {
                 duplicateNotebook: async () => {
-                    if (!values.notebook) {
+                    if (!values.notebook || props.cachedNotebook) {
                         return null
                     }
 
@@ -161,8 +173,11 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     })),
-    selectors({
-        shortId: [() => [(_, props) => props], (props): string => props.shortId],
+    selectors(({ props }) => ({
+        shortId: [
+            () => [(_, props) => props],
+            (props): string => (props.cachedNotebook ? props.cachedNotebook.short_id : props.shortId),
+        ],
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
         content: [
             (s) => [s.notebook, s.localContent],
@@ -189,7 +204,7 @@ export const notebookLogic = kea<notebookLogicType>([
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {
-                if (notebook?.is_template) {
+                if (notebook?.is_template || props.cachedNotebook) {
                     return 'synced'
                 }
 
@@ -207,7 +222,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-    }),
+    })),
     sharedListeners(({ values, actions }) => ({
         onNotebookChange: () => {
             // Keep the list logic up to date with any changes

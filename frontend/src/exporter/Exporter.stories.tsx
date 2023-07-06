@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { Exporter } from './Exporter'
-import { insight, dashboard } from '~/exporter/__mocks__/Exporter.mocks'
+import { insight, dashboard, notebook } from '~/exporter/__mocks__/Exporter.mocks'
 
 export default {
     title: 'Exporter/Exporter',
@@ -43,3 +43,6 @@ Insight.args = { insight }
 
 export const Dashboard = Template.bind({})
 Dashboard.args = { dashboard }
+
+export const Notebook = Template.bind({})
+Notebook.args = { notebook }

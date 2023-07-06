@@ -77,10 +77,11 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "insight": None,
+            "notebook": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
-            "insight": None,
             "export_context": None,
             # without an expiry being set at creation, the default is 6 months
             "expires_after": (now() + timedelta(weeks=26))
@@ -134,10 +135,11 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "insight": None,
+            "notebook": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
-            "insight": None,
             "export_context": None,
             "expires_after": one_week_from_now.isoformat() + "Z",
         }
@@ -177,10 +179,11 @@ class TestExports(APIBaseTest):
                 "id": data["id"],
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
+                "dashboard": None,
+                "notebook": None,
                 "export_format": "application/pdf",
                 "filename": "export-example-insight.pdf",
                 "has_content": False,
-                "dashboard": None,
                 "export_context": None,
                 "expires_after": (now() + timedelta(weeks=26))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
@@ -227,7 +230,7 @@ class TestExports(APIBaseTest):
             {
                 "attr": None,
                 "code": "invalid_input",
-                "detail": "Either dashboard, insight or export_context is required for an export.",
+                "detail": "Either dashboard, insight, notebook or export_context is required for an export.",
                 "type": "validation_error",
             },
         )
