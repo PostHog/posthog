@@ -54,7 +54,14 @@ export async function setupPlugins(hub: Hub): Promise<void> {
             //
             // For now we just use the blunt instrument of loading all the plugins
             // for some plugin-server instances.
-            if (!hub.capabilities.ingestion && !hub.capabilities.ingestionOverflow) {
+            //
+            // We use an env var to control this so that we can easily switch it
+            // on and off for different plugin-server instances.
+            if (
+                process.env.PLUGINS_LAZY_VM !== 'true' &&
+                !hub.capabilities.ingestion &&
+                !hub.capabilities.ingestionOverflow
+            ) {
                 pluginVMLoadPromises.push(loadPlugin(hub, pluginConfig))
             }
 
