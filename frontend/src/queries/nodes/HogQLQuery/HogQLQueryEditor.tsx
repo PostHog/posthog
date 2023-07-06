@@ -55,6 +55,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             onPressEnter={() => draftFromPrompt()}
                             onChange={(value) => setPrompt(value)}
                             placeholder="What do you want to know? How would you like to tweak the query?"
+                            maxLength={400}
                         />
                         <LemonButton
                             type="primary"

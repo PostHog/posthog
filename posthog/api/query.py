@@ -133,6 +133,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         current_query = request.GET.get("current_query")
         if not prompt:
             raise ValidationError({"prompt": ["This field is required."]}, code="required")
+        if len(prompt) > 400:
+            raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
         try:
             result = write_sql_from_prompt(prompt, current_query=current_query, user=request.user, team=self.team)
         except PromptUnclear as e:
