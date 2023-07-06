@@ -104,6 +104,10 @@ export class SessionRecordingBlobIngester {
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
+        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
+        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
+        gaugeSessionsRevoked.set(0)
+
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
