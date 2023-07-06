@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, isCurrentNodeEmpty, shouldShowFloatingMenu } from './utils'
+import { EditorRange, isCurrentNodeEmpty } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -16,7 +16,7 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
-import { SlashCommandsExtension } from './SlashCommands'
+import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent } from './utils'
 import { NotebookEditor } from '~/types'
 
@@ -135,7 +135,6 @@ export function Editor({
             onCreate({
                 getJSON: () => editor.getJSON(),
                 setEditable: (editable: boolean) => editor.setEditable(editable, false),
-                shouldShowFloatingMenu: () => shouldShowFloatingMenu(editor),
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 hasContent: () => !editor.isEmpty || false,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
@@ -148,7 +147,7 @@ export function Editor({
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {/* {_editor && <FloatingSlashCommands editor={_editor} />} */}
+            {_editor && <FloatingSlashCommands editor={_editor} />}
         </>
     )
 }

@@ -20,20 +20,6 @@ export interface NotebookEditor {
     deleteRange: (range: EditorRange) => EditorCommands
 }
 
-export const shouldShowFloatingMenu = (editor: TTEditor): boolean => {
-    if (
-        !editor ||
-        !editor.view.hasFocus() ||
-        !editor.isEditable ||
-        !editor.isActive('paragraph') ||
-        !isCurrentNodeEmpty(editor)
-    ) {
-        return false
-    }
-
-    return true
-}
-
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
 export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     const selection = editor.state.selection
