@@ -53,13 +53,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             value={prompt}
                             onPressEnter={() => draftFromPrompt()}
                             onChange={(value) => setPrompt(value)}
-                            placeholder="What would you like to know?"
+                            placeholder="What do you want to know? How would you like to tweak the query?"
                         />
                         <LemonButton
                             type="primary"
                             onClick={() => draftFromPrompt()}
                             disabledReason={
-                                !!prompt
+                                !prompt
                                     ? 'Provide a prompt first'
                                     : !aiAvailable
                                     ? 'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
