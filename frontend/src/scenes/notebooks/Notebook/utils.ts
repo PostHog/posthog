@@ -4,6 +4,7 @@ import {
     Editor as TTEditor,
     ChainedCommands as EditorCommands,
     Range as EditorRange,
+    getText,
 } from '@tiptap/core'
 import { NotebookNodeType } from '~/types'
 
