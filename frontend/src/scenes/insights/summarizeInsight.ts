@@ -38,7 +38,7 @@ import {
     getDisplayNameFromEntityNode,
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
@@ -327,7 +327,7 @@ function summarizeQuery(query: Node): string {
 
         if (selected.length > 0) {
             return `${selected
-                .map(removeExpressionComment)
+                .map(extractExpressionComment)
                 .filter((c) => !query.hiddenColumns?.includes(c))
                 .join(', ')}${source ? ` from ${source}` : ''}`
         }
