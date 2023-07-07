@@ -81,10 +81,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const MaybeTooltip = ({ children }: { children: JSX.Element }): JSX.Element =>
             !!disabledReason ? (
                 <Tooltip title={<span className="italic">{disabledReason}</span>}>
-                    <div>{children}</div>
+                    <span>{children}</span>
                 </Tooltip>
             ) : (
-                <div>{children}</div>
+                <span>{children}</span>
             )
 
         return to ? (
