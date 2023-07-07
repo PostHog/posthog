@@ -231,11 +231,6 @@ export class IngestionConsumer {
                 this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
                 return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
             },
-            runWebhooksHandlersEventPipeline: (event: PostIngestionEvent) => {
-                this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runWebhooksHandlersEventPipeline'
-                return piscina.run({ task: 'runWebhooksHandlersEventPipeline', args: { event } })
-            },
             runEventPipeline: (event: PipelineEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
                 this.pluginsServer.lastActivityType = 'runEventPipeline'
