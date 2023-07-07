@@ -11,7 +11,7 @@ describe('ActionManager', () => {
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase()
-        actionManager = new ActionManager(hub.db, { processAsyncHandlers: true })
+        actionManager = new ActionManager(hub.db, { processAsyncWebhooksHandlers: true })
         await actionManager.prepare()
     })
 
@@ -133,11 +133,11 @@ describe('ActionManager', () => {
         expect(Object.values(droppedAction!).length).toEqual(0)
     })
 
-    it('does nothing when no `processAsyncHandlers` capabilities', async () => {
+    it('does nothing when no `processAsyncWebhooksHandlers` capabilities', async () => {
         jest.spyOn(hub.db, 'fetchAllActionsGroupedByTeam')
         jest.spyOn(hub.db, 'fetchAction')
 
-        const manager = new ActionManager(hub.db, { processAsyncHandlers: false })
+        const manager = new ActionManager(hub.db, { processAsyncWebhooksHandlers: false })
 
         await manager.prepare()
         await manager.reloadAllActions()

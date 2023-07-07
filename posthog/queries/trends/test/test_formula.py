@@ -2,7 +2,7 @@ from typing import Dict, Optional
 
 from freezegun.api import freeze_time
 
-from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE
+from posthog.constants import TRENDS_CUMULATIVE, TRENDS_PIE, TRENDS_BOLD_NUMBER
 from posthog.models import Cohort, Person
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import create_group
@@ -183,6 +183,65 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
 
     @snapshot_clickhouse_queries
+    def test_regression_formula_with_unique_sessions_2x_and_duration_filter(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "session start",
+                                "math": "unique_session",
+                                "properties": [
+                                    {"key": "$session_duration", "value": 12, "operator": "gt", "type": "session"}
+                                ],
+                            },
+                            {"id": "session start", "math": "unique_session"},
+                        ],
+                        "formula": "A / B",
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0])
+
+    @snapshot_clickhouse_queries
+    def test_aggregated_one_without_events(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "insight": "TRENDS",
+                        "display": TRENDS_BOLD_NUMBER,
+                        "formula": "B + A",
+                        "events": [
+                            {
+                                "id": "session start",
+                                "name": "session start",
+                                "type": "events",
+                                "order": 0,
+                                "math": "sum",
+                                "math_property": "session duration",
+                            },
+                            {
+                                "id": "session error",
+                                "name": "session error",
+                                "type": "events",
+                                "order": 1,
+                                "math": "sum",
+                                "math_property": "session not here",
+                            },
+                        ],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["aggregated_value"], 1800)
+        self.assertEqual(response[0]["label"], "Formula (B + A)")
+
+    @snapshot_clickhouse_queries
     def test_breakdown(self):
         response = self._run({"formula": "A - B", "breakdown": "location"})
         self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
@@ -272,6 +331,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-04",
                     ],
                     "label": "London",
+                    "breakdown_value": "London",
                 },
                 {
                     "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -297,6 +357,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                         "2020-01-04",
                     ],
                     "label": "Paris",
+                    "breakdown_value": "Paris",
                 },
             ],
         )

@@ -19,7 +19,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {
-                // TODO: after hooking up data manager, check that we have a trends result here
                 if (insightData?.result && Array.isArray(insightData.result)) {
                     return insightData.result
                 } else {

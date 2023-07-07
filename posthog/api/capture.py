@@ -3,6 +3,7 @@ import json
 import re
 import time
 from datetime import datetime
+from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
@@ -11,7 +12,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from kafka.errors import KafkaError
+from kafka.errors import KafkaError, MessageSizeTooLargeError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter
 from rest_framework import status
@@ -20,19 +21,20 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 
-from posthog.api.utils import (
-    get_data,
-    get_token,
-    safe_clickhouse_string,
-)
+from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.exceptions import generate_exception_response
-from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
+from posthog.kafka_client.client import (
+    KafkaProducer,
+    sessionRecordingKafkaProducer,
+)
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    preprocess_session_recording_events_for_clickhouse,
+    legacy_preprocess_session_recording_events_for_clickhouse,
+    preprocess_replay_events_for_blob_ingestion,
+    split_replay_events,
 )
 from posthog.utils import cors_response, get_ip_address
 
@@ -52,12 +54,25 @@ LOG_RATE_LIMITER = Limiter(
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
-SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+
+EVENTS_RECEIVED_COUNTER = Counter(
+    "capture_events_received_total",
+    "Events received by capture, tagged by resource type.",
+    labelnames=[LABEL_RESOURCE_TYPE],
+)
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
+)
+
+PERFORMANCE_EVENTS_DROPPED_COUNTER = Counter(
+    "capture_events_dropped_performance_events",
+    "We no longer send performance events legitimately, let's drop them and count how many we drop.",
+    labelnames=["token"],
 )
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
@@ -122,21 +137,31 @@ def build_kafka_event_data(
     }
 
 
+def _kafka_topic(event_name: str) -> str:
+    # To allow for different quality of service on session recordings
+    # and other events, we push to a different topic.
+
+    match event_name:
+        case "$snapshot":
+            return KAFKA_SESSION_RECORDING_EVENTS
+        case "$snapshot_items":
+            return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case _:
+            return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+
+
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    # To allow for different quality of service on session recordings and
-    # `$performance_event` and other events, we push to a different topic.
-    # TODO: split `$performance_event` out to it's own topic.
-    kafka_topic = (
-        KAFKA_SESSION_RECORDING_EVENTS
-        if event_name in SESSION_RECORDING_EVENT_NAMES
-        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-    )
+    kafka_topic = _kafka_topic(event_name)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
+        if event_name in SESSION_RECORDING_DEDICATED_KAFKA_EVENTS:
+            producer = sessionRecordingKafkaProducer()
+        else:
+            producer = KafkaProducer()
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
@@ -218,6 +243,13 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
+def drop_performance_events(token: str, events: List[Any]) -> List[Any]:
+    cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
+    dropped_event_count = len(events) - len(cleaned_list)
+    PERFORMANCE_EVENTS_DROPPED_COUNTER.labels(token=token).inc(dropped_event_count)
+    return cleaned_list
+
+
 def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     if not settings.EE_AVAILABLE:
         return events
@@ -230,15 +262,18 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
-        elif token in limited_tokens_events:
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
-            if settings.QUOTA_LIMITING_ENABLED:
-                continue
+        else:
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
+            if token in limited_tokens_events:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
 
         results.append(event)
 
@@ -303,6 +338,8 @@ def get_event(request):
 
     structlog.contextvars.bind_contextvars(token=token)
 
+    replay_events: List[Any] = []
+
     with start_span(op="request.process"):
         if isinstance(data, dict):
             if data.get("batch"):  # posthog-python and posthog-ruby
@@ -317,18 +354,32 @@ def get_event(request):
             events = [data]
 
         try:
+            events = drop_performance_events(token, events)
+        except Exception as e:
+            capture_exception(e)
+
+        try:
             events = drop_events_over_quota(token, events)
         except Exception as e:
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
         try:
-            events = preprocess_session_recording_events_for_clickhouse(events)
+            replay_events, other_events = split_replay_events(events)
+            processed_replay_events = replay_events
+
+            if len(replay_events) > 0:
+                # Legacy solution stays in place
+                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
+
+            events = processed_replay_events + other_events
+
         except ValueError as e:
             return cors_response(
                 request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
             )
 
+        # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
         site_url = request.build_absolute_uri("/")[:-1]
         ip = get_ip_address(request)
 
@@ -372,7 +423,15 @@ def get_event(request):
                 # errors, and set Retry-After header accordingly.
                 # TODO: return 400 error for non-retriable errors that require the
                 # client to change their request.
-                logger.error("kafka_produce_failure", exc_info=exc)
+
+                logger.error(
+                    "kafka_produce_failure",
+                    exc_info=exc,
+                    name=exc.__class__.__name__,
+                    # data could be large, so we don't always want to include it,
+                    # but we do want to include it for some errors to aid debugging
+                    data=data if isinstance(exc, MessageSizeTooLargeError) else None,
+                )
                 return cors_response(
                     request,
                     generate_exception_response(
@@ -383,6 +442,31 @@ def get_event(request):
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     ),
                 )
+
+    try:
+        if replay_events and random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
+            # The new flow we only enable if the dedicated kafka is enabled
+            alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
+                replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
+            )
+
+            futures = []
+
+            # We want to be super careful with our new ingestion flow for now so the whole thing is separated
+            # This is mostly a copy of above except we only log, we don't error out
+            if alternative_replay_events:
+                processed_events = list(preprocess_events(alternative_replay_events))
+                for event, event_uuid, distinct_id in processed_events:
+                    futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+
+                start_time = time.monotonic()
+                for future in futures:
+                    future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+
+    except Exception as exc:
+        capture_exception(exc, {"data": data})
+        logger.error("kafka_session_recording_produce_failure", exc_info=exc)
+        pass
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))

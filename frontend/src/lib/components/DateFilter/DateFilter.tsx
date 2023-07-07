@@ -86,7 +86,7 @@ export function DateFilter({
                 onClose={open}
             />
         ) : (
-            <div ref={optionsRef} onClick={(e) => e.stopPropagation()}>
+            <div className="space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
                     if (key === 'Custom' && !showCustom) {
                         return null

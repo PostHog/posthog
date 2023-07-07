@@ -1,4 +1,6 @@
 import {
+    ActionType,
+    AnnotationType,
     AnyPartialFilterType,
     DashboardType,
     FilterType,
@@ -35,6 +37,10 @@ export const urls = {
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     createAction: (): string => `/data-management/actions/new`,
+    copyAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
@@ -44,6 +50,11 @@ export const urls = {
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
     events: (): string => '/events',
+    event: (id: string, timestamp: string): string =>
+        `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+    exports: (): string => '/exports',
+    createExport: (): string => `/exports/new`,
+    viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -75,7 +86,7 @@ export const urls = {
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
-    groups: (groupTypeIndex: string): string => `/groups/${groupTypeIndex}`,
+    groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
@@ -88,8 +99,11 @@ export const urls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
+    dataWarehouse: (): string => '/warehouse',
+    dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
     survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
     annotations: (): string => '/annotations',
+    annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
     projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
@@ -135,18 +149,21 @@ export const urls = {
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/redirect`,
-    shared: (token: string, exportOptions?: ExportOptions): string =>
-        combineUrl(`/shared/${token}`, {
-            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.legend ? { legend: null } : {}),
-            ...(exportOptions?.noHeader ? { legend: null } : {}),
-        }).url,
+    shared: (token: string, exportOptions: ExportOptions = {}): string =>
+        combineUrl(
+            `/shared/${token}`,
+            Object.entries(exportOptions)
+                .filter((x) => x[1])
+                .reduce(
+                    (acc, [key, val]) => ({
+                        ...acc,
+                        [key]: val === true ? null : val,
+                    }),
+                    {}
+                )
+        ).url,
     embedded: (token: string, exportOptions?: ExportOptions): string =>
-        combineUrl(`/embedded/${token}`, {
-            ...(exportOptions?.whitelabel ? { whitelabel: null } : {}),
-            ...(exportOptions?.legend ? { legend: null } : {}),
-            ...(exportOptions?.noHeader ? { noHeader: null } : {}),
-        }).url,
+        urls.shared(token, exportOptions).replace('/shared/', '/embedded/'),
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     feedback: (): string => '/feedback',
@@ -155,6 +172,6 @@ export const urls = {
         combineUrl(urls.dashboards(), {
             tab: 'notebooks',
         }).url,
-    notebook: (id: string | number): string => `/notebooks/${id}`,
-    notebookEdit: (id: string | number): string => `/notebooks/${id}/edit`,
+    notebook: (shortId: string): string => `/notebooks/${shortId}`,
+    notebookEdit: (shortId: string): string => `/notebooks/${shortId}/edit`,
 }

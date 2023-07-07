@@ -26,7 +26,8 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -86,6 +87,21 @@ export type AvailableProductFeature = {
     limit?: number | null
     note?: string | null
     unit?: string | null
+}
+
+export enum ProductKey {
+    COHORTS = 'cohorts',
+    ACTIONS = 'actions',
+    EXPERIMENTS = 'experiments',
+    FEATURE_FLAGS = 'feature_flags',
+    ANNOTATIONS = 'annotations',
+    HISTORY = 'history',
+    INGESTION_WARNINGS = 'ingestion_warnings',
+    PERSONS = 'persons',
+    SURVEYS = 'surveys',
+    SESSION_REPLAY = 'session_replay',
+    DATA_WAREHOUSE = 'data_warehouse',
+    EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
 export enum LicensePlan {
@@ -152,6 +168,7 @@ export interface UserType extends UserBaseType {
     pending_email?: string | null
     is_2fa_enabled: boolean
     has_social_auth: boolean
+    has_seen_product_intro_for?: Record<string, boolean>
 }
 
 export interface NotificationSettings {
@@ -307,6 +324,8 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    autocapture_exceptions_opt_in: boolean
+    autocapture_exceptions_errors_to_ignore: string[]
     session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -328,6 +347,7 @@ export interface TeamType extends TeamBasicType {
     correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
+    extra_settings?: Record<string, string | number | boolean | undefined>
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -355,7 +375,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum ActionStepUrlMatching {
+export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',
     Exact = 'exact',
@@ -363,15 +383,21 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string | null
-    href?: string | null
     id?: number
     name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
+    /** @deprecated Only `selector` should be used now. */
     tag_name?: string
     text?: string | null
+    /** @default StringMatching.Exact */
+    text_matching?: StringMatching | null
+    href?: string | null
+    /** @default StringMatching.Exact */
+    href_matching?: StringMatching | null
     url?: string | null
-    url_matching?: ActionStepUrlMatching
+    /** @default StringMatching.Contains */
+    url_matching?: StringMatching | null
     isNew?: string
 }
 
@@ -603,12 +629,30 @@ export interface RecordingSegment {
     isActive: boolean
 }
 
-export interface SessionRecordingMeta {
-    pinnedCount: number
-    segments: RecordingSegment[]
-    recordingDurationMs: number
-    startTimestamp: Dayjs
-    endTimestamp: Dayjs
+export type EncodedRecordingSnapshot = {
+    windowId: string
+    data: eventWithTime[]
+}
+
+export interface SessionRecordingSnapshotSource {
+    source: 'blob' | 'realtime'
+    start_timestamp?: string
+    end_timestamp?: string
+    blob_key?: string
+    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotResponse {
+    // Future interface
+    sources?: SessionRecordingSnapshotSource[]
+    snapshots?: EncodedRecordingSnapshot[]
+
+    // legacy interface
+    next?: string
+    // When loaded from S3
+    blob_keys?: string[]
+    // When loaded from Clickhouse (legacy)
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export type RecordingSnapshot = eventWithTime & {
@@ -616,7 +660,8 @@ export type RecordingSnapshot = eventWithTime & {
 }
 
 export interface SessionPlayerSnapshotData {
-    snapshots: RecordingSnapshot[]
+    snapshots?: RecordingSnapshot[]
+    sources?: SessionRecordingSnapshotSource[]
     next?: string
     blob_keys?: string[]
 }
@@ -630,6 +675,7 @@ export interface SessionPlayerData {
     durationMs: number
     start?: Dayjs
     end?: Dayjs
+    fullyLoaded: boolean
 }
 
 export enum SessionRecordingUsageType {
@@ -671,14 +717,18 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
+
+export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
-    offset?: number
     session_recording_duration?: RecordingDurationFilter
+    duration_type_filter?: DurationTypeFilter
+    console_logs?: FilterableLogLevel[]
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -737,13 +787,11 @@ export interface PersonListParams {
     search?: string
     cohort?: number
     distinct_id?: string
+    include_total?: boolean // PostHog 3000-only
 }
 
 export interface MatchedRecordingEvent {
     uuid: string
-    session_id: string
-    window_id: string
-    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -957,13 +1005,8 @@ export interface SessionRecordingType {
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
-    /** Where this recording information was loaded from (S3 or Clickhouse) */
-    storage?: string
-
-    // These values are only present when loaded as a full recording
-    segments?: SessionRecordingSegmentType[]
-    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
-    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
+    /** Where this recording information was loaded from  */
+    storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1261,17 +1304,15 @@ export interface InsightModel extends Cacheable {
     query?: Node | null
 }
 
-export interface DashboardType {
+export interface DashboardBasicType {
     id: number
     name: string
     description: string
     pinned: boolean
-    tiles: DashboardTile[]
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
     deleted: boolean
-    filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
@@ -1279,6 +1320,17 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardTemplateListParams {
+    scope?: DashboardTemplateScope
+}
+
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
+    filters: Record<string, any>
 }
 
 export interface DashboardTemplateType {
@@ -1292,7 +1344,7 @@ export interface DashboardTemplateType {
     variables?: DashboardTemplateVariableType[]
     tags?: string[]
     image_url?: string
-    scope?: 'team' | 'global'
+    scope?: DashboardTemplateScope
 }
 
 export interface MonacoMarker {
@@ -1459,8 +1511,9 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
 }
 
-export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
+export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
     date_marker: dayjs.Dayjs | null
+    created_at: dayjs.Dayjs
 }
 
 export interface DatedAnnotationType extends Omit<AnnotationType, 'date_marker'> {
@@ -1498,6 +1551,7 @@ export enum PathType {
     PageView = '$pageview',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+    HogQL = 'hogql',
 }
 
 export enum FunnelPathType {
@@ -1589,7 +1643,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
-    formula?: any
+    formula?: string
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
@@ -1630,6 +1684,7 @@ export interface FunnelsFilterType extends FilterType {
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
+    paths_hogql_expression?: string
     include_event_types?: PathType[]
     start_point?: string
     end_point?: string
@@ -1703,40 +1758,29 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
-    title?: string
-    count?: number
-    editorFilters: T[]
-    defaultExpanded?: boolean
-}
-
 export interface EditorFilterProps {
-    insight: Partial<InsightModel>
-    insightProps: InsightLogicProps
-    filters: Partial<FilterType>
-    value: any
-}
-
-export interface QueryEditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
     insightProps: InsightLogicProps
 }
 
-export interface InsightEditorFilter<T = EditorFilterProps> {
+export interface InsightEditorFilter {
     key: string
-    label?: string | ((props: T) => JSX.Element | null)
+    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     /** Editor filter component. Cannot be an anonymous function or the key would not work! */
-    component?: (props: T) => JSX.Element | null
+    component?: (props: EditorFilterProps) => JSX.Element | null
 }
 
-export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
-
-export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
+export type InsightEditorFilterGroup = {
+    title?: string
+    count?: number
+    editorFilters: InsightEditorFilter[]
+    defaultExpanded?: boolean
+}
 
 export interface SystemStatusSubrows {
     columns: string[]
@@ -1782,6 +1826,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
+    math_hogql?: string
     properties?: AnyPropertyFilter[]
     type: EntityType
 }
@@ -1975,10 +2020,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** If showing a shared insight/dashboard, we need the access token for refreshing. */
-    sharingAccessToken?: string
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -1994,9 +2035,11 @@ export interface Survey {
     name: string
     description: string
     type: SurveyType
+    linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
-    conditions: { url: string; selector: string } | null
+    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
+    conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
     created_at: string
@@ -2014,16 +2057,19 @@ export enum SurveyType {
 }
 
 export interface SurveyAppearance {
-    background_color?: string
-    button_color?: string
-    text_color?: string
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
+    submitButtonText?: string
+    descriptionTextColor?: string
 }
 
 export interface SurveyQuestion {
     type: SurveyQuestionType
     question: string
+    description?: string | null
     required?: boolean
-    link?: string | null
+    link: string | null
     choices?: string[] | null
 }
 
@@ -2087,6 +2133,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     usage_dashboard?: number
+    analytics_dashboards?: number[] | null
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2102,10 +2149,17 @@ export interface CombinedFeatureFlagAndValueType {
 }
 
 export enum EarlyAccessFeatureStage {
+    Draft = 'draft',
     Concept = 'concept',
     Alpha = 'alpha',
     Beta = 'beta',
     GeneralAvailability = 'general-availability',
+    Archived = 'archived',
+}
+
+export enum EarlyAccessFeatureTabs {
+    OptedIn = 'opted-in',
+    OptedOut = 'opted-out',
 }
 
 export interface EarlyAccessFeatureType {
@@ -2237,6 +2291,7 @@ export type HotKey =
     | 'arrowright'
     | 'arrowdown'
     | 'arrowup'
+    | 'forwardslash'
 
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
@@ -2269,6 +2324,12 @@ export enum PropertyType {
     Selector = 'Selector',
 }
 
+export enum PropertyDefinitionType {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+}
+
 export interface PropertyDefinition {
     id: string
     name: string
@@ -2281,10 +2342,14 @@ export interface PropertyDefinition {
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
     is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
+    type?: PropertyDefinitionType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
     is_action?: boolean
+    verified?: boolean
+    verified_at?: string
+    verified_by?: string
 }
 
 export enum PropertyDefinitionState {
@@ -2323,8 +2388,7 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
-    // ID of feature flag
-    feature_flag?: number
+    feature_flag?: FeatureFlagBasicType
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -2368,12 +2432,14 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface TrendsExperimentResults {
@@ -2430,7 +2496,8 @@ export interface KeyMapping {
     label: string
     description?: string | JSX.Element
     examples?: string[]
-    hide?: boolean
+    /** System properties are hidden in properties table by default. */
+    system?: boolean
 }
 
 export interface TileParams {
@@ -2623,6 +2690,9 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum HogQLMathType {
+    HogQL = 'hogql',
+}
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
@@ -2775,6 +2845,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    expires_after?: Dayjs
 }
 
 export enum FeatureFlagReleaseType {
@@ -2883,6 +2954,7 @@ export type NotebookListItemType = {
     // id: string
     short_id: string
     title?: string
+    is_template?: boolean
     created_at: string
     created_by: UserBasicType | null
     last_modified_at?: string
@@ -2890,7 +2962,8 @@ export type NotebookListItemType = {
 }
 
 export type NotebookType = NotebookListItemType & {
-    content: any // TODO: Type this better
+    content: JSONContent // TODO: Type this better
+    version: number
 }
 
 export enum NotebookMode {
@@ -2898,4 +2971,30 @@ export enum NotebookMode {
     Edit = 'edit',
 }
 
+export enum NotebookNodeType {
+    Insight = 'ph-insight',
+    Query = 'ph-query',
+    Recording = 'ph-recording',
+    RecordingPlaylist = 'ph-recording-playlist',
+    FeatureFlag = 'ph-feature-flag',
+    Person = 'ph-person',
+    Link = 'ph-link',
+}
+
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
+
+export interface DataWarehouseCredential {
+    access_key: string
+    access_secret: string
+}
+export interface DataWarehouseTable {
+    /** UUID */
+    id: string
+    name: string
+    format: string
+    url_pattern: string
+    credential: DataWarehouseCredential
+    columns: DatabaseSchemaQueryResponseField[]
+}
+
+export type DataWarehouseTableTypes = 'CSV' | 'Parquet'

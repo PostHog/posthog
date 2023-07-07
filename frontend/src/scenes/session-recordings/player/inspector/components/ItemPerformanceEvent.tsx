@@ -139,7 +139,13 @@ export function ItemPerformanceEvent({
 
     return (
         <div>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
+            <LemonButton
+                noPadding
+                onClick={() => setExpanded(!expanded)}
+                status={'primary-alt'}
+                fullWidth
+                data-attr={'item-performance-event'}
+            >
                 <div className="flex-1 overflow-hidden">
                     <div
                         className="absolute bg-primary rounded-sm opacity-75"
@@ -212,9 +218,11 @@ export function ItemPerformanceEvent({
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    <CodeSnippet language={Language.Markup} wrap copyDescription="performance event name">
-                        {item.name}
-                    </CodeSnippet>
+                    {item.name && (
+                        <CodeSnippet language={Language.Markup} wrap copyDescription="performance event name">
+                            {item.name}
+                        </CodeSnippet>
+                    )}
 
                     {item.entry_type === 'navigation' ? (
                         <>

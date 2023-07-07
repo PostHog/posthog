@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Any
 
 from posthog.hogql.database.database import Database
+from posthog.schema import HogQLNotice
 from posthog.utils import PersonOnEventsMode
 
 
@@ -29,5 +30,15 @@ class HogQLContext:
     person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.V1_ENABLED
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
-    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=65535 to the topmost select query?
+    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+
+    # Warnings returned with the metadata query
+    warnings: List[HogQLNotice] = field(default_factory=list)
+    # Notices returned with the metadata query
+    notices: List[HogQLNotice] = field(default_factory=list)
+
+    def add_value(self, value: Any) -> str:
+        key = f"hogql_val_{len(self.values)}"
+        self.values[key] = value
+        return f"%({key})s"

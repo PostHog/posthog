@@ -111,7 +111,7 @@ ul {
 }
 
 mark {
-    background-color: var(--mark-color) !important;
+    background-color: var(--mark) !important;
     border-radius: var(--radius);
 }
 
@@ -128,14 +128,6 @@ mark {
     }
 }
 
-code.code {
-    // Temporary: .code class to transition legacy elements
-    color: var(--danger);
-    background-color: var(--mid);
-    border-radius: var(--radius);
-    padding: 2px 6px;
-}
-
 hr {
     border: 1px solid var(--border);
 }
@@ -150,7 +142,7 @@ input::-ms-clear {
 
 @keyframes highlight {
     0% {
-        background-color: var(--mark-color);
+        background-color: var(--mark);
     }
 
     100% {
@@ -178,8 +170,7 @@ input::-ms-clear {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
     border-radius: var(--radius);
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    font-family: var(--font-sans);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
     font-size: 1rem;
@@ -228,16 +219,6 @@ input::-ms-clear {
 
 .Toastify__progress-bar {
     height: var(--radius);
-}
-
-// Card styles
-
-.ant-card-body > :first-child {
-    margin-top: 0;
-}
-
-.card-elevated {
-    box-shadow: var(--shadow-elevation);
 }
 
 // Horizontal scrollability indication
@@ -321,28 +302,6 @@ input::-ms-clear {
 
 .btn-close {
     color: var(--muted);
-}
-
-.ant-btn-sm {
-    font-size: 12px !important;
-}
-
-.ant-btn-primary.btn-danger {
-    background-color: var(--danger) !important;
-    border-color: var(--danger) !important;
-
-    &:disabled {
-        background-color: var(--danger-light) !important;
-        color: lighten(#fff, 20%) !important;
-        border-color: var(--danger-light) !important;
-    }
-}
-
-.ant-btn-md {
-    // Size between `small` & `default`
-    font-size: 13px !important;
-    height: 28px !important;
-    padding: 0px 10px !important;
 }
 
 .info-indicator {
@@ -519,13 +478,13 @@ input::-ms-clear {
     font-weight: bold;
 
     &.or {
-        background-color: var(--primary-extralight);
+        background-color: #d2dbff;
         text-align: center;
         max-width: 50px;
     }
 
     &.or-light-grey {
-        font-family: Inter;
+        font-family: var(--font-sans);
         background-color: var(--mid);
         text-align: center;
         max-width: 50px;
@@ -537,7 +496,7 @@ input::-ms-clear {
     }
 
     &.and {
-        background-color: var(--mark-color);
+        background-color: var(--mark);
         color: var(--primary-alt);
     }
 
@@ -593,29 +552,35 @@ input::-ms-clear {
 
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
-    &[theme='light'] {
+    &.posthog-3000[theme='light'] {
         --text-3000: var(--text-3000-light);
         --muted-3000: var(--muted-3000-light);
         --trace-3000: var(--trace-3000-light);
         --primary-3000: var(--primary-3000-light);
+        --primary-3000-hover: var(--primary-3000-hover-light);
         --secondary-3000: var(--secondary-3000-light);
+        --secondary-3000-hover: var(--secondary-3000-hover-light);
         --accent-3000: var(--accent-3000-light);
         --bg-3000: var(--bg-3000-light);
         --border-3000: var(--border-3000-light);
+        --border-bold-3000: var(--border-bold-3000-light);
         --glass-bg-3000: var(--glass-bg-3000-light);
         --glass-border-3000: var(--glass-border-3000-light);
         --bg-light: #fff;
     }
 
-    &[theme='dark'] {
+    &.posthog-3000[theme='dark'] {
         --text-3000: var(--text-3000-dark);
         --muted-3000: var(--muted-3000-dark);
         --trace-3000: var(--trace-3000-dark);
         --primary-3000: var(--primary-3000-dark);
+        --primary-3000-hover: var(--primary-3000-hover-dark);
         --secondary-3000: var(--secondary-3000-dark);
+        --secondary-3000-hover: var(--secondary-3000-hover-dark);
         --accent-3000: var(--accent-3000-dark);
         --bg-3000: var(--bg-3000-dark);
         --border-3000: var(--border-3000-dark);
+        --border-bold-3000: var(--border-bold-3000-dark);
         --glass-bg-3000: var(--glass-bg-3000-dark);
         --glass-border-3000: var(--glass-border-3000-dark);
         --bg-light: var(--accent-3000);
@@ -626,24 +591,28 @@ body {
         --default: var(--text-3000);
         --muted: var(--muted-3000);
         --muted-alt: var(--muted-3000);
+        --primary-alt: var(--text-3000);
         --border: var(--border-3000);
-        --inverse: var(--bg-3000);
+        --border-bold: var(--border-bold-3000);
         --mid: var(--bg-3000);
+        --side: var(--bg-3000);
         background: var(--bg-3000);
-        cursor: default; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
+        user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
 
-        ::-webkit-scrollbar {
-            width: 0.5rem;
-            height: 0.5rem;
-        }
-        ::-webkit-scrollbar-track {
-            background: var(--accent-3000);
-        }
-        ::-webkit-scrollbar-thumb {
-            border-radius: 0.25rem;
-            background: var(--trace-3000);
-            &:hover {
-                background: var(--muted-3000);
+        * > {
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+            ::-webkit-scrollbar-track {
+                background: var(--accent-3000);
+            }
+            ::-webkit-scrollbar-thumb {
+                border-radius: 0.25rem;
+                background: var(--trace-3000);
+                &:hover {
+                    background: var(--muted-3000);
+                }
             }
         }
     }
@@ -665,6 +634,13 @@ body {
         line-height: 1.5rem;
     }
 
+    pre,
+    code,
+    kbd,
+    samp {
+        font-family: var(--font-mono);
+    }
+
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
@@ -678,6 +654,7 @@ body {
 
     .ant-dropdown {
         border-radius: var(--radius);
+        color: var(--default);
     }
 
     .ant-dropdown-menu {
@@ -703,6 +680,14 @@ body {
 
     .ant-picker-dropdown {
         z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-card-bordered {
+        border-color: var(--border);
+    }
+
+    .ant-card-body > :first-child {
+        margin-top: 0;
     }
 
     .ant-form-item-label {
@@ -732,6 +717,18 @@ body {
     .ant-tooltip {
         max-width: 350px;
     }
+
+    .ant-table-thead > tr > th,
+    .ant-table-small .ant-table-thead > tr > th {
+        background: var(--mid);
+    }
+    .ant-table-tbody > tr > td {
+        border-bottom-color: var(--border);
+    }
+
+    .ant-table-tbody > tr.ant-table-placeholder:hover > td {
+        background: inherit;
+    }
 }
 
 .storybook-test-runner {
@@ -750,5 +747,12 @@ body {
     .scrollable::after, // Scrollability indicators
     .scrollable::before {
         display: none;
+    }
+}
+
+.posthog-3000 {
+    .ant-radio-button-wrapper {
+        background: var(--secondary-3000);
+        border-color: transparent;
     }
 }

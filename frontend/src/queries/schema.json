@@ -35,12 +35,18 @@
                         },
                         {
                             "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
                         }
                     ]
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
                 },
                 "math_property": {
                     "type": "string"
@@ -85,972 +91,10 @@
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQLMetadata"
+                },
+                {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
-                }
-            ]
-        },
-        "AnyPartialFilterType": {
-            "anyOf": [
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_axis_format": {
-                            "$ref": "#/definitions/AggregationAxisFormat"
-                        },
-                        "aggregation_axis_postfix": {
-                            "type": "string"
-                        },
-                        "aggregation_axis_prefix": {
-                            "type": "string"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_histogram_bin_count": {
-                            "type": "number"
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "compare": {
-                            "type": "boolean"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "display": {
-                            "$ref": "#/definitions/ChartDisplayType"
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "formula": {},
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "hidden_legend_keys": {
-                            "additionalProperties": {
-                                "anyOf": [
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "not": {}
-                                    }
-                                ]
-                            },
-                            "type": "object"
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        },
-                        "show_legend": {
-                            "type": "boolean"
-                        },
-                        "show_values_on_series": {
-                            "type": "boolean"
-                        },
-                        "shown_as": {
-                            "$ref": "#/definitions/ShownAsValue"
-                        },
-                        "smoothing_intervals": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "compare": {
-                            "type": "boolean"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "display": {
-                            "$ref": "#/definitions/ChartDisplayType"
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "hidden_legend_keys": {
-                            "additionalProperties": {
-                                "anyOf": [
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "not": {}
-                                    }
-                                ]
-                            },
-                            "type": "object"
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        },
-                        "show_legend": {
-                            "type": "boolean"
-                        },
-                        "show_values_on_series": {
-                            "type": "boolean"
-                        },
-                        "shown_as": {
-                            "$ref": "#/definitions/ShownAsValue"
-                        },
-                        "stickiness_days": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "bin_count": {
-                            "$ref": "#/definitions/BinCountValue"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_attribution_type": {
-                            "$ref": "#/definitions/BreakdownAttributionType"
-                        },
-                        "breakdown_attribution_value": {
-                            "type": "number"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "drop_off": {
-                            "type": "boolean"
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "entrance_period_start": {
-                            "type": "string"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "exclusions": {
-                            "items": {
-                                "$ref": "#/definitions/FunnelStepRangeEntityFilter"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "funnel_advanced": {
-                            "type": "boolean"
-                        },
-                        "funnel_aggregate_by_hogql": {
-                            "type": "string"
-                        },
-                        "funnel_correlation_person_converted": {
-                            "enum": ["true", "false"],
-                            "type": "string"
-                        },
-                        "funnel_correlation_person_entity": {
-                            "type": "object"
-                        },
-                        "funnel_custom_steps": {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
-                        },
-                        "funnel_from_step": {
-                            "type": "number"
-                        },
-                        "funnel_order_type": {
-                            "$ref": "#/definitions/StepOrderValue"
-                        },
-                        "funnel_step": {
-                            "type": "number"
-                        },
-                        "funnel_step_breakdown": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "items": {
-                                        "type": "number"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "funnel_step_reference": {
-                            "$ref": "#/definitions/FunnelStepReference"
-                        },
-                        "funnel_to_step": {
-                            "type": "number"
-                        },
-                        "funnel_viz_type": {
-                            "$ref": "#/definitions/FunnelVizType"
-                        },
-                        "funnel_window_interval": {
-                            "type": "number"
-                        },
-                        "funnel_window_interval_unit": {
-                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
-                        },
-                        "hidden_legend_keys": {
-                            "additionalProperties": {
-                                "anyOf": [
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "not": {}
-                                    }
-                                ]
-                            },
-                            "type": "object"
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "layout": {
-                            "$ref": "#/definitions/FunnelLayout"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "edge_limit": {
-                            "type": "number"
-                        },
-                        "end_point": {
-                            "type": "string"
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "exclude_events": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "funnel_filter": {
-                            "type": "object"
-                        },
-                        "funnel_paths": {
-                            "$ref": "#/definitions/FunnelPathType"
-                        },
-                        "include_event_types": {
-                            "items": {
-                                "$ref": "#/definitions/PathType"
-                            },
-                            "type": "array"
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "local_path_cleaning_filters": {
-                            "items": {
-                                "$ref": "#/definitions/PathCleaningFilter"
-                            },
-                            "type": "array"
-                        },
-                        "max_edge_weight": {
-                            "type": "number"
-                        },
-                        "min_edge_weight": {
-                            "type": "number"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "path_dropoff_key": {
-                            "type": "string"
-                        },
-                        "path_end_key": {
-                            "type": "string"
-                        },
-                        "path_groupings": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "path_replacements": {
-                            "type": "boolean"
-                        },
-                        "path_start_key": {
-                            "type": "string"
-                        },
-                        "path_type": {
-                            "$ref": "#/definitions/PathType"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        },
-                        "start_point": {
-                            "type": "string"
-                        },
-                        "step_limit": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "period": {
-                            "$ref": "#/definitions/RetentionPeriod"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "retention_reference": {
-                            "enum": ["total", "previous"],
-                            "type": "string"
-                        },
-                        "retention_type": {
-                            "$ref": "#/definitions/RetentionType"
-                        },
-                        "returning_entity": {
-                            "type": "object"
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        },
-                        "target_entity": {
-                            "type": "object"
-                        },
-                        "total_intervals": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        },
-                        "show_values_on_series": {
-                            "type": "boolean"
-                        },
-                        "shown_as": {
-                            "$ref": "#/definitions/ShownAsValue"
-                        },
-                        "toggledLifecycles": {
-                            "items": {
-                                "$ref": "#/definitions/LifecycleToggle"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "actions": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "aggregation_group_type_index": {
-                            "type": "number"
-                        },
-                        "breakdown": {
-                            "$ref": "#/definitions/BreakdownKeyType"
-                        },
-                        "breakdown_group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "breakdown_normalize_url": {
-                            "type": "boolean"
-                        },
-                        "breakdown_type": {
-                            "anyOf": [
-                                {
-                                    "$ref": "#/definitions/BreakdownType"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "breakdowns": {
-                            "items": {
-                                "$ref": "#/definitions/Breakdown"
-                            },
-                            "type": "array"
-                        },
-                        "date_from": {
-                            "type": ["string", "null"]
-                        },
-                        "date_to": {
-                            "type": ["string", "null"]
-                        },
-                        "entity_id": {
-                            "type": ["string", "number"]
-                        },
-                        "entity_math": {
-                            "type": "string"
-                        },
-                        "entity_type": {
-                            "$ref": "#/definitions/EntityType"
-                        },
-                        "events": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "explicit_date": {
-                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
-                            "type": ["boolean", "string", "null"]
-                        },
-                        "filter_test_accounts": {
-                            "type": "boolean"
-                        },
-                        "from_dashboard": {
-                            "type": ["boolean", "number"]
-                        },
-                        "insight": {
-                            "$ref": "#/definitions/InsightType"
-                        },
-                        "interval": {
-                            "$ref": "#/definitions/IntervalType"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "properties": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/AnyPropertyFilter"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "$ref": "#/definitions/PropertyGroupFilter"
-                                }
-                            ]
-                        },
-                        "sampling_factor": {
-                            "type": ["number", "null"]
-                        }
-                    },
-                    "type": "object"
                 }
             ]
         },
@@ -1606,12 +650,18 @@
                         },
                         {
                             "$ref": "#/definitions/GroupMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLMathType"
                         }
                     ]
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
                     "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
                 },
                 "math_property": {
                     "type": "string"
@@ -2036,6 +1086,84 @@
         "HogQLExpression": {
             "type": "string"
         },
+        "HogQLMathType": {
+            "const": "hogql",
+            "type": "string"
+        },
+        "HogQLMetadata": {
+            "additionalProperties": false,
+            "properties": {
+                "expr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQLMetadata",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLMetadataResponse",
+                    "description": "Cached query response"
+                },
+                "select": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQLMetadataResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "errors": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "inputExpr": {
+                    "type": "string"
+                },
+                "inputSelect": {
+                    "type": "string"
+                },
+                "isValid": {
+                    "type": "boolean"
+                },
+                "notices": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["errors", "warnings", "notices"],
+            "type": "object"
+        },
+        "HogQLNotice": {
+            "additionalProperties": false,
+            "properties": {
+                "end": {
+                    "type": "number"
+                },
+                "fix": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "number"
+                }
+            },
+            "required": ["message"],
+            "type": "object"
+        },
         "HogQLPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -2123,16 +1251,34 @@
                 }
             ]
         },
-        "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
+        "InsightShortId": {
             "type": "string"
         },
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
+                "full": {
+                    "description": "Show with most visual options enabled. Used in insight scene.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
+                },
+                "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showHeader": {
+                    "type": "boolean"
+                },
+                "showLastComputation": {
+                    "type": "boolean"
+                },
+                "showLegendButton": {
+                    "type": "boolean"
+                },
+                "showTable": {
+                    "type": "boolean"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
@@ -2144,20 +1290,6 @@
         "IntervalType": {
             "enum": ["hour", "day", "week", "month"],
             "type": "string"
-        },
-        "LegacyQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "filters": {
-                    "$ref": "#/definitions/AnyPartialFilterType"
-                },
-                "kind": {
-                    "const": "LegacyQuery",
-                    "type": "string"
-                }
-            },
-            "required": ["filters", "kind"],
-            "type": "object"
         },
         "LifecycleFilter": {
             "additionalProperties": false,
@@ -2258,7 +1390,7 @@
             "type": "object"
         },
         "PathType": {
-            "enum": ["$pageview", "$screen", "custom_event"],
+            "enum": ["$pageview", "$screen", "custom_event", "hogql"],
             "type": "string"
         },
         "PathsFilter": {
@@ -2321,6 +1453,9 @@
                 },
                 "path_type": {
                     "$ref": "#/definitions/PathType"
+                },
+                "paths_hogql_expression": {
+                    "type": "string"
                 },
                 "start_point": {
                     "type": "string"
@@ -2541,10 +1676,10 @@
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
-                    "$ref": "#/definitions/InsightVizNode"
+                    "$ref": "#/definitions/SavedInsightNode"
                 },
                 {
-                    "$ref": "#/definitions/LegacyQuery"
+                    "$ref": "#/definitions/InsightVizNode"
                 },
                 {
                     "$ref": "#/definitions/TrendsQuery"
@@ -2696,6 +1831,20 @@
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "SavedInsightNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "SavedInsightNode",
+                    "type": "string"
+                },
+                "shortId": {
+                    "$ref": "#/definitions/InsightShortId"
+                }
+            },
+            "required": ["kind", "shortId"],
+            "type": "object"
         },
         "SessionPropertyFilter": {
             "additionalProperties": false,
@@ -2881,7 +2030,9 @@
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
-                "formula": {},
+                "formula": {
+                    "type": "string"
+                },
                 "hidden_legend_indexes": {
                     "items": {
                         "type": "number"

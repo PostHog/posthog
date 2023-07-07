@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AvailableFeature, CohortType } from '~/types'
+import { AvailableFeature, CohortType, ProductKey } from '~/types'
 import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -18,6 +18,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { combineUrl, router } from 'kea-router'
 import { LemonInput } from '@posthog/lemon-ui'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ListHog } from 'lib/components/hedgehogs'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -34,6 +38,12 @@ export function Cohorts(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowEmptyState = cohorts.length == 0 && !cohortsLoading
+    const shouldShowProductIntroduction =
+        !user?.has_seen_product_intro_for?.[ProductKey.COHORTS] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -154,30 +164,46 @@ export function Cohorts(): JSX.Element {
                 title="Cohorts"
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
-            <div className="flex justify-between items-center mb-4 gap-2">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for cohorts"
-                    onChange={setSearchTerm}
-                    value={searchTerm}
+            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
+                <ProductIntroduction
+                    productName="Cohorts"
+                    productKey={ProductKey.COHORTS}
+                    thingName="cohort"
+                    description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
+                    isEmpty={cohorts.length == 0}
+                    docsURL="https://posthog.com/docs/data/cohorts"
+                    action={() => router.actions.push(urls.cohort('new'))}
+                    customHog={ListHog}
                 />
-                <LemonButton
-                    type="primary"
-                    data-attr="create-cohort"
-                    onClick={() => router.actions.push(urls.cohort('new'))}
-                >
-                    New Cohort
-                </LemonButton>
-            </div>
-            <LemonTable
-                columns={columns}
-                loading={cohortsLoading}
-                rowKey="id"
-                pagination={{ pageSize: 100 }}
-                dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
-                nouns={['cohort', 'cohorts']}
-                data-attr="cohorts-table"
-            />
+            )}
+            {!shouldShowEmptyState && (
+                <>
+                    <div className="flex justify-between items-center mb-4 gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for cohorts"
+                            onChange={setSearchTerm}
+                            value={searchTerm}
+                        />
+                        <LemonButton
+                            type="primary"
+                            data-attr="create-cohort"
+                            onClick={() => router.actions.push(urls.cohort('new'))}
+                        >
+                            New Cohort
+                        </LemonButton>
+                    </div>
+                    <LemonTable
+                        columns={columns}
+                        loading={cohortsLoading}
+                        rowKey="id"
+                        pagination={{ pageSize: 100 }}
+                        dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                        nouns={['cohort', 'cohorts']}
+                        data-attr="cohorts-table"
+                    />
+                </>
+            )}
         </div>
     )
 }

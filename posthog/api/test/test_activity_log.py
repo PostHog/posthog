@@ -44,6 +44,11 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/feature_flags/", _feature_flag_json_payload("two")
         ).json()["id"]
 
+        notebook_json = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/",
+            {"content": "print('hello world')", "name": "notebook"},
+        ).json()
+
         # other user now edits them
         self.client.force_login(self.other_user)
         for created_insight_id in created_insights:
@@ -55,6 +60,11 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_one}", {"name": "one"})
         self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag_two}", {"name": "two"})
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook_json['short_id']}",
+            {"content": "print('hello world again')", "version": notebook_json["version"]},
+        )
 
         self.client.force_login(self.user)
 
@@ -70,9 +80,9 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         results = changes.json()["results"]
         assert len(results) == 10
         assert [c["scope"] for c in results] == [
+            "Notebook",
             "FeatureFlag",
             "FeatureFlag",
-            "Insight",
             "Insight",
             "Insight",
             "Insight",

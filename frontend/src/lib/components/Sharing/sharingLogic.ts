@@ -17,6 +17,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 export interface SharingLogicProps {
     dashboardId?: number
     insightShortId?: InsightShortId
+    recordingId?: string
+    additionalParams?: Record<string, any>
 }
 
 export interface EmbedConfig extends ExportOptions {
@@ -30,20 +32,27 @@ const defaultEmbedConfig: EmbedConfig = {
     whitelabel: false,
     legend: false,
     noHeader: false,
+    showInspector: false,
 }
 
-const propsToApiParams = async (props: SharingLogicProps): Promise<{ dashboardId?: number; insightId?: number }> => {
+const propsToApiParams = async (
+    props: SharingLogicProps
+): Promise<{ dashboardId?: number; insightId?: number; recordingId?: string }> => {
     const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
     return {
         dashboardId: props.dashboardId,
         insightId,
+        recordingId: props.recordingId,
     }
 }
 
 export const sharingLogic = kea<sharingLogicType>([
     path(['lib', 'components', 'Sharing', 'sharingLogic']),
     props({} as SharingLogicProps),
-    key(({ insightShortId, dashboardId }) => `sharing-${insightShortId || ''}-${dashboardId || ''}`),
+    key(
+        ({ insightShortId, dashboardId, recordingId }) =>
+            `sharing-${insightShortId || dashboardId || recordingId || ''}`
+    ),
     connect([preflightLogic, userLogic, dashboardsModel]),
 
     actions({
@@ -86,19 +95,26 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.user],
             (user) => (user?.organization?.available_features || []).includes(AvailableFeature.WHITE_LABELLING),
         ],
+
+        params: [
+            (s) => [s.embedConfig, (_, props) => props.additionalParams],
+            (embedConfig, additionalParams = {}) => {
+                const { width, height, ...params } = embedConfig
+                return {
+                    ...params,
+                    ...additionalParams,
+                }
+            },
+        ],
         shareLink: [
-            (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { whitelabel, legend, noHeader }) =>
-                sharingConfiguration
-                    ? siteUrl + urls.shared(sharingConfiguration.access_token, { whitelabel, legend, noHeader })
-                    : '',
+            (s) => [s.siteUrl, s.sharingConfiguration, s.params],
+            (siteUrl, sharingConfiguration, params) =>
+                sharingConfiguration ? siteUrl + urls.shared(sharingConfiguration.access_token, params) : '',
         ],
         embedLink: [
-            (s) => [s.siteUrl, s.sharingConfiguration, s.embedConfig],
-            (siteUrl, sharingConfiguration, { whitelabel, legend, noHeader }) =>
-                sharingConfiguration
-                    ? siteUrl + urls.embedded(sharingConfiguration.access_token, { whitelabel, legend, noHeader })
-                    : '',
+            (s) => [s.siteUrl, s.sharingConfiguration, s.params],
+            (siteUrl, sharingConfiguration, params) =>
+                sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
         iframeProperties: [
             (s) => [s.embedLink, s.embedConfig],
@@ -106,6 +122,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 width,
                 height,
                 frameBorder: 0,
+                allowfullscreen: true,
                 src: embedLink,
             }),
         ],
@@ -113,7 +130,12 @@ export const sharingLogic = kea<sharingLogicType>([
             (s) => [s.iframeProperties],
             (iframeProperties) =>
                 `<iframe ${Object.entries(iframeProperties)
-                    .map(([key, value]) => `${key.toLowerCase()}="${String(value).split('"').join('')}"`)
+                    .map(([key, value]) => {
+                        if (value === true) {
+                            return key.toLowerCase()
+                        }
+                        return `${key.toLowerCase()}="${String(value).split('"').join('')}"`
+                    })
                     .join(' ')}></iframe>`,
         ],
     }),

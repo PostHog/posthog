@@ -1,9 +1,12 @@
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useState } from 'react'
 import { NotebookSyncStatus } from '~/types'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -32,8 +35,22 @@ const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tool
 export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null => {
     const { syncStatus } = useValues(notebookLogic(props))
     const [shown, setShown] = useState(false)
+    const [debounceTimeout, setDebounceTimeout] = useState<NodeJS.Timeout | null>(null)
+    const [debouncedSyncStatus, setDebouncedSyncStatus] = useState<NotebookSyncStatus | null>(null)
+
+    const clearDebounceTimeout = useCallback(() => {
+        if (debounceTimeout) {
+            clearTimeout(debounceTimeout)
+        }
+    }, [debounceTimeout])
 
     useEffect(() => {
+        clearDebounceTimeout()
+
+        const debounceDelay = syncStatus === 'saving' ? 100 : 0
+        const timeout = setTimeout(() => setDebouncedSyncStatus(syncStatus), debounceDelay)
+        setDebounceTimeout(timeout)
+
         if (syncStatus !== 'synced') {
             return setShown(true)
         }
@@ -43,18 +60,37 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
         }
 
         const t = setTimeout(() => setShown(false), 3000)
-        return () => clearTimeout(t)
+
+        return () => {
+            clearTimeout(t)
+            clearDebounceTimeout()
+        }
     }, [syncStatus])
 
-    if (!syncStatus) {
+    if (!debouncedSyncStatus) {
         return null
     }
 
-    const content = syncStatusMap[syncStatus]
+    const content = syncStatusMap[debouncedSyncStatus]
 
     return shown ? (
-        <Tooltip title={content.tooltip}>
+        <Tooltip title={content.tooltip} placement="left">
             <span className="flex items-center gap-1 text-muted-alt">{content.content}</span>
         </Tooltip>
     ) : null
+}
+
+export const NotebookExpandButton = (props: LemonButtonProps): JSX.Element => {
+    const { isExpanded } = useValues(notebookSettingsLogic)
+    const { setIsExpanded } = useActions(notebookSettingsLogic)
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setIsExpanded(!isExpanded)}
+            icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
+            tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            tooltipPlacement="left"
+        />
+    )
 }

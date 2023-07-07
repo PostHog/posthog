@@ -140,6 +140,7 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ETIMEDOUT',
+    'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
 
 /** The recommended way of accessing the database. */
@@ -1026,7 +1027,8 @@ export class DB {
     public async addFeatureFlagHashKeysForMergedPerson(
         teamID: Team['id'],
         sourcePersonID: Person['id'],
-        targetPersonID: Person['id']
+        targetPersonID: Person['id'],
+        client: PoolClient
     ): Promise<void> {
         // Delete and insert in a single query to ensure
         // this function is safe wherever it is run.
@@ -1049,7 +1051,8 @@ export class DB {
                 ON CONFLICT DO NOTHING
             `,
             [teamID, sourcePersonID, targetPersonID],
-            'addFeatureFlagHashKeysForMergedPerson'
+            'addFeatureFlagHashKeysForMergedPerson',
+            client
         )
     }
 
@@ -1428,33 +1431,6 @@ export class DB {
         }
 
         return result
-    }
-
-    public async fetchInstanceSetting<Type>(key: string): Promise<Type | null> {
-        const result = await this.postgresQuery<{ raw_value: string }>(
-            `SELECT raw_value FROM posthog_instancesetting WHERE key = $1`,
-            [key],
-            'fetchInstanceSetting'
-        )
-
-        if (result.rows.length > 0) {
-            const value = JSON.parse(result.rows[0].raw_value)
-            return value
-        } else {
-            return null
-        }
-    }
-
-    public async upsertInstanceSetting(key: string, value: string | number | boolean): Promise<void> {
-        await this.postgresQuery(
-            `
-                INSERT INTO posthog_instancesetting (key, raw_value)
-                VALUES ($1, $2)
-                ON CONFLICT (key) DO UPDATE SET raw_value = EXCLUDED.raw_value
-            `,
-            [key, JSON.stringify(value)],
-            'upsertInstanceSetting'
-        )
     }
 
     public async insertGroupType(

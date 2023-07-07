@@ -1,12 +1,12 @@
-import { mergeAttributes, Node, nodePasteRule, NodeViewProps } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
+import { NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { createUrlRegex, useJsonNodeState } from './utils'
+import { posthogNodePasteRule, useJsonNodeState } from './utils'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -16,10 +16,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-const HEIGHT = 'calc(100vh - 10rem)'
+const HEIGHT = 'calc(100vh - 20rem)'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const [filters, setFilters] = useJsonNodeState(props, 'filters')
+    const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
 
     const playerKey = useRef(`notebook-${uuid()}`).current
 
@@ -59,18 +59,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeWrapper
             {...props}
-            className={NotebookNodeType.RecordingPlaylist}
-            title="Playlist"
+            nodeType={NotebookNodeType.RecordingPlaylist}
+            title="Session Replays"
             href={urls.replay(undefined, filters)}
             heightEstimate={HEIGHT}
         >
-            <div
-                className="flex flex-row overflow-hidden gap-2 flex-1"
-                style={{ height: HEIGHT }}
-                contentEditable={false}
-            >
-                {content}
-            </div>
+            <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
         </NodeWrapper>
     )
 }
@@ -83,8 +77,11 @@ export const NotebookNodePlaylist = Node.create({
 
     addAttributes() {
         return {
+            height: {
+                default: HEIGHT,
+            },
             filters: {
-                default: '{}',
+                default: undefined,
             },
         }
     },
@@ -107,12 +104,11 @@ export const NotebookNodePlaylist = Node.create({
 
     addPasteRules() {
         return [
-            nodePasteRule({
-                find: createUrlRegex(urls.replay() + '(.+)'),
+            posthogNodePasteRule({
+                find: urls.replay() + '(.+)',
                 type: this.type,
                 getAttributes: (match) => {
                     const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
-
                     return { filters: searchParams.filters }
                 },
             }),

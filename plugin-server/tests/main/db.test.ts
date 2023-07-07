@@ -90,7 +90,9 @@ describe('DB', () => {
                 action_id: 69,
                 tag_name: null,
                 text: null,
+                text_matching: null,
                 href: null,
+                href_matching: null,
                 selector: null,
                 url: null,
                 url_matching: null,
@@ -117,7 +119,9 @@ describe('DB', () => {
                                 action_id: 69,
                                 tag_name: null,
                                 text: null,
+                                text_matching: null,
                                 href: null,
+                                href_matching: null,
                                 selector: null,
                                 url: null,
                                 url_matching: null,
@@ -140,7 +144,9 @@ describe('DB', () => {
                     action_id: 69,
                     tag_name: null,
                     text: null,
+                    text_matching: null,
                     href: null,
+                    href_matching: null,
                     selector: null,
                     url: null,
                     url_matching: null,
@@ -864,29 +870,6 @@ describe('DB', () => {
         })
     })
 
-    describe('fetchInstanceSetting & upsertInstanceSetting', () => {
-        it('fetch returns null by default', async () => {
-            const result = await db.fetchInstanceSetting('SOME_SETTING')
-            expect(result).toEqual(null)
-        })
-
-        it('can create and update settings', async () => {
-            await db.upsertInstanceSetting('SOME_SETTING', 'some_value')
-            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('some_value')
-
-            await db.upsertInstanceSetting('SOME_SETTING', 'new_value')
-            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('new_value')
-        })
-
-        it('handles different types', async () => {
-            await db.upsertInstanceSetting('NUMERIC_SETTING', 56)
-            await db.upsertInstanceSetting('BOOLEAN_SETTING', true)
-
-            expect(await db.fetchInstanceSetting('NUMERIC_SETTING')).toEqual(56)
-            expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
-        })
-    })
-
     describe('addFeatureFlagHashKeysForMergedPerson()', () => {
         let team: Team
         let sourcePersonID: Person['id']
@@ -1114,7 +1097,8 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
-            })
+                person_display_name_properties: [],
+            } as Team)
         })
 
         it('returns null if the team does not exist', async () => {

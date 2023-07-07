@@ -62,6 +62,8 @@ class TestTeam(BaseTest):
         team: Team = Team.objects.create(name="New Team", organization=self.organization)
         self.assertEqual(team.timezone, "UTC")
         self.assertEqual(team.data_attributes, ["data-attr"])
+        self.assertEqual(team.autocapture_exceptions_opt_in, None)
+        self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(organization=self.organization)

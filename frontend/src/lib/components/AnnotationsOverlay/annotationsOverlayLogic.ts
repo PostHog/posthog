@@ -125,10 +125,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         relevantAnnotations: [
             (s) => [s.annotations, s.dateRange, (_, props) => props.insightNumericId],
             (annotations, dateRange, insightNumericId) => {
-                // This assumes that there are no more than AnnotationsViewSet.default_limit (500) annotations
-                // in the project. Right now this is true on Cloud, though some projects are getting close (400+).
-                // If we see the scale increasing, we might need to fetch annotations on a per-insight basis here.
-                // That would greatly increase the number of requests to the annotations endpoint though.
+                // This assumes that there are no more annotations in the project than AnnotationsViewSet
+                // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
+                // where 3 projects exceed this limit. To accomodate those, we should always make a request for the
+                // date range of the graph, and not rely on the annotations in the store.
                 return (
                     dateRange
                         ? annotations.filter(

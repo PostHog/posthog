@@ -1,198 +1,108 @@
-import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import ExtensionDocument from '@tiptap/extension-document'
-import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import { useEffect, useMemo } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { BindLogic, useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import MonacoEditor from '@monaco-editor/react'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import './Notebook.scss'
 
-import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
-import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
-import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
-import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
-import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
-import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import { sampleOne } from 'lib/utils'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { NotFound } from 'lib/components/NotFound'
+import clsx from 'clsx'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { NotebookConflictWarning } from './NotebookConflictWarning'
+import { NotebookLoadingState } from './NotebookLoadingState'
+import { Editor } from './Editor'
 
 export type NotebookProps = {
-    id: string | number
-    sourceMode?: boolean
+    shortId: string
     editable?: boolean
 }
 
-const CustomDocument = ExtensionDocument.extend({
-    content: 'heading block*',
-})
-
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ id, sourceMode, editable = false }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ id })
-    const { notebook, content, notebookLoading } = useValues(logic)
-    const { setEditorRef, onEditorUpdate } = useActions(logic)
+export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
+    const logic = notebookLogic({ shortId })
+    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
+    const { isExpanded } = useValues(notebookSettingsLogic)
 
-    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [id])
+    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
-    const editor = useEditor({
-        extensions: [
-            CustomDocument,
-            StarterKit.configure({
-                document: false,
-            }),
-            ExtensionPlaceholder.configure({
-                placeholder: ({ node }) => {
-                    if (node.type.name === 'heading' && node.attrs.level === 1) {
-                        return `Untitled - maybe.. "${headingPlaceholder}"`
-                    }
-
-                    if (node.type.name === 'heading') {
-                        return `Heading ${node.attrs.level}`
-                    }
-
-                    return ''
-                },
-            }),
-            NotebookNodeLink,
-
-            NotebookNodeInsight,
-            NotebookNodeQuery,
-            NotebookNodeRecording,
-            NotebookNodePlaylist,
-            NotebookNodePerson,
-            NotebookNodeFlag,
-
-            // Ensure this is last as a fallback for all PostHog links
-            // LinkExtension.configure({}),
-        ],
-        // This is only the default content. It is not reactive
-        content,
-        editorProps: {
-            attributes: {
-                class: 'NotebookEditor',
-            },
-            handleDrop: (view, event, _slice, moved) => {
-                if (!moved && event.dataTransfer) {
-                    const text = event.dataTransfer.getData('text/plain')
-
-                    if (text.indexOf(window.location.origin) === 0) {
-                        // PostHog link - ensure this gets input as a proper link
-                        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
-
-                        if (!coordinates) {
-                            return false
-                        }
-
-                        editor?.chain().focus().setTextSelection(coordinates.pos).run()
-                        view.pasteText(text)
-
-                        return true
-                    }
-
-                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
-                        // if dropping external files
-                        const file = event.dataTransfer.files[0] // the dropped file
-
-                        console.log('TODO: Dropped file!', file)
-                        // TODO: Detect if it is an image and add image upload handler
-
-                        return true
-                    }
-                }
-
-                return false
-            },
-        },
-        onUpdate: ({}) => {
-            onEditorUpdate()
-        },
-    })
+    useEffect(() => {
+        if (!notebook && !notebookLoading) {
+            loadNotebook()
+        }
+    }, [])
 
     useEffect(() => {
         if (editor) {
-            setEditorRef(editor)
+            editor.setEditable(editable)
         }
-    }, [editor])
-
-    useEffect(() => {
-        editor?.setEditable(editable && !!notebook)
-    }, [editable, editor, notebook])
+    }, [editor, editable])
 
     // TODO - Render a special state if the notebook is empty
 
+    if (conflictWarningVisible) {
+        return <NotebookConflictWarning />
+    } else if (!notebook && notebookLoading) {
+        return <NotebookLoadingState />
+    } else if (!notebook) {
+        return <NotFound object="notebook" />
+    } else if (isEmpty && !editable) {
+        return (
+            <div className="NotebookEditor">
+                <h1>
+                    <i>Untitled</i>
+                </h1>
+            </div>
+        )
+    }
+
     return (
-        <BindLogic logic={notebookLogic} props={{ id }}>
-            <div className="Notebook">
-                {/* {editor && (
-                <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-query />').run()}
+        <BindLogic logic={notebookLogic} props={{ shortId }}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
+                {notebook.is_template && (
+                    <LemonBanner
+                        type="info"
+                        className="my-4"
+                        action={{
+                            onClick: duplicateNotebook,
+                            children: 'Create notebook',
+                        }}
                     >
-                        Query
-                    </LemonButton>
-
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-playlist />').run()}
-                    >
-                        Recordings
-                    </LemonButton>
-
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-embed />').run()}
-                    >
-                        Embed
-                    </LemonButton>
-                </FloatingMenu>
-            )} */}
-
-                {!notebook && notebookLoading ? (
-                    <div className="space-y-4 px-8 py-4">
-                        <LemonSkeleton className="w-1/2 h-8" />
-                        <LemonSkeleton className="w-1/3 h-4" />
-                        <LemonSkeleton className="h-4" />
-                        <LemonSkeleton className="h-4" />
-                    </div>
-                ) : !notebook ? (
-                    <NotFound object={'recording'} />
-                ) : !sourceMode ? (
-                    <EditorContent editor={editor} className="flex flex-col flex-1 overflow-y-auto" />
-                ) : (
-                    <AutoSizer disableWidth>
-                        {({ height }) => (
-                            <MonacoEditor
-                                theme="vs-light"
-                                language="json"
-                                value={JSON.stringify(editor?.getJSON(), null, 2) ?? ''}
-                                height={height}
-                                loading={<Spinner />}
-                                onChange={(value) => {
-                                    if (value) {
-                                        try {
-                                            editor?.chain().setContent(JSON.parse(value)).run()
-                                        } catch (e) {
-                                            console.error(e)
-                                        }
-                                    }
-                                }}
-                            />
-                        )}
-                    </AutoSizer>
+                        <b>This is a template.</b> You can create a copy of it to edit and use as your own.
+                    </LemonBanner>
                 )}
+
+                {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Convert to Notebook',
+                            onClick: duplicateNotebook,
+                        }}
+                    >
+                        This is your scratchpad. It is only visible to you and is persisted only in this browser. It's a
+                        great place to gather ideas before turning into a saved Notebook!
+                    </LemonBanner>
+                ) : null}
+
+                <Editor
+                    initialContent={content}
+                    onCreate={setEditor}
+                    onUpdate={onEditorUpdate}
+                    placeholder={({ node }: { node: any }) => {
+                        if (node.type.name === 'heading' && node.attrs.level === 1) {
+                            return `Untitled - maybe.. "${headingPlaceholder}"`
+                        }
+
+                        if (node.type.name === 'heading') {
+                            return `Heading ${node.attrs.level}`
+                        }
+
+                        return ''
+                    }}
+                />
             </div>
         </BindLogic>
     )

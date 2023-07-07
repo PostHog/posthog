@@ -9,8 +9,8 @@ import {
     IconCoffee,
     IconCohort,
     IconComment,
+    IconDatabase,
     IconExperiment,
-    IconFeedback,
     IconFlag,
     IconGauge,
     IconLive,
@@ -22,6 +22,7 @@ import {
     IconRecording,
     IconRocketLaunch,
     IconSettings,
+    IconSurveys,
     IconTools,
     IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
@@ -191,10 +192,11 @@ function Pages(): JSX.Element {
 
                     {featureFlags[FEATURE_FLAGS.SURVEYS] && (
                         <PageButton
-                            icon={<IconFeedback />}
+                            icon={<IconSurveys />}
                             identifier={Scene.Surveys}
                             title={'Surveys'}
                             to={urls.surveys()}
+                            highlight="beta"
                         />
                     )}
 
@@ -204,7 +206,7 @@ function Pages(): JSX.Element {
                         icon={<IconLive />}
                         identifier={Scene.Events}
                         to={urls.events()}
-                        title={featureFlags[FEATURE_FLAGS.HOGQL] ? 'Event Explorer' : 'Live Events'}
+                        title={'Event Explorer'}
                     />
                     <PageButton
                         icon={<IconUnverifiedEvent />}
@@ -217,6 +219,15 @@ function Pages(): JSX.Element {
                         to={urls.persons()}
                         title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
                     />
+                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
+                        <PageButton
+                            icon={<IconDatabase />}
+                            identifier={Scene.DataWarehouse}
+                            title={'Data Warehouse'}
+                            to={urls.dataWarehouse()}
+                            highlight="beta"
+                        />
+                    )}
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (

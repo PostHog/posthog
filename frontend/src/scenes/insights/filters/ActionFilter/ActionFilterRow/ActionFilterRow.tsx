@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -10,9 +10,9 @@ import {
     BaseMathType,
     PropertyMathType,
     CountPerActorMathType,
+    HogQLMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
@@ -36,6 +36,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -50,7 +53,7 @@ export enum MathAvailability {
 }
 
 export interface ActionFilterRowProps {
-    logic: typeof entityFilterLogic
+    logic: BuiltLogic<entityFilterLogicType>
     filter: ActionFilter
     index: number
     typeKey: string
@@ -130,10 +133,17 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
+    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
+
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let name: string | null | undefined, value: PropertyFilterValue
-    const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
+    const {
+        math,
+        math_property: mathProperty,
+        math_hogql: mathHogQL,
+        math_group_type_index: mathGroupTypeIndex,
+    } = filter
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
@@ -145,6 +155,10 @@ export function ActionFilterRow({
                 mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
                     ? mathProperty ?? '$time'
                     : undefined,
+            math_hogql:
+                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                    ? mathHogQL ?? 'count()'
+                    : undefined,
             type: filter.type,
             index,
         })
@@ -152,7 +166,17 @@ export function ActionFilterRow({
     const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
             ...filter,
+            math_hogql: undefined,
             math_property: property,
+            index,
+        })
+    }
+
+    const onMathHogQLSelect = (_: unknown, hogql: string): void => {
+        updateFilterMath({
+            ...filter,
+            math_property: undefined,
+            math_hogql: hogql,
             index,
         })
     }
@@ -217,6 +241,7 @@ export function ActionFilterRow({
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
                 }}
+                disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
             />
         </IconWithCount>
     )
@@ -259,6 +284,20 @@ export function ActionFilterRow({
         />
     )
 
+    const rowStartElements = [
+        sortable && filterCount > 1 ? <DragHandle /> : null,
+        showSeriesIndicator && <div>{seriesIndicator}</div>,
+    ].filter(Boolean)
+
+    const rowEndElements = !readOnly
+        ? [
+              !hideFilter && propertyFiltersButton,
+              !hideRename && renameRowButton,
+              !hideDuplicate && !singleFilter && duplicateRowButton,
+              !hideDeleteBtn && !singleFilter && deleteButton,
+          ].filter(Boolean)
+        : []
+
     return (
         <div className={'ActionFilterRow'}>
             <div className="ActionFilterRow-content">
@@ -275,10 +314,9 @@ export function ActionFilterRow({
                 ) : (
                     <>
                         {/* left section fixed */}
-                        <div className="ActionFilterRow__start">
-                            {sortable && filterCount > 1 ? <DragHandle /> : null}
-                            {showSeriesIndicator && <div>{seriesIndicator}</div>}
-                        </div>
+                        {rowStartElements.length ? (
+                            <div className="ActionFilterRow__start">{rowStartElements}</div>
+                        ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
                             <div className="flex-auto overflow-hidden">{filterElement}</div>
@@ -331,26 +369,50 @@ export function ActionFilterRow({
                                             />
                                         </div>
                                     )}
+                                    {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.HogQLExpression && (
+                                        <div className="flex-auto overflow-hidden">
+                                            <LemonDropdown
+                                                visible={isHogQLDropdownVisible}
+                                                closeOnClickInside={false}
+                                                onClickOutside={() => setIsHogQLDropdownVisible(false)}
+                                                overlay={
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                        <HogQLEditor
+                                                            disablePersonProperties
+                                                            value={mathHogQL}
+                                                            onChange={(currentValue) => {
+                                                                onMathHogQLSelect(index, currentValue)
+                                                                setIsHogQLDropdownVisible(false)
+                                                            }}
+                                                        />
+                                                    </div>
+                                                }
+                                            >
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="stealth"
+                                                    type="secondary"
+                                                    data-attr={`math-hogql-select-${index}`}
+                                                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
+                                                >
+                                                    <code>{mathHogQL}</code>
+                                                </LemonButton>
+                                            </LemonDropdown>
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
                         {/* right section fixed */}
-                        <div className="ActionFilterRow__end">
-                            {!readOnly ? (
-                                <>
-                                    {!hideFilter && propertyFiltersButton}
-                                    {!hideRename && renameRowButton}
-                                    {!hideDuplicate && !singleFilter && duplicateRowButton}
-                                    {!hideDeleteBtn && !singleFilter && deleteButton}
-                                </>
-                            ) : null}
-                        </div>
+                        {rowEndElements.length ? <div className="ActionFilterRow__end">{rowEndElements}</div> : null}
                     </>
                 )}
             </div>
 
             {propertyFiltersVisible && (
-                <div className={`ActionFilterRow-filters`}>
+                <div className="ActionFilterRow-filters">
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
@@ -472,6 +534,14 @@ function useMathSelectorOptions({
             'data-attr': `math-node-property-value-${index}`,
         })
     }
+
+    options.push({
+        value: HogQLMathType.HogQL,
+        label: 'HogQL expression',
+        tooltip: 'Aggregate events by custom SQL expression.',
+        'data-attr': `math-node-hogql-expression-${index}`,
+    })
+
     return [
         {
             options,

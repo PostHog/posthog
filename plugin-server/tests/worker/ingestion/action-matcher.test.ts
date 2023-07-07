@@ -3,13 +3,14 @@ import { DateTime } from 'luxon'
 import {
     Action,
     ActionStep,
-    ActionStepUrlMatching,
     Element,
     Hub,
     ISOTimestamp,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
+    StringMatching,
+    StringMatching,
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
@@ -59,7 +60,9 @@ describe('ActionMatcher', () => {
                     action_id: action.id,
                     tag_name: null,
                     text: null,
+                    text_matching: null,
                     href: null,
+                    href_matching: null,
                     selector: null,
                     url: null,
                     url_matching: null,
@@ -492,14 +495,14 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'example.com',
-                    url_matching: ActionStepUrlMatching.Contains,
+                    url_matching: StringMatching.Contains,
                     event: '$pageview',
                 },
             ])
             const actionDefinitionEmptyMatching: Action = await createTestAction([
                 {
                     url: 'example.com',
-                    url_matching: '' as ActionStepUrlMatching, // Empty url_matching should mean "contains"
+                    url_matching: '' as StringMatching, // Empty url_matching should mean "contains"
                     event: '$pageview',
                 },
             ])
@@ -519,14 +522,14 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'exampl_.com/%.html',
-                    url_matching: ActionStepUrlMatching.Contains,
+                    url_matching: StringMatching.Contains,
                     event: '$pageview',
                 },
             ])
             const actionDefinitionEmptyMatching: Action = await createTestAction([
                 {
                     url: 'exampl_.com/%.html',
-                    url_matching: '' as ActionStepUrlMatching, // Empty url_matching should mean "contains"
+                    url_matching: '' as StringMatching, // Empty url_matching should mean "contains"
                     event: '$pageview',
                 },
             ])
@@ -549,7 +552,7 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: String.raw`^https?:\/\/example\.com\/\d+(\/[a-r]*\/?)?$`,
-                    url_matching: ActionStepUrlMatching.Regex,
+                    url_matching: StringMatching.Regex,
                     event: '$pageview',
                 },
             ])
@@ -585,7 +588,7 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     url: 'https://www.mozilla.org/de/',
-                    url_matching: ActionStepUrlMatching.Exact,
+                    url_matching: StringMatching.Exact,
                     event: '$pageview',
                 },
             ])
@@ -631,7 +634,7 @@ describe('ActionMatcher', () => {
             const actionDefinition: Action = await createTestAction([
                 {
                     event: 'meow',
-                    url_matching: ActionStepUrlMatching.Contains,
+                    url_matching: StringMatching.Contains,
                     url: 'pets.com/',
                 },
             ])
@@ -794,6 +797,132 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
         })
 
+        it('returns a match in case of element href contains', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    href: 'https://example.com/',
+                    href_matching: StringMatching.Contains,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsExactHrefOuter: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsExactHrefInner: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsExtendedHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/foobar' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsBadHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.io/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsNoHref: Element[] = [
+                { tag_name: 'span' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+        })
+
+        it('returns a match in case of element href contains, with wildcard', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    href: 'https://example.com/%bar',
+                    href_matching: StringMatching.Contains,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsExactHrefOuter: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsExactHrefInner: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsExtendedHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/foobar' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsBadHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.io/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsNoHref: Element[] = [
+                { tag_name: 'span' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+        })
+
+        it('returns a match in case of element href matches regex', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    href: 'https://example.com/.*(?:bar|baz)',
+                    href_matching: StringMatching.Regex,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsExactHrefOuter: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsExactHrefInner: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsExtendedHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.com/foobar' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsBadHref: Element[] = [
+                { tag_name: 'a', href: 'https://example.io/' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+            const elementsNoHref: Element[] = [
+                { tag_name: 'span' },
+                { tag_name: 'h1', attr_class: ['headline'] },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
+            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
+            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+        })
+
         it('returns a match in case of element text and tag name equals', async () => {
             const actionDefinitionLinkHref: Action = await createTestAction([
                 {
@@ -829,6 +958,30 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(event, elementsHrefWrongTag)).toEqual([])
             expect(await actionMatcher.match(event, elementsHrefWrongText)).toEqual([])
             expect(await actionMatcher.match(event, elementsHrefWrongLevel)).toEqual([])
+        })
+
+        it('returns a match in case of element text contains', async () => {
+            const actionDefinitionLinkHref: Action = await createTestAction([
+                {
+                    text: 'Wieder',
+                    text_matching: StringMatching.Contains,
+                },
+            ])
+
+            const event = createTestEvent()
+            const elementsHrefBadText: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'], text: 'Hallo!' },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+            const elementsHrefGoodText: Element[] = [
+                { tag_name: 'h3', attr_class: ['headline'], text: 'Auf Wiedersehen!' },
+                { tag_name: 'a', href: 'https://example.com/' },
+                { tag_name: 'main' },
+            ]
+
+            expect(await actionMatcher.match(event, elementsHrefBadText)).toEqual([])
+            expect(await actionMatcher.match(event, elementsHrefGoodText)).toEqual([actionDefinitionLinkHref])
         })
 
         it('returns a match in case of element selector', async () => {

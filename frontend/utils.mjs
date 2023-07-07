@@ -129,6 +129,7 @@ export const commonConfig = {
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
     },
     loader: {
+        '.ttf': 'file',
         '.png': 'file',
         '.svg': 'file',
         '.woff': 'file',

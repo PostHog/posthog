@@ -36,6 +36,19 @@
               "table": "person_distinct_ids"
           },
           {
+              "key": "override",
+              "type": "lazy_table",
+              "table": "person_overrides"
+          },
+          {
+              "key": "override_person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "override",
+                  "override_person_id"
+              ]
+          },
+          {
               "key": "poe",
               "type": "virtual_table",
               "table": "events",
@@ -167,6 +180,28 @@
               "table": "persons"
           }
       ],
+      "person_overrides": [
+          {
+              "key": "old_person_id",
+              "type": "string"
+          },
+          {
+              "key": "override_person_id",
+              "type": "string"
+          },
+          {
+              "key": "oldest_event",
+              "type": "datetime"
+          },
+          {
+              "key": "merged_at",
+              "type": "datetime"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          }
+      ],
       "session_recording_events": [
           {
               "key": "uuid",
@@ -250,6 +285,89 @@
               ]
           }
       ],
+      "session_replay_events": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_first_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_last_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "first_url",
+              "type": "string"
+          },
+          {
+              "key": "click_count",
+              "type": "integer"
+          },
+          {
+              "key": "keypress_count",
+              "type": "integer"
+          },
+          {
+              "key": "mouse_activity_count",
+              "type": "integer"
+          },
+          {
+              "key": "active_milliseconds",
+              "type": "integer"
+          },
+          {
+              "key": "console_log_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_warn_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_error_count",
+              "type": "integer"
+          },
+          {
+              "key": "size",
+              "type": "integer"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids"
+          },
+          {
+              "key": "person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person"
+              ]
+          },
+          {
+              "key": "person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person_id"
+              ]
+          },
+          {
+              "key": "start_time",
+              "type": "datetime"
+          },
+          {
+              "key": "end_time",
+              "type": "datetime"
+          }
+      ],
       "cohort_people": [
           {
               "key": "person_id",
@@ -280,6 +398,77 @@
               "table": "persons"
           }
       ],
+      "raw_session_replay_events": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_first_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_last_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "click_count",
+              "type": "integer"
+          },
+          {
+              "key": "keypress_count",
+              "type": "integer"
+          },
+          {
+              "key": "mouse_activity_count",
+              "type": "integer"
+          },
+          {
+              "key": "active_milliseconds",
+              "type": "integer"
+          },
+          {
+              "key": "console_log_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_warn_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_error_count",
+              "type": "integer"
+          },
+          {
+              "key": "size",
+              "type": "integer"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids"
+          },
+          {
+              "key": "person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person"
+              ]
+          },
+          {
+              "key": "person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person_id"
+              ]
+          }
+      ],
       "raw_person_distinct_ids": [
           {
               "key": "distinct_id",
@@ -288,6 +477,11 @@
           {
               "key": "person_id",
               "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           },
           {
               "key": "is_deleted",
@@ -356,17 +550,43 @@
               "type": "integer"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "sign",
               "type": "integer"
           },
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_person_overrides": [
+          {
+              "key": "old_person_id",
+              "type": "string"
           },
           {
-              "key": "person",
-              "type": "lazy_table",
-              "table": "persons"
+              "key": "override_person_id",
+              "type": "string"
+          },
+          {
+              "key": "oldest_event",
+              "type": "datetime"
+          },
+          {
+              "key": "merged_at",
+              "type": "datetime"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "version",
+              "type": "integer"
           }
       ]
   }
@@ -408,6 +628,19 @@
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids"
+          },
+          {
+              "key": "override",
+              "type": "lazy_table",
+              "table": "person_overrides"
+          },
+          {
+              "key": "override_person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "override",
+                  "override_person_id"
+              ]
           },
           {
               "key": "poe",
@@ -536,6 +769,28 @@
               "table": "persons"
           }
       ],
+      "person_overrides": [
+          {
+              "key": "old_person_id",
+              "type": "string"
+          },
+          {
+              "key": "override_person_id",
+              "type": "string"
+          },
+          {
+              "key": "oldest_event",
+              "type": "datetime"
+          },
+          {
+              "key": "merged_at",
+              "type": "datetime"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          }
+      ],
       "session_recording_events": [
           {
               "key": "uuid",
@@ -619,6 +874,89 @@
               ]
           }
       ],
+      "session_replay_events": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_first_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_last_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "first_url",
+              "type": "string"
+          },
+          {
+              "key": "click_count",
+              "type": "integer"
+          },
+          {
+              "key": "keypress_count",
+              "type": "integer"
+          },
+          {
+              "key": "mouse_activity_count",
+              "type": "integer"
+          },
+          {
+              "key": "active_milliseconds",
+              "type": "integer"
+          },
+          {
+              "key": "console_log_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_warn_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_error_count",
+              "type": "integer"
+          },
+          {
+              "key": "size",
+              "type": "integer"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids"
+          },
+          {
+              "key": "person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person"
+              ]
+          },
+          {
+              "key": "person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person_id"
+              ]
+          },
+          {
+              "key": "start_time",
+              "type": "datetime"
+          },
+          {
+              "key": "end_time",
+              "type": "datetime"
+          }
+      ],
       "cohort_people": [
           {
               "key": "person_id",
@@ -649,6 +987,77 @@
               "table": "persons"
           }
       ],
+      "raw_session_replay_events": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "min_first_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "max_last_timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "click_count",
+              "type": "integer"
+          },
+          {
+              "key": "keypress_count",
+              "type": "integer"
+          },
+          {
+              "key": "mouse_activity_count",
+              "type": "integer"
+          },
+          {
+              "key": "active_milliseconds",
+              "type": "integer"
+          },
+          {
+              "key": "console_log_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_warn_count",
+              "type": "integer"
+          },
+          {
+              "key": "console_error_count",
+              "type": "integer"
+          },
+          {
+              "key": "size",
+              "type": "integer"
+          },
+          {
+              "key": "pdi",
+              "type": "lazy_table",
+              "table": "person_distinct_ids"
+          },
+          {
+              "key": "person",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person"
+              ]
+          },
+          {
+              "key": "person_id",
+              "type": "field_traverser",
+              "chain": [
+                  "pdi",
+                  "person_id"
+              ]
+          }
+      ],
       "raw_person_distinct_ids": [
           {
               "key": "distinct_id",
@@ -657,6 +1066,11 @@
           {
               "key": "person_id",
               "type": "string"
+          },
+          {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
           },
           {
               "key": "is_deleted",
@@ -725,17 +1139,43 @@
               "type": "integer"
           },
           {
+              "key": "person",
+              "type": "lazy_table",
+              "table": "persons"
+          },
+          {
               "key": "sign",
               "type": "integer"
           },
           {
               "key": "version",
               "type": "integer"
+          }
+      ],
+      "raw_person_overrides": [
+          {
+              "key": "old_person_id",
+              "type": "string"
           },
           {
-              "key": "person",
-              "type": "lazy_table",
-              "table": "persons"
+              "key": "override_person_id",
+              "type": "string"
+          },
+          {
+              "key": "oldest_event",
+              "type": "datetime"
+          },
+          {
+              "key": "merged_at",
+              "type": "datetime"
+          },
+          {
+              "key": "created_at",
+              "type": "datetime"
+          },
+          {
+              "key": "version",
+              "type": "integer"
           }
       ]
   }

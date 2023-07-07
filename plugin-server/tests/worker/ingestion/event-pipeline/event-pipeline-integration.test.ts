@@ -22,12 +22,16 @@ describe('Event Pipeline integration test', () => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
-        return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
+        return Promise.all([
+            runner.runAppsOnEventPipeline(postIngestionEvent),
+            runner.runWebhooksEventPipeline(postIngestionEvent),
+        ])
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
+        process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
@@ -121,7 +125,7 @@ describe('Event Pipeline integration test', () => {
             team_id: 2,
             distinct_id: 'abc',
             ip: null,
-            site_url: 'https://example.com',
+            site_url: 'not-used-anymore',
             uuid: new UUIDT().toString(),
         }
         await hub.actionManager.reloadAllActions()
@@ -221,11 +225,11 @@ describe('Event Pipeline integration test', () => {
 
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
-        expect(hub.db.fetchPerson).not.toHaveBeenCalled()
 
         // second time single fetch
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

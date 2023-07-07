@@ -139,7 +139,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     const singleFilter = entitiesLimit === 1
 
     const commonProps = {
-        logic: logic as any,
+        logic,
         showSeriesIndicator,
         seriesIndicatorType,
         mathAvailability,

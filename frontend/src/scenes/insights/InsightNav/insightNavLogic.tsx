@@ -3,12 +3,10 @@ import { InsightLogicProps, InsightType } from '~/types'
 
 import type { insightNavLogicType } from './insightNavLogicType'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { NodeKind } from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { examples, TotalEventsTable } from '~/queries/examples'
@@ -36,7 +34,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -47,11 +45,6 @@ export const insightNavLogic = kea<insightNavLogicType>([
         },
     }),
     selectors({
-        isUsingDataExploration: [
-            (s) => [s.featureFlags],
-            (featureFlags) => !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS],
-        ],
-        allowQueryTab: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL]],
         activeView: [
             (s) => [s.filters, s.query, s.userSelectedView],
             (filters, query, userSelectedView) => {
@@ -79,8 +72,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.allowQueryTab, s.activeView],
-            (allowQueryTab, activeView) => {
+            (s) => [s.activeView],
+            (activeView) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -114,37 +107,35 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     },
                 ]
 
-                if (allowQueryTab) {
+                tabs.push({
+                    label: (
+                        <>
+                            SQL
+                            <LemonTag type="warning" className="uppercase ml-2">
+                                Beta
+                            </LemonTag>
+                        </>
+                    ),
+                    type: InsightType.SQL,
+                    dataAttr: 'insight-sql-tab',
+                })
+
+                if (activeView === InsightType.JSON) {
+                    // only display this tab when it is selected by the provided insight query
+                    // don't display it otherwise... humans shouldn't be able to click to select this tab
+                    // it only opens when you click the <OpenEditorButton/>
                     tabs.push({
                         label: (
                             <>
-                                SQL
+                                Custom{' '}
                                 <LemonTag type="warning" className="uppercase ml-2">
                                     Beta
                                 </LemonTag>
                             </>
                         ),
-                        type: InsightType.SQL,
-                        dataAttr: 'insight-sql-tab',
+                        type: InsightType.JSON,
+                        dataAttr: 'insight-json-tab',
                     })
-
-                    if (activeView === InsightType.JSON) {
-                        // only display this tab when it is selected by the provided insight query
-                        // don't display it otherwise... humans shouldn't be able to click to select this tab
-                        // it only opens when you click the <OpenEditorButton/>
-                        tabs.push({
-                            label: (
-                                <>
-                                    Custom{' '}
-                                    <LemonTag type="warning" className="uppercase ml-2">
-                                        Beta
-                                    </LemonTag>
-                                </>
-                            ),
-                            type: InsightType.JSON,
-                            dataAttr: 'insight-json-tab',
-                        })
-                    }
                 }
 
                 return tabs
@@ -162,30 +153,18 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(examples.HogQLTable)
                 }
             } else {
-                if (values.isUsingDataExploration) {
-                    if (view === InsightType.TRENDS) {
-                        actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.FUNNELS) {
-                        actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.RETENTION) {
-                        actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.PATHS) {
-                        actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.STICKINESS) {
-                        actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
-                    } else if (view === InsightType.LIFECYCLE) {
-                        actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
-                    }
-                } else {
-                    actions.setFilters(
-                        cleanFilters(
-                            // double-check that the view is valid
-                            { ...values.filters, insight: view || InsightType.TRENDS },
-                            values.filters
-                        ),
-                        undefined,
-                        true
-                    )
+                if (view === InsightType.TRENDS) {
+                    actions.setQuery(queryFromKind(NodeKind.TrendsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.FUNNELS) {
+                    actions.setQuery(queryFromKind(NodeKind.FunnelsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.RETENTION) {
+                    actions.setQuery(queryFromKind(NodeKind.RetentionQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.PATHS) {
+                    actions.setQuery(queryFromKind(NodeKind.PathsQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.STICKINESS) {
+                    actions.setQuery(queryFromKind(NodeKind.StickinessQuery, values.filterTestAccountsDefault))
+                } else if (view === InsightType.LIFECYCLE) {
+                    actions.setQuery(queryFromKind(NodeKind.LifecycleQuery, values.filterTestAccountsDefault))
                 }
             }
         },

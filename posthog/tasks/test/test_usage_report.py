@@ -5,6 +5,8 @@ from uuid import uuid4
 
 import structlog
 from dateutil.relativedelta import relativedelta
+from dateutil.tz import tzutc
+from django.test import TestCase
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -12,6 +14,8 @@ from ee.api.test.base import LicensedTestMixin
 from ee.billing.billing_manager import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Organization, Plugin, Team
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -19,8 +23,9 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.schema import EventsQuery
 from posthog.session_recordings.test.test_factory import create_snapshot
-from posthog.tasks.usage_report import send_all_org_usage_reports
+from posthog.tasks.usage_report import capture_event, send_all_org_usage_reports
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -28,6 +33,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 from posthog.utils import get_machine_id
 
@@ -55,7 +61,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         self.org_2_team_3 = Team.objects.create(organization=self.org_2, name="Team 3 org 2")
 
         with self.settings(USE_TZ=False):
-
             # Events for internal org
             distinct_id = str(uuid4())
             _create_person(distinct_ids=[distinct_id], team=self.org_internal_team_0)
@@ -245,7 +250,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)
 
     def _test_usage_report(self) -> List[dict]:
-
         with self.settings(SITE_URL="http://test.posthog.com"):
             self._create_sample_usage_data()
             self._create_plugin("Installed but not enabled", False)
@@ -294,6 +298,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 2,
                     "ff_active_count": 1,
+                    "decide_requests_count_in_month": 0,
+                    "decide_requests_count_in_period": 0,
+                    "local_evaluation_requests_count_in_month": 0,
+                    "local_evaluation_requests_count_in_period": 0,
+                    "hogql_app_bytes_read": 0,
+                    "hogql_app_rows_read": 0,
+                    "hogql_app_duration_ms": 0,
+                    "hogql_api_bytes_read": 0,
+                    "hogql_api_rows_read": 0,
+                    "hogql_api_duration_ms": 0,
+                    "event_explorer_app_bytes_read": 0,
+                    "event_explorer_app_rows_read": 0,
+                    "event_explorer_app_duration_ms": 0,
+                    "event_explorer_api_bytes_read": 0,
+                    "event_explorer_api_rows_read": 0,
+                    "event_explorer_api_duration_ms": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.organization.id),
                     "organization_name": "Test",
@@ -315,6 +335,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 2,
                             "ff_active_count": 1,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
+                            "local_evaluation_requests_count_in_month": 0,
+                            "local_evaluation_requests_count_in_period": 0,
+                            "hogql_app_bytes_read": 0,
+                            "hogql_app_rows_read": 0,
+                            "hogql_app_duration_ms": 0,
+                            "hogql_api_bytes_read": 0,
+                            "hogql_api_rows_read": 0,
+                            "hogql_api_duration_ms": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_lifetime": 10,
@@ -330,6 +366,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
+                            "local_evaluation_requests_count_in_month": 0,
+                            "local_evaluation_requests_count_in_period": 0,
+                            "hogql_app_bytes_read": 0,
+                            "hogql_app_rows_read": 0,
+                            "hogql_app_duration_ms": 0,
+                            "hogql_api_bytes_read": 0,
+                            "hogql_api_rows_read": 0,
+                            "hogql_api_duration_ms": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         },
                     },
                 },
@@ -366,6 +418,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 0,
                     "ff_active_count": 0,
+                    "decide_requests_count_in_month": 0,
+                    "decide_requests_count_in_period": 0,
+                    "local_evaluation_requests_count_in_month": 0,
+                    "local_evaluation_requests_count_in_period": 0,
+                    "hogql_app_bytes_read": 0,
+                    "hogql_app_rows_read": 0,
+                    "hogql_app_duration_ms": 0,
+                    "hogql_api_bytes_read": 0,
+                    "hogql_api_rows_read": 0,
+                    "hogql_api_duration_ms": 0,
+                    "event_explorer_app_bytes_read": 0,
+                    "event_explorer_app_rows_read": 0,
+                    "event_explorer_app_duration_ms": 0,
+                    "event_explorer_api_bytes_read": 0,
+                    "event_explorer_api_rows_read": 0,
+                    "event_explorer_api_duration_ms": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -387,6 +455,22 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "decide_requests_count_in_month": 0,
+                            "decide_requests_count_in_period": 0,
+                            "local_evaluation_requests_count_in_month": 0,
+                            "local_evaluation_requests_count_in_period": 0,
+                            "hogql_app_bytes_read": 0,
+                            "hogql_app_rows_read": 0,
+                            "hogql_app_duration_ms": 0,
+                            "hogql_api_bytes_read": 0,
+                            "hogql_api_rows_read": 0,
+                            "hogql_api_duration_ms": 0,
+                            "event_explorer_app_bytes_read": 0,
+                            "event_explorer_app_rows_read": 0,
+                            "event_explorer_app_duration_ms": 0,
+                            "event_explorer_api_bytes_read": 0,
+                            "event_explorer_api_rows_read": 0,
+                            "event_explorer_api_duration_ms": 0,
                         }
                     },
                 },
@@ -405,6 +489,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             return all_reports
 
+    @freeze_time("2022-01-10T00:01:00Z")
     @patch("os.environ", {"DEPLOYMENT": "tests"})
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
@@ -441,6 +526,263 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
+
+
+class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
+    def test_usage_report_hogql_queries(self) -> None:
+        for _ in range(0, 100):
+            _create_event(
+                distinct_id="hello",
+                event="$event1",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.team,
+            )
+        flush_persons_and_events()
+        sync_execute("SYSTEM FLUSH LOGS")
+        sync_execute("TRUNCATE TABLE system.query_log")
+
+        from posthog.models.event.events_query import run_events_query
+
+        execute_hogql_query(query="select * from events limit 200", team=self.team, query_type="HogQLQuery")
+        run_events_query(query=EventsQuery(select=["event"], limit=50), team=self.team)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+        assert len(all_reports) == 1
+
+        report = all_reports[0]["teams"][str(self.team.pk)]
+
+        # We selected 200 or 50 rows, but still read 100 rows to return the query
+        assert report["hogql_app_rows_read"] == 100
+        assert report["hogql_app_bytes_read"] > 0
+        assert report["event_explorer_app_rows_read"] == 100
+        assert report["event_explorer_app_bytes_read"] > 0
+
+        # Nothing was read via the API
+        assert report["hogql_api_rows_read"] == 0
+        assert report["event_explorer_api_rows_read"] == 0
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestFeatureFlagsUsageReport(TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    @snapshot_clickhouse_queries
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_usage_report_decide_requests(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+        for i in range(10):
+            _create_event(
+                distinct_id="3",
+                event="decide usage",
+                properties={"count": 10, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="decide usage",
+                properties={"count": 1, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+            _create_event(
+                distinct_id="4",
+                event="decide usage",
+                properties={"count": 100, "token": "wrong"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(7):
+            _create_event(
+                distinct_id="5",
+                event="decide usage",
+                properties={"count": 100},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        # some out of range events
+        _create_event(
+            distinct_id="3",
+            event="decide usage",
+            properties={"count": 20000, "token": "correct"},
+            timestamp=now() - relativedelta(days=20),
+            team=self.analytics_team,
+        )
+        flush_persons_and_events()
+
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+
+        assert len(all_reports) == 3
+
+        all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
+
+        assert [all_reports["organization_name"] for all_reports in all_reports] == [
+            "Org 1",
+            "Org 2",
+            "PostHog",
+        ]
+
+        org_1_report = all_reports[0]
+        org_2_report = all_reports[1]
+        analytics_report = all_reports[2]
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["decide_requests_count_in_period"] == 11
+        assert org_1_report["decide_requests_count_in_month"] == 105
+        assert org_1_report["teams"]["3"]["decide_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["decide_requests_count_in_month"] == 100
+        assert org_1_report["teams"]["4"]["decide_requests_count_in_period"] == 1
+        assert org_1_report["teams"]["4"]["decide_requests_count_in_month"] == 5
+
+        # because of wrong token, Org 2 has no decide counts.
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["decide_requests_count_in_period"] == 0
+        assert org_2_report["decide_requests_count_in_month"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_count_in_period"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_count_in_month"] == 0
+
+        # billing service calls are made only for org1, which has decide requests, and analytics org - which has decide usage events.
+        calls = [
+            call(
+                org_1_report["organization_id"],
+                ANY,
+            ),
+            call(
+                analytics_report["organization_id"],
+                ANY,
+            ),
+        ]
+        assert billing_task_mock.delay.call_count == 2
+        billing_task_mock.delay.assert_has_calls(
+            calls,
+            any_order=True,
+        )
+
+        # capture usage report calls are made for all orgs
+        assert posthog_capture_mock.return_value.capture.call_count == 3
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_usage_report_local_evaluation_requests(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+        for i in range(10):
+            _create_event(
+                distinct_id="3",
+                event="local evaluation usage",
+                properties={"count": 10, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="local evaluation usage",
+                properties={"count": 1, "token": "correct"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+            _create_event(
+                distinct_id="4",
+                event="local evaluation usage",
+                properties={"count": 100, "token": "wrong"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(7):
+            _create_event(
+                distinct_id="5",
+                event="local evaluation usage",
+                properties={"count": 100},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        # some out of range events
+        _create_event(
+            distinct_id="3",
+            event="local evaluation usage",
+            properties={"count": 20000, "token": "correct"},
+            timestamp=now() - relativedelta(days=20),
+            team=self.analytics_team,
+        )
+        flush_persons_and_events()
+
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            all_reports = send_all_org_usage_reports(dry_run=False, at=str(now() + relativedelta(days=1)))
+
+        assert len(all_reports) == 3
+
+        all_reports = sorted(all_reports, key=lambda x: x["organization_name"])
+
+        assert [all_reports["organization_name"] for all_reports in all_reports] == [
+            "Org 1",
+            "Org 2",
+            "PostHog",
+        ]
+
+        org_1_report = all_reports[0]
+        org_2_report = all_reports[1]
+        analytics_report = all_reports[2]
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["local_evaluation_requests_count_in_period"] == 11
+        assert org_1_report["local_evaluation_requests_count_in_month"] == 105
+        assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_month"] == 100
+        assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_period"] == 1
+        assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_month"] == 5
+
+        # because of wrong token, Org 2 has no decide counts.
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["local_evaluation_requests_count_in_period"] == 0
+        assert org_2_report["local_evaluation_requests_count_in_month"] == 0
+        assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
+        assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_month"] == 0
+
+        # billing service calls are made only for org1, which has decide requests, and analytics org - which has local evaluation usage events.
+        calls = [
+            call(
+                org_1_report["organization_id"],
+                ANY,
+            ),
+            call(
+                analytics_report["organization_id"],
+                ANY,
+            ),
+        ]
+        assert billing_task_mock.delay.call_count == 2
+        billing_task_mock.delay.assert_has_calls(
+            calls,
+            any_order=True,
+        )
+
+        # capture usage report calls are made for all orgs
+        assert posthog_capture_mock.return_value.capture.call_count == 3
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
@@ -562,7 +904,6 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
     def test_org_usage_updated_correctly(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
@@ -580,13 +921,20 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
         }
 
+    @patch("posthog.tasks.usage_report.Client")
+    def test_capture_event_called_with_string_timestamp(self, mock_client: MagicMock) -> None:
+        organization = Organization.objects.create()
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+        capture_event(mock_client, "test event", organization.id, {"prop1": "val1"}, "2021-10-10T23:01:00.00Z")
+        assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+
 
 class SendNoUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
     def test_usage_not_sent_if_zero(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 

@@ -24,6 +24,7 @@ ActivityScope = Literal[
     "SessionRecordingPlaylist",
     "EventDefinition",
     "PropertyDefinition",
+    "Notebook",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -98,6 +99,7 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[ActivityScope, List[str]] = {
+    "Notebook": ["id", "last_modified_at", "last_modified_by", "created_at", "created_by"],
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
@@ -202,7 +204,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"],
+    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist", "Notebook"],
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:
@@ -286,7 +288,7 @@ def dict_changes_between(
 def log_activity(
     organization_id: Optional[UUIDT],
     team_id: int,
-    user: User,
+    user: User | None,
     item_id: Optional[Union[int, str, UUIDT]],
     scope: str,
     activity: str,
@@ -299,7 +301,7 @@ def log_activity(
                 "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
-                user_id=user.id,
+                user_id=user.id if user else None,
                 scope=scope,
             )
             return
@@ -308,6 +310,7 @@ def log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            is_system=user is None,
             item_id=str(item_id),
             scope=scope,
             activity=activity,

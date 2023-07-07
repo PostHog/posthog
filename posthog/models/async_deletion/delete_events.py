@@ -33,9 +33,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         conditions, args = self._conditions(deletions)
         sync_execute(
             f"""
-            ALTER TABLE sharded_events
+            DELETE FROM sharded_events
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-            DELETE WHERE {" OR ".join(conditions)}
+            WHERE {" OR ".join(conditions)}
             """,
             args,
         )
@@ -54,9 +54,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
             sync_execute(
                 f"""
-                ALTER TABLE {table}
+                DELETE FROM {table}
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE {" OR ".join(conditions)}
+                WHERE {" OR ".join(conditions)}
                 """,
                 args,
             )

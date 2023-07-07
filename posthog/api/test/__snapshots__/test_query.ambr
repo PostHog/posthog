@@ -5,13 +5,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter.1
@@ -21,13 +22,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val3'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val3'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter.2
@@ -37,13 +39,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), ilike(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'path'), ''), 'null'), '^"|"$', ''), '%/%'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -53,13 +56,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -69,13 +73,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals(nullIf(nullIf(events.mat_key, ''), 'null'), 'test_val3'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), ifNull(equals(nullIf(nullIf(events.mat_key, ''), 'null'), 'test_val3'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -85,13 +90,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), ilike(nullIf(nullIf(events.mat_path, ''), 'null'), '%/%'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_events_query_all_time_date
@@ -102,8 +108,9 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-12 12:14:05.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -114,8 +121,9 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-12 00:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -126,8 +134,9 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-01 00:00:00.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2019-01-12 00:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_full_hogql_query
@@ -139,8 +148,9 @@
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 100 SETTINGS readonly=1,
-                     max_execution_time=60
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -152,8 +162,9 @@
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 100 SETTINGS readonly=1,
-                     max_execution_time=60
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter
@@ -163,13 +174,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -179,13 +191,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals('a%sd', 'foo'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), 0, less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -195,13 +208,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals('a%sd', 'a%sd'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), 1, less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -211,13 +225,14 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val2'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val2'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -227,13 +242,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -243,13 +259,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals('a%sd', 'foo'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), 0, less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -259,13 +276,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals('a%sd', 'a%sd'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), 1, less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -275,13 +293,14 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
-  WHERE and(equals(events.team_id, 2), equals(nullIf(nullIf(events.mat_key, ''), 'null'), 'test_val2'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 2), ifNull(equals(nullIf(nullIf(events.mat_key, ''), 'null'), 'test_val2'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_person_property_filter
@@ -291,27 +310,28 @@
          events.distinct_id,
          replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          'a%sd',
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-            person_distinct_id2.distinct_id
+            person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', ''), person.version) AS properties___email,
-            person.id
+            person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+  WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -321,27 +341,28 @@
          events.distinct_id,
          nullIf(nullIf(events.mat_key, ''), 'null'),
          'a%sd',
-         concat(events.event, ' ', nullIf(nullIf(events.mat_key, ''), 'null'))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-            person_distinct_id2.distinct_id
+            person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
     (SELECT argMax(nullIf(nullIf(person.pmat_email, ''), 'null'), person.version) AS properties___email,
-            person.id
+            person.id AS id
      FROM person
      WHERE equals(person.team_id, 2)
      GROUP BY person.id
-     HAVING equals(argMax(person.is_deleted, person.version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-  WHERE and(equals(events.team_id, 2), equals(events__pdi__person.properties___email, 'tom@posthog.com'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+  WHERE and(equals(events.team_id, 2), ifNull(equals(events__pdi__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations
@@ -354,8 +375,9 @@
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -369,8 +391,9 @@
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -383,8 +406,9 @@
   GROUP BY nullIf(nullIf(events.mat_key, ''), 'null')
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -398,8 +422,9 @@
   HAVING and(greater(count(), 1))
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_event_person
@@ -412,8 +437,9 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions
@@ -422,13 +448,14 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
          events.event,
          events.distinct_id,
-         concat(events.event, ' ', replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''))
+         concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -440,8 +467,9 @@
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:00:00.000000', 6, 'UTC')))
   ORDER BY tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -454,8 +482,9 @@
   GROUP BY events.event
   ORDER BY count() DESC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -468,7 +497,8 @@
   GROUP BY events.event
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=1,
-                    max_execution_time=60
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---

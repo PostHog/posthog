@@ -1,87 +1,116 @@
+import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
-import { DateTime } from 'luxon'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, HighLevelProducer as RdKafkaProducer, Message } from 'node-rdkafka-acosom'
+import {
+    CODES,
+    features,
+    HighLevelProducer as RdKafkaProducer,
+    librdkafkaVersion,
+    Message,
+    TopicPartition,
+} from 'node-rdkafka-acosom'
 import path from 'path'
 import { Gauge } from 'prom-client'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
+import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, Team } from '../../../types'
-import { KafkaConfig } from '../../../utils/db/hub'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, Team } from '../../../types'
 import { status } from '../../../utils/status'
 import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
-import { OffsetManager } from './blob-ingester/offset-manager'
+import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
+import {
+    NullSessionOffsetHighWaterMark,
+    SessionOffsetHighWaterMark,
+} from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
+import { now } from './blob-ingester/utils'
+
+// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
+require('@sentry/tracing')
 
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const fetchBatchSize = 500
+const flushIntervalTimeoutMs = 30000
 
 export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
-export const gaugeIngestionLag = new Gauge({
-    name: 'recording_blob_ingestion_lag',
-    help: 'A gauge of the number of milliseconds behind now for the timestamp of the latest message',
-})
-export const gaugeSessionsHandled = new Gauge({
+const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
     help: 'A gauge of the number of sessions being handled by this blob ingestion consumer',
 })
 
-export const gaugePartitionsRevoked = new Gauge({
-    name: 'recording_blob_ingestion_partitions_revoked',
-    help: 'A gauge of the number of partitions being revoked when a re-balance occurs',
-})
-
-export const gaugeSessionsRevoked = new Gauge({
+const gaugeSessionsRevoked = new Gauge({
     name: 'recording_blob_ingestion_sessions_revoked',
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-export const gaugePartitionsAssigned = new Gauge({
-    name: 'recording_blob_ingestion_partitions_assigned',
-    help: 'A gauge of the number of partitions being assigned when a re-balance occurs',
-})
-
-export const gaugeBytesBuffered = new Gauge({
+const gaugeBytesBuffered = new Gauge({
     name: 'recording_blob_ingestion_bytes_buffered',
     help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
 })
+export const gaugeRealtimeSessions = new Gauge({
+    name: 'recording_realtime_sessions',
+    help: 'Number of real time sessions being handled by this blob ingestion consumer',
+})
 
-export const gaugeLagMilliseconds = new Gauge({
+const gaugeLagMilliseconds = new Gauge({
     name: 'recording_blob_ingestion_lag_in_milliseconds',
     help: "A gauge of the lag in milliseconds, more useful than lag in messages since it affects how much work we'll be pushing to redis",
     labelNames: ['partition'],
 })
 
+const gaugeOffsetCommitted = new Gauge({
+    name: 'offset_manager_offset_committed',
+    help: 'When a session manager flushes to S3 it reports which offset on the partition it flushed.',
+    labelNames: ['partition'],
+})
+
+const gaugeOffsetCommitFailed = new Gauge({
+    name: 'offset_manager_offset_commit_failed',
+    help: 'An attempt to commit failed, other than accidentally committing just after a rebalance this is not great news.',
+    labelNames: ['partition'],
+})
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
-    offsetManager?: OffsetManager
+    private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
+    realtimeManager: RealtimeManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
-    lastHeartbeat: number = Date.now()
     flushInterval: NodeJS.Timer | null = null
-    enabledTeams: number[] | null
-    latestKafkaMessageTimestamp: Record<number, number | null> = {}
+    // the time at the most recent message of a particular partition
+    partitionNow: Record<number, number | null> = {}
 
     constructor(
         private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
         private objectStorage: ObjectStorage,
-        private flushIntervalTimeoutMs = 30000
+        private redisPool: RedisPool
     ) {
-        const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
-        this.enabledTeams =
-            enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
+        this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
+
+        this.sessionOffsetHighWaterMark = this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING
+            ? new SessionOffsetHighWaterMark(this.redisPool, serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY)
+            : // this receives a redis pool but doesn't use it,
+              // it is simpler to override the original like this, but will also let us see if
+              // the redis pool is contributing to RAM troubles
+              new NullSessionOffsetHighWaterMark(
+                  this.redisPool,
+                  serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+              )
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<void> {
+    public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
+        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
+        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
+        gaugeSessionsRevoked.set(0)
+
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
@@ -89,8 +118,28 @@ export class SessionRecordingBlobIngester {
 
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.latestKafkaMessageTimestamp[partition] = timestamp
-        gaugeLagMilliseconds.labels(partition.toString()).set(DateTime.now().toMillis() - timestamp)
+        this.partitionNow[partition] = timestamp
+        gaugeLagMilliseconds
+            .labels({
+                partition: partition.toString(),
+            })
+            .set(now() - timestamp)
+
+        const highWaterMarkSpan = sentrySpan?.startChild({
+            op: 'checkHighWaterMark',
+        })
+
+        if (await this.sessionOffsetHighWaterMark.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_blob_ingestion',
+                    drop_cause: 'high_water_mark',
+                })
+                .inc()
+            this.commitOffsets(topic, partition, session_id, [offset])
+            return
+        }
+        highWaterMarkSpan?.finish()
 
         if (!this.sessions.has(key)) {
             const { partition, topic } = event.metadata
@@ -98,17 +147,24 @@ export class SessionRecordingBlobIngester {
             const sessionManager = new SessionManager(
                 this.serverConfig,
                 this.objectStorage.s3,
+                this.realtimeManager,
                 team_id,
                 session_id,
                 partition,
                 topic,
                 (offsets) => {
-                    this.offsetManager?.removeOffsets(topic, partition, offsets)
+                    if (offsets.length === 0) {
+                        return
+                    }
+
+                    this.commitOffsets(topic, partition, session_id, offsets)
+                    // We don't want to block if anything fails here. Watermarks are best effort
+                    void this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, offsets.slice(-1)[0])
                 }
             )
 
             this.sessions.set(key, sessionManager)
-            status.debug('📦', 'Blob ingestion consumer started session manager', {
+            status.info('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
                 topic,
@@ -116,14 +172,13 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.offsetManager?.addOffset(topic, partition, session_id, offset)
         await this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
     }
 
-    public async handleKafkaMessage(message: Message): Promise<void> {
+    public async handleKafkaMessage(message: Message, span?: Sentry.Span): Promise<void> {
         const statusWarn = (reason: string, extra?: Record<string, any>) => {
             status.warn('⚠️', 'invalid_message', {
                 reason,
@@ -148,7 +203,7 @@ export class SessionRecordingBlobIngester {
             return statusWarn('invalid_json', { error })
         }
 
-        if (event.event !== '$snapshot') {
+        if (event.event !== '$snapshot_items' || !event.properties?.$snapshot_items?.length) {
             status.debug('🙈', 'Received non-snapshot message, ignoring')
             return
         }
@@ -159,22 +214,21 @@ export class SessionRecordingBlobIngester {
 
         let team: Team | null = null
 
+        const teamSpan = span?.startChild({
+            op: 'fetchTeam',
+        })
         if (messagePayload.team_id != null) {
             team = await this.teamManager.fetchTeam(messagePayload.team_id)
         } else if (messagePayload.token) {
             team = await this.teamManager.getTeamByToken(messagePayload.token)
         }
+        teamSpan?.finish()
 
         if (team == null) {
             return statusWarn('team_not_found', {
                 teamId: messagePayload.team_id,
                 payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
             })
-        }
-
-        if (this.enabledTeams && !this.enabledTeams.includes(team.id)) {
-            // NOTE: due to the high volume of hits here we don't log this
-            return
         }
 
         if (!team.session_recording_opt_in) {
@@ -186,8 +240,6 @@ export class SessionRecordingBlobIngester {
                 .inc()
             return
         }
-
-        const $snapshot_data = event.properties?.$snapshot_data
 
         const recordingMessage: IncomingRecordingMessage = {
             metadata: {
@@ -201,36 +253,37 @@ export class SessionRecordingBlobIngester {
             distinct_id: event.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
-
-            // Properties data
-            chunk_id: $snapshot_data.chunk_id,
-            chunk_index: $snapshot_data.chunk_index,
-            chunk_count: $snapshot_data.chunk_count,
-            data: $snapshot_data.data,
-            compresssion: $snapshot_data.compression,
-            has_full_snapshot: $snapshot_data.has_full_snapshot,
-            events_summary: $snapshot_data.events_summary,
+            events: event.properties.$snapshot_items,
         }
 
-        await this.consume(recordingMessage)
+        const consumeSpan = span?.startChild({
+            op: 'consume',
+        })
+        await this.consume(recordingMessage, consumeSpan)
+        consumeSpan?.finish()
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
-        let highestTimestamp = -Infinity
+        const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
 
-        for (const message of messages) {
-            if (!!message.timestamp && message.timestamp > highestTimestamp) {
-                highestTimestamp = message.timestamp
-            }
+        await Promise.all(
+            messages.map(async (message) => {
+                const childSpan = transaction.startChild({
+                    op: 'handleKafkaMessage',
+                })
+                await this.handleKafkaMessage(message, childSpan)
+                childSpan.finish()
+            })
+        )
 
-            await this.handleKafkaMessage(message)
-        }
-
-        gaugeIngestionLag.set(DateTime.now().toMillis() - highestTimestamp)
+        transaction.finish()
     }
 
     public async start(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer')
+        status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer', {
+            librdKafkaVersion: librdkafkaVersion,
+            kafkaCapabilities: features,
+        })
 
         // Currently we can't reuse any files stored on disk, so we opt to delete them all
         try {
@@ -241,8 +294,9 @@ export class SessionRecordingBlobIngester {
             captureException(e)
             throw e
         }
+        await this.realtimeManager.subscribe()
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig as KafkaConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
         this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
@@ -250,19 +304,19 @@ export class SessionRecordingBlobIngester {
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
-            topic: KAFKA_SESSION_RECORDING_EVENTS,
+            topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             sessionTimeout,
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize,
+            batchingTimeoutMs: this.serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
             },
         })
-
-        this.offsetManager = new OffsetManager(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             /**
@@ -278,13 +332,6 @@ export class SessionRecordingBlobIngester {
                  * The assign_partitions indicates that the consumer group has new assignments.
                  * We don't need to do anything, but it is useful to log for debugging.
                  */
-                const assignedPartitions = topicPartitions.map((c) => c.partition).sort()
-
-                if (!assignedPartitions.length) {
-                    return
-                }
-
-                gaugePartitionsAssigned.set(assignedPartitions.length)
                 return
             }
 
@@ -294,7 +341,7 @@ export class SessionRecordingBlobIngester {
                  * As a result, we need to drop all sessions currently managed for the revoked partitions
                  */
 
-                const revokedPartitions = topicPartitions.map((x) => x.partition).sort()
+                const revokedPartitions = topicPartitions.map((x) => x.partition)
                 if (!revokedPartitions.length) {
                     return
                 }
@@ -303,12 +350,17 @@ export class SessionRecordingBlobIngester {
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
-                // any commit from this point is invalid, so we revoke immediately
-                this.offsetManager?.revokePartitions(KAFKA_SESSION_RECORDING_EVENTS, revokedPartitions)
                 await this.destroySessions(sessionsToDrop)
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
-                gaugePartitionsRevoked.set(revokedPartitions.length)
+                revokedPartitions.forEach((partition) => {
+                    gaugeLagMilliseconds.remove({ partition: partition.toString() })
+                })
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    this.sessionOffsetHighWaterMark.revoke(topicPartition)
+                })
+
                 return
             }
 
@@ -338,23 +390,21 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so we try catch it just in case
+            // It's unclear what happens if an exception occurs here so, we try catch it just in case
             let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
                 sessionManagerBufferSizes += sessionManager.buffer.size
 
-                // in practice, we will always have a values for latestKaftaMessageTimestamp,
-                // but in case we get here before the first message, we use now
-                const kafkaNow = this.latestKafkaMessageTimestamp[sessionManager.partition]
-
-                if (!kafkaNow) {
+                // in practice, we will always have a values for latestKafkaMessageTimestamp,
+                const referenceTime = this.partitionNow[sessionManager.partition]
+                if (!referenceTime) {
                     throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
                 }
 
                 void sessionManager
                     .flushIfSessionBufferIsOld(
-                        kafkaNow,
+                        referenceTime,
                         this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
                     )
                     .catch((err) => {
@@ -379,9 +429,15 @@ export class SessionRecordingBlobIngester {
 
             gaugeSessionsHandled.set(this.sessions.size)
             gaugeBytesBuffered.set(sessionManagerBufferSizes)
+            gaugeRealtimeSessions.set(
+                Array.from(this.sessions.values()).reduce(
+                    (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
+                    0
+                )
+            )
 
             status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
-        }, this.flushIntervalTimeoutMs)
+        }, flushIntervalTimeoutMs)
     }
 
     public async stop(): Promise<void> {
@@ -390,6 +446,8 @@ export class SessionRecordingBlobIngester {
         if (this.flushInterval) {
             clearInterval(this.flushInterval)
         }
+
+        await this.realtimeManager.unsubscribe()
 
         if (this.producer && this.producer.isConnected()) {
             status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
@@ -401,6 +459,8 @@ export class SessionRecordingBlobIngester {
         await this.destroySessions([...this.sessions.entries()])
 
         this.sessions = new Map()
+
+        gaugeRealtimeSessions.set(0)
     }
 
     async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
@@ -412,5 +472,66 @@ export class SessionRecordingBlobIngester {
         })
 
         await Promise.allSettled(destroyPromises)
+    }
+
+    // Given a topic and partition and a list of offsets, commit the highest offset
+    // that is no longer found across any of the existing sessions.
+    // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
+    private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
+        let potentiallyBlockingSession: SessionManager | undefined
+
+        for (const [_, sessionManager] of this.sessions) {
+            if (sessionManager.partition === partition && sessionManager.topic === topic) {
+                const lowestOffset = sessionManager.getLowestOffset()
+                if (lowestOffset && lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)) {
+                    potentiallyBlockingSession = sessionManager
+                }
+            }
+        }
+
+        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
+        const commitableOffsets = potentiallyBlockingOffset
+            ? offsets.filter((offset) => offset < potentiallyBlockingOffset)
+            : offsets
+
+        if (commitableOffsets.length === 0) {
+            // If there are no offsets to commit then we're done
+            status.info('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
+                partition,
+                blockingSession: potentiallyBlockingSession?.sessionId,
+                lowestInflightOffset: potentiallyBlockingOffset,
+                lowestOffsetToRemove: offsets[0],
+            })
+            return
+        }
+
+        // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
+        const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
+
+        status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
+            partition,
+            offsetToCommit: highestOffsetToCommit,
+        })
+
+        void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
+
+        try {
+            this.batchConsumer?.consumer.commit({
+                topic,
+                partition,
+                // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+                // for some reason you commit the next offset you expect to read and not the one you actually have
+                offset: highestOffsetToCommit + 1,
+            })
+            gaugeOffsetCommitted.inc({ partition })
+        } catch (e) {
+            gaugeOffsetCommitFailed.inc({ partition })
+            captureException(e, {
+                extra: { partition, offsetToCommit: highestOffsetToCommit, sessionId },
+                tags: { partition },
+            })
+
+            throw e
+        }
     }
 }

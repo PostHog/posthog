@@ -15,11 +15,12 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -103,6 +104,20 @@
   '
 ---
 # name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.14
+  '
+  SELECT "ee_organizationresourceaccess"."id",
+         "ee_organizationresourceaccess"."resource",
+         "ee_organizationresourceaccess"."access_level",
+         "ee_organizationresourceaccess"."organization_id",
+         "ee_organizationresourceaccess"."created_by_id",
+         "ee_organizationresourceaccess"."created_at",
+         "ee_organizationresourceaccess"."updated_at"
+  FROM "ee_organizationresourceaccess"
+  WHERE "ee_organizationresourceaccess"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 100 /*controller='organization_resource_access-list',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/resource_access/%3F%24'*/
+  '
+---
+# name: TestOrganizationResourceAccessAPI.test_list_organization_resource_access_is_not_nplus1.15
   '
   SELECT "ee_organizationresourceaccess"."id",
          "ee_organizationresourceaccess"."resource",
@@ -211,11 +226,12 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2

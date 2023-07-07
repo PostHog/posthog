@@ -1,10 +1,5 @@
 .KeyboardShortcut {
     margin: 0 0.125rem;
-    color: var(--default);
-
-    &.KeyboardShortcut--muted {
-        color: var(--muted);
-    }
 }
 
 .KeyboardShortcut__key {
@@ -17,7 +12,17 @@
     border-radius: 0.125rem;
     border-width: 1px;
     background: var(--accent-3000);
+    color: var(--default);
     text-transform: capitalize;
+    .KeyboardShortcut--muted > & {
+        background: none;
+        color: var(--muted);
+    }
+    .ant-tooltip & {
+        color: #fff;
+        background: rgba(#000, 0.333);
+        border-color: rgba(#fff, 0.333);
+    }
     & + .KeyboardShortcut__key {
         margin-left: 0.25rem;
     }
