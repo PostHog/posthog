@@ -104,7 +104,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
         completion_tokens_total += completion_tokens_last
         if content.startswith(UNCLEAR_PREFIX):
             error = content.removeprefix(UNCLEAR_PREFIX).strip()
-            continue
+            break
         candidate_sql = content
         try:
             print_ast(parse_select(candidate_sql), context=context, dialect="clickhouse")
