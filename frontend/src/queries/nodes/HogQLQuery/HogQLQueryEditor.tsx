@@ -79,7 +79,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         </LemonButton>
                     </div>
                 </FlaggedFeature>
-                {promptError ? <LemonBanner type="error">{promptError}</LemonBanner> : null}
+                {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1">
                     <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
                         <LemonButtonWithDropdown
