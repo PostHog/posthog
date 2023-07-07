@@ -60,17 +60,17 @@ jobs:
               id: aws-ecr
               uses: aws-actions/amazon-ecr-login@v1
 
-            - name: Build and push container image for linux/amd64
-              id: build-amd64
-              uses: depot/build-push-action@v1
-              with:
-                  project: x19jffd9zf # posthog
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
-                  tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-amd64
-                  platforms: linux/amd64
+            # - name: Build and push container image for linux/amd64
+            #   id: build-amd64
+            #   uses: depot/build-push-action@v1
+            #   with:
+            #       project: x19jffd9zf # posthog
+            #       buildx-fallback: false # the fallback is so slow it's better to just fail
+            #       cache-from: type=gha # always pull the layers from GHA
+            #       cache-to: type=gha,mode=max # always push the layers to GHA
+            #       push: true
+            #       tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-amd64
+            #       platforms: linux/amd64
 
             - name: Build and push container image for linux/arm64
               id: build-arm64
