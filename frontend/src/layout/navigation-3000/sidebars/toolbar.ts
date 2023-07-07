@@ -69,7 +69,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
                                                       {
                                                           to: urls.site(url.url),
                                                           targetBlank: true,
-                                                          label: 'Open in new tab',
+                                                          label: 'Open with Toolbar in new tab',
                                                       },
                                                   ],
                                               },
@@ -77,7 +77,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
                                                   items: [
                                                       {
                                                           onClick: initiateRename,
-                                                          label: 'Rename',
+                                                          label: 'Edit',
                                                           keyboardShortcut: ['enter'],
                                                       },
                                                       {
