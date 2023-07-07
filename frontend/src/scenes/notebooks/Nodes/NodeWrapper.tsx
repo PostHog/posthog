@@ -40,8 +40,8 @@ export function NodeWrapper({
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
-    const height = compact ? '4rem' : node.attrs.height
-    const skeletonHeight = compact ? '4rem' : heightEstimate
+    const height = compact ? '10rem' : node.attrs.height
+    const skeletonHeight = compact ? '10rem' : heightEstimate
 
     useEffect(() => {
         if (selected && shortId) {
