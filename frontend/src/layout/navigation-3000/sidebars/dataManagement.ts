@@ -10,7 +10,7 @@ import { loaders } from 'kea-loaders'
 import { ActionType, EventDefinition, PropertyDefinition, ReplayTabs } from '~/types'
 import api from 'lib/api'
 import { subscriptions } from 'kea-subscriptions'
-import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
+import { getPropertyLabel } from 'lib/taxonomy'
 import { actionsFuse, actionsLogic } from 'scenes/actions/actionsLogic'
 import { FuseSearchMatch } from './utils'
 

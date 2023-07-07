@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import posthog from 'posthog-js'
 
 export type PersonUUID = string
 
@@ -287,9 +288,17 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.loadSessionRecordings()
             actions.loadPinnedRecordings()
         },
-        setFilters: () => {
+        setFilters: ({ filters }) => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
+
+            // capture only the partial filters applied (not the full filters object)
+            // take each key from the filter and change it to `partial_filter_chosen_${key}`
+            const partialFilters = Object.keys(filters).reduce((acc, key) => {
+                acc[`partial_filter_chosen_${key}`] = filters[key]
+                return acc
+            }, {})
+            posthog.capture('recording list filters changed', { ...partialFilters })
         },
 
         resetFilters: () => {
@@ -308,7 +317,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
 
         loadSessionRecordingsSuccess: () => {
-            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
         },
 
         setSelectedRecordingId: () => {

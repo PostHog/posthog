@@ -56,10 +56,10 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
                                 full: true,
                                 source: {
                                     kind: NodeKind.HogQLQuery,
+                                    // TODO: Use `hogql` tag?
                                     query: `SELECT ${obj.columns
                                         .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                        .map(({ key }) => key)
-                                        .join(', ')} FROM ${table} LIMIT 100`,
+                                        .map(({ key }) => key)} FROM ${table} LIMIT 100`,
                                 },
                             }
                             return (

@@ -625,7 +625,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                             ...defaultDataTableColumns(NodeKind.EventsQuery),
                             featureFlag.filters.multivariate
                                 ? 'properties.$feature_flag_response'
-                                : "if(properties.$feature_flag_response == 1, 'true', 'false') -- Feature Flag Response",
+                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', 'false') -- Feature Flag Response",
                         ],
                         event: '$feature_flag_called',
                         properties: propertyFilter,
@@ -889,6 +889,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
+                                                disabled={
+                                                    !!(
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                    )
+                                                }
                                             />
                                         </Field>
                                     </Col>
@@ -973,7 +979,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             icon={<IconPlus />}
                             disabledReason={
                                 featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                    ? 'Cannot add variants to a feature flag that is part of an experiment'
+                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
                                     : undefined
                             }
                             tooltipPlacement="topLeft"

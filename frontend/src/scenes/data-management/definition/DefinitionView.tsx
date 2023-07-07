@@ -22,7 +22,7 @@ import {
     ThirtyDayVolumeTitle,
 } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
+import { getPropertyLabel } from 'lib/taxonomy'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'

@@ -1,23 +1,27 @@
-.PropertyKeyInfo {
-    display: inline-flex !important; // NOTE: This is needed as antd horribly overrides this in places
+.PropertyKeyInfo,
+.PropertyKeyInfo__header {
+    display: inline-flex;
     gap: 0.25rem;
     align-items: center;
     vertical-align: bottom;
     overflow: hidden;
     max-width: 100%;
+    cursor: default;
+}
 
-    .PropertyKeyInfo__text {
-        display: inline;
+.PropertyKeyInfo__header {
+    font-weight: 600;
+}
 
-        &.PropertyKeyInfo__text--ellipsis {
-            white-space: nowrap;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
+.PropertyKeyInfo__text {
+    &.PropertyKeyInfo__text--ellipsis {
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
     }
 }
 
-.PropertyKeyInfoLogo {
+.PropertyKeyInfo__logo {
     display: inline-block;
     height: 1rem;
     width: 1rem;
@@ -26,8 +30,12 @@
     flex-shrink: 0;
 }
 
-.PropertyKeyInfoTooltip,
-/* must join .ant-popover to override default width */
-.ant-popover.PropertyKeyInfoTooltip {
-    max-width: 300px;
+.PropertyKeyInfo__overlay {
+    padding: 0.25rem;
+    p {
+        margin-bottom: 0.25rem;
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
 }

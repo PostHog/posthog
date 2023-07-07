@@ -34,6 +34,7 @@
         outline: none;
         background: none;
         width: 100%;
+        align-self: stretch; // Improves selectability
         text-overflow: ellipsis;
 
         &:disabled {

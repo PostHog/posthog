@@ -1,16 +1,10 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Element, PostIngestionEvent } from '../../../types'
+import { PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
 import { EventPipelineRunner } from './runner'
 
-export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
-    await Promise.all([processOnEvent(runner, event), processWebhooks(runner, event, event.elementsList)])
-
-    return null
-}
-
-async function processOnEvent(runner: EventPipelineRunner, event: PostIngestionEvent) {
+export async function processOnEventStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
     const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
@@ -21,13 +15,12 @@ async function processOnEvent(runner: EventPipelineRunner, event: PostIngestionE
         timeoutMessage: `After 30 seconds still running onEvent`,
         teamId: event.teamId,
     })
+    return null
 }
 
-async function processWebhooks(
-    runner: EventPipelineRunner,
-    event: PostIngestionEvent,
-    elements: Element[] | undefined
-) {
+export async function processWebhooksStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
+    const elements = event.elementsList
     const actionMatches = await runner.hub.actionMatcher.match(event, elements)
     await runner.hub.hookCannon.findAndFireHooks(event, actionMatches)
+    return null
 }

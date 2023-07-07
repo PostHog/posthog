@@ -40,7 +40,7 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { InsightVizNode } from '~/queries/schema'
 import { groupsModel } from '~/models/groupsModel'
 
-const DEFAULT_DURATION = 14 // days
+export const DEFAULT_DURATION = 14 // days
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -487,12 +487,17 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentResults: [
             null as ExperimentResults['result'] | null,
             {
-                loadExperimentResults: async () => {
+                loadExperimentResults: async (refresh?: boolean) => {
                     try {
-                        const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
+                        const refreshParam = refresh ? '?refresh=true' : ''
+                        const response: ExperimentResults = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results${refreshParam}`
                         )
-                        return { ...response.result, fakeInsightId: Math.random().toString(36).substring(2, 15) }
+                        return {
+                            ...response.result,
+                            fakeInsightId: Math.random().toString(36).substring(2, 15),
+                            last_refresh: response.last_refresh,
+                        }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null

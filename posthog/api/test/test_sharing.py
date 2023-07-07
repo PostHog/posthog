@@ -7,7 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.sharing import shared_url_as_png
-from posthog.models import ExportedAsset
+from posthog.models import ExportedAsset, ActivityLog
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
@@ -98,6 +98,31 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
 
         assert response.json()["is_shared"]
+        assert ActivityLog.objects.count() == 0
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
+        assert ActivityLog.objects.count() == 0
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": True}
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert data["enabled"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": False}
+        )
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert data["enabled"] is False
+
+        assert [x.activity for x in list(ActivityLog.objects.order_by("created_at"))] == [
+            "sharing enabled",
+            "exported for opengraph image",
+            "sharing disabled",
+        ]
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_exports_image_when_sharing(self, patched_exporter_task: Mock):
