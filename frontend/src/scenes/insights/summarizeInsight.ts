@@ -294,7 +294,7 @@ function summarizeQuery(query: Node): string {
 
     if (isTimeToSeeDataSessionsNode(query)) {
         return `Time to see data in ${
-            query.source.sessionId ? `in session ${query.source.sessionId}` : 'in the current session'
+            query.source.sessionId ? `session ${query.source.sessionId}` : 'the current session'
         }`
     }
 
