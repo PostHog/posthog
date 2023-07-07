@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
+import { processWebhooksStep } from '../../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { convertToIngestionEvent } from '../../../../src/utils/event'
@@ -24,7 +25,7 @@ describe('Event Pipeline integration test', () => {
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
         return Promise.all([
             runner.runAppsOnEventPipeline(postIngestionEvent),
-            runner.runWebhooksEventPipeline(postIngestionEvent),
+            processWebhooksStep(runner.hub, postIngestionEvent),
         ])
     }
 

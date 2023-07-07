@@ -1,9 +1,7 @@
+import { processWebhooksStep } from '../../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
-import {
-    processOnEventStep,
-    processWebhooksStep,
-} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
@@ -50,7 +48,7 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('does action matching and fires webhooks', async () => {
-        await processWebhooksStep(runner, ingestionEvent)
+        await processWebhooksStep(runner.hub, ingestionEvent)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
         expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, ['action1', 'action2'])

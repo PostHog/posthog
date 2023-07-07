@@ -126,7 +126,7 @@ async function runWebhooks(hub: Hub, event: PostIngestionEvent) {
     }
 }
 
-async function processWebhooksStep(hub: Hub, event: PostIngestionEvent) {
+export async function processWebhooksStep(hub: Hub, event: PostIngestionEvent) {
     const elements = event.elementsList
     const actionMatches = await hub.actionMatcher.match(event, elements)
     await hub.hookCannon.findAndFireHooks(event, actionMatches)
