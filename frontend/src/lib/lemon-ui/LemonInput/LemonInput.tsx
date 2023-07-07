@@ -145,13 +145,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 status !== 'default' && `LemonInput--status-${status}`,
                 type && `LemonInput--type-${type}`,
                 size && `LemonInput--${size}`,
-                textProps.disabled && 'LemonInput--disabled',
                 fullWidth && 'LemonInput--full-width',
                 value && 'LemonInput--has-content',
                 !textProps.disabled && focused && 'LemonInput--focused',
                 transparentBackground && 'LemonInput--transparent-background',
                 className
             )}
+            aria-disabled={textProps.disabled}
             onKeyDown={(event) => {
                 if (onPressEnter && event.key === 'Enter') {
                     if (type === 'number') {
