@@ -6,6 +6,7 @@ from typing import Any, List, Type, cast
 import posthoganalytics
 from dateutil import parser
 import requests
+from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse, HttpResponse
 from loginas.utils import is_impersonated_session
@@ -213,7 +214,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
         posthoganalytics.capture(
-            str(cast(User, request.user).distinct_id), "v2 session recording snapshots viewed", event_properties
+            self._distinct_id_from_request(request), "v2 session recording snapshots viewed", event_properties
         )
 
         recording = self.get_object()
@@ -268,7 +269,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
             posthoganalytics.capture(
-                str(cast(User, request.user).distinct_id), "session recording snapshots v2 loaded", event_properties
+                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
             )
 
             response_data["snapshots"] = snapshots
@@ -287,7 +288,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             event_properties["source"] = "blob"
             event_properties["blob_key"] = blob_key
             posthoganalytics.capture(
-                str(cast(User, request.user).distinct_id), "session recording snapshots v2 loaded", event_properties
+                self._distinct_id_from_request(request), "session recording snapshots v2 loaded", event_properties
             )
 
             with requests.get(url=url, stream=True) as r:
@@ -318,7 +319,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
         posthoganalytics.capture(
-            str(cast(User, request.user).distinct_id), "v1 session recording snapshots viewed", event_properties
+            self._distinct_id_from_request(request), "v1 session recording snapshots viewed", event_properties
         )
 
         recording = self.get_object()
@@ -358,6 +359,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         }
 
         return snapshots_response(res)
+
+    @staticmethod
+    def _distinct_id_from_request(request):
+        if isinstance(request.user, AnonymousUser):
+            return request.GET.get("sharing_access_token") or "anonymous"
+        elif isinstance(request.user, User):
+            return str(request.user.distinct_id)
+        else:
+            return "anonymous"
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)
