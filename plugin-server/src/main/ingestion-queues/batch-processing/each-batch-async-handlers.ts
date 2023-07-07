@@ -1,8 +1,11 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
-import { RawClickHouseEvent } from '../../../types'
+import { Hub, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
+import { DependencyUnavailableError } from '../../../utils/db/error'
 import { convertToIngestionEvent } from '../../../utils/event'
+import { status } from '../../../utils/status'
 import { groupIntoBatches } from '../../../utils/utils'
+import { silentFailuresAsyncHandlers } from '../../../worker/ingestion/event-pipeline/runner'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
@@ -67,7 +70,7 @@ export async function eachMessageWebhooksHandlers(
     await runInstrumentedFunction({
         server: queue.pluginsServer,
         event: event,
-        func: () => queue.workerMethods.runWebhooksHandlersEventPipeline(event),
+        func: () => runWebhooks(queue.pluginsServer, event),
         statsKey: `kafka_queue.process_async_handlers_webhooks`,
         timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
         teamId: event.teamId,
@@ -86,4 +89,42 @@ export async function eachBatchWebhooksHandlers(
     queue: KafkaJSIngestionConsumer
 ): Promise<void> {
     await eachBatch(payload, queue, eachMessageWebhooksHandlers, groupIntoBatches, 'async_handlers_webhooks')
+}
+
+async function runWebhooks(hub: Hub, event: PostIngestionEvent) {
+    try {
+        hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
+        await processWebhooksStep(hub, event)
+        hub.statsd?.increment('kafka_queue.webhooks.processed')
+    } catch (error) {
+        hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: processWebhooksStep.name })
+
+        if (error instanceof DependencyUnavailableError) {
+            // If this is an error with a dependency that we control, we want to
+            // ensure that the caller knows that the event was not processed,
+            // for a reason that we control and that is transient.
+            status.error('Error processing webhooks', {
+                stack: error.stack,
+                eventUuid: event.eventUuid,
+                teamId: event.teamId,
+                error: error,
+            })
+            throw error
+        }
+
+        status.warn(`⚠️`, 'Error processing webhooks, silently moving on', {
+            stack: error.stack,
+            eventUuid: event.eventUuid,
+            teamId: event.teamId,
+            error: error,
+        })
+        silentFailuresAsyncHandlers.inc()
+    }
+}
+
+async function processWebhooksStep(hub: Hub, event: PostIngestionEvent) {
+    const elements = event.elementsList
+    const actionMatches = await hub.actionMatcher.match(event, elements)
+    await hub.hookCannon.findAndFireHooks(event, actionMatches)
+    return null
 }

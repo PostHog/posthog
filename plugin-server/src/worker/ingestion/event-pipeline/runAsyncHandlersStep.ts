@@ -17,10 +17,3 @@ export async function processOnEventStep(runner: EventPipelineRunner, event: Pos
     })
     return null
 }
-
-export async function processWebhooksStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
-    const elements = event.elementsList
-    const actionMatches = await runner.hub.actionMatcher.match(event, elements)
-    await runner.hub.hookCannon.findAndFireHooks(event, actionMatches)
-    return null
-}
