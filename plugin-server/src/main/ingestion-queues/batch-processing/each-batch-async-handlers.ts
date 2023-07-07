@@ -5,6 +5,7 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import { convertToIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { groupIntoBatches } from '../../../utils/utils'
+import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { silentFailuresAsyncHandlers } from '../../../worker/ingestion/event-pipeline/runner'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
@@ -124,11 +125,4 @@ async function runWebhooks(hub: Hub, event: PostIngestionEvent) {
         })
         silentFailuresAsyncHandlers.inc()
     }
-}
-
-export async function processWebhooksStep(hub: Hub, event: PostIngestionEvent) {
-    const elements = event.elementsList
-    const actionMatches = await hub.actionMatcher.match(event, elements)
-    await hub.hookCannon.findAndFireHooks(event, actionMatches)
-    return null
 }

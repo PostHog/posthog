@@ -1,7 +1,9 @@
-import { processWebhooksStep } from '../../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
-import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import {
+    processOnEventStep,
+    processWebhooksStep,
+} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
