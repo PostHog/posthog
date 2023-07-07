@@ -52,6 +52,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
@@ -993,23 +994,6 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
-        const psqlResult = await this.postgresQuery(
-            `
-            SELECT count(1) AS count
-            FROM posthog_cohortpeople
-            JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
-            JOIN (SELECT * FROM posthog_person where team_id = $3) AS posthog_person_in_team ON (posthog_cohortpeople.person_id = posthog_person_in_team.id)
-            WHERE cohort_id=$1
-              AND posthog_person_in_team.uuid=$2
-              AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
-            `,
-            [cohortId, personUuid, teamId],
-            'doesPersonBelongToCohort'
-        )
-        return psqlResult.rows[0].count > 0
-    }
-
     public async addPersonToCohort(
         cohortId: number,
         personId: Person['id'],
@@ -1300,12 +1284,7 @@ export class DB {
     // Organization
 
     public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        const selectResult = await this.postgresQuery<RawOrganization>(
-            `SELECT * FROM posthog_organization WHERE id = $1`,
-            [organizationId],
-            'fetchOrganization'
-        )
-        return selectResult.rows[0]
+        return await fetchOrganization(this.postgres, organizationId)
     }
 
     // Team

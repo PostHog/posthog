@@ -161,7 +161,7 @@ export async function createHub(
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(postgres, serverConfig, statsd)
-    const organizationManager = new OrganizationManager(db, teamManager)
+    const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const actionManager = new ActionManager(db, capabilities)
@@ -213,7 +213,7 @@ export async function createHub(
         rootAccessManager,
         promiseManager,
         actionManager,
-        actionMatcher: new ActionMatcher(db, actionManager, statsd),
+        actionMatcher: new ActionMatcher(postgres, actionManager, statsd),
         conversionBufferEnabledTeams,
     }
 

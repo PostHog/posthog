@@ -112,7 +112,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         labelClassName={inModal ? 'text-base font-semibold' : ''}
                         bordered={!inModal}
                         fullWidth={inModal}
-                        checked={currentTeam?.session_recording_version === 'v2'}
+                        checked={currentTeam?.session_recording_version !== 'v1'}
                     />
                     <p>
                         Turn this setting on to opt into{' '}
