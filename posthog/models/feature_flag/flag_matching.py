@@ -448,6 +448,10 @@ class FeatureFlagMatcher:
                         assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                         all_conditions = {**all_conditions, **group_query[0]}
                 return all_conditions
+        except ValueError as e:
+            # Usually when a user somehow manages to create an invalid filter, usually via API.
+            # In this case, don't put db down, just skip the flag.
+            raise e
         except Exception as e:
             self.failed_to_fetch_conditions = True
             raise e
