@@ -2448,7 +2448,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
 
-        matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  #  type: ignore
+        matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
 
         self.assertEqual(
             matcher.get_matches(),
