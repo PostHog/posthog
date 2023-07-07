@@ -166,29 +166,29 @@ RUN groupadd -g 1000 posthog && \
 USER posthog
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
+COPY --from=plugin-server-build --chown=posthog:posthog --link /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build --chown=posthog:posthog --link /code/plugin-server/node_modules /code/plugin-server/node_modules
+COPY --from=plugin-server-build --chown=posthog:posthog --link /code/plugin-server/package.json /code/plugin-server/package.json
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
-COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
-COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
+COPY --from=posthog-build --chown=posthog:posthog --link /code/staticfiles /code/staticfiles
+COPY --from=posthog-build --chown=posthog:posthog --link /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
 # Copy the frontend assets from the frontend-build stage.
 # TODO: this copy should not be necessary, we should remove it once we verify everything still works.
-COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+COPY --from=frontend-build --chown=posthog:posthog --link /code/frontend/dist /code/frontend/dist
 
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
-COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+COPY --from=fetch-geoip-db --chown=posthog:posthog --link /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
 # Add in the Gunicorn config, custom bin files and Django deps.
-COPY --chown=posthog:posthog gunicorn.config.py ./
-COPY --chown=posthog:posthog ./bin ./bin/
-COPY --chown=posthog:posthog manage.py manage.py
-COPY --chown=posthog:posthog posthog posthog/
-COPY --chown=posthog:posthog ee ee/
+COPY --chown=posthog:posthog --link gunicorn.config.py ./
+COPY --chown=posthog:posthog --link ./bin ./bin/
+COPY --chown=posthog:posthog --link manage.py manage.py
+COPY --chown=posthog:posthog --link posthog posthog/
+COPY --chown=posthog:posthog --link ee ee/
 
 # Setup ENV.
 ENV NODE_ENV=production \
