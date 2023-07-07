@@ -123,7 +123,7 @@ function SidebarSearchBar({
                 // Show a loading spinner when search term is being debounced or just loading data
                 prefix={
                     (localSearchTerm || searchTerm) && (localSearchTerm !== searchTerm || isLoading) ? (
-                        <Spinner monocolor />
+                        <Spinner textColored />
                     ) : null
                 }
                 placeholder="Search..."

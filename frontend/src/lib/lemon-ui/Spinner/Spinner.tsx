@@ -2,15 +2,15 @@ import clsx from 'clsx'
 import './Spinner.scss'
 
 export interface SpinnerProps {
-    monocolor?: boolean
+    textColored?: boolean
     className?: string
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
-export function Spinner({ monocolor = false, className }: SpinnerProps): JSX.Element {
+export function Spinner({ textColored = false, className }: SpinnerProps): JSX.Element {
     return (
         <svg
-            className={clsx('Spinner', monocolor && `Spinner--monocolor`, className)}
+            className={clsx('Spinner', textColored && `Spinner--textColored`, className)}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
         >

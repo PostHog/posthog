@@ -4,8 +4,8 @@
     height: 1em;
     flex-shrink: 0;
     --spinner-color: var(--brand-blue);
-    &.Spinner--monocolor {
-        --spinner-color: #fff;
+    &.Spinner--textColored {
+        --spinner-color: currentColor;
     }
 }
 
@@ -33,8 +33,8 @@
 @keyframes writhe {
     0%,
     100% {
-        stroke-dashoffset: -30;
-        stroke-dasharray: 50;
+        stroke-dashoffset: -60;
+        stroke-dasharray: 70;
     }
     50% {
         stroke-dashoffset: -30;
