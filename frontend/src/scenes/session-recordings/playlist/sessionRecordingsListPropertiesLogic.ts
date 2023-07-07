@@ -6,7 +6,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { dayjs } from 'lib/dayjs'
-import { hogql } from '~/queries/utils'
 
 // This logic is used to fetch properties for a list of recordings
 // It is used in a global way as the cached values can be re-used
@@ -29,27 +28,29 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     await breakpoint(100)
 
                     const startTime = performance.now()
-                    const sessionIds = sessions.map((x) => x.id)
+                    const sessionIds = sessions.map((x) => `'${x.id}'`).join(',')
 
                     const oldestTimestamp = sessions.map((x) => x.start_time).sort()[0]
                     const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
 
-                    const query: HogQLQuery = {
+                    const hogql: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$session_id as session_id, any(properties) as properties
+                        query: `SELECT properties.$session_id as session_id, any(properties) as properties
                                 FROM events
                                 WHERE event IN ['$pageview', '$autocapture']
-                                AND session_id IN ${sessionIds}
+                                AND session_id IN [${sessionIds}]
                                 -- the timestamp range here is only to avoid querying too much of the events table
                                 -- we don't really care about the absolute value, 
                                 -- but we do care about whether timezones have an odd impact
                                 -- so, we extend the range by a day on each side so that timezones don't cause issues
-                                AND timestamp >= '${dayjs(oldestTimestamp).subtract(1, 'day')}'
-                                AND timestamp <= '${dayjs(newestTimestamp).add(1, 'day')}'
+                                AND timestamp >= '${dayjs(oldestTimestamp)
+                                    .subtract(1, 'day')
+                                    .format('YYYY-MM-DD HH:mm:ss')}'
+                                AND timestamp <= '${dayjs(newestTimestamp).add(1, 'day').format('YYYY-MM-DD HH:mm:ss')}'
                                 GROUP BY session_id`,
                     }
 
-                    const response = await api.query(query)
+                    const response = await api.query(hogql)
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
