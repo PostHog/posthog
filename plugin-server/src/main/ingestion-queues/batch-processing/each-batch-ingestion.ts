@@ -73,7 +73,63 @@ export async function eachBatchParallelIngestion(
         })
         prepareSpan.finish()
 
+        async function fallbackToDlq(error: any, message: Message, pluginEvent: PipelineEvent) {
+            status.error('🔥', `Error processing message`, {
+                stack: error.stack,
+                error: error,
+            })
+
+            // If there error is a non-retriable error, push
+            // to the dlq and commit the offset. Else raise the
+            // error.
+            //
+            // NOTE: there is behavior to push to a DLQ at the
+            // moment within EventPipelineRunner. This doesn't work
+            // so well with e.g. messages that when sent to the DLQ
+            // is it's self too large. Here we explicitly do _not_
+            // add any additional metadata to the message. We might
+            // want to add some metadata to the message e.g. in the
+            // header or reference e.g. the sentry event id.
+            //
+            // TODO: property abstract out this `isRetriable` error
+            // logic. This is currently relying on the fact that
+            // node-rdkafka adheres to the `isRetriable` interface.
+            if (error?.isRetriable === false) {
+                const sentryEventId = Sentry.captureException(error)
+                const headers: MessageHeader[] = message.headers ?? []
+                headers.push({ ['sentry-event-id']: sentryEventId })
+                headers.push({ ['event-id']: pluginEvent.uuid })
+                try {
+                    await queue.pluginsServer.kafkaProducer.produce({
+                        topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+                        value: message.value,
+                        key: message.key,
+                        headers: headers,
+                        waitForAck: true,
+                    })
+                } catch (error) {
+                    // If we can't send to the DLQ and it's not
+                    // retriable, just continue. We'll commit the
+                    // offset and move on.
+                    if (error?.isRetriable === false) {
+                        status.error('🔥', `Error pushing to DLQ`, {
+                            stack: error.stack,
+                            error: error,
+                        })
+                        return Promise.resolve()
+                    }
+
+                    // If we can't send to the DLQ and it is
+                    // retriable, raise the error.
+                    throw error
+                }
+            } else {
+                throw error
+            }
+        }
+
         const processingPromises: Array<Promise<void>> = []
+
         async function processMicroBatches(
             batches: { message: Message; pluginEvent: PipelineEvent }[][]
         ): Promise<void> {
@@ -98,65 +154,11 @@ export async function eachBatchParallelIngestion(
 
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
-                    try {
-                        const result = await eachMessage(pluginEvent, queue)
-                        if (result.promises) {
-                            processingPromises.push(...result.promises)
-                        }
-                    } catch (error) {
-                        status.error('🔥', `Error processing message`, {
-                            stack: error.stack,
-                            error: error,
-                        })
-
-                        // If there error is a non-retriable error, push
-                        // to the dlq and commit the offset. Else raise the
-                        // error.
-                        //
-                        // NOTE: there is behavior to push to a DLQ at the
-                        // moment within EventPipelineRunner. This doesn't work
-                        // so well with e.g. messages that when sent to the DLQ
-                        // is it's self too large. Here we explicitly do _not_
-                        // add any additional metadata to the message. We might
-                        // want to add some metadata to the message e.g. in the
-                        // header or reference e.g. the sentry event id.
-                        //
-                        // TODO: property abstract out this `isRetriable` error
-                        // logic. This is currently relying on the fact that
-                        // node-rdkafka adheres to the `isRetriable` interface.
-                        if (error?.isRetriable === false) {
-                            const sentryEventId = Sentry.captureException(error)
-                            const headers: MessageHeader[] = message.headers ?? []
-                            headers.push({ ['sentry-event-id']: sentryEventId })
-                            headers.push({ ['event-id']: pluginEvent.uuid })
-                            try {
-                                await queue.pluginsServer.kafkaProducer.produce({
-                                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-                                    value: message.value,
-                                    key: message.key,
-                                    headers: headers,
-                                    waitForAck: true,
-                                })
-                            } catch (error) {
-                                // If we can't send to the DLQ and it's not
-                                // retriable, just continue. We'll commit the
-                                // offset and move on.
-                                if (error?.isRetriable === false) {
-                                    status.error('🔥', `Error pushing to DLQ`, {
-                                        stack: error.stack,
-                                        error: error,
-                                    })
-                                    continue
-                                }
-
-                                // If we can't send to the DLQ and it is
-                                // retriable, raise the error.
-                                throw error
-                            }
-                        } else {
-                            throw error
-                        }
-                    }
+                    const dlqFallback = (error: any) => fallbackToDlq(error, message, pluginEvent)
+                    const result = await eachMessage(pluginEvent, queue).catch(dlqFallback)
+                    result?.promises?.forEach((promise) => {
+                        processingPromises.push(promise.catch(dlqFallback))
+                    })
                 }
 
                 processedBatches++
