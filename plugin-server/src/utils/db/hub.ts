@@ -213,7 +213,7 @@ export async function createHub(
         rootAccessManager,
         promiseManager,
         actionManager,
-        actionMatcher: new ActionMatcher(db, actionManager, statsd),
+        actionMatcher: new ActionMatcher(postgres, actionManager, statsd),
         conversionBufferEnabledTeams,
     }
 
