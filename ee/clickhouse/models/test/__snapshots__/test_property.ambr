@@ -132,7 +132,7 @@
 ---
 # name: test_parse_prop_clauses_funnel_step_element_prepend_regression
   <class 'tuple'> (
-    'AND ( ((match(elements_chain, %(PREPEND__text_0_attributes_regex)s))))',
+    'AND ( (match(elements_chain, %(PREPEND__text_0_attributes_regex)s)))',
     <class 'dict'> {
       'PREPEND__text_0_attributes_regex': '(text="Insights1")',
     },
@@ -142,11 +142,12 @@
   <class 'tuple'> (
     '
       AND ( pdi.person_id IN (
-      SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(global_cohort_id_0)s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
+      SELECT DISTINCT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(global_cohort_id_0)s AND version = %(global_version_0)s
       ))
     ',
     <class 'dict'> {
-      'global_cohort_id_0': 26,
+      'global_cohort_id_0': 45,
+      'global_version_0': None,
     },
   )
 ---

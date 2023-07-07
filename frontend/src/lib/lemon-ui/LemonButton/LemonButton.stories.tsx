@@ -7,12 +7,12 @@ import {
     LemonButtonWithSideAction,
 } from './LemonButton'
 import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
-import { More, MoreProps } from './More'
+import { More } from './More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
-import { AlertMessage } from '../AlertMessage'
+import { LemonBanner } from '../LemonBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import clsx from 'clsx'
 
@@ -73,10 +73,6 @@ TypesAndStatuses.args = {}
 
 const PopoverTemplate: ComponentStory<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
     return <LemonButtonWithDropdown {...props} />
-}
-
-const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
-    return <More {...props} />
 }
 
 export const NoPadding = (): JSX.Element => {
@@ -238,12 +234,12 @@ export const WithSideAction = (): JSX.Element => {
 export const AsLinks = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <AlertMessage type="info">
+            <LemonBanner type="info">
                 <b>Reminder</b> - if you just want a link, use the{' '}
                 <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
                     Link component
                 </Link>
-            </AlertMessage>
+            </LemonBanner>
 
             <p>
                 Buttons can act as links via the <b>to</b> prop. If this is an internal endpoint it will be routed
@@ -334,20 +330,23 @@ WithTooltip.args = {
     tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
 }
 
-export const More_ = MoreTemplate.bind({})
-More_.args = {
-    overlay: (
-        <>
-            <LemonButton status="stealth" fullWidth>
-                View
-            </LemonButton>
-            <LemonButton status="stealth" fullWidth>
-                Edit
-            </LemonButton>
-            <LemonDivider />
-            <LemonButton status="danger" fullWidth>
-                Delete
-            </LemonButton>
-        </>
-    ),
+export const More_ = (): JSX.Element => {
+    return (
+        <More
+            overlay={
+                <>
+                    <LemonButton status="stealth" fullWidth>
+                        View
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Edit
+                    </LemonButton>
+                    <LemonDivider />
+                    <LemonButton status="danger" fullWidth>
+                        Delete
+                    </LemonButton>
+                </>
+            }
+        />
+    )
 }

@@ -5,6 +5,7 @@ from typing import List, Optional, Union
 from django.utils.timezone import now
 
 from posthog.client import sync_execute
+from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import GroupTypeIndex
@@ -21,15 +22,15 @@ class RelatedActorsQuery:
     Two actors are considered related if they have had shared events in the past 90 days.
     """
 
-    def __init__(self, team_id: int, group_type_index: Optional[Union[GroupTypeIndex, str]], id: str):
-        self.team_id = team_id
+    def __init__(self, team: Team, group_type_index: Optional[Union[GroupTypeIndex, str]], id: str):
+        self.team = team
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.id = id
 
     def run(self) -> List[SerializedActor]:
         results: List[SerializedActor] = []
         results.extend(self._query_related_people())
-        for group_type_mapping in GroupTypeMapping.objects.filter(team_id=self.team_id):
+        for group_type_mapping in GroupTypeMapping.objects.filter(team_id=self.team.pk):
             results.extend(self._query_related_groups(group_type_mapping.group_type_index))
         return results
 
@@ -57,7 +58,7 @@ class RelatedActorsQuery:
             )
         )
 
-        _, serialized_people = get_people(self.team_id, person_ids)
+        _, serialized_people = get_people(self.team, person_ids)
         return serialized_people
 
     def _query_related_groups(self, group_type_index: GroupTypeIndex) -> List[SerializedGroup]:
@@ -87,7 +88,7 @@ class RelatedActorsQuery:
             )
         )
 
-        _, serialize_groups = get_groups(self.team_id, group_type_index, group_ids)
+        _, serialize_groups = get_groups(self.team.pk, group_type_index, group_ids)
         return serialize_groups
 
     def _take_first(self, rows: List) -> List:
@@ -102,12 +103,12 @@ class RelatedActorsQuery:
 
     @property
     def _distinct_ids_join(self):
-        return f"JOIN ({get_team_distinct_ids_query(self.team_id)}) {self.DISTINCT_ID_TABLE_ALIAS} on e.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id"
+        return f"JOIN ({get_team_distinct_ids_query(self.team.pk)}) {self.DISTINCT_ID_TABLE_ALIAS} on e.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id"
 
     @cached_property
     def _params(self):
         return {
-            "team_id": self.team_id,
+            "team_id": self.team.pk,
             "id": self.id,
             "after": (now() - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%S.%f"),
             "before": now().strftime("%Y-%m-%dT%H:%M:%S.%f"),

@@ -131,3 +131,7 @@ class PropertyMixin(BaseParamMixin):
             filter_by_type |= set(prop.type for prop in entity.property_groups.flat)
 
         return {"filter_by_type": list(filter_by_type)}
+
+    @cached_property
+    def has_hogql_property(self):
+        return any(prop.type == "hogql" for prop in self.property_groups.flat)

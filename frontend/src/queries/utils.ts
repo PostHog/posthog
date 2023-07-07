@@ -15,7 +15,6 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
-    LegacyQuery,
     Node,
     NodeKind,
     PersonsNode,
@@ -24,79 +23,117 @@ import {
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
     InsightNodeKind,
+    TimeToSeeDataWaterfallNode,
+    TimeToSeeDataJSONNode,
+    DatabaseSchemaQuery,
+    SavedInsightNode,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
-export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
 }
 
-export function isEventsNode(node?: Node): node is EventsNode {
+function isTimeToSeeDataJSONNode(node?: Node | null): node is TimeToSeeDataJSONNode {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsJSONNode
+}
+
+function isTimeToSeeDataWaterfallNode(node?: Node | null): node is TimeToSeeDataWaterfallNode {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsWaterfallNode
+}
+
+export function isNodeWithSource(
+    node?: Node | null
+): node is DataTableNode | InsightVizNode | TimeToSeeDataWaterfallNode | TimeToSeeDataJSONNode {
+    if (!node) {
+        return false
+    }
+
+    return (
+        isDataTableNode(node) ||
+        isInsightVizNode(node) ||
+        isTimeToSeeDataWaterfallNode(node) ||
+        isTimeToSeeDataJSONNode(node)
+    )
+}
+
+export function isEventsNode(node?: Node | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
 }
 
-export function isEventsQuery(node?: Node): node is EventsQuery {
+export function isEventsQuery(node?: Node | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
 }
 
-export function isActionsNode(node?: Node): node is ActionsNode {
+export function isActionsNode(node?: Node | null): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
-export function isPersonsNode(node?: Node): node is PersonsNode {
+export function isPersonsNode(node?: Node | null): node is PersonsNode {
     return node?.kind === NodeKind.PersonsNode
 }
 
-export function isDataTableNode(node?: Node): node is DataTableNode {
+export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
 }
 
-export function isInsightVizNode(node?: Node): node is InsightVizNode {
+export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {
+    return node?.kind === NodeKind.SavedInsightNode
+}
+
+export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
     return node?.kind === NodeKind.InsightVizNode
 }
 
-export function isLegacyQuery(node?: Node): node is LegacyQuery {
-    return node?.kind === NodeKind.LegacyQuery
+export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
+    return node?.kind === NodeKind.HogQLQuery
 }
 
-export function isHogQLQuery(node?: Node): node is HogQLQuery {
-    return node?.kind === NodeKind.HogQLQuery
+export function containsHogQLQuery(node?: Node | null): boolean {
+    if (!node) {
+        return false
+    }
+    return isHogQLQuery(node) || (isNodeWithSource(node) && isHogQLQuery(node.source))
 }
 
 /*
  * Insight Queries
  */
 
-export function isTrendsQuery(node?: Node): node is TrendsQuery {
+export function isTrendsQuery(node?: Node | null): node is TrendsQuery {
     return node?.kind === NodeKind.TrendsQuery
 }
 
-export function isFunnelsQuery(node?: Node): node is FunnelsQuery {
+export function isFunnelsQuery(node?: Node | null): node is FunnelsQuery {
     return node?.kind === NodeKind.FunnelsQuery
 }
 
-export function isRetentionQuery(node?: Node): node is RetentionQuery {
+export function isRetentionQuery(node?: Node | null): node is RetentionQuery {
     return node?.kind === NodeKind.RetentionQuery
 }
 
-export function isPathsQuery(node?: Node): node is PathsQuery {
+export function isPathsQuery(node?: Node | null): node is PathsQuery {
     return node?.kind === NodeKind.PathsQuery
 }
 
-export function isStickinessQuery(node?: Node): node is StickinessQuery {
+export function isStickinessQuery(node?: Node | null): node is StickinessQuery {
     return node?.kind === NodeKind.StickinessQuery
 }
 
-export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
+export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Node): node is TrendsQuery | StickinessQuery {
+export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(node?: Node | null): node is TrendsQuery | FunnelsQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node)
+}
+
+export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
+    return node?.kind === NodeKind.DatabaseSchemaQuery
 }
 
 export function isInsightQueryWithSeries(
@@ -105,7 +142,7 @@ export function isInsightQueryWithSeries(
     return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
 }
 
-export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
+export function isInsightQueryNode(node?: Node | null): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
         isFunnelsQuery(node) ||
@@ -116,22 +153,22 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     )
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
+export function isTimeToSeeDataSessionsQuery(node?: Node | null): node is TimeToSeeDataSessionsQuery {
     return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
 }
 
-export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
+export function isTimeToSeeDataQuery(node?: Node | null): node is TimeToSeeDataQuery {
     return node?.kind === NodeKind.TimeToSeeDataQuery
 }
 
-export function isTimeToSeeDataSessionsNode(node?: Node): node is TimeToSeeDataNode {
+export function isTimeToSeeDataSessionsNode(node?: Node | null): node is TimeToSeeDataNode {
     return (
         !!node?.kind &&
         [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
     )
 }
 
-export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
+export function isRecentPerformancePageViewNode(node?: Node | null): node is RecentPerformancePageViewNode {
     return node?.kind === NodeKind.RecentPerformancePageViewNode
 }
 
@@ -147,11 +184,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined // convert from number of days to date range
     } else if (isTimeToSeeDataSessionsQuery(node)) {
         return node.dateRange
-    } else if (isLegacyQuery(node)) {
-        return {
-            date_from: node.filters?.date_from,
-            date_to: node.filters?.date_to,
-        }
     } else if (isActionsNode(node)) {
         return undefined
     } else if (isEventsNode(node)) {
@@ -185,36 +217,49 @@ export function filterForQuery(node: InsightQueryNode): InsightFilter | undefine
     return node[filterProperty]
 }
 
+export function isQuoted(identifier: string): boolean {
+    return (
+        (identifier.startsWith('"') && identifier.endsWith('"')) ||
+        (identifier.startsWith('`') && identifier.endsWith('`'))
+    )
+}
+
+export function trimQuotes(identifier: string): string {
+    if (isQuoted(identifier)) {
+        return identifier.slice(1, -1)
+    }
+    return identifier
+}
+
+/** Make sure the property key is wrapped in quotes if it contains any special characters. */
+export function escapePropertyAsHogQlIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        // Same regex as in the backend escape_hogql_identifier
+        return identifier // This identifier is simple
+    }
+    if (isQuoted(identifier)) {
+        return identifier // This identifier is already quoted
+    }
+    return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+}
+
 export function taxonomicFilterToHogQl(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties.${value}`
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties.${value}`
+        return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties.${value}`
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
     return null
-}
-
-export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType, TaxonomicFilterValue] {
-    if (hogQl.startsWith('person.properties.')) {
-        return [TaxonomicFilterGroupType.PersonProperties, hogQl.substring(18)]
-    }
-    if (hogQl.startsWith('properties.$feature/')) {
-        return [TaxonomicFilterGroupType.EventFeatureFlags, hogQl.substring(11)]
-    }
-    if (hogQl.startsWith('properties.')) {
-        return [TaxonomicFilterGroupType.EventProperties, hogQl.substring(11)]
-    }
-    return [TaxonomicFilterGroupType.HogQLExpression, hogQl]
 }
 
 export function isHogQlAggregation(hogQl: string): boolean {

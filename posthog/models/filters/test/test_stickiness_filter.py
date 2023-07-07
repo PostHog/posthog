@@ -12,6 +12,7 @@ class TestStickinessFilter(BaseTest):
                 "date_to": "2020-02-01T20:00:00Z",
                 "events": [{"id": "$pageview", "custom_name": "Custom event"}],
                 "compare": True,
+                "sampling_factor": 0.1,
             },
             team=self.team,
             get_earliest_timestamp=get_earliest_timestamp,
@@ -30,6 +31,7 @@ class TestStickinessFilter(BaseTest):
                         "name": "$pageview",
                         "custom_name": "Custom event",
                         "math": None,
+                        "math_hogql": None,
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": {},
@@ -37,5 +39,6 @@ class TestStickinessFilter(BaseTest):
                 ],
                 "insight": "TRENDS",
                 "interval": "month",
+                "sampling_factor": 0.1,
             },
         )

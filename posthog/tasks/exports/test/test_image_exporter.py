@@ -15,7 +15,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import image_exporter
 from posthog.test.base import APIBaseTest
 
-TEST_BUCKET = "Test-Exports"
+TEST_PREFIX = "Test-Exports"
 
 
 @patch("posthog.tasks.exports.image_exporter.synchronously_update_cache")
@@ -42,7 +42,7 @@ class TestImageExporter(APIBaseTest):
             region_name="us-east-1",
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+        bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
     def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
@@ -59,7 +59,7 @@ class TestImageExporter(APIBaseTest):
 
             assert (
                 self.exported_asset.content_location
-                == f"/{TEST_BUCKET}/png/team-{self.team.id}/task-{self.exported_asset.id}/a-guid"
+                == f"{TEST_PREFIX}/png/team-{self.team.id}/task-{self.exported_asset.id}/a-guid"
             )
 
             content = object_storage.read_bytes(self.exported_asset.content_location)

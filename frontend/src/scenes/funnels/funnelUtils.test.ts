@@ -4,8 +4,17 @@ import {
     getIncompleteConversionWindowStartDate,
     getMeanAndStandardDeviation,
     getClampedStepRangeFilter,
+    getVisibilityKey,
+    parseDisplayNameForCorrelation,
 } from './funnelUtils'
-import { FilterType, FunnelConversionWindowTimeUnit, FunnelStepRangeEntityFilter } from '~/types'
+import {
+    FilterType,
+    FunnelConversionWindowTimeUnit,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelStepRangeEntityFilter,
+} from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('getMeanAndStandardDeviation', () => {
@@ -108,6 +117,17 @@ describe('getBreakdownStepValues()', () => {
     })
 })
 
+describe('getVisibilityKey()', () => {
+    it('returns string representation for breakdown', () => {
+        expect(getVisibilityKey(undefined)).toEqual('(empty string)')
+        expect(getVisibilityKey(null)).toEqual('(empty string)')
+        expect(getVisibilityKey('a')).toEqual('a')
+        expect(getVisibilityKey(['a', 'b'])).toEqual('a::b')
+        expect(getVisibilityKey(1)).toEqual('1')
+        expect(getVisibilityKey([1, 2])).toEqual('1::2')
+    })
+})
+
 describe('getIncompleteConversionWindowStartDate()', () => {
     const windows = [
         {
@@ -205,6 +225,95 @@ describe('getClampedStepRangeFilter', () => {
         expect(clampedStepRange).toEqual({
             funnel_from_step: undefined,
             funnel_to_step: undefined,
+        })
+    })
+})
+
+describe('parseEventAndProperty', () => {
+    const basicFunnelRecord: FunnelCorrelation = {
+        event: { event: '$pageview::bzzz', properties: {}, elements: [] },
+        odds_ratio: 1,
+        correlation_type: FunnelCorrelationType.Success,
+        success_count: 1,
+        failure_count: 1,
+        success_people_url: '/some/people/url',
+        failure_people_url: '/some/people/url',
+        result_type: FunnelCorrelationResultsType.Events,
+    }
+    it('chooses the correct name based on Event type', async () => {
+        const result = parseDisplayNameForCorrelation(basicFunnelRecord)
+        expect(result).toEqual({
+            first_value: '$pageview::bzzz',
+            second_value: undefined,
+        })
+    })
+
+    it('chooses the correct name based on Property type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.Properties,
+        })
+        expect(result).toEqual({
+            first_value: '$pageview',
+            second_value: 'bzzz',
+        })
+    })
+
+    it('chooses the correct name based on EventWithProperty type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.EventWithProperties,
+            event: {
+                event: '$pageview::library::1.2',
+                properties: { random: 'x' },
+                elements: [],
+            },
+        })
+        expect(result).toEqual({
+            first_value: 'library',
+            second_value: '1.2',
+        })
+    })
+
+    it('handles autocapture events on EventWithProperty type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.EventWithProperties,
+            event: {
+                event: '$autocapture::elements_chain::xyz_elements_a.link*',
+                properties: { $event_type: 'click' },
+                elements: [
+                    {
+                        tag_name: 'a',
+                        href: '#',
+                        attributes: { blah: 'https://example.com' },
+                        nth_child: 0,
+                        nth_of_type: 0,
+                        order: 0,
+                        text: 'bazinga',
+                    },
+                ],
+            },
+        })
+        expect(result).toEqual({
+            first_value: 'clicked link with text "bazinga"',
+            second_value: undefined,
+        })
+    })
+
+    it('handles autocapture events without elements_chain on EventWithProperty type', async () => {
+        const result = parseDisplayNameForCorrelation({
+            ...basicFunnelRecord,
+            result_type: FunnelCorrelationResultsType.EventWithProperties,
+            event: {
+                event: '$autocapture::library::1.2',
+                properties: { random: 'x' },
+                elements: [],
+            },
+        })
+        expect(result).toEqual({
+            first_value: 'library',
+            second_value: '1.2',
         })
     })
 })

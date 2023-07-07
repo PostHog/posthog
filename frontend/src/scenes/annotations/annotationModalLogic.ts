@@ -1,11 +1,18 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { AnnotationScope, AnnotationType, InsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, InsightModel, ProductKey } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs, Dayjs } from 'lib/dayjs'
-import { annotationsModel } from '~/models/annotationsModel'
+import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
 import type { annotationModalLogicType } from './annotationModalLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from '@posthog/apps-common'
+import { Scene } from 'scenes/sceneTypes'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -33,13 +40,23 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
     connect({
         actions: [
             annotationsModel,
-            ['loadAnnotationsNext', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
+            [
+                'loadAnnotationsNext',
+                'loadAnnotationsSuccess',
+                'replaceAnnotation',
+                'appendAnnotations',
+                'deleteAnnotation',
+            ],
         ],
         values: [
             annotationsModel,
             ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
             teamLogic,
             ['timezone'],
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     }),
     actions({
@@ -77,7 +94,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ cache, actions, values }) => ({
         openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
@@ -94,6 +111,33 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
             }
         },
+        loadAnnotationsSuccess: ({ rawAnnotations }) => {
+            if (!values.isModalOpen && cache.annotationToShowId) {
+                const annotation = rawAnnotations.find((a) => a.id === cache.annotationToShowId)
+                if (!annotation) {
+                    return // If the annotation isn't there by now, then we're lost
+                }
+                actions.openModalToEditAnnotation(deserializeAnnotation(annotation, teamLogic.values.timezone))
+                delete cache.annotationToShowId
+            }
+        },
+    })),
+    selectors(({}) => ({
+        shouldShowEmptyState: [
+            (s) => [s.annotations, s.annotationsLoading],
+            (annotations, annotationsLoading): boolean => {
+                return annotations.length === 0 && !annotationsLoading
+            },
+        ],
+        shouldShowProductIntroduction: [
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): boolean => {
+                return (
+                    !user?.has_seen_product_intro_for?.[ProductKey.ANNOTATIONS] &&
+                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
+                )
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         annotationModal: {
@@ -104,7 +148,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 dashboardItemId: null,
             } as AnnotationModalForm,
             errors: ({ content }) => ({
-                content: !content.trim() ? 'An annotation must have text content.' : null,
+                content: !content?.trim() ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
                 const { dateMarker, content, scope, dashboardItemId } = data
@@ -130,5 +174,18 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 actions.closeModal()
             },
         },
+    })),
+    urlToAction(({ values, actions, cache }) => ({
+        '/annotations/:id': ({ id }) => {
+            cache.annotationToShowId = parseInt(id as string)
+            const annotation = values.annotations.find((a) => a.id === cache.annotationToShowId)
+            if (!annotation) {
+                return // This means there are no annotations yet, so we'll open the modal in loadAnnotationsSuccess
+            }
+            actions.openModalToEditAnnotation(annotation)
+        },
+    })),
+    actionToUrl(() => ({
+        closeModal: () => (sceneLogic.values.scene === Scene.Annotations ? urls.annotations() : undefined),
     })),
 ])

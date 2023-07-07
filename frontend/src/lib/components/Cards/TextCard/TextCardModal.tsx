@@ -63,7 +63,7 @@ export function TextCardModal({
         >
             <Form
                 logic={textCardModalLogic}
-                props={{ dashboard: dashboard, textTileId: textTileId }}
+                props={{ dashboard, textTileId }}
                 formKey={'textTile'}
                 id="text-tile-form"
                 className=""

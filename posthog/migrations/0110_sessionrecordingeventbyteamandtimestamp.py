@@ -14,5 +14,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_ses_team_id_0409c4_idx ON posthog_sessionrecordingevent(team_id, timestamp);",
             reverse_sql='DROP INDEX "posthog_ses_team_id_0409c4_idx";',
+            elidable=True,  # This table no longer exists
         )
     ]

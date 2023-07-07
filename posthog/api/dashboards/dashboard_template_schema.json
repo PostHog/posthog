@@ -12,7 +12,7 @@
         },
         "team_id": {
             "description": "The team this dashboard template belongs to",
-            "type": "number"
+            "type": ["number", "null"]
         },
         "created_at": {
             "description": "When the dashboard template was created",

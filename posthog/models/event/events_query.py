@@ -1,53 +1,67 @@
 import json
 from datetime import timedelta
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from dateutil.parser import isoparse
+from django.db.models import Prefetch
 from django.utils.timezone import now
 
 from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Action, Person, Team
 from posthog.models.element import chain_to_elements
+from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
-QUERY_DEFAULT_LIMIT = 100
-QUERY_DEFAULT_EXPORT_LIMIT = 3_500
-QUERY_MAXIMUM_LIMIT = 100_000
+# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
+SELECT_STAR_FROM_EVENTS_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+]
 
 
 def run_events_query(
     team: Team,
     query: EventsQuery,
+    default_limit: Optional[int] = None,
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
-    # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
 
     # limit & offset
     # adding +1 to the limit to check if there's a "next page" after the requested results
-    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
+    from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+
+    limit = (
+        min(MAX_SELECT_RETURNED_ROWS, default_limit or DEFAULT_RETURNED_ROWS if query.limit is None else query.limit)
+        + 1
+    )
     offset = 0 if query.offset is None else query.offset
 
     # columns & group_by
     select_input_raw = ["*"] if len(query.select) == 0 else query.select
     select_input: List[str] = []
-    for col in select_input_raw:
+    person_indices: List[int] = []
+    for index, col in enumerate(select_input_raw):
         # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
         # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
         if col == "*":
             select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
-        elif col == "person":
-            # Select just enough person fields to show the name/email in the UI. Put it back into a dict later.
-            select_input.append(
-                "tuple(distinct_id, person_id, person.created_at, person.properties.name, person.properties.email)"
-            )
+        elif col.split("--")[0].strip() == "person":
+            # This will be expanded into a followup query
+            select_input.append("distinct_id")
+            person_indices.append(index)
         else:
             select_input.append(col)
 
@@ -60,9 +74,9 @@ def run_events_query(
     where_input = query.where or []
     where_exprs = [parse_expr(expr) for expr in where_input]
     if query.properties:
-        where_exprs.extend(property_to_expr(property) for property in query.properties)
+        where_exprs.extend(property_to_expr(property, team) for property in query.properties)
     if query.fixedProperties:
-        where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
+        where_exprs.extend(property_to_expr(property, team) for property in query.fixedProperties)
     if query.event:
         where_exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=query.event)}))
     if query.actionId:
@@ -82,18 +96,19 @@ def run_events_query(
     # prevent accidentally future events from being visible by default
     before = query.before or (now() + timedelta(seconds=5)).isoformat()
     try:
-        timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
+        parsed_date = isoparse(before)
     except ValueError:
-        timestamp = relative_date_parse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
-    where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
+        parsed_date = relative_date_parse(before)
+    where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # limit to the last 24h by default
     after = query.after or "-24h"
-    try:
-        timestamp = isoparse(after).strftime("%Y-%m-%d %H:%M:%S.%f")
-    except ValueError:
-        timestamp = relative_date_parse(after).strftime("%Y-%m-%d %H:%M:%S.%f")
-    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
+    if after != "all":
+        try:
+            parsed_date = isoparse(after)
+        except ValueError:
+            parsed_date = relative_date_parse(after)
+        where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=parsed_date)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
@@ -126,7 +141,7 @@ def run_events_query(
         offset=ast.Constant(value=offset),
     )
 
-    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.OFFLINE, query_type="EventsQuery")
+    query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.ONLINE, query_type="EventsQuery")
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input_raw:
@@ -140,29 +155,37 @@ def run_events_query(
                 new_result["elements"] = ElementSerializer(
                     chain_to_elements(new_result["elements_chain"]), many=True
                 ).data
-            new_result["person"] = {
-                "id": new_result["person_id"],
-                "created_at": new_result["person.created_at"],
-                "properties": json.loads(new_result["person.properties"]),
-                "distinct_ids": [new_result["distinct_id"]],
-            }
-            del new_result["person_id"]
-            del new_result["person.created_at"]
-            del new_result["person.properties"]
             query_result.results[index][star_idx] = new_result
 
-    # Convert person field from tuple to dict in each result
-    if "person" in select_input_raw:
-        person_idx = select_input_raw.index("person")
-        for index, result in enumerate(query_result.results):
-            person_tuple: Tuple = result[person_idx]
-            query_result.results[index] = list(result)
-            query_result.results[index][person_idx] = {
-                "id": person_tuple[1],
-                "created_at": person_tuple[2],
-                "properties": {"name": person_tuple[3], "email": person_tuple[4]},
-                "distinct_ids": [person_tuple[0]],
-            }
+    if len(person_indices) > 0 and len(query_result.results) > 0:
+        # Make a query into postgres to fetch person
+        person_idx = person_indices[0]
+        distinct_ids = list(set(event[person_idx] for event in query_result.results))
+        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
+        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        distinct_to_person: Dict[str, Person] = {}
+        for person in persons:
+            if person:
+                for person_distinct_id in person.distinct_ids:
+                    distinct_to_person[person_distinct_id] = person
+
+        # Loop over all columns in case there is more than one "person" column
+        for column_index in person_indices:
+            for index, result in enumerate(query_result.results):
+                distinct_id: str = result[column_index]
+                query_result.results[index] = list(result)
+                if distinct_to_person.get(distinct_id):
+                    person = distinct_to_person[distinct_id]
+                    query_result.results[index][column_index] = {
+                        "uuid": person.uuid,
+                        "created_at": person.created_at,
+                        "properties": person.properties or {},
+                        "distinct_id": distinct_id,
+                    }
+                else:
+                    query_result.results[index][column_index] = {
+                        "distinct_id": distinct_id,
+                    }
 
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(

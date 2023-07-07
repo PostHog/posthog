@@ -1,8 +1,8 @@
-import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
+import { ActionFilter, EntityFilter } from '~/types'
 import { Typography } from 'antd'
 import { TextProps } from 'antd/lib/typography/Text'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {
     filter: EntityFilter | ActionFilter
@@ -25,22 +25,21 @@ export function EntityFilterInfo({
     showSingleName = false,
     style,
 }: EntityFilterInfoProps): JSX.Element {
-    const title = getDisplayNameFromEntityFilter(filter, false)
-
-    // No filter
-    if (filter.type === EntityTypes.NEW_ENTITY || !title) {
+    if (isAllEventsEntityFilter(filter)) {
         return (
-            <TextWrapper title="Select filter" className="text-muted-alt">
-                Select event
+            <TextWrapper title="All events" className="text-muted-alt">
+                All events
             </TextWrapper>
         )
     }
 
+    const title = getDisplayNameFromEntityFilter(filter, false)
     const titleToDisplay = getKeyMapping(title, 'event')?.label?.trim() ?? title ?? undefined
 
     // No custom name
     if (!filter?.custom_name) {
         return (
+            // eslint-disable-next-line react/forbid-dom-props
             <span className="flex items-center" style={style}>
                 <TextWrapper ellipsis={!allowWrap} title={titleToDisplay}>
                     {titleToDisplay}
@@ -53,6 +52,7 @@ export function EntityFilterInfo({
     const customTitle = getDisplayNameFromEntityFilter(filter, true)
 
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <span className="flex items-center" style={style}>
             <TextWrapper ellipsis={!allowWrap} title={customTitle ?? undefined}>
                 {customTitle}

@@ -255,9 +255,8 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
     ): AsyncGenerator<PartialPropertyDefinition> {
         if (event === '$groupidentify') {
             const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
-            const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
-
-            if (groupPropertiesToSet != null) {
+            if (groupType != null && groupPropertiesToSet != null) {
+                const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
                 // TODO: add further validation that group properties are of the
                 // expected type
                 yield* this.extract(groupPropertiesToSet, PropertyDefinitionTypeEnum.Group, groupTypeIndex)

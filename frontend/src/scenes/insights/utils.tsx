@@ -5,51 +5,32 @@ import {
     BreakdownType,
     CohortType,
     EntityFilter,
-    FilterType,
-    FunnelVizType,
+    EntityTypes,
     InsightModel,
     InsightShortId,
+    InsightType,
     PathsFilterType,
     PathType,
-    StepOrderValue,
 } from '~/types'
-import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { groupsModelType } from '~/models/groupsModelType'
-import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
-import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { retentionOptions } from 'scenes/retention/constants'
-import { cohortsModelType } from '~/models/cohortsModelType'
-import { mathsLogicType } from 'scenes/trends/mathsLogicType'
-import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { ReactNode } from 'react'
-import {
-    isFunnelsFilter,
-    isLifecycleFilter,
-    isPathsFilter,
-    isRetentionFilter,
-    isStickinessFilter,
-    isTrendsFilter,
-} from 'scenes/insights/sharedUtils'
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
-import {
-    isEventsNode,
-    isFunnelsQuery,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
+import { isEventsNode } from '~/queries/utils'
+import { urls } from 'scenes/urls'
+import { examples } from '~/queries/examples'
+
+export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
+    return filter !== null && filter.type === EntityTypes.EVENTS && filter.id === null && !filter.name
+}
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -58,8 +39,11 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
+    }
+    if (isAllEventsEntityFilter(filter)) {
+        name = 'All events'
     }
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
@@ -70,8 +54,11 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in keyMapping.event) {
-        name = keyMapping.event[name].label
+    if (name && name in KEY_MAPPING.event) {
+        name = KEY_MAPPING.event[name].label
+    }
+    if (isEventsNode(node) && node.event === null) {
+        name = 'All events'
     }
 
     const id = isEventsNode(node) ? node.event : node.id
@@ -95,10 +82,11 @@ export function extractObjectDiffKeys(
         const oldValue = (oldObj as Record<string, any>)[key] || []
         if (!objectsEqual(value, oldValue)) {
             if (key === 'events') {
-                if (valueOrArray.length !== oldValue.length) {
+                const events = valueOrArray as Record<string, any>[]
+                if (events.length !== oldValue.length) {
                     changedKeys['changed_events_length'] = oldValue?.length
                 } else {
-                    valueOrArray.forEach((event: Record<string, any>, idx: number) => {
+                    events.forEach((event, idx) => {
                         changedKeys = {
                             ...changedKeys,
                             ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
@@ -106,10 +94,11 @@ export function extractObjectDiffKeys(
                     })
                 }
             } else if (key === 'actions') {
-                if (valueOrArray.length !== oldValue.length) {
+                const actions = valueOrArray as Record<string, any>[]
+                if (actions.length !== oldValue.length) {
                     changedKeys['changed_actions_length'] = oldValue.length
                 } else {
-                    valueOrArray.forEach((action: Record<string, any>, idx: number) => {
+                    actions.forEach((action, idx) => {
                         changedKeys = {
                             ...changedKeys,
                             ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
@@ -166,310 +155,26 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
     if (include_event_types) {
-        let matchCount = 0
         if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
-            matchCount++
         }
         if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
-            matchCount++
         }
         if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
-            matchCount++
         }
-        if (matchCount === 0 || matchCount === Object.keys(PathType).length) {
+        if (
+            (humanEventTypes.length === 0 && !include_event_types.includes(PathType.HogQL)) ||
+            humanEventTypes.length === 3
+        ) {
             humanEventTypes = ['all events']
+        }
+        if (include_event_types.includes(PathType.HogQL)) {
+            humanEventTypes.push('HogQL expression')
         }
     }
     return humanEventTypes
-}
-
-export function summarizeBreakdown(
-    filters: Partial<FilterType> | BreakdownFilter,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById']
-): string | null {
-    const { breakdown_type, breakdown, breakdown_group_type_index } = filters
-    if (breakdown) {
-        if (breakdown_type === 'cohort') {
-            const cohortIds = breakdown as (number | string)[]
-            return `cohorts: ${cohortIds
-                .map(
-                    (cohortId) =>
-                        cohortId &&
-                        (cohortId === 'all'
-                            ? 'all users'
-                            : cohortId in cohortsById
-                            ? cohortsById[cohortId]?.name
-                            : `ID ${cohortId}`)
-                )
-                .join(', ')}`
-        } else {
-            const noun =
-                breakdown_type !== 'group'
-                    ? breakdown_type
-                    : aggregationLabel(breakdown_group_type_index, true).singular
-            return `${noun}'s ${
-                (breakdown as string) in keyMapping.event ? keyMapping.event[breakdown as string].label : breakdown
-            }`
-        }
-    }
-    return null
-}
-
-export function summarizeInsightFilters(
-    filters: AnyPartialFilterType,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions']
-): string {
-    const localFilters = toLocalFilters(filters)
-
-    if (isRetentionFilter(filters)) {
-        const areTargetAndReturningIdentical =
-            filters.returning_entity?.id === filters.target_entity?.id &&
-            filters.returning_entity?.type === filters.target_entity?.type
-        return (
-            `Retention of ${aggregationLabel(filters.aggregation_group_type_index, true).plural}` +
-            ` based on doing ${getDisplayNameFromEntityFilter((filters.target_entity || {}) as EntityFilter)}` +
-            ` ${retentionOptions[filters.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
-            (areTargetAndReturningIdentical
-                ? 'the same event'
-                : getDisplayNameFromEntityFilter((filters.returning_entity || {}) as EntityFilter))
-        )
-    } else if (isPathsFilter(filters)) {
-        // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(filters.include_event_types).join(' and ')}`
-        if (filters.start_point) {
-            summary += ` starting at ${filters.start_point}`
-        }
-        if (filters.end_point) {
-            summary += `${filters.start_point ? ' and' : ''} ending at ${filters.end_point}`
-        }
-        return summary
-    } else if (isLifecycleFilter(filters)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
-    } else if (isFunnelsFilter(filters)) {
-        let summary = ''
-        const linkSymbol =
-            filters.funnel_order_type === StepOrderValue.STRICT
-                ? '⇉'
-                : filters.funnel_order_type === StepOrderValue.UNORDERED
-                ? '&'
-                : '→'
-        summary = `${localFilters.map((filter) => getDisplayNameFromEntityFilter(filter)).join(` ${linkSymbol} `)} ${
-            aggregationLabel(filters.aggregation_group_type_index, true).singular
-        } conversion`
-        if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-            summary += ' time'
-        } else if (filters.funnel_viz_type === FunnelVizType.Trends) {
-            summary += ' trend'
-        } else {
-            // Steps are the default viz type
-            summary += ' rate'
-        }
-        if (filters.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(filters, aggregationLabel, cohortsById)}`
-        }
-        return summary
-    } else if (isStickinessFilter(filters)) {
-        return capitalizeFirstLetter(
-            localFilters
-                .map((localFilter) => {
-                    const actor = aggregationLabel(
-                        localFilter.math === 'unique_group' ? localFilter.math_group_type_index : null,
-                        true
-                    ).singular
-                    return `${actor} stickiness based on ${getDisplayNameFromEntityFilter(localFilter)}`
-                })
-                .join(' & ')
-        )
-    } else if (isTrendsFilter(filters)) {
-        let summary = localFilters
-            .map((localFilter, localFilterIndex) => {
-                const mathType = apiValueToMathType(localFilter.math, localFilter.math_group_type_index)
-                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
-                let series: string
-                if (mathDefinition?.category === MathCategory.EventCountPerActor) {
-                    series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
-                } else if (mathDefinition?.category === MathCategory.PropertyValue) {
-                    series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
-                        keyMapping.event[localFilter.math_property as string]?.label || localFilter.math_property
-                    } ${
-                        mathDefinition
-                            ? mathDefinition.shortName
-                            : localFilter.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
-                    }`
-                } else {
-                    series = `${getDisplayNameFromEntityFilter(localFilter)} ${
-                        mathDefinition
-                            ? mathDefinition.shortName
-                            : localFilter.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
-                    }`
-                }
-                if (filters.formula) {
-                    series = `${alphabet[localFilterIndex].toUpperCase()}. ${series}`
-                }
-                return series
-            })
-            .join(' & ')
-
-        if (filters.breakdown_type) {
-            summary += `${localFilters.length > 1 ? ',' : ''} by ${summarizeBreakdown(
-                filters,
-                aggregationLabel,
-                cohortsById
-            )}`
-        }
-        if (filters.formula) {
-            summary = `${filters.formula} on ${summary}`
-        }
-
-        return summary
-    }
-    return ''
-}
-
-export function summarizeInsightQuery(
-    query: InsightQueryNode,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions']
-): string {
-    if (isTrendsQuery(query)) {
-        let summary = query.series
-            .map((s, index) => {
-                const mathType = apiValueToMathType(s.math, s.math_group_type_index)
-                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
-                let series: string
-                if (mathDefinition?.category === MathCategory.EventCountPerActor) {
-                    series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
-                } else if (mathDefinition?.category === MathCategory.PropertyValue) {
-                    series = `${getDisplayNameFromEntityNode(s)}'s ${
-                        keyMapping.event[s.math_property as string]?.label || s.math_property
-                    } ${
-                        mathDefinition
-                            ? mathDefinition.shortName
-                            : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
-                    }`
-                } else {
-                    series = `${getDisplayNameFromEntityNode(s)} ${
-                        mathDefinition
-                            ? mathDefinition.shortName
-                            : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
-                    }`
-                }
-                if (query.trendsFilter?.formula) {
-                    series = `${alphabet[index].toUpperCase()}. ${series}`
-                }
-                return series
-            })
-            .join(' & ')
-
-        if (query.breakdown?.breakdown_type) {
-            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(
-                query.breakdown,
-                aggregationLabel,
-                cohortsById
-            )}`
-        }
-        if (query.trendsFilter?.formula) {
-            summary = `${query.trendsFilter.formula} on ${summary}`
-        }
-
-        return summary
-    } else if (isFunnelsQuery(query)) {
-        let summary = ''
-        const linkSymbol =
-            query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
-                ? '⇉'
-                : query.funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED
-                ? '&'
-                : '→'
-        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
-            aggregationLabel(query.aggregation_group_type_index, true).singular
-        } conversion`
-        if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
-            summary += ' time'
-        } else if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
-            summary += ' trend'
-        } else {
-            // Steps are the default viz type
-            summary += ' rate'
-        }
-        if (query.breakdown?.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(query.breakdown, aggregationLabel, cohortsById)}`
-        }
-        return summary
-    } else if (isRetentionQuery(query)) {
-        const areTargetAndReturningIdentical =
-            query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
-            query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
-        return (
-            `Retention of ${aggregationLabel(query.aggregation_group_type_index, true).plural}` +
-            ` based on doing ${getDisplayNameFromEntityFilter(
-                (query.retentionFilter?.target_entity || {}) as EntityFilter
-            )}` +
-            ` ${retentionOptions[query.retentionFilter?.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
-            (areTargetAndReturningIdentical
-                ? 'the same event'
-                : getDisplayNameFromEntityFilter((query.retentionFilter?.returning_entity || {}) as EntityFilter))
-        )
-    } else if (isPathsQuery(query)) {
-        // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
-            ' and '
-        )}`
-        if (query.pathsFilter?.start_point) {
-            summary += ` starting at ${query.pathsFilter?.start_point}`
-        }
-        if (query.pathsFilter?.end_point) {
-            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
-        }
-        return summary
-    } else if (isStickinessQuery(query)) {
-        return capitalizeFirstLetter(
-            (query as StickinessQuery).series
-                .map((s) => {
-                    const actor = aggregationLabel(s.math_group_type_index, true).singular
-                    return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
-                })
-                .join(' & ')
-        )
-    } else if (isLifecycleQuery(query)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    } else {
-        return ''
-    }
-}
-
-export function summariseInsight(
-    isUsingDataExploration: boolean,
-    query: Node | undefined,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions'],
-    filters: Partial<FilterType>
-): string {
-    const hasFilters = Object.keys(filters || {}).length > 0
-
-    return isUsingDataExploration && isInsightVizNode(query)
-        ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
-        : isUsingDataExploration && !!query
-        ? `QueryKind: ${query?.kind}`
-        : hasFilters
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : ''
 }
 
 export function formatAggregationValue(
@@ -508,7 +213,9 @@ export function formatBreakdownLabel(
     isHistogram?: boolean
 ): string {
     if (isHistogram && typeof breakdown_value === 'string') {
-        const [bucketStart, bucketEnd] = JSON.parse(breakdown_value)
+        // replace nan with null
+        const bucketValues = breakdown_value.replace(/\bnan\b/g, 'null')
+        const [bucketStart, bucketEnd] = JSON.parse(bucketValues)
         const formattedBucketStart = formatBreakdownLabel(
             cohorts,
             formatPropertyValueForDisplay,
@@ -544,6 +251,14 @@ export function formatBreakdownLabel(
     }
 }
 
+export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
+    if (breakdownFilter.breakdown_type === 'cohort') {
+        return 'Cohort'
+    } else {
+        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
+    }
+}
+
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
 }
@@ -551,4 +266,15 @@ export function sortDates(dates: Array<string | null>): Array<string | null> {
 // Gets content-length header from a fetch Response
 export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
+}
+
+export const insightTypeURL: Record<InsightType, string> = {
+    TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ insight: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ insight: InsightType.PATHS }),
+    JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
+    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }

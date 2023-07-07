@@ -1,7 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SurprisedHog, BlushingHog } from 'lib/components/hedgehogs'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -30,8 +29,8 @@ const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<an
     )
 }
 
-export const Default = Template.bind({})
-Default.args = {}
+export const Flat = Template.bind({})
+Flat.args = {}
 
 export const SectionedOptions = Template.bind({})
 SectionedOptions.args = {
@@ -116,22 +115,12 @@ CustomElement.args = {
     options: [
         {
             value: 1,
-            element: (
-                <div>
-                    <SurprisedHog className="w-10 h-10 mr-4" />
-                    Surprised
-                </div>
-            ),
+            labelInMenu: <i>Wow (Surprised)</i>,
             label: 'Wow',
         },
         {
             value: 2,
-            element: (
-                <div>
-                    <BlushingHog className="w-10 h-10 mr-4" />
-                    Blushing
-                </div>
-            ),
+            labelInMenu: <i>Ohh (Blushing)</i>,
             label: 'Ohh',
         },
     ],

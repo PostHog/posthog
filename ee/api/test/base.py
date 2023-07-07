@@ -3,6 +3,7 @@ from typing import Dict, Optional, cast
 
 import pytz
 
+from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from ee.models.license import License, LicenseManager
 from posthog.test.base import APIBaseTest
 
@@ -32,7 +33,9 @@ class LicensedTestMixin:
                 valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=pytz.UTC),
             )
             if hasattr(cls, "organization") and cls.organization:  # type: ignore
+                cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES  # type: ignore
                 cls.organization.update_available_features()  # type: ignore
+                cls.organization.save()  # type: ignore
 
 
 class APILicensedTest(LicensedTestMixin, APIBaseTest):

@@ -4,11 +4,11 @@ import { IntervalType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
 
-interface InvertalFilterProps {
+interface IntervalFilterProps {
     disabled?: boolean
 }
 
-export function IntervalFilter({ disabled }: InvertalFilterProps): JSX.Element {
+export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { interval, enabledIntervals } = useValues(intervalFilterLogic(insightProps))
     const { setInterval } = useActions(intervalFilterLogic(insightProps))

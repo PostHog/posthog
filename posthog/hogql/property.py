@@ -5,17 +5,20 @@ from pydantic import BaseModel
 
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.constants import HOGQL_AGGREGATIONS
+from posthog.hogql.base import AST
+from posthog.hogql.functions import HOGQL_AGGREGATIONS
+from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models import Action, ActionStep, Property
+from posthog.models import Action, ActionStep, Cohort, Property, Team, PropertyDefinition
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
+from posthog.models.property_definition import PropertyType
 from posthog.schema import PropertyOperator
 
 
-def has_aggregation(expr: ast.AST) -> bool:
+def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
     finder.visit(expr)
     return finder.has_aggregation
@@ -32,6 +35,10 @@ class AggregationFinder(TraversingVisitor):
         else:
             super().visit(node)
 
+    def visit_select_query(self, node: ast.SelectQuery):
+        # don't care about aggregations in subqueries
+        pass
+
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
             self.has_aggregation = True
@@ -40,30 +47,35 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list]) -> ast.Expr:
+def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Team) -> ast.Expr:
     if isinstance(property, dict):
         property = Property(**property)
     elif isinstance(property, list):
-        properties = [property_to_expr(p) for p in property]
+        properties = [property_to_expr(p, team) for p in property]
         if len(properties) == 1:
             return properties[0]
         return ast.And(exprs=properties)
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
+        if property.type != PropertyOperatorType.AND and property.type != PropertyOperatorType.OR:
+            raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+
+        if len(property.values) == 0:
+            return ast.Constant(value=True)
+        if len(property.values) == 1:
+            return property_to_expr(property.values[0], team)
+
         if property.type == PropertyOperatorType.AND:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0])
-            return ast.And(exprs=[property_to_expr(p) for p in property.values])
-        if property.type == PropertyOperatorType.OR:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0])
-            return ast.Or(exprs=[property_to_expr(p) for p in property.values])
-        raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
+            return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
+        else:
+            return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
-        raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
+        raise NotImplementedException(
+            f"property_to_expr with property of type {type(property).__name__} not implemented"
+        )
 
     if property.type == "hogql":
         return parse_expr(property.key)
@@ -71,12 +83,14 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if isinstance(value, list):
-            if len(value) == 1:
+            if len(value) == 0:
+                return ast.Constant(value=True)
+            elif len(value) == 1:
                 value = value[0]
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v)
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team
                     )
                     for v in value
                 ]
@@ -92,18 +106,18 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         field = ast.Field(chain=chain + [property.key])
 
         if operator == PropertyOperator.is_set:
-            return ast.CompareOperation(op=ast.CompareOperationType.NotEq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.is_not_set:
-            return ast.CompareOperation(op=ast.CompareOperationType.Eq, left=field, right=ast.Constant(value=None))
+            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
         elif operator == PropertyOperator.icontains:
             return ast.CompareOperation(
-                op=ast.CompareOperationType.ILike,
+                op=ast.CompareOperationOp.ILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
         elif operator == PropertyOperator.not_icontains:
             return ast.CompareOperation(
-                op=ast.CompareOperationType.NotILike,
+                op=ast.CompareOperationOp.NotILike,
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
@@ -112,19 +126,39 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         elif operator == PropertyOperator.not_regex:
             return ast.Call(name="not", args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])])
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
-            op = ast.CompareOperationType.Eq
+            op = ast.CompareOperationOp.Eq
         elif operator == PropertyOperator.is_not:
-            op = ast.CompareOperationType.NotEq
+            op = ast.CompareOperationOp.NotEq
         elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
-            op = ast.CompareOperationType.Lt
+            op = ast.CompareOperationOp.Lt
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
-            op = ast.CompareOperationType.Gt
+            op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationType.LtE
+            op = ast.CompareOperationOp.LtEq
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationType.GtE
+            op = ast.CompareOperationOp.GtEq
         else:
-            raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+            raise NotImplementedException(f"PropertyOperator {operator} not implemented")
+
+        # For Boolean and untyped properties, treat "true" and "false" as boolean values
+        if (
+            op == ast.CompareOperationOp.Eq
+            or op == ast.CompareOperationOp.NotEq
+            and team is not None
+            and (value == "true" or value == "false")
+        ):
+            property_types = PropertyDefinition.objects.filter(
+                team=team,
+                name=property.key,
+                type=PropertyDefinition.Type.PERSON if property.type == "person" else PropertyDefinition.Type.EVENT,
+            )[0:1].values_list("property_type", flat=True)
+            property_type = property_types[0] if property_types else None
+
+            if not property_type or property_type == PropertyType.Boolean:
+                if value == "true":
+                    value = True
+                if value == "false":
+                    value = False
 
         return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
 
@@ -137,7 +171,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             else:
                 exprs = [
                     property_to_expr(
-                        Property(type=property.type, key=property.key, operator=property.operator, value=v)
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v), team
                     )
                     for v in value
                 ]
@@ -151,7 +185,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:
-                raise NotImplementedError(
+                raise NotImplementedException(
                     f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
@@ -165,17 +199,29 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         if property.key == "text":
             return element_chain_key_filter("text", str(value), operator)
 
-        raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
-    # "cohort",
-    # "element",
-    # "static-cohort",
-    # "precalculated-cohort",
-    # "group",
-    # "recording",
-    # "behavioral",
-    # "session",
+        raise NotImplementedException(f"property_to_expr for type element not implemented for key {property.key}")
+    elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
+        if not team:
+            raise Exception("Can not convert cohort property to expression without team")
 
-    raise NotImplementedError(f"property_to_expr not implemented for filter type {type(property).__name__}")
+        cohort = Cohort.objects.get(team=team, id=property.value)
+        return ast.CompareOperation(
+            left=ast.Field(chain=["person_id"]),
+            op=ast.CompareOperationOp.In,
+            right=cohort_subquery(cohort.pk, cohort.is_static),
+        )
+
+    # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
+
+    raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
+
+
+def cohort_subquery(cohort_id, is_static) -> ast.Expr:
+    if is_static:
+        sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+    else:
+        sql = "(SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+    return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort_id)}, start=None)  # clear the source start position
 
 
 def action_to_expr(action: Action) -> ast.Expr:
@@ -186,7 +232,9 @@ def action_to_expr(action: Action) -> ast.Expr:
 
     or_queries = []
     for step in steps:
-        exprs: List[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=step.event)})]
+        exprs: List[ast.Expr] = []
+        if step.event:
+            exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=step.event)}))
 
         if step.event == AUTOCAPTURE_EVENT:
             if step.selector:
@@ -194,9 +242,21 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.tag_name is not None:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                exprs.append(element_chain_key_filter("href", step.href, PropertyOperator.exact))
+                if step.href_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.href_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
-                exprs.append(element_chain_key_filter("text", step.text, PropertyOperator.exact))
+                if step.text_matching == ActionStep.REGEX:
+                    operator = PropertyOperator.regex
+                elif step.text_matching == ActionStep.CONTAINS:
+                    operator = PropertyOperator.icontains
+                else:
+                    operator = PropertyOperator.exact
+                exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
             if step.url_matching == ActionStep.EXACT:
@@ -208,7 +268,7 @@ def action_to_expr(action: Action) -> ast.Expr:
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties))
+            exprs.append(property_to_expr(step.properties, action.team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -232,7 +292,7 @@ def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
     elif operator == PropertyOperator.exact or operator == PropertyOperator.is_not:
         value = re.escape(escaped)
     else:
-        raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
+        raise NotImplementedException(f"element_href_to_expr not implemented for operator {operator}")
     optional_flag = (
         "(?i)" if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains else ""
     )

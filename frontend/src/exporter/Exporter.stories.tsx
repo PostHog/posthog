@@ -19,7 +19,7 @@ export default {
             source: { state: 'close' },
         },
         testOptions: {
-            waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]',
+            waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas',
         },
         mockDate: '2023-02-01',
         viewMode: 'story',

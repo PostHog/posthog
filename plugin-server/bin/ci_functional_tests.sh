@@ -24,16 +24,16 @@ LOG_FILE=$(mktemp)
 
 echo '::group::Starting plugin server'
 
-./node_modules/.bin/c8 --reporter html node dist/index.js > $LOG_FILE 2>&1 &
+./node_modules/.bin/c8 --reporter html node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 SECONDS=0
 
 until curl http://localhost:6738/_ready; do
-    if (( SECONDS > 60 )); then
+    if ((SECONDS > 60)); then
         echo 'Timed out waiting for plugin-server to be ready'
         echo '::endgroup::'
         echo '::group::Plugin Server logs'
-        cat $LOG_FILE
+        cat "$LOG_FILE"
         echo '::endgroup::'
         exit 1
     fi
@@ -56,7 +56,7 @@ kill $SERVER_PID
 SECONDS=0
 
 while kill -0 $SERVER_PID; do
-    if (( SECONDS > 60 )); then
+    if ((SECONDS > 60)); then
         echo 'Timed out waiting for plugin-server to exit'
         break
     fi
@@ -66,7 +66,7 @@ while kill -0 $SERVER_PID; do
 done
 
 echo '::group::Plugin Server logs'
-cat $LOG_FILE
+cat "$LOG_FILE"
 echo '::endgroup::'
 
 exit $exit_code

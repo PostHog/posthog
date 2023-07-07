@@ -68,29 +68,29 @@
         }
 
         .BridgePage__left__art {
-            margin-top: 100px;
+            margin-top: 50px;
         }
 
         .BridgePage__left__message {
             position: absolute;
-            right: 200px;
-            bottom: 270px;
+            left: 265px;
+            bottom: 220px;
             max-width: 150px;
             background-color: var(--default);
             border-radius: 0.75rem;
             padding: 0.5rem 0.75rem;
-            color: var(--white);
+            color: #fff;
             font-size: 0.8em;
             font-weight: 600;
 
             &:after {
                 position: absolute;
                 top: 100%;
-                right: 20px;
+                left: 20px;
                 margin-top: -10px;
                 content: ' ';
                 border: 10px solid transparent;
-                border-right-color: var(--default);
+                border-left-color: var(--default);
             }
 
             opacity: 0;

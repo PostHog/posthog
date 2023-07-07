@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
+import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -24,18 +24,39 @@ import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagHog } from 'lib/components/hedgehogs'
+import { Noun, groupsModel } from '~/models/groupsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
 }
 
-function OverViewTab(): JSX.Element {
+export function OverViewTab({
+    flagPrefix = '',
+    searchPlaceholder = 'Search for feature flags',
+    nouns = ['feature flag', 'feature flags'],
+}: {
+    flagPrefix?: string
+    searchPlaceholder?: string
+    nouns?: [string, string]
+}): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
-        useValues(featureFlagsLogic)
-    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+
+    const flagLogic = featureFlagsLogic({ flagPrefix })
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters, shouldShowEmptyState } =
+        useValues(flagLogic)
+    const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowProductIntroduction =
+        !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS] &&
+        !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -94,8 +115,8 @@ function OverViewTab(): JSX.Element {
             title: 'Release conditions',
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                const releaseText = groupFilters(featureFlag.filters.groups)
-                return releaseText == '100% of all users' ? (
+                const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
+                return typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
                     <LemonTag type="highlight">{releaseText}</LemonTag>
                 ) : (
                     releaseText
@@ -136,8 +157,8 @@ function OverViewTab(): JSX.Element {
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={() => {
-                                        copyToClipboard(featureFlag.key, 'feature flag key')
+                                    onClick={async () => {
+                                        await copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
                                     fullWidth
                                 >
@@ -210,102 +231,119 @@ function OverViewTab(): JSX.Element {
 
     return (
         <>
-            <div>
-                <div className="flex justify-between mb-4">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search for feature flags"
-                        onChange={setSearchTerm}
-                        value={searchTerm}
-                    />
-                    <div className="flex items-center gap-2">
-                        {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                            <>
+            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
+                <ProductIntroduction
+                    productName="Feature flags"
+                    productKey={ProductKey.FEATURE_FLAGS}
+                    thingName="feature flag"
+                    description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
+                    docsURL="https://posthog.com/docs/feature-flags/manual"
+                    action={() => router.actions.push(urls.featureFlag('new'))}
+                    isEmpty={shouldShowEmptyState}
+                    customHog={FeatureFlagHog}
+                />
+            )}{' '}
+            {!shouldShowEmptyState && (
+                <>
+                    <div>
+                        <div className="flex justify-between mb-4">
+                            <LemonInput
+                                type="search"
+                                placeholder={searchPlaceholder || ''}
+                                onChange={setSearchTerm}
+                                value={searchTerm || ''}
+                            />
+                            <div className="flex items-center gap-2">
+                                {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                                    <>
+                                        <span>
+                                            <b>Type</b>
+                                        </span>
+                                        <LemonSelect
+                                            onChange={(type) => {
+                                                if (type) {
+                                                    if (type === 'all') {
+                                                        if (filters) {
+                                                            const { type, ...restFilters } = filters
+                                                            setFeatureFlagsFilters(restFilters, true)
+                                                        }
+                                                    } else {
+                                                        setFeatureFlagsFilters({ type })
+                                                    }
+                                                }
+                                            }}
+                                            options={[
+                                                { label: 'All', value: 'all' },
+                                                { label: 'Boolean', value: 'boolean' },
+                                                { label: 'Multiple variants', value: 'multivariant' },
+                                                { label: 'Experiment', value: 'experiment' },
+                                            ]}
+                                            value="all"
+                                        />
+                                    </>
+                                )}
                                 <span>
-                                    <b>Type</b>
+                                    <b>Status</b>
                                 </span>
                                 <LemonSelect
-                                    onChange={(type) => {
-                                        if (type) {
-                                            if (type === 'all') {
+                                    onChange={(status) => {
+                                        if (status) {
+                                            if (status === 'all') {
                                                 if (filters) {
-                                                    const { type, ...restFilters } = filters
+                                                    const { active, ...restFilters } = filters
                                                     setFeatureFlagsFilters(restFilters, true)
                                                 }
                                             } else {
-                                                setFeatureFlagsFilters({ type })
+                                                setFeatureFlagsFilters({ active: status })
                                             }
                                         }
                                     }}
                                     options={[
                                         { label: 'All', value: 'all' },
-                                        { label: 'Boolean', value: 'boolean' },
-                                        { label: 'Multiple variants', value: 'multivariant' },
-                                        { label: 'Experiment', value: 'experiment' },
+                                        { label: 'Enabled', value: 'true' },
+                                        { label: 'Disabled', value: 'false' },
                                     ]}
                                     value="all"
                                 />
-                            </>
-                        )}
-                        <span>
-                            <b>Status</b>
-                        </span>
-                        <LemonSelect
-                            onChange={(status) => {
-                                if (status) {
-                                    if (status === 'all') {
-                                        if (filters) {
-                                            const { active, ...restFilters } = filters
-                                            setFeatureFlagsFilters(restFilters, true)
+                                <span className="ml-1">
+                                    <b>Created by</b>
+                                </span>
+                                <LemonSelect
+                                    onChange={(user) => {
+                                        if (user) {
+                                            if (user === 'any') {
+                                                if (filters) {
+                                                    const { created_by, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
+                                                }
+                                            } else {
+                                                setFeatureFlagsFilters({ created_by: user })
+                                            }
                                         }
-                                    } else {
-                                        setFeatureFlagsFilters({ active: status })
-                                    }
-                                }
-                            }}
-                            options={[
-                                { label: 'All', value: 'all' },
-                                { label: 'Enabled', value: 'true' },
-                                { label: 'Disabled', value: 'false' },
-                            ]}
-                            value="all"
-                        />
-                        <span className="ml-1">
-                            <b>Created by</b>
-                        </span>
-                        <LemonSelect
-                            onChange={(user) => {
-                                if (user) {
-                                    if (user === 'any') {
-                                        if (filters) {
-                                            const { created_by, ...restFilters } = filters
-                                            setFeatureFlagsFilters(restFilters, true)
-                                        }
-                                    } else {
-                                        setFeatureFlagsFilters({ created_by: user })
-                                    }
-                                }
-                            }}
-                            options={uniqueCreators}
-                            value="any"
-                        />
+                                    }}
+                                    options={uniqueCreators}
+                                    value="any"
+                                />
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <LemonTable
-                dataSource={searchedFeatureFlags}
-                columns={columns}
-                rowKey="key"
-                defaultSorting={{
-                    columnKey: 'created_at',
-                    order: -1,
-                }}
-                noSortingCancellation
-                loading={featureFlagsLoading}
-                pagination={{ pageSize: 100 }}
-                nouns={['feature flag', 'feature flags']}
-                data-attr="feature-flag-table"
-            />
+                    <LemonTable
+                        dataSource={searchedFeatureFlags}
+                        columns={columns}
+                        rowKey="key"
+                        defaultSorting={{
+                            columnKey: 'created_at',
+                            order: -1,
+                        }}
+                        noSortingCancellation
+                        loading={featureFlagsLoading}
+                        pagination={{ pageSize: 100 }}
+                        nouns={nouns}
+                        data-attr="feature-flag-table"
+                        emptyState="No results. Create a new flag?"
+                    />
+                </>
+            )}
         </>
     )
 }
@@ -329,12 +367,12 @@ export function FeatureFlags(): JSX.Element {
                 onChange={(newKey) => setActiveTab(newKey)}
                 tabs={[
                     {
-                        key: FeatureFlagsTabs.OVERVIEW,
+                        key: FeatureFlagsTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverViewTab />,
                     },
                     {
-                        key: FeatureFlagsTabs.HISTORY,
+                        key: FeatureFlagsTab.HISTORY,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
                     },
@@ -344,34 +382,54 @@ export function FeatureFlags(): JSX.Element {
     )
 }
 
-export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | string {
+export function groupFilters(
+    filters: FeatureFlagFilters,
+    stringOnly?: true,
+    aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): string
+export function groupFilters(
+    filters: FeatureFlagFilters,
+    stringOnly?: false,
+    aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): JSX.Element | string
+export function groupFilters(
+    filters: FeatureFlagFilters,
+    stringOnly?: boolean,
+    aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+): JSX.Element | string {
+    const aggregationTargetName =
+        aggregationLabel && filters.aggregation_group_type_index != null
+            ? aggregationLabel(filters.aggregation_group_type_index).plural
+            : 'users'
+    const groups = filters.groups || []
+
     if (groups.length === 0 || !groups.some((group) => group.rollout_percentage !== 0)) {
         // There are no rollout groups or all are at 0%
-        return 'No users'
+        return `No ${aggregationTargetName}`
     }
     if (
         groups.some((group) => !group.properties?.length && [null, undefined, 100].includes(group.rollout_percentage))
     ) {
         // There's some group without filters that has 100% rollout
-        return '100% of all users'
+        return `100% of all ${aggregationTargetName}`
     }
 
     if (groups.length === 1) {
         const { properties, rollout_percentage = null } = groups[0]
         if (properties?.length > 0) {
-            return (
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    {rollout_percentage != null && (
-                        <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
-                    )}
+            return stringOnly ? (
+                `${rollout_percentage ?? 100}% of one group`
+            ) : (
+                <div className="flex items-center">
+                    <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
                     <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'column' }} />
                 </div>
             )
         } else if (rollout_percentage !== null) {
-            return `${rollout_percentage}% of all users`
+            return `${rollout_percentage}% of all ${aggregationTargetName}`
         } else {
             console.error('A group with full rollout was not detected early')
-            return 'All users'
+            return `100% of all ${aggregationTargetName}`
         }
     }
     return 'Multiple groups'

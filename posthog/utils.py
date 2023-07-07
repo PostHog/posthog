@@ -53,6 +53,7 @@ from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+    from posthog.models import User, Team
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -103,7 +104,11 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
         provided_url = provided_url
-        if site_url.hostname != provided_url.hostname:
+        if (
+            site_url.hostname != provided_url.hostname
+            or site_url.port != provided_url.port
+            or site_url.scheme != provided_url.scheme
+        ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
@@ -170,13 +175,13 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.da
         at,
         datetime.time.max,
         tzinfo=pytz.UTC,
-    )  # very end of the previous day
+    )  # very end of the reference day
 
     period_start: datetime.datetime = datetime.datetime.combine(
         period_end,
         datetime.time.min,
         tzinfo=pytz.UTC,
-    )  # very start of the previous day
+    )  # very start of the reference day
 
     return (period_start, period_end)
 
@@ -303,16 +308,25 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
+def render_template(
+    template_name: str, request: HttpRequest, context: Dict = {}, *, team_for_public_context: Optional["Team"] = None
+) -> HttpResponse:
+    """Render Django template.
+
+    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
+    """
     from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
-    if os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = os.environ["SENTRY_DSN"]
+    if sentry_dsn := os.environ.get("SENTRY_DSN"):
+        context["sentry_dsn"] = sentry_dsn
+    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
+        context["sentry_environment"] = sentry_environment
 
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
@@ -355,7 +369,8 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
-        from posthog.api.user import User, UserSerializer
+        from posthog.api.user import UserSerializer
+        from posthog.api.shared import TeamPublicSerializer
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
@@ -368,8 +383,13 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
             **posthog_app_context,
         }
 
-        if request.user.pk:
-            user = cast(User, request.user)
+        if team_for_public_context:
+            # This allows for refreshing shared insights and dashboards
+            posthog_app_context["current_team"] = TeamPublicSerializer(
+                team_for_public_context, context={"request": request}, many=False
+            ).data
+        elif request.user.pk:
+            user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
             user_serialized = UserSerializer(
                 request.user, context={"request": request, "user_permissions": user_permissions}, many=False
@@ -387,9 +407,26 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     if posthog_distinct_id:
         groups = {}
-        if request.user and request.user.is_authenticated and request.user.organization:
-            groups = {"organization": str(request.user.organization.id)}
-        feature_flags = posthoganalytics.get_all_flags(posthog_distinct_id, only_evaluate_locally=True, groups=groups)
+        group_properties = {}
+        person_properties = {}
+        if request.user and request.user.is_authenticated:
+            user = cast("User", request.user)
+            person_properties["email"] = user.email
+            person_properties["joined_at"] = user.date_joined.isoformat()
+            if user.organization:
+                groups["organization"] = str(user.organization.id)
+                group_properties["organization"] = {
+                    "name": user.organization.name,
+                    "created_at": user.organization.created_at.isoformat(),
+                }
+
+        feature_flags = posthoganalytics.get_all_flags(
+            posthog_distinct_id,
+            only_evaluate_locally=True,
+            person_properties=person_properties,
+            groups=groups,
+            group_properties=group_properties,
+        )
         # don't forcefully set distinctID, as this breaks the link for anonymous users coming from `posthog.com`.
         posthog_bootstrap["featureFlags"] = feature_flags
 
@@ -553,8 +590,9 @@ def cors_response(request, response):
 
     # Handle headers that sentry randomly sends for every request.
     # Would cause a CORS failure otherwise.
+    # specified here to override the default added by the cors headers package in web.py
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
-    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
+    allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id", "request-context"]]
 
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
@@ -881,10 +919,10 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     return output
 
 
-def flatten(i: Union[List, Tuple]) -> Generator:
+def flatten(i: Union[List, Tuple], max_depth=10) -> Generator:
     for el in i:
-        if isinstance(el, list):
-            yield from flatten(el)
+        if isinstance(el, list) and max_depth > 0:
+            yield from flatten(el, max_depth=max_depth - 1)
         else:
             yield el
 
@@ -1231,3 +1269,9 @@ def patchable(fn):
     inner._patch = patch  # type: ignore
 
     return inner
+
+
+class PersonOnEventsMode(str, Enum):
+    DISABLED = "disabled"
+    V1_ENABLED = "v1_enabled"
+    V2_ENABLED = "v2_enabled"

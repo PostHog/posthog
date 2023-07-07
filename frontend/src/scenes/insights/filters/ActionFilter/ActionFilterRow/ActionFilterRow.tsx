@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     ActionFilter as ActionFilterType,
@@ -10,13 +10,12 @@ import {
     BaseMathType,
     PropertyMathType,
     CountPerActorMathType,
+    HogQLMathType,
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import {
@@ -29,14 +28,17 @@ import {
 } from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -51,7 +53,7 @@ export enum MathAvailability {
 }
 
 export interface ActionFilterRowProps {
-    logic: typeof entityFilterLogic
+    logic: BuiltLogic<entityFilterLogicType>
     filter: ActionFilter
     index: number
     typeKey: string
@@ -118,7 +120,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { selectedFilter, entityFilterVisible } = useValues(logic)
+    const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
@@ -131,10 +133,17 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
 
+    const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
+
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
     let name: string | null | undefined, value: PropertyFilterValue
-    const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
+    const {
+        math,
+        math_property: mathProperty,
+        math_hogql: mathHogQL,
+        math_group_type_index: mathGroupTypeIndex,
+    } = filter
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
@@ -146,6 +155,10 @@ export function ActionFilterRow({
                 mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
                     ? mathProperty ?? '$time'
                     : undefined,
+            math_hogql:
+                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                    ? mathHogQL ?? 'count()'
+                    : undefined,
             type: filter.type,
             index,
         })
@@ -153,27 +166,22 @@ export function ActionFilterRow({
     const onMathPropertySelect = (_: unknown, property: string): void => {
         updateFilterMath({
             ...filter,
+            math_hogql: undefined,
             math_property: property,
             index,
         })
     }
 
-    const dropDownCondition = Boolean(
-        selectedFilter && selectedFilter?.type === filter.type && selectedFilter?.index === index
-    )
-
-    const onClick = (): void => {
-        if (dropDownCondition) {
-            selectFilter(null)
-        } else {
-            selectFilter({ ...filter, index })
-        }
+    const onMathHogQLSelect = (_: unknown, hogql: string): void => {
+        updateFilterMath({
+            ...filter,
+            math_property: undefined,
+            math_hogql: hogql,
+            index,
+        })
     }
 
-    if (filter.type === EntityTypes.NEW_ENTITY) {
-        name = null
-        value = null
-    } else if (filter.type === EntityTypes.ACTIONS) {
+    if (filter.type === EntityTypes.ACTIONS) {
         const action = actions.find((action) => action.id === filter.id)
         name = action?.name || filter.name
         value = action?.id || filter.id
@@ -191,46 +199,31 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
     const filterElement = (
-        <LemonButtonWithDropdown
+        <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            dropdown={{
-                overlay: (
-                    <TaxonomicFilter
-                        groupType={
-                            filter.type === EntityTypes.NEW_ENTITY
-                                ? TaxonomicFilterGroupType.Events
-                                : (filter.type as TaxonomicFilterGroupType)
-                        }
-                        value={
-                            filter.type === 'actions' && typeof value === 'string'
-                                ? parseInt(value)
-                                : value || undefined
-                        }
-                        onChange={(taxonomicGroup, changedValue, item) => {
-                            updateFilter({
-                                type: taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type) || undefined,
-                                id: `${changedValue}`,
-                                name: item?.name,
-                                index,
-                            })
-                        }}
-                        onClose={() => selectFilter(null)}
-                        taxonomicGroupTypes={actionsTaxonomicGroupTypes}
-                    />
-                ),
-                visible: dropDownCondition,
-                onClickOutside: () => selectFilter(null),
+            groupType={filter.type as TaxonomicFilterGroupType}
+            value={filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined}
+            onChange={(changedValue, taxonomicGroupType, item) => {
+                updateFilter({
+                    type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,
+                    id: changedValue ? String(changedValue) : null,
+                    name: item?.name ?? '',
+                    index,
+                })
             }}
+            renderValue={() => (
+                <span className="text-overflow max-w-full">
+                    <EntityFilterInfo filter={filter} />
+                </span>
+            )}
+            groupTypes={actionsTaxonomicGroupTypes}
             type="secondary"
             status="stealth"
-            onClick={onClick}
+            placeholder="All events"
+            placeholderClass=""
             disabled={disabled || readOnly}
-        >
-            <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                <EntityFilterInfo filter={filter} />
-            </span>
-        </LemonButtonWithDropdown>
+        />
     )
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
@@ -248,6 +241,7 @@ export function ActionFilterRow({
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
                         : undefined
                 }}
+                disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
             />
         </IconWithCount>
     )
@@ -290,6 +284,20 @@ export function ActionFilterRow({
         />
     )
 
+    const rowStartElements = [
+        sortable && filterCount > 1 ? <DragHandle /> : null,
+        showSeriesIndicator && <div>{seriesIndicator}</div>,
+    ].filter(Boolean)
+
+    const rowEndElements = !readOnly
+        ? [
+              !hideFilter && propertyFiltersButton,
+              !hideRename && renameRowButton,
+              !hideDuplicate && !singleFilter && duplicateRowButton,
+              !hideDeleteBtn && !singleFilter && deleteButton,
+          ].filter(Boolean)
+        : []
+
     return (
         <div className={'ActionFilterRow'}>
             <div className="ActionFilterRow-content">
@@ -306,10 +314,9 @@ export function ActionFilterRow({
                 ) : (
                     <>
                         {/* left section fixed */}
-                        <div className="ActionFilterRow__start">
-                            {sortable && filterCount > 1 ? <DragHandle /> : null}
-                            {showSeriesIndicator && <div>{seriesIndicator}</div>}
-                        </div>
+                        {rowStartElements.length ? (
+                            <div className="ActionFilterRow__start">{rowStartElements}</div>
+                        ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
                             <div className="flex-auto overflow-hidden">{filterElement}</div>
@@ -337,7 +344,7 @@ export function ActionFilterRow({
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
-                                                dataAttr="math-property-select"
+                                                data-attr="math-property-select"
                                                 renderValue={(currentValue) => (
                                                     <Tooltip
                                                         title={
@@ -362,26 +369,50 @@ export function ActionFilterRow({
                                             />
                                         </div>
                                     )}
+                                    {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
+                                        MathCategory.HogQLExpression && (
+                                        <div className="flex-auto overflow-hidden">
+                                            <LemonDropdown
+                                                visible={isHogQLDropdownVisible}
+                                                closeOnClickInside={false}
+                                                onClickOutside={() => setIsHogQLDropdownVisible(false)}
+                                                overlay={
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                        <HogQLEditor
+                                                            disablePersonProperties
+                                                            value={mathHogQL}
+                                                            onChange={(currentValue) => {
+                                                                onMathHogQLSelect(index, currentValue)
+                                                                setIsHogQLDropdownVisible(false)
+                                                            }}
+                                                        />
+                                                    </div>
+                                                }
+                                            >
+                                                <LemonButton
+                                                    fullWidth
+                                                    status="stealth"
+                                                    type="secondary"
+                                                    data-attr={`math-hogql-select-${index}`}
+                                                    onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
+                                                >
+                                                    <code>{mathHogQL}</code>
+                                                </LemonButton>
+                                            </LemonDropdown>
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
                         {/* right section fixed */}
-                        <div className="ActionFilterRow__end">
-                            {!readOnly ? (
-                                <>
-                                    {!hideFilter && propertyFiltersButton}
-                                    {!hideRename && renameRowButton}
-                                    {!hideDuplicate && !singleFilter && duplicateRowButton}
-                                    {!hideDeleteBtn && !singleFilter && deleteButton}
-                                </>
-                            ) : null}
-                        </div>
+                        {rowEndElements.length ? <div className="ActionFilterRow__end">{rowEndElements}</div> : null}
                     </>
                 )}
             </div>
 
             {propertyFiltersVisible && (
-                <div className={`ActionFilterRow-filters`}>
+                <div className="ActionFilterRow-filters">
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
@@ -503,6 +534,14 @@ function useMathSelectorOptions({
             'data-attr': `math-node-property-value-${index}`,
         })
     }
+
+    options.push({
+        value: HogQLMathType.HogQL,
+        label: 'HogQL expression',
+        tooltip: 'Aggregate events by custom SQL expression.',
+        'data-attr': `math-node-hogql-expression-${index}`,
+    })
+
     return [
         {
             options,

@@ -30,42 +30,45 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
 
     useStorybookMocks({
         get: {
-            '/api/projects/:id/insights/:insight_id/sharing/': {
-                created_at: '2022-06-28T12:30:51.459746Z',
-                enabled: true,
-                access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-            },
+            ...[
+                '/api/projects/:id/insights/:insight_id/sharing/',
+                '/api/projects/:id/dashboards/:dashboard_id/sharing/',
+                '/api/projects/:id/session_recordings/:recording_id/sharing/',
+            ].reduce(
+                (acc, url) => ({
+                    ...acc,
+                    [url]: {
+                        created_at: '2022-06-28T12:30:51.459746Z',
+                        enabled: true,
+                        access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                    },
+                }),
+                {}
+            ),
             '/api/projects/:id/insights/': { results: [fakeInsight] },
-            '/api/projects/:id/dashboards/:dashboard_id/sharing/': {
-                created_at: '2022-06-28T12:30:51.459746Z',
-                enabled: true,
-                access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-            },
         },
         patch: {
-            '/api/projects/:id/insights/:otherId/sharing/': (req: any) => {
-                return [
-                    200,
-                    {
-                        created_at: '2022-06-28T12:30:51.459746Z',
-                        enabled: true,
-                        access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-                        ...(req.body as any),
+            ...[
+                '/api/projects/:id/insights/:insight_id/sharing/',
+                '/api/projects/:id/dashboards/:dashboard_id/sharing/',
+                '/api/projects/:id/session_recordings/:recording_id/sharing/',
+            ].reduce(
+                (acc, url) => ({
+                    ...acc,
+                    [url]: (req: any) => {
+                        return [
+                            200,
+                            {
+                                created_at: '2022-06-28T12:30:51.459746Z',
+                                enabled: true,
+                                access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
+                                ...(req.body as any),
+                            },
+                        ]
                     },
-                ]
-            },
-
-            '/api/projects/:id/dashboards/:otherId/sharing/': (req: any) => {
-                return [
-                    200,
-                    {
-                        created_at: '2022-06-28T12:30:51.459746Z',
-                        enabled: true,
-                        access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-                        ...(req.body as any),
-                    },
-                ]
-            },
+                }),
+                {}
+            ),
         },
     })
 
@@ -92,17 +95,36 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
 }
 
 export const DashboardSharing = (): JSX.Element => {
-    return <Template dashboardId={123} />
+    return <Template title="Dashboard permissions" dashboardId={123} />
 }
 
 export const DashboardSharingLicensed = (): JSX.Element => {
-    return <Template licensed dashboardId={123} />
+    return <Template title="Dashboard permissions" licensed dashboardId={123} />
 }
 
 export const InsightSharing = (): JSX.Element => {
-    return <Template insightShortId={fakeInsight.short_id} insight={fakeInsight} />
+    return (
+        <Template
+            title="Insight permissions"
+            insightShortId={fakeInsight.short_id}
+            insight={fakeInsight}
+            previewIframe
+        />
+    )
 }
 
 export const InsightSharingLicensed = (): JSX.Element => {
-    return <Template insightShortId={fakeInsight.short_id} insight={fakeInsight} licensed />
+    return (
+        <Template
+            title="Insight permissions"
+            insightShortId={fakeInsight.short_id}
+            insight={fakeInsight}
+            licensed
+            previewIframe
+        />
+    )
+}
+
+export const RecordingSharingLicensed = (): JSX.Element => {
+    return <Template title="Share Recording" recordingId={'fake-id'} licensed previewIframe />
 }

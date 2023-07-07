@@ -2,8 +2,6 @@ import {
     CohortType,
     FilterLogicalOperator,
     GroupType,
-    LicensePlan,
-    LicenseType,
     OrganizationInviteType,
     OrganizationMemberType,
     OrganizationType,
@@ -29,7 +27,7 @@ type APIMockReturnType = {
     [K in keyof Pick<
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
-    >]: jest.Mock<ReturnType<typeof apiReal[K]>, Parameters<typeof apiReal[K]>>
+    >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -67,10 +65,13 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         excluded_event_property_names: ['$plugins_deferred', '$geoip_time_zone'],
         excluded_person_property_names: ['$browser_version'],
     },
+    autocapture_opt_out: true,
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
     session_recording_version: 'v1',
     capture_performance_opt_in: true,
+    autocapture_exceptions_opt_in: false,
+    autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
@@ -97,6 +98,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
         taxonomy_set_events_count: 60,
         taxonomy_set_properties_count: 17,
     },
+    available_product_features: [],
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -173,13 +175,6 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
     created_by: MOCK_DEFAULT_BASIC_USER,
     created_at: '2022-03-11T16:44:01.264613Z',
     updated_at: '2022-03-11T16:44:01.318717Z',
-}
-
-export const MOCK_DEFAULT_LICENSE: LicenseType = {
-    id: 1,
-    plan: LicensePlan.Scale,
-    valid_until: '2025-03-11T14:05:45.338000Z',
-    created_at: '2022-03-11T14:05:36.107000Z',
 }
 
 export const MOCK_PERSON_PROPERTIES: PersonProperty[] = [

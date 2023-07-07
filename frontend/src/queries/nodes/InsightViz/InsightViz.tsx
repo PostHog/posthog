@@ -6,12 +6,14 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { InsightQueryNode, InsightVizNode } from '../../schema'
+import { InsightQueryNode, InsightVizNode, QueryContext } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
 import { InsightLogicProps, ItemMode } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getCachedResults } from './utils'
+import { useState } from 'react'
 
 /** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
 export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
@@ -21,11 +23,19 @@ export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string =
 type InsightVizProps = {
     query: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
+    context?: QueryContext
 }
 
-export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
+let uniqueNode = 0
+
+export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.Element {
+    const [key] = useState(() => `InsightViz.${uniqueNode++}`)
+    const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}` }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+    }
 
     const { insightMode } = useValues(insightSceneLogic)
 
@@ -35,19 +45,40 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
         setQuery?.({ ...query, source })
     }
 
-    return (
-        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div
-                className={clsx('insight-wrapper', {
-                    'insight-wrapper--singlecolumn': isFunnels,
-                })}
-            >
-                <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
+    const showIfFull = !!query.full
+    const disableHeader = query.showHeader ? !query.showHeader : !showIfFull
+    const disableTable = query.showTable ? !query.showTable : !showIfFull
+    const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
+    const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
+    const disableLegendButton = query.showLegendButton ? !query.showLegendButton : !showIfFull
 
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <div
+                    className={clsx('insight-wrapper', {
+                        'insight-wrapper--singlecolumn': isFunnels,
+                    })}
+                >
+                    <EditorFilters
+                        query={query.source}
+                        setQuery={setQuerySource}
+                        showing={insightMode === ItemMode.Edit}
+                    />
+
+                    <div className="insights-container" data-attr="insight-view">
+                        <InsightContainer
+                            insightMode={insightMode}
+                            context={context}
+                            disableHeader={disableHeader}
+                            disableTable={disableTable}
+                            disableCorrelationTable={disableCorrelationTable}
+                            disableLastComputation={disableLastComputation}
+                            disableLegendButton={disableLegendButton}
+                        />
+                    </div>
                 </div>
-            </div>
+            </BindLogic>
         </BindLogic>
     )
 }

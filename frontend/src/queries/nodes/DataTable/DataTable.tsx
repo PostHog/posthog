@@ -1,12 +1,20 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, EventsQuery, HogQLQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
+    PersonsNode,
+    QueryContext,
+} from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { EventDetails } from 'scenes/events'
+import { EventDetails } from 'scenes/events/EventDetails'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
@@ -17,10 +25,9 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
@@ -41,6 +48,9 @@ interface DataTableProps {
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext
+    /* Cached Results are provided when shared or exported,
+    the data node logic becomes read only implicitly */
+    cachedResults?: AnyResponseType
 }
 
 const groupTypes = [
@@ -52,16 +62,17 @@ const groupTypes = [
 
 let uniqueNode = 0
 
-export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Element {
+export function DataTable({ query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [key] = useState(() => `DataTable.${uniqueNode++}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const {
         response,
         responseLoading,
         responseError,
+        queryCancelled,
         canLoadNextData,
         canLoadNewData,
         nextDataLoading,
@@ -69,7 +80,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         highlightedRows,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key }
+    const dataTableLogicProps: DataTableLogicProps = { query, key, context }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -86,12 +97,15 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showElapsedTime,
         showColumnConfigurator,
         showSavedQueries,
-        showEventsBufferWarning,
         expandable,
+        showOpenEditorButton,
     } = queryWithDefaults
+
+    const isReadOnly = setQuery === undefined
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
+
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
@@ -115,7 +129,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             },
             sorter: undefined, // using custom sorting code
             more:
-                !context?.readonly && showActions && isEventsQuery(query.source) ? (
+                !isReadOnly && showActions && isEventsQuery(query.source) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
@@ -128,6 +142,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             renderValue={() => <>Edit column</>}
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -150,7 +166,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <LemonDivider />
                         {canSort ? (
@@ -195,6 +210,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -213,13 +230,14 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -238,7 +256,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                             <>
@@ -322,7 +339,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     ].filter((x) => !!x)
 
     const secondRowLeft = [
-        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        showReload ? <Reload /> : null,
+        showReload && canLoadNewData ? <AutoLoad /> : null,
         showElapsedTime ? <ElapsedTime /> : null,
     ].filter((x) => !!x)
 
@@ -333,15 +351,15 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
-    const showFirstRow = firstRowLeft.length > 0 || firstRowRight.length > 0
-    const showSecondRow = secondRowLeft.length > 0 || secondRowRight.length > 0
+    const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
+    const showSecondRow = !isReadOnly && (secondRowLeft.length > 0 || secondRowRight.length > 0)
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full h-full space-y-4">
-                    {showHogQLEditor && isHogQLQuery(query.source) ? (
+                <div className="relative w-full flex flex-col gap-4 flex-1">
+                    {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
                     {showFirstRow && (
@@ -349,28 +367,25 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {firstRowLeft}
                             <div className="flex-1" />
                             {firstRowRight}
-                            {inlineEditorButtonOnRow === 1 && context?.readonly !== true ? (
-                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
                         </div>
                     )}
-                    {showFirstRow && showSecondRow && <LemonDivider />}
+                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}
                             <div className="flex-1" />
                             {secondRowRight}
-                            {inlineEditorButtonOnRow === 2 && context?.readonly !== true ? (
-                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
+                                <OpenEditorButton query={query} />
                             ) : null}
                         </div>
                     )}
-                    {showEventsBufferWarning && isEventsQuery(query.source) && (
-                        <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
-                    )}
-                    {inlineEditorButtonOnRow === 0 && context?.readonly !== true ? (
+                    {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
+                            <OpenEditorButton query={query} />
                         </div>
                     ) : null}
                     <LemonTable
@@ -406,18 +421,25 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         useURLForSorting={false}
                         emptyState={
                             responseError ? (
-                                isHogQLQuery(query.source) ? (
+                                isHogQLQuery(query.source) || isEventsQuery(query.source) ? (
                                     <InsightErrorState
                                         excludeDetail
                                         title={
-                                            response && 'error' in response ? (response as any).error : responseError
+                                            queryCancelled
+                                                ? 'The query was cancelled'
+                                                : response && 'error' in response
+                                                ? (response as any).error
+                                                : responseError
                                         }
                                     />
                                 ) : (
                                     <InsightErrorState />
                                 )
                             ) : (
-                                <InsightEmptyState />
+                                <InsightEmptyState
+                                    heading={context?.emptyStateHeading}
+                                    detail={context?.emptyStateDetail}
+                                />
                             )
                         }
                         expandable={
@@ -438,6 +460,12 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                       },
                                       rowExpandable: ({ result }) => !!result,
                                       noIndent: true,
+                                      expandedRowClassName: ({ result }) => {
+                                          const record = Array.isArray(result) ? result[0] : result
+                                          return record && record['event'] === '$exception'
+                                              ? 'border border-danger-dark bg-danger-highlight'
+                                              : null
+                                      },
                                   }
                                 : undefined
                         }
@@ -445,12 +473,17 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             clsx('DataTable__row', {
                                 'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                 'DataTable__row--category_row': !!label,
+                                'border border-danger-dark bg-danger-highlight':
+                                    result && result[0] && result[0]['event'] === '$exception',
                             })
                         }
+                        footer={
+                            canLoadNextData &&
+                            ((response as any).results.length > 0 || !responseLoading) && (
+                                <LoadNext query={query.source} />
+                            )
+                        }
                     />
-                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
-                        <LoadNext query={query.source} />
-                    )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />

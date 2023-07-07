@@ -19,7 +19,7 @@ export default {
 
 export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
     return (
-        <div style={{ display: 'flex' }}>
+        <div className="flex">
             <div style={{ width: 350 }}>
                 <CompactList
                     loading={loading}
@@ -46,7 +46,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                 <CompactList
                     loading={loading}
                     title="Recordings"
-                    viewAllURL={urls.sessionRecordings()}
+                    viewAllURL={urls.replay()}
                     emptyMessage={{
                         title: 'There are no recordings for this project',
                         description: 'Make sure you have the javascript snippet setup in your website.',

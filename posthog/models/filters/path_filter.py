@@ -14,6 +14,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SampleMixin,
     SearchMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
@@ -33,6 +34,7 @@ from posthog.models.filters.mixins.paths import (
     StartPointMixin,
     TargetEventDerivedMixin,
     TargetEventsMixin,
+    PathsHogQLExpressionMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
@@ -51,6 +53,7 @@ class PathFilter(
     DateMixin,
     BreakdownMixin,
     EntitiesMixin,
+    PathsHogQLExpressionMixin,
     PathStepLimitMixin,
     FunnelPathsMixin,
     TargetEventsMixin,
@@ -71,6 +74,7 @@ class PathFilter(
     SearchMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
+    SampleMixin,
 ):
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         if data:

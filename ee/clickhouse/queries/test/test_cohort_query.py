@@ -20,13 +20,13 @@ from posthog.test.base import (
 )
 
 
-def _make_event_sequence(team, distinct_id, interval_days, period_event_counts, event="$pageview"):
+def _make_event_sequence(team, distinct_id, interval_days, period_event_counts, event="$pageview", properties={}):
     for period_index, event_count in enumerate(period_event_counts):
         for i in range(event_count):
             _create_event(
                 team=team,
                 event=event,
-                properties={},
+                properties=properties,
                 distinct_id=distinct_id,
                 timestamp=datetime.now() - timedelta(days=interval_days * period_index, hours=1, minutes=i),
             )
@@ -1817,6 +1817,61 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                             "seq_time_value": 3,
                             "seq_event": "$pageview",
                             "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            }
+        )
+
+        q, params = CohortQuery(filter=filter, team=self.team).get_query()
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
+
+        self.assertEqual([p1.uuid], [r[0] for r in res])
+
+    @also_test_with_materialized_columns(event_properties=["$current_url"])
+    def test_performed_event_sequence_with_action(self):
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="$pageview", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
+        )
+
+        _make_event_sequence(
+            self.team, "p1", 2, [1, 1], properties={"$current_url": "https://posthog.com/feedback/123"}
+        )
+
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"$current_url": "https://posthog.com/feedback/123"},
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": action1.pk,
+                            "event_type": "actions",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 3,
+                            "seq_event": action1.pk,
+                            "seq_event_type": "actions",
                             "value": "performed_event_sequence",
                             "type": "behavioral",
                         }

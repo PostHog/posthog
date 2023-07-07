@@ -48,16 +48,27 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
             - name: Build and push container images
               id: build
               uses: depot/build-push-action@v1
               with:
                   project: x19jffd9zf # posthog
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
-                  tags: posthog/posthog:latest
+                  tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/amd64,linux/arm64
 
     posthog_cloud_build:
@@ -73,6 +84,9 @@ jobs:
         steps:
             - name: Checkout code
               uses: actions/checkout@v3
+
+            - name: Update git SHA
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -105,7 +119,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
@@ -118,15 +132,19 @@ jobs:
                   build-args: |
                       BASE_IMAGE=posthog/posthog:latest
 
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v2
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
             - name: Trigger PostHog Cloud deployment
               # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
               # as this action is now deprecated.
               uses: mvasigh/dispatch-action@main
               with:
-                  # TODO: find a way to avoid using a personal access token. An
-                  # option: push something to SQS (using WebIdentity) -> lambda
-                  # function to trigger the workflow via webhook
-                  token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
+                  token: ${{ steps.deployer.outputs.token }}
                   repo: posthog-cloud-infra
                   owner: PostHog
                   event_type: posthog_cloud_build
@@ -134,6 +152,6 @@ jobs:
                   # to avoid checksum mismatch on multiple platforms.
                   message: |
                       {
-                        "image_tag": "latest",
+                        "image_tag": "master",
                         "context": ${{ toJson(github) }}
                       }

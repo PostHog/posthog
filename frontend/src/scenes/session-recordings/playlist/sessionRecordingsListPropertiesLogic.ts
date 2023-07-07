@@ -1,67 +1,98 @@
-import { connect, kea, key, props, path, selectors, propsChanged } from 'kea'
+import { connect, kea, path, reducers, actions, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
-import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { sessionRecordingsListPropertiesLogicType } from './sessionRecordingsListPropertiesLogicType'
-import equal from 'fast-deep-equal'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { dayjs } from 'lib/dayjs'
 
-export interface SessionRecordingsListPropertiesLogicProps {
-    key: string
-    sessionIds: SessionRecordingType['id'][]
-}
-
+// This logic is used to fetch properties for a list of recordings
+// It is used in a global way as the cached values can be re-used
 export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPropertiesLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListPropertiesLogic', key]),
-    props({} as SessionRecordingsListPropertiesLogicProps),
-    key((props) => props.key),
+    path(() => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListPropertiesLogic']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportRecordingsListPropertiesFetched']],
     })),
-    propsChanged(({ actions, props: { sessionIds } }, { sessionIds: oldSessionIds }) => {
-        if (!equal(sessionIds, oldSessionIds)) {
-            actions.getSessionRecordingsProperties(sessionIds ?? [])
-        }
+
+    actions({
+        loadPropertiesForSessions: (sessions: SessionRecordingType[]) => ({ sessions }),
+        maybeLoadPropertiesForSessions: (sessions: SessionRecordingType[]) => ({ sessions }),
     }),
+
     loaders(({ actions }) => ({
-        sessionRecordingsPropertiesResponse: [
+        recordingProperties: [
+            [] as SessionRecordingPropertiesType[],
             {
-                results: [],
-            } as PaginatedResponse<SessionRecordingPropertiesType>,
-            {
-                getSessionRecordingsProperties: async (sessionIds, breakpoint) => {
-                    if (sessionIds.length < 1) {
-                        return {
-                            results: [],
-                        }
-                    }
-                    const paramsDict = {
-                        session_ids: sessionIds,
-                    }
-                    const params = toParams(paramsDict)
-                    await breakpoint(100) // Debounce for lots of quick filter changes
+                loadPropertiesForSessions: async ({ sessions }, breakpoint) => {
+                    await breakpoint(100)
 
                     const startTime = performance.now()
-                    const response = await api.recordings.listProperties(params)
+                    const sessionIds = sessions.map((x) => `'${x.id}'`).join(',')
+
+                    const oldestTimestamp = sessions.map((x) => x.start_time).sort()[0]
+                    const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
+
+                    const hogql: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: `SELECT properties.$session_id as session_id, any(properties) as properties
+                                FROM events
+                                WHERE event IN ['$pageview', '$autocapture']
+                                AND session_id IN [${sessionIds}]
+                                -- the timestamp range here is only to avoid querying too much of the events table
+                                -- we don't really care about the absolute value, 
+                                -- but we do care about whether timezones have an odd impact
+                                -- so, we extend the range by a day on each side so that timezones don't cause issues
+                                AND timestamp >= '${dayjs(oldestTimestamp)
+                                    .subtract(1, 'day')
+                                    .format('YYYY-MM-DD HH:mm:ss')}'
+                                AND timestamp <= '${dayjs(newestTimestamp).add(1, 'day').format('YYYY-MM-DD HH:mm:ss')}'
+                                GROUP BY session_id`,
+                    }
+
+                    const response = await api.query(hogql)
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
-                    return response
+                    return (response.results || []).map(
+                        (x: any): SessionRecordingPropertiesType => ({
+                            id: x[0],
+                            properties: JSON.parse(x[1] || '{}'),
+                        })
+                    )
                 },
             },
         ],
     })),
-    selectors(() => ({
-        sessionRecordingIdToProperties: [
-            (s) => [s.sessionRecordingsPropertiesResponse],
-            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
-                return (
-                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
-                )
+
+    listeners(({ actions, values }) => ({
+        maybeLoadPropertiesForSessions: ({ sessions }) => {
+            const newSessions = sessions.filter((session) => !values.recordingPropertiesById[session.id])
+
+            if (newSessions.length > 0) {
+                actions.loadPropertiesForSessions(newSessions)
+            }
+        },
+    })),
+
+    reducers({
+        recordingPropertiesById: [
+            {} as Record<string, SessionRecordingPropertiesType['properties']>,
+            {
+                loadPropertiesForSessionsSuccess: (
+                    state,
+                    { recordingProperties }
+                ): Record<string, SessionRecordingPropertiesType['properties']> => {
+                    const newState = { ...state }
+                    recordingProperties.forEach((properties) => {
+                        newState[properties.id] = properties.properties
+                    })
+
+                    return newState
+                },
             },
         ],
-    })),
+    }),
 ])

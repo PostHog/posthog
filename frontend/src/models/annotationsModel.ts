@@ -4,7 +4,7 @@ import { deleteWithUndo } from 'lib/utils'
 import type { annotationsModelType } from './annotationsModelType'
 import { RawAnnotationType, AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 
 export type AnnotationData = Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
@@ -13,20 +13,22 @@ export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'
 export function deserializeAnnotation(annotation: RawAnnotationType, projectTimezone: string): AnnotationType {
     return {
         ...annotation,
-        date_marker: dayjsUtcToTimezone(annotation.date_marker, projectTimezone),
+        date_marker: annotation.date_marker ? dayjsUtcToTimezone(annotation.date_marker, projectTimezone) : null,
+        created_at: dayjsUtcToTimezone(annotation.created_at, projectTimezone),
     }
 }
 
 export function serializeAnnotation(annotation: AnnotationType): RawAnnotationType {
     return {
         ...annotation,
-        date_marker: annotation.date_marker.toISOString(),
+        date_marker: annotation.date_marker ? annotation.date_marker.toISOString() : null,
+        created_at: annotation.created_at.toISOString(),
     }
 }
 
 export const annotationsModel = kea<annotationsModelType>([
     path(['models', 'annotationsModel']),
-    connect({ values: [teamLogic, ['timezone']] }),
+    connect({ values: [teamLogic, ['currentTeam', 'timezone']] }),
     actions({
         deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
         loadAnnotationsNext: () => true,
@@ -117,5 +119,10 @@ export const annotationsModel = kea<annotationsModelType>([
             actions.appendAnnotations(results)
         },
     })),
-    afterMount(({ actions }) => actions.loadAnnotations()),
+    afterMount(({ values, actions }) => {
+        if (isAuthenticatedTeam(values.currentTeam)) {
+            // Don't load on shared insights/dashboards
+            actions.loadAnnotations()
+        }
+    }),
 ])

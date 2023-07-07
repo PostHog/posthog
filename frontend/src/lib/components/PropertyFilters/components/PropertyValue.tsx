@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AutoComplete } from 'antd'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { PropertyOperator, PropertyType } from '~/types'
+import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useActions, useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -9,14 +9,14 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import './PropertyValue.scss'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import clsx from 'clsx'
+import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 
 export interface PropertyValueProps {
     propertyKey: string
-    type: string
+    type: PropertyFilterType
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     className?: string
-    bordered?: boolean
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
     operator: PropertyOperator
@@ -38,7 +38,6 @@ export function PropertyValue({
     endpoint = undefined,
     placeholder = undefined,
     className,
-    bordered = true,
     onSet,
     value,
     operator,
@@ -57,7 +56,10 @@ export function PropertyValue({
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
-    const isDurationProperty = propertyKey && describeProperty(propertyKey) === PropertyType.Duration
+    const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
+
+    const isDurationProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
     // update the input field if passed a new `value` prop
     useEffect(() => {
@@ -74,7 +76,13 @@ export function PropertyValue({
     }, [value])
 
     const load = (newInput: string | undefined): void => {
-        loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames })
+        loadPropertyValues({
+            endpoint,
+            type: propertyDefinitionType,
+            newInput,
+            propertyKey,
+            eventNames,
+        })
     }
 
     function setValue(newValue: PropertyValueProps['value']): void {
@@ -108,7 +116,6 @@ export function PropertyValue({
         },
         ['data-attr']: 'prop-val',
         dropdownMatchSelectWidth: 350,
-        bordered,
         placeholder,
         allowClear: Boolean(value),
         onKeyDown: (e: React.KeyboardEvent) => {
@@ -150,7 +157,7 @@ export function PropertyValue({
                 selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
                 value={formattedValues}
                 mode="multiple-custom"
-                onChange={(nextVal) => {
+                onChange={(nextVal: string[]) => {
                     setValue(nextVal)
                 }}
                 onBlur={commonInputProps.handleBlur}
@@ -187,7 +194,7 @@ export function PropertyValue({
     return isDateTimeProperty ? (
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isDurationProperty ? (
-        <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />
+        <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
     ) : (
         <AutoComplete
             {...commonInputProps}

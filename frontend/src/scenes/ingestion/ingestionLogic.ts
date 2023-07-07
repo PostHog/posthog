@@ -10,9 +10,8 @@ import { urls } from 'scenes/urls'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { windowValues } from 'kea-window-values'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { subscriptions } from 'kea-subscriptions'
-import { BillingType, TeamType } from '~/types'
+import { TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import api from 'lib/api'
@@ -185,8 +184,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            billingLogic,
-            ['billing'],
             teamLogic,
             ['currentTeam'],
             preflightLogic,
@@ -494,9 +491,10 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: (val) => {
             if (
-                router.values.location.pathname.includes(
+                (router.values.location.pathname.includes(
                     values.showBillingStep ? '/ingestion/billing' : '/ingestion/superpowers'
-                ) &&
+                ) ||
+                    router.values.location.pathname.includes('/ingestion/invites-sent')) &&
                 val.payload?.completed_snippet_onboarding
             ) {
                 return combineUrl(urls.events(), { onboarding_completed: true }).url
@@ -548,6 +546,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     !!values.currentTeam?.capture_console_log_opt_in,
                     !!values.currentTeam?.capture_performance_opt_in
                 )
+            }
+            if (!!values.currentTeam?.autocapture_opt_out) {
+                eventUsageLogic.actions.reportIngestionAutocaptureToggled(!!values.currentTeam?.autocapture_opt_out)
             }
         },
         openThirdPartyPluginModal: ({ plugin }) => {
@@ -632,11 +633,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
         showBillingStep: (value) => {
             const steps = value ? INGESTION_STEPS : INGESTION_STEPS_WITHOUT_BILLING
             actions.setSidebarSteps(Object.values(steps))
-        },
-        billing: (billing: BillingType) => {
-            if (billing?.plan && values.showBilling) {
-                actions.setCurrentStep(INGESTION_STEPS.DONE)
-            }
         },
         currentTeam: (currentTeam: TeamType) => {
             if (currentTeam?.ingested_event && values.readyToVerify && !values.showBillingStep) {

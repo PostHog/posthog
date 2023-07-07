@@ -31,6 +31,7 @@ export function HeatmapLabel({
 
     return (
         <div
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'absolute',
                 top: `${inBounds(

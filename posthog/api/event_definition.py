@@ -1,16 +1,20 @@
-from typing import Literal, Tuple, Type
+from typing import Any, Literal, Tuple, Type, cast
 
 from django.db.models import Manager, Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets, request, status, response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
 from posthog.constants import AvailableFeature, EventDefinitionType
+from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 from posthog.settings import EE_AVAILABLE
 
@@ -59,6 +63,7 @@ class EventDefinitionViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
@@ -82,7 +87,7 @@ class EventDefinitionViewSet(
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
-        order, order_direction = self._ordering_params_from_request()
+        order_expressions = [self._ordering_params_from_request()]
 
         ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
         is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
@@ -98,6 +103,14 @@ class EventDefinitionViewSet(
                     to_attr="prefetched_tags",
                 )
             )
+            order_expressions = (
+                [
+                    ("verified", "DESC"),
+                    ("volume_30_day", "DESC"),
+                ]
+                if order_expressions == [("volume_30_day", "DESC")]
+                else order_expressions
+            )
         else:
             event_definition_object_manager = EventDefinition.objects
 
@@ -105,8 +118,7 @@ class EventDefinitionViewSet(
             event_type,
             is_enterprise=is_enterprise,
             conditions=search_query,
-            order_expr=order,
-            order_direction=order_direction,
+            order_expressions=order_expressions,
         )
         return event_definition_object_manager.raw(sql, params=params)
 
@@ -154,3 +166,21 @@ class EventDefinitionViewSet(
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        instance: EventDefinition = self.get_object()
+        instance_id: str = str(instance.id)
+        self.perform_destroy(instance)
+        # Casting, since an anonymous use CANNOT access this endpoint
+        report_user_action(cast(User, request.user), "event definition deleted", {"name": instance.name})
+        user = cast(User, request.user)
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=user,
+            item_id=instance_id,
+            scope="EventDefinition",
+            activity="deleted",
+            detail=Detail(name=cast(str, instance.name), changes=None),
+        )
+        return response.Response(status=status.HTTP_204_NO_CONTENT)

@@ -78,4 +78,4 @@ class Migration(migrations.Migration):
         ("posthog", "0219_migrate_tags_v2"),
     ]
 
-    operations = [migrations.RunPython(backfill_primary_dashboards, reverse)]
+    operations = [migrations.RunPython(backfill_primary_dashboards, reverse, elidable=True)]

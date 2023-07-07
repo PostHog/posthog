@@ -4,6 +4,7 @@ import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
@@ -20,16 +21,21 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        const resultEvent = result.args[0]
-        return runner.runAsyncHandlersEventPipeline(resultEvent)
+        const postIngestionEvent = convertToIngestionEvent(result.args[0])
+        return Promise.all([
+            runner.runAppsOnEventPipeline(postIngestionEvent),
+            runner.runWebhooksEventPipeline(postIngestionEvent),
+        ])
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
+        process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
+        jest.spyOn(hub.db, 'createPerson')
     })
 
     afterEach(async () => {
@@ -119,7 +125,7 @@ describe('Event Pipeline integration test', () => {
             team_id: 2,
             distinct_id: 'abc',
             ip: null,
-            site_url: 'https://example.com',
+            site_url: 'not-used-anymore',
             uuid: new UUIDT().toString(),
         }
         await hub.actionManager.reloadAllActions()
@@ -183,12 +189,9 @@ describe('Event Pipeline integration test', () => {
                 timestamp,
                 teamId: 2,
                 distinctId: 'abc',
-                ip: null,
                 elementsList: [],
                 person: {
-                    id: expect.any(Number),
                     created_at: expect.any(String),
-                    team_id: 2,
                     properties: {
                         $creator_event_uuid: event.uuid,
                     },
@@ -207,7 +210,7 @@ describe('Event Pipeline integration test', () => {
         expect(secondArg!.method).toBe('POST')
     })
 
-    it('loads person data once', async () => {
+    it('single postgres action per run to create or load person', async () => {
         const event: PluginEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
@@ -222,6 +225,11 @@ describe('Event Pipeline integration test', () => {
 
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
+        expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
+
+        // second time single fetch
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
             name="uuid",
             field=models.UUIDField(blank=True, null=True),
         ),
-        migrations.RunPython(create_uuid, migrations.RunPython.noop),
+        migrations.RunPython(create_uuid, migrations.RunPython.noop, elidable=True),
         migrations.AlterField(
             model_name="team",
             name="uuid",

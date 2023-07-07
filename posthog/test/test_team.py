@@ -7,6 +7,7 @@ from posthog.models import Dashboard, DashboardTile, Organization, PluginConfig,
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import get_team_in_cache, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.utils import PersonOnEventsMode
 
 from .base import BaseTest
 
@@ -61,6 +62,8 @@ class TestTeam(BaseTest):
         team: Team = Team.objects.create(name="New Team", organization=self.organization)
         self.assertEqual(team.timezone, "UTC")
         self.assertEqual(team.data_attributes, ["data-attr"])
+        self.assertEqual(team.autocapture_exceptions_opt_in, None)
+        self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(organization=self.organization)
@@ -118,10 +121,10 @@ class TestTeam(BaseTest):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertTrue(team.person_on_events_querying_enabled)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
                 # called more than once when evaluating hogql
                 mock_feature_enabled.assert_called_with(
-                    "person-on-events-enabled",
+                    "persons-on-events-v2-reads-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},
                     group_properties={
@@ -138,12 +141,12 @@ class TestTeam(BaseTest):
     def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self, mock_feature_enabled):
 
         with self.is_cloud(False):
-            with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
+            with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertTrue(team.person_on_events_querying_enabled)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.V2_ENABLED)
                 mock_feature_enabled.assert_not_called()
 
-            with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
+            with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertFalse(team.person_on_events_querying_enabled)
+                self.assertEqual(team.person_on_events_mode, PersonOnEventsMode.DISABLED)
                 mock_feature_enabled.assert_not_called()

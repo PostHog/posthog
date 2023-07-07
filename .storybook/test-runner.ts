@@ -5,7 +5,8 @@ import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/react'
 
-type SupportedBrowserName = 'chromium' | 'firefox' | 'webkit'
+// 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
+type SupportedBrowserName = 'chromium' | 'webkit'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
@@ -39,6 +40,8 @@ declare module '@storybook/react' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
+            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
+            snapshotTargetSelector?: string
         }
         mockDate?: string | number | Date
         msw?: {
@@ -65,12 +68,7 @@ module.exports = {
 
         browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
         if (!skip) {
-            await page.evaluate(() => {
-                // Stop all animations for consistent snapshots
-                document.body.classList.add('storybook-test-runner')
-            })
-
-            const currentBrowser = browserContext.browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
+            const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
@@ -84,12 +82,18 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    // await page.setViewportSize(DEFAULT_PAGE_DIMENSIONS)
     const {
         waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
         excludeNavigationFromSnapshot = false,
     } = storyContext.parameters?.testOptions ?? {}
 
-    let check: (page: Page, context: TestContext, browser: SupportedBrowserName) => Promise<void>
+    let check: (
+        page: Page,
+        context: TestContext,
+        browser: SupportedBrowserName,
+        targetSelector?: string
+    ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
         if (excludeNavigationFromSnapshot) {
             check = expectStoryToMatchSceneSnapshot
@@ -102,19 +106,19 @@ async function expectStoryToMatchSnapshot(
 
     // Wait for story to load
     await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
+    await page.evaluate(() => {
+        // Stop all animations for consistent snapshots
+        document.body.classList.add('storybook-test-runner')
+    })
     if (waitForLoadersToDisappear) {
         await page.waitForTimeout(300) // Wait for initial UI to load
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
-            if (waitForLoadersToDisappear.split(' ').at(-1)?.startsWith('canvas')) {
-                // If waiting for a canvas, wait a bit more for it to be fully rendered and properly sized
-                await page.waitForTimeout(400)
-            }
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
-    await check(page, context, browser)
+    await check(page, context, browser, storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
 async function expectStoryToMatchFullPageSnapshot(
@@ -130,27 +134,49 @@ async function expectStoryToMatchSceneSnapshot(
     context: TestContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    await page.evaluate(() => {
+        // The screenshot gets clipped by the overflow hidden of the sidebar
+        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
+    })
+
     await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 
 async function expectStoryToMatchComponentSnapshot(
     page: Page,
     context: TestContext,
-    browser: SupportedBrowserName
+    browser: SupportedBrowserName,
+    targetSelector: string = '#root'
 ): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('root')
-        if (rootEl) {
-            // don't expand the container element to limit the screenshot
-            // to the component's size
-            rootEl.style.display = 'inline-block'
+        if (!rootEl) {
+            throw new Error('Could not find root element')
         }
-        // make the body transparent to take the screenshot
-        // without background
+        // Make the root element (which is the default screenshot reference) hug the component
+        rootEl.style.display = 'inline-block'
+        // If needed, expand the root element so that all popovers are visible in the screenshot
+        document.querySelectorAll('.Popover').forEach((popover) => {
+            const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
+            const popoverBoundingClientRect = popover.getBoundingClientRect()
+            if (popoverBoundingClientRect.right > currentRootBoundingClientRect.right) {
+                rootEl.style.width = `${popoverBoundingClientRect.right}px`
+            }
+            if (popoverBoundingClientRect.bottom > currentRootBoundingClientRect.bottom) {
+                rootEl.style.height = `${popoverBoundingClientRect.bottom}px`
+            }
+            if (popoverBoundingClientRect.top < currentRootBoundingClientRect.top) {
+                rootEl.style.height = `${-popoverBoundingClientRect.top + currentRootBoundingClientRect.bottom}px`
+            }
+            if (popoverBoundingClientRect.left < currentRootBoundingClientRect.left) {
+                rootEl.style.width = `${-popoverBoundingClientRect.left + currentRootBoundingClientRect.right}px`
+            }
+        })
+        // Make the body transparent to take the screenshot without background
         document.body.style.background = 'transparent'
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator('#root'), context, browser, { omitBackground: true })
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, { omitBackground: true })
 }
 
 async function expectLocatorToMatchStorySnapshot(
@@ -170,7 +196,7 @@ async function expectLocatorToMatchStorySnapshot(
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
-        failureThreshold: 0.001,
+        failureThreshold: 0.0003,
         failureThresholdType: 'percent',
     })
 }

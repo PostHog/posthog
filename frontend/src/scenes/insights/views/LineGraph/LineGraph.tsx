@@ -15,9 +15,8 @@ import {
     TooltipModel,
     TooltipOptions,
     ScriptableLineSegmentContext,
-} from 'chart.js'
+} from 'lib/Chart'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
-import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
@@ -32,8 +31,8 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-
-import './chartjsSetup'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
@@ -238,17 +237,17 @@ export function LineGraph_({
     let datasets = _datasets
 
     const { createTooltipData } = useValues(lineGraphLogic)
-    const { insightProps, insight, timezone } = useValues(insightLogic)
+    const { insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
-    const [isAwaitingFirstRender, setIsAwaitingFirstRender] = useState(true)
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
-    const colors = getGraphColors()
+    const colors = getGraphColors(isDarkModeOn)
     const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
@@ -358,11 +357,6 @@ export function LineGraph_({
         const options: ChartOptions = {
             responsive: true,
             maintainAspectRatio: false,
-            animation: {
-                onComplete() {
-                    setIsAwaitingFirstRender(false)
-                },
-            },
             elements: {
                 line: {
                     tension: 0,
@@ -430,12 +424,28 @@ export function LineGraph_({
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
                                     timezone={timezone}
                                     seriesData={seriesData}
-                                    hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
+                                    renderSeries={(value, datum) => {
+                                        const hasBreakdown =
+                                            datum.breakdown_value !== undefined && !!datum.breakdown_value
+                                        return (
+                                            <div className="datum-label-column">
+                                                {!filters?.formula && (
+                                                    <SeriesLetter
+                                                        className="mr-2"
+                                                        hasBreakdown={hasBreakdown}
+                                                        seriesIndex={datum?.action?.order ?? datum.id}
+                                                        seriesColor={datum.color}
+                                                    />
+                                                )}
+                                                {value}
+                                            </div>
+                                        )
+                                    }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
                                         ((value: number): string => formatAggregationAxisValue(filters, value))
                                     }
-                                    forceEntitiesAsColumns={isHorizontal}
+                                    entitiesAsColumnsOverride={filters?.formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
@@ -485,7 +495,7 @@ export function LineGraph_({
                           },
                       }
                     : {
-                          crosshair: false as CrosshairOptions,
+                          crosshair: false,
                       }),
             },
             hover: {
@@ -607,21 +617,20 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn])
 
     return (
         <div
             className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
             data-attr={dataAttr}
         >
-            <canvas ref={canvasRef} aria-busy={isAwaitingFirstRender} />
+            <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={myLineChart}
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
-                    dashboardItemId={insightProps.dashboardItemId}
                     insightNumericId={insight.id || 'new'}
                 />
             ) : null}

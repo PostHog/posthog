@@ -1,5 +1,8 @@
 import { LifecycleToggle } from '~/types'
 
+/** --brand-blue in HSL for saturation mixing */
+export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
+
 /* Insight series colors. */
 const dataColorVars = [
     'brand-blue',
@@ -74,14 +77,30 @@ export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean):
     }
 }
 
-export function getGraphColors(): Record<string, string | null> {
+export function getGraphColors(isDarkModeOn: boolean): Record<string, string | null> {
     return {
-        axisLabel: '#333',
-        axisLine: '#ddd',
-        axis: '#999',
-        crosshair: 'rgba(0,0,0,0.2)',
+        axisLabel: isDarkModeOn ? '#ddd' : '#333',
+        axisLine: isDarkModeOn ? '#888' : '#ddd',
+        axis: isDarkModeOn ? '#aaa' : '#999',
+        crosshair: isDarkModeOn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
         tooltipBackground: '#1dc9b7',
         tooltipTitle: '#fff',
         tooltipBody: '#fff',
     }
+}
+
+/**
+ * Gradate color saturation based on its intended strength.
+ * This is for visualizations where a data point's color depends on its value.
+ * @param hsl The HSL color to gradate.
+ * @param strength The strength of the data point.
+ * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+ */
+export function gradateColor(
+    hsl: [number, number, number],
+    strength: number,
+    floor: number = 0
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const saturation = floor + (1 - floor) * strength
+    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
 }

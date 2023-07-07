@@ -4,7 +4,7 @@ import { organizationLogic } from '../../scenes/organizationLogic'
 import { OrganizationMembershipLevel } from '../constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { EitherMembershipLevel, membershipLevelToName } from '../utils/permissioning'
-import { teamLogic } from '../../scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from '../../scenes/teamLogic'
 
 export interface RestrictedComponentProps {
     isRestricted: boolean
@@ -35,7 +35,7 @@ export function RestrictedArea({
     const restrictionReason: null | string = useMemo(() => {
         let scopeAccessLevel: EitherMembershipLevel | null
         if (scope === RestrictionScope.Project) {
-            if (!currentTeam) {
+            if (!isAuthenticatedTeam(currentTeam)) {
                 return 'Loading current project…'
             }
             scopeAccessLevel = currentTeam.effective_membership_level

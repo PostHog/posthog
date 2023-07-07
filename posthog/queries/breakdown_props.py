@@ -18,15 +18,17 @@ from posthog.models.property.util import (
 )
 from posthog.models.team import Team
 from posthog.models.team.team import groups_on_events_querying_enabled
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 ALL_USERS_COHORT_ID = 0
 
@@ -73,7 +75,9 @@ def get_breakdown_prop_values(
     sessions_join_clause = ""
     sessions_join_params: Dict = {}
 
-    null_person_filter = f"AND notEmpty(e.person_id)" if team.person_on_events_querying_enabled else ""
+    null_person_filter = (
+        f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonOnEventsMode.DISABLED else ""
+    )
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
@@ -82,13 +86,25 @@ def get_breakdown_prop_values(
         if not groups_on_events_querying_enabled():
             groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
     else:
-        outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
-        person_id_joined_alias = "pdi.person_id"
+        outer_properties = (
+            column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
+            if person_properties_mode != PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            else props_to_filter
+        )
+        person_id_joined_alias = (
+            "pdi.person_id"
+            if person_properties_mode != PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            else "if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)"
+        )
 
         person_query = PersonQuery(
             filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
         )
-        if person_query.is_used:
+        if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2:
+            person_join_clauses = PERSON_OVERRIDES_JOIN_SQL.format(
+                event_table_alias="e", person_overrides_table_alias="overrides"
+            )
+        elif person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
             person_join_clauses = f"""
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
@@ -124,7 +140,7 @@ def get_breakdown_prop_values(
         entity_filter, entity_params = FunnelEventQuery(
             filter,
             team,
-            using_person_on_events=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:
@@ -143,11 +159,13 @@ def get_breakdown_prop_values(
         filter.breakdown_group_type_index,
         filter.hogql_context,
         filter.breakdown_normalize_url,
-        direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
+        direct_on_events=person_properties_mode
+        in [PersonPropertiesMode.DIRECT_ON_EVENTS, PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2],
         cast_as_float=filter.using_histogram,
     )
 
-    sample_clause = f"SAMPLE {filter.sampling_factor}" if filter.sampling_factor else ""
+    sample_clause = "SAMPLE %(sampling_factor)s" if filter.sampling_factor else ""
+    sampling_params = {"sampling_factor": filter.sampling_factor}
 
     if filter.using_histogram:
         bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
@@ -195,10 +213,12 @@ def get_breakdown_prop_values(
             **sessions_join_params,
             **extra_params,
             **date_params,
+            **sampling_params,
             **filter.hogql_context.values,
         },
         query_type="get_breakdown_prop_values",
         filter=filter,
+        team_id=team.pk,
     )[0][0]
 
 
@@ -325,6 +345,7 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
 def _parse_breakdown_cohorts(cohorts: List[Cohort], hogql_context: HogQLContext) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
+
     for idx, cohort in enumerate(cohorts):
         person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context)
         params = {**params, **cohort_filter_params}

@@ -7,7 +7,7 @@ import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { getPropertyLabel, isPostHogProp } from 'lib/components/PropertyKeyInfo'
-import { VerifiedEventCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { VerifiedDefinitionCheckbox } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Form } from 'kea-forms'
 import { tagsModel } from '~/models/tagsModel'
@@ -15,14 +15,16 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { definitionLoading, definition, hasTaxonomyFeatures, isEvent } = useValues(logic)
+    const { definitionLoading, definition, hasTaxonomyFeatures, isProperty } = useValues(logic)
     const { setPageMode, saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
+
+    const showVerifiedCheckbox = hasTaxonomyFeatures && !isPostHogProp(definition.name) && 'verified' in definition
 
     return (
         <Form logic={definitionEditLogic} props={props} formKey="definition">
             <PageHeader
-                title="Edit event"
+                title={`Edit ${isProperty ? 'Property' : 'Event'} Definition`}
                 buttons={
                     <>
                         <LemonButton
@@ -31,7 +33,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 setPageMode(DefinitionPageMode.View)
                             }}
-                            disabled={definitionLoading}
+                            disabledReason={definitionLoading ? 'Loading...' : undefined}
                         >
                             Cancel
                         </LemonButton>
@@ -41,7 +43,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 saveDefinition({})
                             }}
-                            disabled={definitionLoading}
+                            disabledReason={definitionLoading ? 'Loading...' : undefined}
                         >
                             Save
                         </LemonButton>
@@ -66,11 +68,12 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                         </Field>
                     </div>
                 )}
-                {hasTaxonomyFeatures && isEvent && !isPostHogProp(definition.name) && 'verified' in definition && (
+                {showVerifiedCheckbox && (
                     <div className="mt-4 ph-ignore-input">
                         <Field name="verified" data-attr="definition-verified">
                             {({ value, onChange }) => (
-                                <VerifiedEventCheckbox
+                                <VerifiedDefinitionCheckbox
+                                    isProperty={isProperty}
                                     verified={!!value}
                                     onChange={(nextVerified) => {
                                         onChange(nextVerified)
@@ -96,7 +99,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                         </Field>
                     </div>
                 )}
-                {hasTaxonomyFeatures && !isEvent && (
+                {isProperty && (
                     <div className="mt-4 ph-ignore-input">
                         <Field name="property_type" label="Property Type" data-attr="property-type">
                             {({ value, onChange }) => (

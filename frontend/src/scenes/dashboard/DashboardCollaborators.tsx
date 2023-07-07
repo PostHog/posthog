@@ -9,7 +9,7 @@ import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 
@@ -27,12 +27,7 @@ export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrict
 ]
 
 export function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
-    const {
-        allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
-        allItemsLoading: dashboardLoading,
-        canEditDashboard,
-        canRestrictDashboard,
-    } = useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, canEditDashboard, canRestrictDashboard } = useValues(dashboardLogic)
     const { triggerDashboardUpdate } = useActions(dashboardLogic)
     const { allCollaborators, explicitCollaboratorsLoading, addableMembers, explicitCollaboratorsToBeAdded } =
         useValues(dashboardCollaboratorsLogic({ dashboardId }))
@@ -45,11 +40,11 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
             <>
                 <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
                     {(!canEditDashboard || !canRestrictDashboard) && (
-                        <AlertMessage type="info">
+                        <LemonBanner type="info" className="mb-4">
                             {canEditDashboard
                                 ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
                                 : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
-                        </AlertMessage>
+                        </LemonBanner>
                     )}
                     <LemonSelect
                         value={dashboard.effective_restriction_level}
@@ -73,7 +68,9 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                             placeholder="Search for team members to add…"
                                             value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
-                                            onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                            onChange={(newValues: string[]) =>
+                                                setExplicitCollaboratorsToBeAdded(newValues)
+                                            }
                                             filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"

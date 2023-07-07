@@ -1,129 +1,24 @@
-import { useState } from 'react'
-
-import { Card, Select, Row } from 'antd'
-import {
-    IconFlag,
-    IconJavascript,
-    IconPython,
-    IconOpenInNew,
-    IconNodeJS,
-    IconPHP,
-    IconRuby,
-    IconGolang,
-    LemonIconProps,
-} from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import {
-    UTM_TAGS,
-    APISnippet,
-    JSSnippet,
-    PythonSnippet,
-    NodeJSSnippet,
-    PHPSnippet,
-    RubySnippet,
-    GolangSnippet,
-} from 'scenes/feature-flags/FeatureFlagSnippets'
-
+import { useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import './FeatureFlagInstructions.scss'
-import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
-
-const DOC_BASE_URL = 'https://posthog.com/docs/'
-const FF_ANCHOR = '#feature-flags'
-
-interface InstructionOption {
-    value: string
-    documentationLink: string
-    Icon: (props: LemonIconProps) => JSX.Element
-    Snippet: ({ flagKey }: { flagKey: string }) => JSX.Element
-}
-
-const OPTIONS: InstructionOption[] = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconJavascript,
-        Snippet: JSSnippet,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconNodeJS,
-        Snippet: NodeJSSnippet,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconPHP,
-        Snippet: PHPSnippet,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconRuby,
-        Snippet: RubySnippet,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconGolang,
-        Snippet: GolangSnippet,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconPython,
-        Snippet: PythonSnippet,
-    },
-    {
-        value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/feature-flags${UTM_TAGS}`,
-        Icon: IconOpenInNew,
-        Snippet: APISnippet,
-    },
-]
-
-function FeatureFlagInstructionsHeader({
-    selectedOptionValue,
-    selectOption,
-    headerPrompt,
-    options,
-}: {
-    selectedOptionValue: string
-    selectOption: (selectedValue: string) => void
-    headerPrompt: string
-    options: InstructionOption[]
-}): JSX.Element {
-    return (
-        <Row className="FeatureFlagInstructionsHeader" justify="space-between" align="middle">
-            <div className="FeatureFlagInstructionsHeader__header-title">
-                <IconFlag className="FeatureFlagInstructionsHeader__header-title__icon" />
-                <b>{headerPrompt}</b>
-            </div>
-
-            <Select
-                data-attr="feature-flag-instructions-select"
-                value={selectedOptionValue}
-                style={{ width: 140 }}
-                onChange={selectOption}
-            >
-                {options.map(({ value, Icon }, index) => (
-                    <Select.Option
-                        data-attr={'feature-flag-instructions-select-option-' + value}
-                        key={index}
-                        value={value}
-                    >
-                        <div className="FeatureFlagInstructionsHeader__option">
-                            <div className="FeatureFlagInstructionsHeader__option__icon">
-                                <Icon />
-                            </div>
-                            <div>{value}</div>
-                        </div>
-                    </Select.Option>
-                ))}
-            </Select>
-        </Row>
-    )
-}
+import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
+import { FeatureFlagType } from '~/types'
+import {
+    BOOTSTRAPPING_OPTIONS,
+    FF_ANCHOR,
+    InstructionOption,
+    LibraryType,
+    LOCAL_EVALUATION_LIBRARIES,
+    PAYLOAD_LIBRARIES,
+    LOCAL_EVAL_ANCHOR,
+    OPTIONS,
+    PAYLOADS_ANCHOR,
+} from './FeatureFlagCodeOptions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { groupsModel } from '~/models/groupsModel'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
@@ -136,17 +31,57 @@ function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLin
     )
 }
 
-function CodeInstructions({
-    featureFlagKey,
-    options,
-    headerPrompt,
-}: {
-    featureFlagKey: string
+export interface CodeInstructionsProps {
     options: InstructionOption[]
-    headerPrompt: string
-}): JSX.Element {
+    selectedLanguage?: string
+    featureFlag?: FeatureFlagType
+    dataAttr?: string
+    showLocalEval?: boolean
+    showBootstrap?: boolean
+}
+
+export function CodeInstructions({
+    options,
+    selectedLanguage,
+    featureFlag,
+    dataAttr = '',
+    showLocalEval = false,
+    showBootstrap = false,
+}: CodeInstructionsProps): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
+    const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
+    const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
+    const [showLocalEvalCode, setShowLocalEvalCode] = useState(showLocalEval)
+    const [showBootstrapCode, setShowBootstrapCode] = useState(showBootstrap)
+
+    const multivariantFlag = !!featureFlag?.filters.multivariate?.variants
+
+    const featureFlagKey = featureFlag?.key || 'my-flag'
+
+    const { groupTypes } = useValues(groupsModel)
+    const groupType =
+        featureFlag?.filters?.aggregation_group_type_index != null
+            ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
+            : undefined
+
+    const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)
+    const getDocumentationLink = (): string => {
+        const documentationLink = selectedOption.documentationLink
+
+        if (showBootstrapCode) {
+            return bootstrapOption.documentationLink
+        }
+
+        let anchor = FF_ANCHOR
+        if (showLocalEvalCode) {
+            anchor = LOCAL_EVAL_ANCHOR
+        } else if (showPayloadCode) {
+            anchor = PAYLOADS_ANCHOR
+        }
+
+        return `${documentationLink}${anchor}`
+    }
 
     const selectOption = (selectedValue: string): void => {
         const option = options.find((option) => option.value === selectedValue)
@@ -154,57 +89,201 @@ function CodeInstructions({
         if (option) {
             setSelectedOption(option)
         }
+
+        const libHasPayloads = PAYLOAD_LIBRARIES.find((payloadOption) => payloadOption === selectedValue)
+
+        if (!libHasPayloads) {
+            setShowPayloadCode(false)
+        }
+
+        const libHasLocalEval = LOCAL_EVALUATION_LIBRARIES.find((localEvalOption) => localEvalOption === selectedValue)
+        if (!libHasLocalEval) {
+            setShowLocalEvalCode(false)
+        }
+
+        const bootstrapOption = BOOTSTRAPPING_OPTIONS.find((bootstrapOption) => bootstrapOption.value === selectedValue)
+        if (bootstrapOption) {
+            setBootstrapOption(bootstrapOption)
+        } else {
+            setShowBootstrapCode(false)
+        }
     }
+    useEffect(() => {
+        if (selectedLanguage) {
+            selectOption(selectedLanguage)
+        } else {
+            // When flag definition changes, de-select any options that can't be selected anymore
+            selectOption(selectedOption.value)
+        }
+
+        if (
+            Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
+            Object.values(featureFlag?.filters.payloads || {}).some((value) => value)
+        ) {
+            setShowPayloadCode(true)
+        } else {
+            setShowPayloadCode(false)
+        }
+
+        if (featureFlag?.ensure_experience_continuity) {
+            setShowLocalEvalCode(false)
+        }
+    }, [selectedLanguage, featureFlag])
+
+    const groups = featureFlag?.filters?.groups || []
+    // return first non-instant property in group
+    const firstNonInstantProperty = groups
+        .find(
+            (group) =>
+                group.properties?.length &&
+                group.properties.some((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))
+        )
+        ?.properties?.find((property) => !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || ''))?.key
+
+    const randomProperty = groups.find((group) => group.properties?.length)?.properties?.[0]?.key
 
     return (
-        <Card size="small">
-            <FeatureFlagInstructionsHeader
-                options={options}
-                headerPrompt={headerPrompt}
-                selectedOptionValue={selectedOption.value}
-                selectOption={selectOption}
-            />
-            <LemonDivider />
-            <div className="mt mb">
-                <selectedOption.Snippet data-attr="feature-flag-instructions-snippet" flagKey={featureFlagKey} />
+        <div>
+            <div className="flex items-center gap-6">
+                <div>
+                    <LemonSelect
+                        data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
+                        options={[
+                            {
+                                title: 'Client libraries',
+                                options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
+                                    (option) => ({
+                                        value: option.value,
+                                        label: option.value,
+                                        'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                    })
+                                ),
+                            },
+                            {
+                                title: 'Server libraries',
+                                options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
+                                    (option) => ({
+                                        value: option.value,
+                                        label: option.value,
+                                        'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                    })
+                                ),
+                            },
+                        ]}
+                        onChange={(val) => {
+                            if (val) {
+                                selectOption(val)
+                                reportFlagsCodeExampleLanguage(val)
+                            }
+                        }}
+                        value={selectedOption.value}
+                    />
+                </div>
+                <Tooltip
+                    title={`Feature flag payloads are only available in these libraries: ${PAYLOAD_LIBRARIES.map(
+                        (payloadOption) => ` ${payloadOption}`
+                    )}`}
+                >
+                    <div className="flex items-center gap-1">
+                        <LemonCheckbox
+                            label="Show payload option"
+                            onChange={() => {
+                                setShowPayloadCode(!showPayloadCode)
+                                reportFlagsCodeExampleInteraction('payloads')
+                            }}
+                            data-attr="flags-code-example-payloads-option"
+                            checked={showPayloadCode}
+                            disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.value)}
+                        />
+                        <IconInfo className="text-xl text-muted-alt shrink-0" />
+                    </div>
+                </Tooltip>
+                <>
+                    <Tooltip
+                        title="Bootstrapping is only available client side in our JavaScript and React Native
+                                libraries."
+                    >
+                        <div className="flex items-center gap-1">
+                            <LemonCheckbox
+                                label="Show bootstrap option"
+                                data-attr="flags-code-example-bootstrap-option"
+                                checked={showBootstrapCode}
+                                onChange={() => {
+                                    setShowBootstrapCode(!showBootstrapCode)
+                                    reportFlagsCodeExampleInteraction('bootstrap')
+                                }}
+                                disabled={
+                                    !BOOTSTRAPPING_OPTIONS.map((bo) => bo.value).includes(selectedOption.value) ||
+                                    !!featureFlag?.ensure_experience_continuity
+                                }
+                            />
+                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        </div>
+                    </Tooltip>
+                    <Tooltip
+                        title="Local evaluation is only available in server side libraries and without flag
+                                persistence."
+                    >
+                        <div className="flex items-center gap-1">
+                            <LemonCheckbox
+                                label="Show local evaluation option"
+                                data-attr="flags-code-example-local-eval-option"
+                                checked={showLocalEvalCode}
+                                onChange={() => {
+                                    setShowLocalEvalCode(!showLocalEvalCode)
+                                    reportFlagsCodeExampleInteraction('local evaluation')
+                                }}
+                                disabled={
+                                    !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.value) ||
+                                    !!featureFlag?.ensure_experience_continuity
+                                }
+                            />
+                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        </div>
+                    </Tooltip>
+                </>
             </div>
-            <LemonDivider />
-            <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
-        </Card>
+            <div className="mt-4 mb">
+                {showLocalEvalCode && (
+                    <>
+                        <h4 className="l4">Local evaluation</h4>
+                    </>
+                )}
+                <selectedOption.Snippet
+                    data-attr="feature-flag-instructions-snippet"
+                    flagKey={featureFlagKey}
+                    multivariant={multivariantFlag}
+                    groupType={groupType}
+                    localEvaluation={showLocalEvalCode}
+                    instantlyAvailableProperties={!firstNonInstantProperty}
+                    samplePropertyName={firstNonInstantProperty || randomProperty}
+                />
+                {showPayloadCode && (
+                    <>
+                        <h4 className="l4">Payload</h4>
+                        <selectedOption.Snippet
+                            data-attr="feature-flag-instructions-payload-snippet"
+                            flagKey={featureFlagKey}
+                            multivariant={multivariantFlag}
+                            groupType={groupType}
+                            localEvaluation={showLocalEvalCode}
+                            payload={true}
+                        />
+                    </>
+                )}
+                {showBootstrapCode && (
+                    <>
+                        <h4 className="l4">Bootstrap</h4>
+                        <bootstrapOption.Snippet flagKey={featureFlagKey} />
+                    </>
+                )}
+                <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />
+            </div>
+            <div />
+        </div>
     )
 }
 
-export function FeatureFlagInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
-    return (
-        <CodeInstructions
-            featureFlagKey={featureFlagKey}
-            headerPrompt="Learn how to use feature flags in your code"
-            options={OPTIONS}
-        />
-    )
-}
-
-const PAYLOAD_OPTIONS = [
-    {
-        value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconJavascript,
-        Snippet: JSPayloadSnippet,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconNodeJS,
-        Snippet: NodeJSPayloadSnippet,
-    },
-]
-
-export function FeatureFlagPayloadInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
-    return (
-        <CodeInstructions
-            featureFlagKey={featureFlagKey}
-            headerPrompt="Using feature flag payloads in your code"
-            options={PAYLOAD_OPTIONS}
-        />
-    )
+export function FeatureFlagInstructions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
+    return <CodeInstructions options={OPTIONS} featureFlag={featureFlag} />
 }

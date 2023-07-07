@@ -5,9 +5,13 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
+import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     path: ['toolbar', 'button', 'toolbarButtonLogic'],
+    connect: () => ({
+        actions: [actionsTabLogic, ['showButtonActions'], elementsLogic, ['enableInspect']],
+    }),
     actions: () => ({
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
@@ -15,12 +19,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideActionsInfo: true,
         showFlags: true,
         hideFlags: true,
+        setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
         saveFlagsPosition: (x: number, y: number) => ({ x, y }),
+        setHedgehogActor: (actor: HedgehogActor) => ({ actor }),
     }),
 
     windowValues: () => ({
@@ -94,6 +100,19 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 saveFlagsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
+        hedgehogMode: [
+            false,
+            { persist: true },
+            {
+                setHedgehogMode: (_, { hedgehogMode }) => hedgehogMode,
+            },
+        ],
+        hedgehogActor: [
+            null as HedgehogActor | null,
+            {
+                setHedgehogActor: (_, { actor }) => actor,
+            },
+        ],
     }),
 
     selectors: {
@@ -131,6 +150,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         side: [
             (s) => [s.dragPosition, s.windowWidth],
             ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right'),
+        ],
+        hedgehogModeDistance: [
+            (s) => [s.dragPosition, s.windowWidth],
+            ({ x, y }, windowWidth) => 90 + (x > windowWidth - 40 || y < 80 ? -28 : 0) + (y < 40 ? -6 : 0),
+        ],
+        hedgehogModeRotation: [
+            (s) => [s.dragPosition, s.windowWidth],
+            ({ x, y }, windowWidth) => -68 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
         ],
         closeDistance: [
             (s) => [s.dragPosition, s.windowWidth],
@@ -171,14 +198,24 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     },
 
     listeners: ({ actions, values }) => ({
-        hideActionsInfo: () => {
-            actionsTabLogic.actions.selectAction(null)
-        },
         showFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
+            values.hedgehogActor?.setAnimation('flag')
         },
         hideFlags: () => {
             posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: false })
+        },
+        showHeatmapInfo: () => {
+            values.hedgehogActor?.setAnimation('heatmaps')
+        },
+        showButtonActions: () => {
+            values.hedgehogActor?.setAnimation('action')
+        },
+        hideActionsInfo: () => {
+            actionsTabLogic.actions.selectAction(null)
+        },
+        enableInspect: () => {
+            values.hedgehogActor?.setAnimation('inspect')
         },
         saveDragPosition: ({ x, y }) => {
             const { windowWidth, windowHeight } = values

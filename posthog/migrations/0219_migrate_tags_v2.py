@@ -113,4 +113,4 @@ class Migration(migrations.Migration):
         ("posthog", "0218_uniqueness_constraint_tagged_items"),
     ]
 
-    operations = [migrations.RunPython(forwards, reverse)]
+    operations = [migrations.RunPython(forwards, reverse, elidable=True)]

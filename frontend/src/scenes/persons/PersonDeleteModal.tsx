@@ -15,18 +15,24 @@ export function PersonDeleteModal(): JSX.Element | null {
             title={`Are you sure you want to delete "${asDisplay(personDeleteModal)}"?`}
             description={
                 <>
-                    This action cannot be undone. If you opt to delete the person and its corresponding events, the
-                    events will not be immediately removed. Instead these events will be deleted on a set schedule
-                    during non-peak usage times.
-                    <a
-                        href="https://posthog.com/docs/privacy/data-deletion"
-                        target="_blank"
-                        rel="noopener"
-                        className="font-bold"
-                    >
-                        {' '}
-                        Learn more
-                    </a>
+                    <p>This action cannot be undone.</p>
+                    <p>
+                        If you want to re-use the distinct ids do NOT use delete person and instead use split IDs.
+                        Re-using deleted person's distinct ids is not supported and will result in bad data state.
+                    </p>
+                    <p>
+                        If you opt to delete the person and its corresponding events, the events will not be immediately
+                        removed. Instead these events will be deleted on a set schedule during non-peak usage times.
+                        <a
+                            href="https://posthog.com/docs/privacy/data-deletion"
+                            target="_blank"
+                            rel="noopener"
+                            className="font-bold"
+                        >
+                            {' '}
+                            Learn more
+                        </a>
+                    </p>
                 </>
             }
             footer={

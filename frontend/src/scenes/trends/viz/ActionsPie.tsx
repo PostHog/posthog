@@ -13,6 +13,9 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import clsx from 'clsx'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -20,6 +23,8 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, labelGroupType, hiddenLegendKeys, filters } = useValues(logic)
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -32,7 +37,16 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
-                breakdownValues: _data.map((item) => item.breakdown_value),
+                breakdownValues: _data.map((item) => {
+                    return formatBreakdownLabel(
+                        cohorts,
+                        formatPropertyValueForDisplay,
+                        item.breakdown_value,
+                        item.filter?.breakdown,
+                        item.filter?.breakdown_type,
+                        false
+                    )
+                }),
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,

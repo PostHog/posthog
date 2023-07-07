@@ -38,7 +38,9 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
             "event",
             "tag_name",
             "text",
+            "text_matching",
             "href",
+            "href_matching",
             "selector",
             "url",
             "name",
@@ -212,7 +214,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         if request.accepted_renderer.format == "csv":
             content = [
                 {
-                    "Name": get_person_name(person),
+                    "Name": get_person_name(team, person),
                     "Distinct ID": person.distinct_ids[0] if person.distinct_ids else "",
                     "Internal ID": str(person.uuid),
                     "Email": person.properties.get("email"),
@@ -236,7 +238,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        hogql_context = HogQLContext(within_non_hogql_query=True)
+        hogql_context = HogQLContext(within_non_hogql_query=True, team_id=action.team_id)
         query, params = format_action_filter(team_id=action.team_id, action=action, hogql_context=hogql_context)
         if query == "":
             return Response({"count": 0})

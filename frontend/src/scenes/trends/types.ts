@@ -7,9 +7,14 @@ export interface TrendResponse {
 }
 
 export interface IndexedTrendResult extends TrendResult {
+    /**
+     * The index after applying visualization-specific sorting (e.g. for pie
+     * chart) and filtering (e.g. for lifecycle toggles).
+     */
     id: number
-    // if the sorting changes (e.g. for pie chart) we lose the original index
-    // the series index is used for e.g. to get series color correctly
+    /** The original index of the series, before re-sorting into visualization
+     * specific order (e.g. for pie chart). The series index is used e.g. to
+     * get series color correctly. */
     seriesIndex: number
 }
 

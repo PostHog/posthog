@@ -9,7 +9,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--white);
+    color: var(--bg-light);
     border: var(--lemon-badge-border-width) solid var(--bg-light);
     background: var(--lemon-badge-color);
     width: fit-content;
@@ -92,6 +92,15 @@
     &.LemonBadge--active {
         outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
         z-index: var(--z-raised); // In croweded badge situation, show active ones above the rest
+    }
+
+    .posthog-3000 & {
+        border-color: var(--accent-3000);
+        background: var(--muted);
+
+        &.LemonBadge--small {
+            --lemon-badge-size: 1.125rem;
+        }
     }
 
     &.LemonBadge--enter {

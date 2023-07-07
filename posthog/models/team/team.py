@@ -1,6 +1,6 @@
 import re
 from functools import lru_cache
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import posthoganalytics
 import pytz
@@ -19,10 +19,9 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import mutable_receiver
-from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails
+from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -38,6 +37,10 @@ DEPRECATED_ATTRS = (
     "event_properties_with_usage",
     "event_properties_numerical",
 )
+
+# keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
+class AvailableExtraSettings:
+    poe_v2_enabled = "poe_v2_enabled"
 
 
 class TeamManager(models.Manager):
@@ -130,6 +133,9 @@ class Team(UUIDClassicModel):
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
     ingested_event: models.BooleanField = models.BooleanField(default=False)
+    autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -153,6 +159,11 @@ class Team(UUIDClassicModel):
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
     )  # Dashboard shown on project homepage
+
+    # Generic field for storing any team-specific context that is more temporary in nature and thus
+    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
+    # during feature releases.
+    extra_settings: models.JSONField = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
@@ -186,18 +197,36 @@ class Team(UUIDClassicModel):
     objects: TeamManager = TeamManager()
 
     @property
+    def person_on_events_mode(self) -> PersonOnEventsMode:
+        # Persons on Events V2 always takes priority over Persons on Events V1
+        if self._person_on_events_v2_querying_enabled:
+            tag_queries(person_on_events_mode=PersonOnEventsMode.V2_ENABLED)
+            return PersonOnEventsMode.V2_ENABLED
+
+        if self._person_on_events_querying_enabled:
+            # also tag person_on_events_enabled for legacy compatibility
+            tag_queries(person_on_events_enabled=True, person_on_events_mode=PersonOnEventsMode.V1_ENABLED)
+            return PersonOnEventsMode.V1_ENABLED
+
+        return PersonOnEventsMode.DISABLED
+
+    # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
+    # Keeping this property for now only to be used by the frontend in certain cases
+    @property
     def person_on_events_querying_enabled(self) -> bool:
-        result = self._person_on_events_querying_enabled
-        tag_queries(person_on_events_enabled=result)
-        return result
+        return self.person_on_events_mode != PersonOnEventsMode.DISABLED
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:
+
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
+            # users can override our feature flag via extra_settings
+            if self.extra_settings and AvailableExtraSettings.poe_v2_enabled in self.extra_settings:
+                return self.extra_settings["poe_v2_enabled"]
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),
@@ -209,12 +238,28 @@ class Team(UUIDClassicModel):
                 send_feature_flag_events=False,
             )
 
-        # If the async migration is not complete, don't enable actor on events querying.
-        if not actor_on_events_ready():
-            return False
-
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+
+    @property
+    def _person_on_events_v2_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+
+        # on PostHog Cloud, use the feature flag
+        if is_cloud():
+            return posthoganalytics.feature_enabled(
+                "persons-on-events-v2-reads-enabled",
+                str(self.uuid),
+                groups={"organization": str(self.organization_id)},
+                group_properties={
+                    "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+
+        return get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:
@@ -223,7 +268,6 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-
         from posthog.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
@@ -241,7 +285,6 @@ class Team(UUIDClassicModel):
 
     @lru_cache(maxsize=5)
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-
         from posthog.client import sync_execute
 
         return sync_execute(
@@ -280,14 +323,21 @@ def groups_on_events_querying_enabled():
 
     Remove all usages of this when the feature is released to everyone.
     """
-    return actor_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+    return get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
-def get_available_features_for_team(team_id: int):
-    available_features: Optional[List[str]] = (
+def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
+    available_product_features: Optional[List[Dict[str, str]]] = (
         Team.objects.select_related("organization")
-        .values_list("organization__available_features", flat=True)
+        .values_list("organization__available_product_features", flat=True)
         .get(id=team_id)
     )
+    if available_product_features is None:
+        return False
 
-    return available_features
+    for feature in available_product_features:
+        if feature.get("key") == feature_key:
+            if current_usage is not None and feature.get("limit") is not None:
+                return current_usage < int(feature["limit"])
+            return True
+    return False

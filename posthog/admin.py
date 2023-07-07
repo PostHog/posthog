@@ -1,3 +1,5 @@
+import json
+
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
@@ -8,26 +10,25 @@ from django.utils.translation import gettext_lazy as _
 
 from posthog.models import (
     Action,
-    ActionStep,
-    Element,
+    AsyncDeletion,
     FeatureFlag,
+    GroupTypeMapping,
     Insight,
     InstanceSetting,
     Organization,
     OrganizationMembership,
     Person,
+    PersonDistinctId,
     Plugin,
+    PluginAttachment,
     PluginConfig,
     Team,
     User,
 )
+from posthog.warehouse.models import DataWarehouseTable
 
-admin.site.register(Person)
-admin.site.register(Element)
 admin.site.register(FeatureFlag)
-admin.site.register(Action)
-admin.site.register(ActionStep)
-admin.site.register(InstanceSetting)
+admin.site.register(DataWarehouseTable)
 
 
 @admin.register(Insight)
@@ -56,25 +57,131 @@ class PluginAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
 
+class ActionInline(admin.TabularInline):
+    extra = 0
+    model = Action
+    classes = ("collapse",)
+
+
+class GroupTypeMappingInline(admin.TabularInline):
+    extra = 0
+    model = GroupTypeMapping
+    fields = ("group_type_index", "group_type", "name_singular", "name_plural")
+    readonly_fields = fields
+    classes = ("collapse",)
+    max_num = 5
+    min_num = 5
+
+
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "organization_link", "organization_id")
-    search_fields = ("id", "name", "organization__id", "organization__name")
-    readonly_fields = ["primary_dashboard", "test_account_filters"]
-    exclude = [
-        "event_names",
-        "event_names_with_usage",
-        "plugins_opt_in",
-        "event_properties",
-        "event_properties_with_usage",
-        "event_properties_numerical",
-        "session_recording_retention_period_days",
+    list_display = ("id", "name_link", "organization_link", "organization_id", "created_at", "updated_at")
+    search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
+    readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
+    inlines = [GroupTypeMappingInline, ActionInline]
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": [
+                    "name",
+                    "organization",
+                ],
+            },
+        ),
+        (
+            "General",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "api_token",
+                    "timezone",
+                    "slack_incoming_webhook",
+                    "primary_dashboard",
+                ],
+            },
+        ),
+        (
+            "Onboarding",
+            {
+                "classes": ["collapse"],
+                "fields": ["is_demo", "completed_snippet_onboarding", "ingested_event", "signup_token"],
+            },
+        ),
+        (
+            "Settings",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "anonymize_ips",
+                    "autocapture_opt_out",
+                    "autocapture_exceptions_opt_in",
+                    "session_recording_opt_in",
+                    "capture_console_log_opt_in",
+                    "capture_performance_opt_in",
+                    "data_attributes",
+                    "session_recording_version",
+                    "access_control",
+                    "inject_web_apps",
+                    "extra_settings",
+                ],
+            },
+        ),
+        (
+            "Filters",
+            {
+                "classes": ["collapse"],
+                "fields": ["test_account_filters", "test_account_filters_default_checked", "path_cleaning_filters"],
+            },
+        ),
     ]
+
+    def name_link(self, team: Team):
+        return format_html('<a href="/admin/posthog/team/{}/change/"><b>{}</b></a>', team.pk, team.name)
 
     def organization_link(self, team: Team):
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>', team.organization.pk, team.organization.name
         )
+
+
+ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES = 1024 * 1024
+
+
+class PluginAttachmentInline(admin.StackedInline):
+    extra = 0
+    model = PluginAttachment
+    fields = ("key", "content_type", "file_size", "raw_contents", "json_contents")
+    readonly_fields = fields
+
+    def raw_contents(self, attachment: PluginAttachment):
+        try:
+            if attachment.file_size > ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES:
+                raise ValueError(
+                    f"file size {attachment.file_size} is larger than {ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES} bytes"
+                )
+            return attachment.contents.tobytes()
+        except Exception as err:
+            return format_html(f"cannot preview: {err}")
+
+    def json_contents(self, attachment: PluginAttachment):
+        try:
+            if attachment.file_size > ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES:
+                raise ValueError(
+                    f"file size {attachment.file_size} is larger than {ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES} bytes"
+                )
+            return json.loads(attachment.contents.tobytes())
+        except Exception as err:
+            return format_html(f"cannot preview: {err}")
+
+    def has_add_permission(self, request, obj):
+        return False
+
+    def has_change_permission(self, request, obj):
+        return False
+
+    def has_delete_permission(self, request, obj):
+        return False
 
 
 @admin.register(PluginConfig)
@@ -88,6 +195,7 @@ class PluginConfigAdmin(admin.ModelAdmin):
     )
     search_fields = ("team__name", "team__organization__name", "plugin__name")
     ordering = ("-created_at",)
+    inlines = [PluginAttachmentInline]
 
     def plugin_name(self, config: PluginConfig):
         return format_html(f"{config.plugin.name} ({config.plugin_id})")
@@ -129,20 +237,20 @@ class UserAdmin(DjangoUserAdmin):
 
     inlines = [OrganizationMemberInline]
     fieldsets = (
-        (None, {"fields": ("email", "password", "current_organization")}),
+        (None, {"fields": ("email", "password", "current_organization", "is_email_verified", "pending_email")}),
         (_("Personal info"), {"fields": ("first_name", "last_name")}),
         (_("Permissions"), {"fields": ("is_active", "is_staff")}),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
         (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
-    list_display = ("email", "first_name", "last_name", "current_organization", "is_staff")
+    list_display = ("email", "first_name", "last_name", "organization_link", "is_staff")
     list_filter = ("is_staff", "is_active", "groups")
     search_fields = ("email", "first_name", "last_name")
     readonly_fields = ["current_organization"]
     ordering = ("email",)
 
-    def current_organization(self, user: User):
+    def organization_link(self, user: User):
         if not user.organization:
             return "None"
 
@@ -167,6 +275,7 @@ class OrganizationTeamInline(admin.TabularInline):
         "completed_snippet_onboarding",
         "ingested_event",
         "session_recording_opt_in",
+        "autocapture_opt_out",
         "signup_token",
         "is_demo",
         "access_control",
@@ -186,13 +295,12 @@ class OrganizationTeamInline(admin.TabularInline):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
+    date_hierarchy = "created_at"
     fields = [
         "name",
         "created_at",
         "updated_at",
         "plugins_access_level",
-        "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
@@ -201,20 +309,17 @@ class OrganizationAdmin(admin.ModelAdmin):
     readonly_fields = [
         "created_at",
         "updated_at",
-        "billing_plan",
-        "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
         "usage",
     ]
-    search_fields = ("name", "members__email")
+    search_fields = ("name", "members__email", "team__api_token")
     list_display = (
         "name",
         "created_at",
         "plugins_access_level",
         "members_count",
         "first_member",
-        "organization_billing_link",
         "billing_link_v2",
     )
 
@@ -225,14 +330,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         user = organization.members.order_by("id").first()
         return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
 
-    def organization_billing_link(self, organization: Organization) -> str:
-        return format_html(
-            '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
-        )
-
     def billing_link_v2(self, organization: Organization) -> str:
-        if not organization.has_billing_v2_setup:
-            return ""
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
         return format_html(f'<a href="{url}">Billing V2 →</a>')
 
@@ -245,3 +343,48 @@ class OrganizationAdmin(admin.ModelAdmin):
 
 class OrganizationBillingAdmin(admin.ModelAdmin):
     search_fields = ("name", "members__email")
+
+
+@admin.register(InstanceSetting)
+class InstanceSettingAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "key",
+        "value",
+    )
+
+
+@admin.register(Person)
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ("id", "distinct_ids", "created_at", "team", "is_user", "is_identified", "version")
+    list_filter = ("created_at", "is_identified", "version")
+    search_fields = ("id",)
+
+
+@admin.register(PersonDistinctId)
+class PersonDistinctIdAdmin(admin.ModelAdmin):
+    list_display = ("id", "team", "distinct_id", "version")
+    list_filter = ("version",)
+    search_fields = ("id", "distinct_id")
+
+
+@admin.register(AsyncDeletion)
+class AsyncDeletionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "deletion_type",
+        "group_type_index",
+        "team_id",
+        "key",
+        "created_by",
+        "created_at",
+        "delete_verified_at",
+    )
+    list_filter = ("deletion_type", "delete_verified_at")
+    search_fields = ("key",)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

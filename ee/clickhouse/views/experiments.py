@@ -1,34 +1,106 @@
-from typing import Any, Type, Union
+from typing import Any, Callable, Type, Union
 
+from django.utils.timezone import now
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from statshog.defaults.django import statsd
 
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
 from ee.clickhouse.queries.experiments.secondary_experiment_result import ClickhouseSecondaryExperimentResult
 from ee.clickhouse.queries.experiments.trend_experiment_result import ClickhouseTrendExperimentResult
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.caching.insight_cache import update_cached_state
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
-from posthog.models.team import Team
 from posthog.permissions import (
     PremiumFeaturePermission,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
+from posthog.utils import generate_cache_key, get_safe_cache
+
+EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 30  # 30 minutes
+
+
+def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
+    filter = Filter(experiment.filters, team=experiment.team)
+
+    experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
+        ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
+    )
+
+    calculate_func = lambda: experiment_class(
+        filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+    ).get_results()
+
+    return _experiment_results_cached(experiment, "primary", filter, calculate_func, refresh=refresh)
+
+
+def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int, refresh: bool = False):
+    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
+
+    # TODO: refactor such that ClickhouseSecondaryExperimentResult's get_results doesn't return a dict
+    calculate_func = lambda: ClickhouseSecondaryExperimentResult(
+        filter, experiment.team, experiment.feature_flag, experiment.start_date, experiment.end_date
+    ).get_results()["result"]
+
+    return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
+
+
+def _experiment_results_cached(
+    experiment: Experiment, results_type: str, filter: Filter, calculate_func: Callable, refresh: bool
+):
+    cache_filter = filter.shallow_clone(
+        {
+            "date_from": experiment.start_date,
+            "date_to": experiment.end_date if experiment.end_date else None,
+        }
+    )
+    cache_key = generate_cache_key(
+        f"experiment_{results_type}_{cache_filter.toJSON()}_{experiment.team.pk}_{experiment.pk}"
+    )
+
+    tag_queries(cache_key=cache_key)
+
+    cached_result_package = get_safe_cache(cache_key)
+
+    if cached_result_package and cached_result_package.get("result") and not refresh:
+        cached_result_package["is_cached"] = True
+        statsd.incr(
+            "posthog_cached_function_cache_hit", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+        )
+        return cached_result_package
+
+    statsd.incr(
+        "posthog_cached_function_cache_miss", tags={"route": "/projects/:id/experiments/:experiment_id/results"}
+    )
+
+    result = calculate_func()
+
+    timestamp = now()
+    fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
+
+    update_cached_state(
+        experiment.team.pk, cache_key, timestamp, fresh_result_package, ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL
+    )
+
+    return fresh_result_package
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
 
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
+    feature_flag = MinimalFeatureFlagSerializer(read_only=True)
 
     class Meta:
         model = Experiment
@@ -39,7 +111,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "feature_flag_key",
-            # get the FF id as well to link to FF UI
             "feature_flag",
             "parameters",
             "secondary_metrics",
@@ -76,13 +147,15 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(id=self.context["team_id"])
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 
         properties = validated_data["filters"].get("properties", [])
+
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
 
         default_variants = [
             {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -93,9 +166,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "groups": [{"properties": properties, "rollout_percentage": None}],
             "multivariate": {"variants": variants or default_variants},
         }
-
-        if validated_data["filters"].get("aggregation_group_type_index") is not None:
-            filters["aggregation_group_type_index"] = validated_data["filters"]["aggregation_group_type_index"]
 
         feature_flag_serializer = FeatureFlagSerializer(
             data={
@@ -110,7 +180,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
-        experiment = Experiment.objects.create(team=team, feature_flag=feature_flag, **validated_data)
+        experiment = Experiment.objects.create(
+            team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
+        )
         return experiment
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
@@ -143,35 +215,14 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
             for variant in validated_data["parameters"]["feature_flag_variants"]:
                 if (
-                    len(
-                        [
-                            ff_variant
-                            for ff_variant in feature_flag.variants
-                            if ff_variant["key"] == variant["key"]
-                            and ff_variant["rollout_percentage"] == variant["rollout_percentage"]
-                        ]
-                    )
+                    len([ff_variant for ff_variant in feature_flag.variants if ff_variant["key"] == variant["key"]])
                     != 1
                 ):
                     raise ValidationError("Can't update feature_flag_variants on Experiment")
 
-        feature_flag_properties = validated_data.get("filters", {}).get("properties")
-        serialized_data_filters = {**feature_flag.filters}
-        if feature_flag_properties is not None:
-            serialized_data_filters = {**serialized_data_filters, "groups": [{"properties": feature_flag_properties}]}
-
-        feature_flag_group_type_index = validated_data.get("filters", {}).get("aggregation_group_type_index")
-        # Only update the group type index when filters are sent
-        if validated_data.get("filters"):
-            serialized_data_filters = {
-                **serialized_data_filters,
-                "aggregation_group_type_index": feature_flag_group_type_index,
-            }
-            serializer = FeatureFlagSerializer(
-                feature_flag, data={"filters": serialized_data_filters}, context=self.context, partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
+        properties = validated_data.get("filters", {}).get("properties")
+        if properties:
+            raise ValidationError("Experiments do not support global filter properties")
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
@@ -209,17 +260,12 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     def results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
 
+        refresh = request.query_params.get("refresh") is not None
+
         if not experiment.filters:
             raise ValidationError("Experiment has no target metric")
 
-        filter = Filter(experiment.filters)
-        experiment_class: Union[Type[ClickhouseTrendExperimentResult], Type[ClickhouseFunnelExperimentResult]] = (
-            ClickhouseTrendExperimentResult if filter.insight == INSIGHT_TRENDS else ClickhouseFunnelExperimentResult
-        )
-
-        result = experiment_class(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
-        ).get_results()
+        result = _calculate_experiment_results(experiment, refresh)
 
         return Response(result)
 
@@ -231,6 +277,8 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     @action(methods=["GET"], detail=True)
     def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+
+        refresh = request.query_params.get("refresh") is not None
 
         if not experiment.secondary_metrics:
             raise ValidationError("Experiment has no secondary metrics")
@@ -248,11 +296,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
         if parsed_id > len(experiment.secondary_metrics):
             raise ValidationError("Invalid metric ID")
 
-        filter = Filter(experiment.secondary_metrics[parsed_id]["filters"])
-
-        result = ClickhouseSecondaryExperimentResult(
-            filter, self.team, experiment.feature_flag, experiment.start_date, experiment.end_date
-        ).get_results()
+        result = _calculate_secondary_experiment_results(experiment, parsed_id, refresh)
 
         return Response(result)
 

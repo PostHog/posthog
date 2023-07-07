@@ -1,12 +1,13 @@
 import { StatsD } from 'hot-shots'
-import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
+import { EachBatchHandler, Kafka } from 'kafkajs'
 import { Counter } from 'prom-client'
+import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
-import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
+import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
 
 const jobsConsumerSuccessCounter = new Counter({
@@ -26,7 +27,7 @@ export const startJobsConsumer = async ({
     statsd,
 }: {
     kafka: Kafka
-    producer: Producer // NOTE: not using KafkaProducerWrapper here to avoid buffering logic
+    producer: KafkaProducerWrapper
     graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
@@ -49,7 +50,10 @@ export const startJobsConsumer = async ({
                     value: message.value,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
+                await producer.queueMessage({
+                    topic: KAFKA_JOBS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                })
                 resolveOffset(message.offset)
                 continue
             }
@@ -63,7 +67,10 @@ export const startJobsConsumer = async ({
                     error,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.send({ topic: KAFKA_JOBS_DLQ, messages: [message] })
+                await producer.queueMessage({
+                    topic: KAFKA_JOBS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
+                })
                 resolveOffset(message.offset)
                 continue
             }
@@ -107,9 +114,14 @@ export const startJobsConsumer = async ({
     await consumer.subscribe({ topic: KAFKA_JOBS })
     await consumer.run({
         eachBatch: async (payload) => {
-            return await instrumentEachBatch(KAFKA_JOBS, eachBatch, payload, statsd)
+            return await instrumentEachBatchKafkaJS(KAFKA_JOBS, eachBatch, payload, statsd)
         },
     })
 
-    return consumer
+    return {
+        ...consumer,
+        stop: async () => {
+            await consumer.stop()
+        },
+    }
 }

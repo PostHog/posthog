@@ -22,7 +22,7 @@ const PlayerFrameOverlayContent = ({
     let content = null
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
-            <div className="flex flex-col justify-center items-center p-6 bg-white rounded m-6 gap-2 max-w-120 shadow">
+            <div className="flex flex-col justify-center items-center p-6 bg-bg-light rounded m-6 gap-2 max-w-120 shadow">
                 <IconErrorOutline className="text-danger text-5xl" />
                 <div className="font-bold text-default text-lg">We're unable to play this recording</div>
                 <div className="text-muted text-sm text-center">
@@ -52,20 +52,20 @@ const PlayerFrameOverlayContent = ({
         )
     }
     if (currentPlayerState === SessionPlayerState.BUFFER) {
-        content = <div className="text-4xl text-white">Buffering...</div>
+        content = <div className="text-3xl italic font-medium text-white">Buffering…</div>
     }
-    if (currentPlayerState === SessionPlayerState.PAUSE) {
+    if (currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY) {
         content = <IconPlay className="text-6xl text-white" />
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
-        content = <div className="text-4xl text-white">Skipping inactivity</div>
+        content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     return content ? <div className="PlayerFrameOverlay__content">{content}</div> : null
 }
 
-export function PlayerFrameOverlay(props: PlayerFrameOverlayProps): JSX.Element {
-    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic(props))
-    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic(props))
+export function PlayerFrameOverlay(): JSX.Element {
+    const { currentPlayerState } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     const [interrupted, setInterrupted] = useState(false)
 
@@ -77,7 +77,7 @@ export function PlayerFrameOverlay(props: PlayerFrameOverlayProps): JSX.Element 
             onMouseOut={() => setInterrupted(false)}
         >
             <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
-            <PlayerUpNext {...props} interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
+            <PlayerUpNext interrupted={interrupted} clearInterrupted={() => setInterrupted(false)} />
         </div>
     )
 }

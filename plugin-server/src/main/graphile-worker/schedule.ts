@@ -1,10 +1,10 @@
-import Piscina from '@posthog/piscina'
 import { JobHelpers } from 'graphile-worker'
 
 import { KAFKA_SCHEDULED_TASKS } from '../../config/kafka-topics'
 import { Hub, PluginConfigId } from '../../types'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
+import Piscina from '../../worker/piscina'
 
 type TaskTypes = 'runEveryMinute' | 'runEveryHour' | 'runEveryDay'
 
@@ -14,7 +14,7 @@ export async function loadPluginSchedule(piscina: Piscina, maxIterations = 2000)
         // Make sure the schedule loaded successfully on all threads
         if (!allThreadsReady) {
             const threadsScheduleReady = await piscina.broadcastTask({ task: 'pluginScheduleReady' })
-            allThreadsReady = threadsScheduleReady.every((res) => res)
+            allThreadsReady = threadsScheduleReady.every((res: any) => res)
         }
 
         if (allThreadsReady) {
@@ -52,7 +52,7 @@ export async function runScheduledTasks(
     if (server.USE_KAFKA_FOR_SCHEDULED_TASKS) {
         for (const pluginConfigId of server.pluginSchedule?.[taskType] || []) {
             status.info('⏲️', 'queueing_schedule_task', { taskType, pluginConfigId })
-            await server.kafkaProducer.producer.send({
+            await server.kafkaProducer.queueMessage({
                 topic: KAFKA_SCHEDULED_TASKS,
                 messages: [{ key: pluginConfigId.toString(), value: JSON.stringify({ taskType, pluginConfigId }) }],
             })

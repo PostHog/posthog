@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pr-deploy-tailscale
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pr-deploy-tailscale
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pr-deploy-tailscale
+    spec:
+      serviceAccountName: pr-deploy-tailscale
+      initContainers:
+      - name: "sysctler"
+        image: "busybox"
+        securityContext:
+          privileged: true
+        command: ["/bin/sh"]
+        args: ["-c", "sysctl -w net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 100Mi
+      containers:
+        - name: tailscale
+          image: hollie/tailscale-caddy-proxy:latest
+          imagePullPolicy: Always
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 100Mi
+          env:
+          - name: CADDY_TARGET
+            value: $(${POSTHOG_WEB_SERVICE_NAME}_SERVICE_HOST):$POSTHOG_WEB_SERVICE_PORT
+          - name: TS_USERSPACE
+            value: "false"
+          - name: TS_HOSTNAME
+            value: $HOSTNAME
+          - name: TS_TAILNET
+            value: $TAILNET_NAME
+          - name: TS_AUTHKEY
+            value: $TS_AUTHKEY
+          - name: TS_KUBE_SECRET
+            value: pr-deploy-tailscale-auth
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pr-deploy-tailscale
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pr-deploy-tailscale
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resourceNames:
+  - pr-deploy-tailscale-auth
+  resources:
+  - secrets
+  verbs:
+  - update
+  - patch
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pr-deploy-tailscale
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pr-deploy-tailscale
+subjects:
+- kind: ServiceAccount
+  name: pr-deploy-tailscale
+  namespace: $NAMESPACE
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pr-deploy-tailscale-auth
+

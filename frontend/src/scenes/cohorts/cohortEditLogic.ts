@@ -29,6 +29,8 @@ import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/Coh
 import type { cohortEditLogicType } from './cohortEditLogicType'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { processCohort } from 'lib/utils'
+import { DataTableNode, NodeKind, Node } from '~/queries/schema'
+import { isDataTableNode } from '~/queries/utils'
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
@@ -55,9 +57,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             groupIndex,
             criteriaIndex,
         }),
+        setQuery: (query: Node) => ({ query }),
+        duplicateToStaticCohort: true,
     }),
 
-    reducers(() => ({
+    reducers(({ props }) => ({
         cohort: [
             NEW_COHORT as CohortType,
             {
@@ -149,6 +153,20 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 setPollTimeout: (_, { pollTimeout }) => pollTimeout,
             },
         ],
+        query: [
+            {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.PersonsNode,
+                    cohort: props.id,
+                },
+                columns: undefined,
+                full: true,
+            } as DataTableNode,
+            {
+                setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+            },
+        ],
     })),
 
     forms(({ actions }) => ({
@@ -232,6 +250,33 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     }
                     return processCohort(cohort)
+                },
+            },
+        ],
+        duplicatedStaticCohort: [
+            null as CohortType | null,
+            {
+                duplicateToStaticCohort: async (_, breakpoint) => {
+                    try {
+                        await breakpoint(200)
+                        const cohort = await api.cohorts.duplicate(values.cohort.id)
+                        lemonToast.success(
+                            'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
+                            {
+                                toastId: `cohort-duplicated-${values.cohort.id}`,
+                                button: {
+                                    label: 'View cohort',
+                                    action: () => {
+                                        router.actions.push(urls.cohort(cohort.id))
+                                    },
+                                },
+                            }
+                        )
+                        return cohort
+                    } catch (error: any) {
+                        lemonToast.error(error.detail || 'Failed to duplicate cohort')
+                        return null
+                    }
                 },
             },
         ],

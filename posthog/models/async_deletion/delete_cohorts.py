@@ -6,6 +6,8 @@ from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 
 
 class AsyncCohortDeletion(AsyncDeletionProcess):
+    DELETION_TYPES = [DeletionType.Cohort_full, DeletionType.Cohort_stale]
+
     def process(self, deletions: List[AsyncDeletion]):
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion for cohorts to perform")

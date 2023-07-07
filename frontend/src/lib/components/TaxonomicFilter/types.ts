@@ -20,14 +20,14 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
-    excludedProperties?: { [key in TaxonomicFilterGroupType]?: string[] }
+    excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
 }
 
 export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
 }
 
-export type TaxonomicFilterValue = string | number
+export type TaxonomicFilterValue = string | number | null
 
 export type TaxonomicFilterRender = (props: {
     value?: TaxonomicFilterValue

@@ -85,6 +85,7 @@ export function LemonCheckbox({
                 id={id}
                 disabled={disabled}
             />
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <label htmlFor={id} style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}>
                 <svg
                     className='className="LemonCheckbox__box"'

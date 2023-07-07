@@ -118,6 +118,9 @@ class Insight(models.Model):
             if dashboard_date_to or insight_date_to:
                 filters["date_to"] = dashboard_date_to or insight_date_to
 
+            if dashboard_date_from == "all" and filters.get("compare", None) is True:
+                filters["compare"] = None
+
             if dashboard_properties:
                 if isinstance(self.filters.get("properties"), list):
                     filters["properties"] = {
@@ -136,6 +139,8 @@ class Insight(models.Model):
                     filters["properties"] = dashboard_properties
                 else:
                     raise ValidationError("Unrecognized property format: ", self.filters["properties"])
+            elif self.filters.get("properties"):
+                filters["properties"] = self.filters.get("properties")
 
             return filters
         else:
@@ -160,6 +165,14 @@ class InsightViewed(models.Model):
 @timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
+        if insight.query is not None:
+            # TODO: dashboard filtering needs to know how to override queries and date ranges 😱
+            q = insight.query
+            if q.get("source"):
+                q = q["source"]
+
+            return generate_cache_key("{}_{}".format(q, insight.team_id))
+
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
         return candidate_filters_hash

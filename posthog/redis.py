@@ -1,26 +1,37 @@
-from typing import Optional
+# flake8: noqa
+from typing import Any, Dict, Optional
 
 import redis
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-_client = None  # type: Optional[redis.Redis]
+_client_map: Dict[str, Any] = {}
 
 
-def get_client() -> redis.Redis:
-    global _client
+def get_client(redis_url: Optional[str] = None) -> redis.Redis:
+    redis_url = redis_url or settings.REDIS_URL
 
-    if _client:
-        return _client
+    global _client_map
 
-    if settings.TEST:
-        import fakeredis
+    if not _client_map.get(redis_url):
+        client: Any = None
 
-        _client = fakeredis.FakeRedis()
-    elif settings.REDIS_URL:
-        _client = redis.from_url(settings.REDIS_URL, db=0)
+        if settings.TEST:
+            import fakeredis
 
-    if not _client:
-        raise ImproperlyConfigured("Redis not configured!")
+            client = fakeredis.FakeRedis()
+        elif redis_url:
+            client = redis.from_url(redis_url, db=0)
 
-    return _client
+        if not client:
+            raise ImproperlyConfigured("Redis not configured!")
+
+        _client_map[redis_url] = client
+
+    return _client_map[redis_url]
+
+
+def TEST_clear_clients():
+    global _client_map
+    for key in list(_client_map.keys()):
+        del _client_map[key]

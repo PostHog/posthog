@@ -365,6 +365,19 @@ describe('PropertyDefinitionsManager()', () => {
             })
         })
 
+        it('regression tests: handles group type property being empty', async () => {
+            await hub.db.insertGroupType(teamId, 'project', 0)
+            await hub.db.insertGroupType(teamId, 'organization', 1)
+
+            await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
+                $group_key: 'org::5',
+                $group_set: {
+                    foo: 'bar',
+                    numeric: 3,
+                },
+            })
+        })
+
         describe('first event has not yet been ingested', () => {
             it('calls posthog.identify and posthog.capture', async () => {
                 // NOTE: that this functionality is dependent on users being a

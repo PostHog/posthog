@@ -60,7 +60,8 @@ export function PathItemFilters({
                                     className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + pageKey}
                                     type="secondary"
-                                    icon={<IconPlusMini color="var(--primary)" />}
+                                    icon={<IconPlusMini />}
+                                    sideIcon={null}
                                 >
                                     Add exclusion
                                 </LemonButton>

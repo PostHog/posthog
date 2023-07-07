@@ -35,6 +35,7 @@ export function FocusRect({ rect }: { rect: DOMRect }): JSX.Element {
             {rects.map((r) => (
                 <div
                     key={r.id}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         position: 'absolute',
                         top: r.y,

@@ -12,9 +12,7 @@ import { urls } from 'scenes/urls'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appContextLogic } from './appContextLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -32,9 +30,12 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
+    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
+    [Scene.Survey]: Scene.Surveys,
+    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Plugins,
-    [Scene.SessionRecording]: Scene.SessionRecordings,
-    [Scene.SessionRecordingPlaylist]: Scene.SessionRecordingPlaylist,
+    [Scene.ReplaySingle]: Scene.Replay,
+    [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -43,7 +44,6 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     connect: () => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [router, ['locationChanged']],
     }),
     path: ['scenes', 'sceneLogic'],
@@ -70,8 +70,11 @@ export const sceneLogic = kea<sceneLogicType>({
             } = {
                 cloud: true,
                 selfHosted: true,
-            }
-        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
+            },
+            // how much of the feature has been used (eg. number of recording playlists created),
+            // which will be compared to the limit for their subscriptions
+            currentUsage?: number
+        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn, currentUsage }),
         hideUpgradeModal: true,
         reloadBrowserDueToImportError: true,
     },
@@ -122,14 +125,8 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     selectors: {
         sceneConfig: [
-            (s) => [s.scene, s.featureFlags],
-            (scene: Scene, featureFlags): SceneConfig | null => {
-                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]) {
-                    return {
-                        ...sceneConfigurations[scene],
-                        name: 'Event Explorer',
-                    }
-                }
+            (s) => [s.scene],
+            (scene: Scene): SceneConfig | null => {
                 return sceneConfigurations[scene] || null
             },
         ],
@@ -199,7 +196,14 @@ export const sceneLogic = kea<sceneLogicType>({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
-        guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
+        guardAvailableFeature: ({
+            featureKey,
+            featureName,
+            featureCaption,
+            featureAvailableCallback,
+            guardOn,
+            currentUsage,
+        }) => {
             const { preflight } = preflightLogic.values
             let featureAvailable: boolean
             if (!preflight) {
@@ -209,7 +213,7 @@ export const sceneLogic = kea<sceneLogicType>({
             } else if (!guardOn.selfHosted && !preflight.cloud) {
                 featureAvailable = true
             } else {
-                featureAvailable = userLogic.values.hasAvailableFeature(featureKey)
+                featureAvailable = userLogic.values.hasAvailableFeature(featureKey, currentUsage)
             }
             if (featureAvailable) {
                 featureAvailableCallback?.()

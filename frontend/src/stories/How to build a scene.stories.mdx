@@ -22,7 +22,7 @@ import { useValues } from 'kea'
 
 export function Dashboards (): JSX.Element {
     const {
-        allItems: dashboard // dashboard but directly on dashboardLogic not via dashboardsModel
+        dashboard: dashboard
     } = useValues(dashboardLogic)
 
     return (

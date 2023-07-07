@@ -1,4 +1,4 @@
-// While these test cases focus on runAsyncHandlersEventPipeline, they were
+// While these test cases focus on runAppsOnEventPipeline, they were
 // explicitly intended to test that failures to produce to the `jobs` topic
 // due to availability errors would be bubbled up to the consumer, where we can
 // then make decisions about how to handle this case e.g. here we test that it
@@ -14,10 +14,9 @@
 //     DependencyUnavailableError Error being thrown.
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
-import Piscina from '@posthog/piscina'
-import { RetryError } from '@posthog/plugin-scaffold'
+
 import Redis from 'ioredis'
-import { KafkaJSError } from 'kafkajs'
+import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 
 import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
@@ -26,8 +25,9 @@ import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
+import Piscina, { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
+import { teardownPlugins } from '../../../src/worker/plugins/teardown'
 import { createTaskRunner } from '../../../src/worker/worker'
 import {
     createOrganization,
@@ -37,8 +37,10 @@ import {
     POSTGRES_DELETE_TABLES_QUERY,
 } from '../../helpers/sql'
 
-describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
-    // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
+jest.setTimeout(10000)
+
+describe('workerTasks.runAppsOnEventPipeline()', () => {
+    // Tests the failure cases for the workerTasks.runAppsOnEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
     // well and likely could do with adding additional tests for that.
     //
@@ -51,27 +53,29 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     let closeHub: () => Promise<void>
     let piscinaTaskRunner: ({ task, args }) => Promise<any>
 
+    beforeEach(() => {
+        // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
+        jest.useFakeTimers({ advanceTimers: true })
+    })
+
     beforeAll(async () => {
+        jest.useFakeTimers({ advanceTimers: true })
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
         await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
     })
 
-    afterAll(async () => {
-        await hub.redisPool.release(redis)
-        await closeHub()
-    })
-
-    beforeEach(() => {
-        // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
-        jest.useFakeTimers({ advanceTimers: 30 })
-    })
-
     afterEach(() => {
         jest.clearAllTimers()
         jest.useRealTimers()
         jest.clearAllMocks()
+    })
+
+    afterAll(async () => {
+        await hub.redisPool.release(redis)
+        await teardownPlugins(hub)
+        await closeHub()
     })
 
     test('throws on produce errors', async () => {
@@ -101,13 +105,22 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
         await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
         await setupPlugins(hub)
 
-        jest.spyOn(hub.kafkaProducer.producer, 'send').mockImplementationOnce(() => {
-            return Promise.reject(new KafkaJSError('Failed to produce'))
+        const error = new LibrdKafkaError({
+            name: 'Failed to produce',
+            message: 'Failed to produce',
+            code: 1,
+            errno: 1,
+            origin: 'test',
+            isRetriable: true,
         })
+
+        jest.spyOn(hub.kafkaProducer.producer, 'produce').mockImplementation(
+            (topic, partition, message, key, timestamp, headers, cb) => cb(error)
+        )
 
         await expect(
             piscinaTaskRunner({
-                task: 'runAsyncHandlersEventPipeline',
+                task: 'runAppsOnEventPipeline',
                 args: {
                     event: {
                         distinctId: 'asdf',
@@ -119,70 +132,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                     },
                 },
             })
-        ).rejects.toEqual(
-            new DependencyUnavailableError('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
-        )
-    })
-
-    test('retry on RetryError', async () => {
-        // If we receive a `RetryError`, we should retry the task within the
-        // pipeline rather than throwing it to the main consumer loop.
-        // Note that we assume the retries are happening async as is the
-        // currently functionality, i.e. outside of the consumer loop, but we
-        // should arguably move this to a separate retry topic.
-        const organizationId = await createOrganization(hub.postgres)
-        const plugin = await createPlugin(hub.postgres, {
-            organization_id: organizationId,
-            name: 'runEveryMinute plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-                export async function onEvent(event, { jobs }) {
-                    await jobs.test().runNow()
-                }
-
-                export const jobs = {
-                    test: async () => {}
-                }
-            `,
-        })
-
-        const teamId = await createTeam(hub.postgres, organizationId)
-        await createPluginConfig(hub.postgres, { team_id: teamId, plugin_id: plugin.id })
-        await setupPlugins(hub)
-
-        // This isn't strictly correct in terms of where this is being raised
-        // from i.e. `producer.send` doesn't ever raise a `RetryError`, but
-        // it was just convenient to do so and is hopefully close enough to
-        // reality.
-        // NOTE: we only mock once such that the second call will succeed
-        jest.spyOn(hub.kafkaProducer.producer, 'send').mockImplementationOnce(() => {
-            return Promise.reject(new RetryError('retry error'))
-        })
-
-        const event = {
-            distinctId: 'asdf',
-            ip: '',
-            teamId: teamId,
-            event: 'some event',
-            properties: {},
-            eventUuid: new UUIDT().toString(),
-        }
-
-        await expect(
-            piscinaTaskRunner({
-                task: 'runAsyncHandlersEventPipeline',
-                args: { event },
-            })
-        ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
-            lastStep: 'runAsyncHandlersStep',
-        })
-
-        // Ensure the retry call is made.
-        jest.runOnlyPendingTimers()
-
-        expect(hub.kafkaProducer.producer.send).toHaveBeenCalledTimes(2)
+        ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
 
     test(`doesn't throw on arbitrary failures`, async () => {
@@ -217,12 +167,12 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
         await expect(
             piscinaTaskRunner({
-                task: 'runAsyncHandlersEventPipeline',
+                task: 'runAppsOnEventPipeline',
                 args: { event },
             })
         ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
-            lastStep: 'runAsyncHandlersStep',
+            args: [expect.objectContaining(event)],
+            lastStep: 'processOnEventStep',
         })
     })
 })
@@ -238,20 +188,23 @@ describe('eachBatchAsyncHandlers', () => {
     let piscina: Piscina
 
     beforeEach(async () => {
+        jest.useFakeTimers({ advanceTimers: true })
         ;[hub, closeHub] = await createHub()
     })
 
     afterEach(async () => {
         await closeHub?.()
-        await piscina.destroy()
+        jest.useRealTimers()
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        piscina = makePiscina(defaultConfig)
+        piscina = await makePiscina(defaultConfig, hub)
         const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
 
+        const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })
+
         jest.spyOn(ingestionConsumer, 'eachBatch').mockRejectedValue(
-            new DependencyUnavailableError('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
+            new DependencyUnavailableError('Failed to produce', 'Kafka', error)
         )
 
         await expect(
@@ -294,8 +247,6 @@ describe('eachBatchAsyncHandlers', () => {
                 uncommittedOffsets: jest.fn(),
                 pause: jest.fn(),
             })
-        ).rejects.toEqual(
-            new DependencyUnavailableError('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
-        )
+        ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
 })

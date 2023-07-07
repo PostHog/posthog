@@ -19,8 +19,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -59,9 +59,9 @@
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -108,8 +108,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -148,9 +148,9 @@
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -186,6 +186,119 @@
   OFFSET 0
   '
 ---
+# name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
+  '
+  
+  SELECT distinct_id,
+         person_id
+  FROM events
+  WHERE team_id = 2
+    AND distinct_id IN ('stopped_after_signup',
+                        'stopped_after_pay')
+  GROUP BY distinct_id,
+           person_id
+  ORDER BY if(distinct_id = 'stopped_after_signup', -1, 0)
+  '
+---
+# name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
+  '
+  
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         countIf(steps = 3) step_3,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         avg(step_2_average_conversion_time_inner) step_2_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
+         median(step_2_median_conversion_time_inner) step_2_median_conversion_time
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            avg(step_2_conversion_time) step_2_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner,
+            median(step_2_conversion_time) step_2_median_conversion_time_inner
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target) as max_steps,
+               step_1_conversion_time,
+               step_2_conversion_time
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 14 DAY, 3, if(latest_0 <= latest_1
+                                                                       AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1)) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  if(isNotNull(latest_2)
+                     AND latest_2 <= latest_1 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_1), toDateTime(latest_2)), NULL) step_2_conversion_time
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     latest_1,
+                     step_2,
+                     min(latest_2) over (PARTITION by aggregation_target
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+              FROM
+                (SELECT aggregation_target,
+                        timestamp,
+                        step_0,
+                        latest_0,
+                        step_1,
+                        latest_1,
+                        step_2,
+                        if(latest_2 < latest_1, NULL, latest_2) as latest_2
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           step_0,
+                           latest_0,
+                           step_1,
+                           min(latest_1) over (PARTITION by aggregation_target
+                                               ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                    FROM
+                      (SELECT e.timestamp as timestamp,
+                              if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as aggregation_target,
+                              if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id ,
+                              if(event = 'user signed up', 1, 0) as step_0,
+                              if(step_0 = 1, timestamp, null) as latest_0,
+                              if((((match(elements_chain, '(^|;)button(\\.|$|;|:)'))
+                                   AND (match(elements_chain, '(text="Pay\\ \\$10")'))
+                                   AND event = '$autocapture')) , 1, 0) as step_1,
+                              if(step_1 = 1, timestamp, null) as latest_1,
+                              if((((match(elements_chain, '(^|;)a(\\.|$|;|:)'))
+                                   AND (match(elements_chain, '(href="/movie")'))
+                                   AND event = '$autocapture')) , 1, 0) as step_2,
+                              if(step_2 = 1, timestamp, null) as latest_2
+                       FROM events e
+                       LEFT OUTER JOIN
+                         (SELECT argMax(override_person_id, version) as person_id,
+                                 old_person_id
+                          FROM person_overrides
+                          WHERE team_id = 2
+                          GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+                       WHERE team_id = 2
+                         AND event IN ['$autocapture', 'user signed up', '$autocapture', '$autocapture']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-01 23:59:59', 'UTC')
+                         AND notEmpty(e.person_id)
+                         AND (step_0 = 1
+                              OR step_1 = 1
+                              OR step_2 = 1) ))))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps
+     HAVING steps = max_steps)
+  '
+---
 # name: TestFOSSFunnel.test_funnel_with_cohorts_step_filter
   '
   
@@ -202,7 +315,7 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time
+               step_1_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -230,7 +343,7 @@
                                        (SELECT id
                                         FROM person
                                         WHERE team_id = 2
-                                          AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%')) )
+                                          AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%')) )
                                    GROUP BY id
                                    HAVING max(is_deleted) = 0
                                    AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
@@ -266,33 +379,21 @@
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
@@ -311,7 +412,7 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time
+               step_1_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -332,12 +433,11 @@
                         pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (person_id IN
-                                  (SELECT person_id
+                                  (SELECT DISTINCT person_id
                                    FROM cohortpeople
                                    WHERE team_id = 2
                                      AND cohort_id = 2
-                                   GROUP BY person_id, cohort_id, team_id, version
-                                   HAVING sum(sign) > 0)), 1, 0) as step_0,
+                                     AND version = 0 )), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -388,8 +488,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -428,9 +528,9 @@
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -459,10 +559,10 @@
                               (SELECT id
                                FROM person
                                WHERE team_id = 2
-                                 AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                      OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
+                                 AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
+                                      OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -497,8 +597,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -537,9 +637,9 @@
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -568,10 +668,10 @@
                               (SELECT id
                                FROM person
                                WHERE team_id = 2
-                                 AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                      OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
+                                 AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
+                                      OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -610,8 +710,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -650,9 +750,9 @@
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -681,10 +781,10 @@
                               (SELECT id
                                FROM person
                                WHERE team_id = 2
-                                 AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                      OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
+                                 AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
+                                      OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -723,8 +823,8 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time,
-                               step_2_conversion_time
+               step_1_conversion_time,
+               step_2_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -763,9 +863,9 @@
                            step_1,
                            min(latest_1) over (PARTITION by aggregation_target
                                                ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1,
-                                              step_2,
-                                              min(latest_2) over (PARTITION by aggregation_target
-                                                                  ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
+                                         step_2,
+                                         min(latest_2) over (PARTITION by aggregation_target
+                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
                       (SELECT e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
@@ -794,10 +894,10 @@
                               (SELECT id
                                FROM person
                                WHERE team_id = 2
-                                 AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))
-                                      OR (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
+                                 AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                       AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
+                                      OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                          OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -821,70 +921,18 @@
   OFFSET 0
   '
 ---
-# name: TestFOSSFunnel.test_funnel_with_sampling
-  '
-  
-  SELECT countIf(steps = 1) step_1,
-         countIf(steps = 2) step_2,
-         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
-         median(step_1_median_conversion_time_inner) step_1_median_conversion_time
-  FROM
-    (SELECT aggregation_target,
-            steps,
-            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-            median(step_1_conversion_time) step_1_median_conversion_time_inner
-     FROM
-       (SELECT aggregation_target,
-               steps,
-               max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time
-        FROM
-          (SELECT *,
-                  if(latest_0 <= latest_1
-                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
-                  if(isNotNull(latest_1)
-                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
-           FROM
-             (SELECT aggregation_target,
-                     timestamp,
-                     step_0,
-                     latest_0,
-                     step_1,
-                     min(latest_1) over (PARTITION by aggregation_target
-                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        pdi.person_id as aggregation_target,
-                        pdi.person_id as person_id ,
-                        if(event = 'user signed up', 1, 0) as step_0,
-                        if(step_0 = 1, timestamp, null) as latest_0,
-                        if(((((match(elements_chain, '(^|;)a(\\.|$|;|:)'))
-                              AND (match(elements_chain, '(href="/movie")')))
-                             AND event = '$autocapture')) , 1, 0) as step_1,
-                        if(step_1 = 1, timestamp, null) as latest_1
-                 FROM events e SAMPLE 1.0
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 WHERE team_id = 2
-                   AND event IN ['$autocapture', 'user signed up', '$autocapture']
-                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-02-22 00:00:00', 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-03-01 23:59:59', 'UTC')
-                   AND (step_0 = 1
-                        OR step_1 = 1) ))
-           WHERE step_0 = 1 ))
-     GROUP BY aggregation_target,
-              steps
-     HAVING steps = max_steps)
-  '
----
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
   '
   
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 2
+    AND cohort_id = 2
+  '
+---
+# name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
+  '
+  
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -898,7 +946,7 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time
+               step_1_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -968,7 +1016,7 @@
        (SELECT aggregation_target,
                steps,
                max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                               step_1_conversion_time
+               step_1_conversion_time
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1046,10 +1094,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1063,10 +1110,9 @@
                      step_0,
                      latest_0,
                      step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
+                     min(latest_1) over (PARTITION by aggregation_target, prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([[''], ['Mac'], ['Chrome'], ['Safari']], prop), prop, ['Other']) as prop
+                                   if(has([[''], ['Mac'], ['Chrome'], ['Safari']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -1140,10 +1186,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1157,10 +1202,9 @@
                      step_0,
                      latest_0,
                      step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
+                     min(latest_1) over (PARTITION by aggregation_target, prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['Safari'], ['Mac']], prop), prop, ['Other']) as prop
+                                   if(has([['Safari'], ['Mac']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         prop
@@ -1237,10 +1281,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -1254,10 +1297,9 @@
                      step_0,
                      latest_0,
                      step_1,
-                     min(latest_1) over (PARTITION by aggregation_target,
-                                                      prop
+                     min(latest_1) over (PARTITION by aggregation_target, prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['', ''], ['alakazam', ''], ['Safari', 'xyz'], ['Mac', ''], ['Chrome', 'xyz'], ['0', '0'], ['', 'no-mac']], prop), prop, ['Other']) as prop
+                                   if(has([['', ''], ['alakazam', ''], ['Safari', 'xyz'], ['Mac', ''], ['Chrome', 'xyz'], ['0', '0'], ['', 'no-mac']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop

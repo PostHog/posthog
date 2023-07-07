@@ -17,7 +17,7 @@
     width: 32px;
     height: 32px;
     line-height: 32px;
-    background-color: var(--purple-light);
+    background-color: var(--lettermark-6-text);
     color: #5f1903;
     display: flex;
     align-items: center;
@@ -73,7 +73,7 @@
     display: flex;
     align-items: center;
     > * {
-        outline: 0.125rem solid #fff;
+        outline: 0.125rem solid var(--bg-light);
     }
     > :not(:first-child) {
         margin-left: -0.125rem;

@@ -1,12 +1,12 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { Breadcrumb, Group } from '~/types'
 import type { groupsListLogicType } from './groupsListLogicType'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export interface GroupsPaginatedResponse {
     next: string | null
@@ -14,7 +14,13 @@ export interface GroupsPaginatedResponse {
     results: Group[]
 }
 
+export interface GroupsListLogicProps {
+    groupTypeIndex: number
+}
+
 export const groupsListLogic = kea<groupsListLogicType>({
+    props: {} as GroupsListLogicProps,
+    key: (props: GroupsListLogicProps) => props.groupTypeIndex,
     path: ['groups', 'groupsListLogic'],
     connect: {
         values: [
@@ -28,16 +34,19 @@ export const groupsListLogic = kea<groupsListLogicType>({
     },
     actions: () => ({
         loadGroups: (url?: string | null) => ({ url }),
-        setTab: (tab: string) => ({ tab }),
+        setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ props, values }) => ({
         groups: [
             { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
             {
                 loadGroups: async ({ url }) => {
                     if (values.groupsEnabled) {
                         url =
-                            url || `api/projects/${values.currentTeamId}/groups/?group_type_index=${values.currentTab}`
+                            url ||
+                            `api/projects/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
+                                values.search ? '&search=' + encodeURIComponent(values.search) : ''
+                            }`
                         return await api.get(url)
                     }
                 },
@@ -45,59 +54,40 @@ export const groupsListLogic = kea<groupsListLogicType>({
         ],
     }),
     reducers: {
-        currentTab: [
-            '-1',
+        search: [
+            '',
             {
-                setTab: (_, { tab }) => tab,
+                setSearch: (_, { search }) => search,
             },
         ],
     },
     selectors: {
-        currentTabName: [
-            (s) => [s.currentTab, s.groupTypes, s.aggregationLabel],
-            (currentTab, groupTypes, aggregationLabel): string =>
-                currentTab === '-1'
-                    ? 'Persons'
-                    : groupTypes?.length
-                    ? capitalizeFirstLetter(aggregationLabel(parseInt(currentTab)).singular)
-                    : '',
-        ],
-        groupName: [
-            (s) => [s.currentTab, s.aggregationLabel],
-            (currentTab, aggregationLabel): Noun =>
-                currentTab === '-1'
-                    ? { singular: 'person', plural: 'persons' }
-                    : aggregationLabel(parseInt(currentTab)),
+        groupTypeName: [
+            (s, p) => [p.groupTypeIndex, s.aggregationLabel],
+            (groupTypeIndex, aggregationLabel): Noun =>
+                groupTypeIndex === -1 ? { singular: 'person', plural: 'persons' } : aggregationLabel(groupTypeIndex),
         ],
         breadcrumbs: [
-            (s) => [s.currentTabName, s.currentTab],
-            (currentTabName, currentTab): Breadcrumb[] => [
+            (s, p) => [s.groupTypeName, p.groupTypeIndex],
+            (groupTypeName, groupTypeIndex): Breadcrumb[] => [
                 {
-                    name: currentTabName,
-                    path: urls.groups(currentTab),
+                    name: capitalizeFirstLetter(groupTypeName.plural),
+                    path: urls.groups(groupTypeIndex),
                 },
             ],
         ],
     },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => {
-            if (tab !== '-1') {
-                return urls.groups(tab)
+    listeners: ({ actions }) => ({
+        setSearch: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                await breakpoint(300)
             }
-            return urls.persons()
+            actions.loadGroups()
         },
     }),
-    urlToAction: ({ actions, values }) => ({
-        '/groups/:id': ({ id }) => {
-            if (id) {
-                actions.setTab(id)
-                actions.loadGroups()
-            }
-        },
-        '/persons': () => {
-            if (values.currentTab !== '-1') {
-                actions.setTab('-1')
-            }
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadGroups()
         },
     }),
 })

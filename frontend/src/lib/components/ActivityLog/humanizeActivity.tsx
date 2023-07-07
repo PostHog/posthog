@@ -2,11 +2,11 @@ import { dayjs } from 'lib/dayjs'
 import { InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
-    type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin' | 'PluginConfig'
+    type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin' | 'PluginConfig' | 'Notebook'
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
     field?: string
-    before?: string | Record<string, any> | boolean
-    after?: string | Record<string, any> | boolean
+    before?: string | number | Record<string, any> | boolean | null
+    after?: string | number | Record<string, any> | boolean | null
 }
 
 export interface PersonMerge {
@@ -27,6 +27,8 @@ export interface ActivityLogDetail {
     changes: ActivityChange[] | null
     name: string | null
     short_id?: InsightShortId | null
+    /** e.g. for property definition carries event, person, or group */
+    type?: string
 }
 
 export interface ActivityUser {
@@ -41,6 +43,10 @@ export enum ActivityScope {
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
 }
 
 export interface ActivityLogItem {
@@ -51,6 +57,7 @@ export interface ActivityLogItem {
     item_id?: string
     detail: ActivityLogDetail
     unread?: boolean // when used as a notification
+    is_system?: boolean // when auto-created e.g. an exported image when sharing an insight
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry

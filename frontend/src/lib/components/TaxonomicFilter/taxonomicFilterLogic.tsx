@@ -9,7 +9,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import {
     ActionType,
     CohortType,
@@ -33,7 +32,7 @@ import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
@@ -41,14 +40,12 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
+import { InlineHogQLEditor } from './InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
-        if (!!keyMapping.event[eventDefinition.name]) {
+        if (!!KEY_MAPPING.event[eventDefinition.name]) {
             return 'PostHog event'
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`
@@ -60,7 +57,7 @@ export const propertyTaxonomicGroupProps = (
     verified: boolean = false
 ): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
     getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
-        if (verified || !!keyMapping.event[propertyDefinition.name]) {
+        if (verified || !!KEY_MAPPING.event[propertyDefinition.name]) {
             return 'PostHog property'
         }
         return 'Property'
@@ -80,8 +77,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     },
     actions: () => ({
@@ -151,33 +146,29 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.excludedProperties,
-                s.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties,
-                featureFlags
+                excludedProperties
             ): TaxonomicFilterGroup[] => {
-                const hogQl: TaxonomicFilterGroup = {
-                    name: 'HogQL',
-                    searchPlaceholder: 'HogQL',
-                    type: TaxonomicFilterGroupType.HogQLExpression,
-                    render: InlineHogQLEditor,
-                    getPopoverHeader: () => 'HogQL',
-                }
                 return [
                     {
                         name: 'Events',
                         searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
+                        options: [{ name: 'All events', value: null }].filter(
+                            (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
+                        ),
                         endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                         }).url,
-                        getName: (eventDefinition: EventDefinition) => eventDefinition.name,
-                        getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
+                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                        getValue: (eventDefinition: Record<string, any>) =>
+                            // Use the property's "name" when available, or "value" if a local option
+                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
                     },
                     {
@@ -274,17 +265,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                            ? undefined
-                            : personPropertiesModel,
-                        value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                            ? undefined
-                            : 'personProperties',
-                        endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
-                                  type: 'person',
-                              }).url
-                            : undefined,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            type: 'person',
+                        }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
                         ...propertyTaxonomicGroupProps(true),
@@ -429,7 +412,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (option) => option.value,
                         getPopoverHeader: () => 'Session',
                     },
-                    ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] ? [hogQl] : []),
+                    {
+                        name: 'HogQL',
+                        searchPlaceholder: 'HogQL',
+                        type: TaxonomicFilterGroupType.HogQLExpression,
+                        render: InlineHogQLEditor,
+                        getPopoverHeader: () => 'HogQL',
+                    },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]
@@ -440,14 +429,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.featureFlags],
-            (groupTypes, taxonomicGroups, featureFlags): TaxonomicFilterGroupType[] =>
-                (groupTypes || taxonomicGroups.map((g) => g.type)).filter((type) => {
-                    return (
-                        type !== TaxonomicFilterGroupType.HogQLExpression ||
-                        !!featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS]
-                    )
-                }),
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
+                groupTypes || taxonomicGroups.map((g) => g.type),
         ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
@@ -467,24 +451,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 })),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel, s.featureFlags],
-            (groupTypes, teamId, aggregationLabel, featureFlags): TaxonomicFilterGroup[] =>
+            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
+            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                        ? undefined
-                        : groupPropertiesModel,
-                    value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                        ? undefined
-                        : `groupProperties_${type.group_type_index}`,
-                    endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
-                        ? combineUrl(`api/projects/${teamId}/property_definitions`, {
-                              type: 'group',
-                              group_type_index: type.group_type_index,
-                          }).url
-                        : undefined,
+                    endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                        type: 'group',
+                        group_type_index: type.group_type_index,
+                    }).url,
                     valuesEndpoint: (key) =>
                         `api/projects/${teamId}/groups/property_values/?${toParams({
                             key,
@@ -556,7 +532,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     },
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
-            if (item && value) {
+            if (item) {
                 props.onChange?.(group, value, item)
             }
             actions.setSearchQuery('')
@@ -641,9 +617,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             if (
                 results.count > 0 &&
                 (groupType === TaxonomicFilterGroupType.EventProperties ||
+                    groupType === TaxonomicFilterGroupType.PersonProperties ||
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
-                updatePropertyDefinitions(results.results as PropertyDefinition[])
+                const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
+                const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
+                const newPropertyDefinitions = Object.fromEntries(
+                    propertyDefinitions.map((propertyDefinition) => [
+                        `${apiType}/${propertyDefinition.name}`,
+                        propertyDefinition,
+                    ])
+                )
+                updatePropertyDefinitions(newPropertyDefinitions)
             }
         },
     }),

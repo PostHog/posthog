@@ -62,6 +62,7 @@ export function Animation({
                 `Animation--${size}`,
                 className
             )}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ aspectRatio: `${width} / ${height}`, ...style }}
         >
             {source ? (

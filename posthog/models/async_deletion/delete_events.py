@@ -18,6 +18,8 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 
 
 class AsyncEventDeletion(AsyncDeletionProcess):
+    DELETION_TYPES = [DeletionType.Team, DeletionType.Group, DeletionType.Person]
+
     def process(self, deletions: List[AsyncDeletion]):
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion to perform")
@@ -31,9 +33,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         conditions, args = self._conditions(deletions)
         sync_execute(
             f"""
-            ALTER TABLE sharded_events
+            DELETE FROM sharded_events
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-            DELETE WHERE {" OR ".join(conditions)}
+            WHERE {" OR ".join(conditions)}
             """,
             args,
         )
@@ -52,9 +54,9 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
             sync_execute(
                 f"""
-                ALTER TABLE {table}
+                DELETE FROM {table}
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE {" OR ".join(conditions)}
+                WHERE {" OR ".join(conditions)}
                 """,
                 args,
             )

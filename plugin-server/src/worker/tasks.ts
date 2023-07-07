@@ -29,21 +29,17 @@ export const workerTasks: Record<string, TaskRunner> = {
     pluginScheduleReady: (hub) => {
         return hub.pluginSchedule !== null
     },
-    runLightweightCaptureEndpointEventPipeline: async (hub, args: { event: PipelineEvent }) => {
-        const runner = new EventPipelineRunner(hub, args.event)
-        return await runner.runLightweightCaptureEndpointEventPipeline(args.event)
-    },
-    runEventPipeline: async (hub, args: { event: PluginEvent }) => {
+    runEventPipeline: async (hub, args: { event: PipelineEvent }) => {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runEventPipeline(args.event)
     },
-    runBufferEventPipeline: async (hub, args: { event: PluginEvent }) => {
-        const runner = new EventPipelineRunner(hub, args.event)
-        return await runner.runBufferEventPipeline(args.event)
-    },
-    runAsyncHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
+    runAppsOnEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
-        return await runner.runAsyncHandlersEventPipeline(args.event)
+        return await runner.runAppsOnEventPipeline(args.event)
+    },
+    runWebhooksHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
+        const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
+        return await runner.runWebhooksEventPipeline(args.event)
     },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)

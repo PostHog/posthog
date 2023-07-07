@@ -30,6 +30,9 @@ export default defineConfig({
     viewportWidth: 1200,
     viewportHeight: 1080,
     trashAssetsBeforeRuns: true,
+    // cypress default is 'top' this means sometimes the element is underneath the top navbar
+    // not what a human would do... so, set it to center to avoid this weird behavior
+    scrollBehavior: 'center',
     e2e: {
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.

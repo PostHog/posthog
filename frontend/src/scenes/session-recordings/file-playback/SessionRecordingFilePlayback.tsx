@@ -3,7 +3,7 @@ import { IconUploadFile } from 'lib/lemon-ui/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { sessionRecordingFilePlaybackLogic } from './sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
@@ -36,8 +36,8 @@ export function SessionRecordingFilePlayback(): JSX.Element {
             {sessionRecordingLoading ? (
                 <SpinnerOverlay />
             ) : sessionRecording ? (
-                <div className="space-y-2">
-                    <AlertMessage
+                <div className="flex flex-col gap-2 h-screen pb-4">
+                    <LemonBanner
                         type="info"
                         action={{
                             onClick: () => resetSessionRecording(),
@@ -45,12 +45,8 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                         }}
                     >
                         You are viewing a recording loaded from a file.
-                    </AlertMessage>
-                    <SessionRecordingPlayer
-                        sessionRecordingId=""
-                        sessionRecordingData={sessionRecording}
-                        playerKey={playerKey}
-                    />
+                    </LemonBanner>
+                    <SessionRecordingPlayer sessionRecordingId="" playerKey={playerKey} />
                 </div>
             ) : (
                 <Dragger

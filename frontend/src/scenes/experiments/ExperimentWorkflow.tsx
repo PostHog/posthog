@@ -12,11 +12,7 @@ export function ExperimentWorkflow(): JSX.Element {
             <Row>
                 <Col className="exp-workflow-step step-completed w-full">
                     <Row align="middle">
-                        {true ? (
-                            <IconCheckmark style={{ color: 'var(--primary)', fontSize: 24 }} />
-                        ) : (
-                            <IconRadioButtonUnchecked />
-                        )}
+                        <IconCheckmark style={{ color: 'var(--primary)', fontSize: 24 }} />
                         <b className="ml-2">Create experiment</b>
                     </Row>
                     <div className="ml-8">Set variants, select participants, and add secondary metrics</div>

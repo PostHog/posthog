@@ -21,5 +21,6 @@ class Migration(migrations.Migration):
         set property_type = null, property_type_format=null
         where name = '$time'
                     """,
+            elidable=True,
         )
     ]

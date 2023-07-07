@@ -4,7 +4,7 @@ import { useActions, useValues, BindLogic } from 'kea'
 import './MergeSplitPerson.scss'
 import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { pluralize } from 'lib/utils'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }
@@ -65,11 +65,11 @@ function SplitPerson(): JSX.Element | null {
                     </Select.Option>
                 ))}
             </Select>
-            <AlertMessage type="warning" className="mt-4">
+            <LemonBanner type="warning" className="mt-4">
                 This will create <strong>{person.distinct_ids.length - 1}</strong>{' '}
                 {pluralize(person.distinct_ids.length - 1, 'new person', undefined, false)}. This might change the
                 numbers in your charts, even historically. Please be certain.
-            </AlertMessage>
+            </LemonBanner>
         </>
     )
 }

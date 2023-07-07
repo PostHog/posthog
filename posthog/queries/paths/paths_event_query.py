@@ -6,12 +6,15 @@ from posthog.constants import (
     FUNNEL_PATH_BETWEEN_STEPS,
     PAGEVIEW_EVENT,
     SCREEN_EVENT,
+    HOGQL,
 )
+from posthog.hogql.hogql import translate_hogql
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.util import get_person_properties_mode
+from posthog.utils import PersonOnEventsMode
 
 
 class PathEventQuery(EventQuery):
@@ -24,10 +27,6 @@ class PathEventQuery(EventQuery):
         funnel_paths_join = ""
         funnel_paths_filter = ""
 
-        person_id = (
-            f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id"
-        )
-
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
             # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
             funnel_window = (
@@ -37,13 +36,13 @@ class PathEventQuery(EventQuery):
 
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp AS target_timestamp"
             funnel_paths_join = (
-                f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {person_id}"
+                f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {self._person_id_alias}"
             )
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp {operator} target_timestamp {funnel_window if self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP and self._filter.funnel_step and self._filter.funnel_step < 0 else ''}"
         elif self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS:
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.min_timestamp as min_timestamp, {self.FUNNEL_PERSONS_ALIAS}.max_timestamp as max_timestamp"
             funnel_paths_join = (
-                f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {person_id}"
+                f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.actor_id = {self._person_id_alias}"
             )
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp AND {self.EVENT_TABLE_ALIAS}.timestamp <= max_timestamp"
 
@@ -51,7 +50,7 @@ class PathEventQuery(EventQuery):
 
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp",
-            f"{person_id} AS person_id",
+            f"{self._person_id_alias} AS person_id",
             funnel_paths_timestamp,
         ]
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
@@ -61,17 +60,25 @@ class PathEventQuery(EventQuery):
             for field in self._extra_event_properties
         ]
 
+        event_hogql = "event"
+
+        if self._should_query_hogql():
+            event_hogql = self._filter.paths_hogql_expression or event_hogql
+        if self._should_query_url():
+            event_hogql = f"if(event = '{PAGEVIEW_EVENT}', replaceRegexpAll(ifNull(properties.$current_url, ''), '(.)/$', '\\\\1'), {event_hogql})"
+        if self._should_query_screen():
+            event_hogql = f"if(event = '{SCREEN_EVENT}', properties.$screen_name, {event_hogql})"
+
         event_conditional = (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
-            if self._should_query_screen()
-            else "if(0, '', "
+            "ifNull("
+            + translate_hogql(
+                query=event_hogql,
+                context=self._filter.hogql_context,
+                dialect="clickhouse",
+                events_table_alias=self.EVENT_TABLE_ALIAS,
+            )
+            + ", '') AS path_item_ungrouped"
         )
-        event_conditional += (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
-            if self._should_query_url()
-            else "if(0, '', "
-        )
-        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item_ungrouped"
 
         _fields.append(event_conditional)
 
@@ -87,10 +94,8 @@ class PathEventQuery(EventQuery):
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-            person_id_joined_alias=f"{person_id}",
+            person_properties_mode=get_person_properties_mode(self._team),
+            person_id_joined_alias=self._person_id_alias,
         )
 
         self.params.update(prop_params)
@@ -104,11 +109,19 @@ class PathEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+        null_person_filter = (
+            f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)"
+            if self._person_on_events_mode != PersonOnEventsMode.DISABLED
+            else ""
+        )
+
+        sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
+        self.params.update({"sampling_factor": self._filter.sampling_factor})
 
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {sample_clause}
+            {self._get_person_ids_query()}
             {person_query}
             {groups_query}
             {funnel_paths_join}
@@ -118,17 +131,19 @@ class PathEventQuery(EventQuery):
             {prop_query}
             {funnel_paths_filter}
             {null_person_filter}
-            ORDER BY {person_id}, {self.EVENT_TABLE_ALIAS}.timestamp
+            ORDER BY {self._person_id_alias}, {self.EVENT_TABLE_ALIAS}.timestamp
         """
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = True
+        if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
+            self._should_join_distinct_ids = False
+        else:
+            self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
         EventQuery._determine_should_join_persons(self)
-        if self._using_person_on_events:
-            self._should_join_distinct_ids = False
+        if self._person_on_events_mode != PersonOnEventsMode.DISABLED:
             self._should_join_persons = False
 
     def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
@@ -145,39 +160,28 @@ class PathEventQuery(EventQuery):
         if self._filter.local_path_cleaning_filters and len(self._filter.local_path_cleaning_filters) > 0:
             replacements.extend(self._filter.local_path_cleaning_filters)
 
+        # If there are any path cleaning rules, apply them
         if len(replacements) > 0:
+            final_path_item_column = "path_item_cleaned"
             for idx, replacement in enumerate(replacements):
                 alias = replacement["alias"]
                 regex = replacement["regex"]
-                if idx == 0:
-                    name = "path_item" if idx == len(replacements) - 1 else f"path_item_{idx}"
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_ungrouped, %(regex_replacement_{idx})s, %(alias_{idx})s) as {name}"
-                    )
-                elif idx == len(replacements) - 1:
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item"
-                    )
-                else:
-                    _fields.append(
-                        f"replaceRegexpAll(path_item_{idx - 1}, %(regex_replacement_{idx})s, %(alias_{idx})s) as path_item_{idx}"
-                    )
+                source_path_item_column = "path_item_ungrouped" if idx == 0 else f"path_item_{idx-1}"
+                result_path_item_column = "path_item_cleaned" if idx == len(replacements) - 1 else f"path_item_{idx}"
+                _fields.append(
+                    f"replaceRegexpAll({source_path_item_column}, %(regex_replacement_{idx})s, %(alias_{idx})s) "
+                    f"AS {result_path_item_column}"
+                )
                 params[f"regex_replacement_{idx}"] = regex
                 params[f"alias_{idx}"] = alias
-
         else:
-            _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")
-            _fields.append("if(group_index > 0, %(groupings)s[group_index], path_item_ungrouped) AS path_item")
+            final_path_item_column = "path_item_ungrouped"
+
+        # Match wildcard groups
+        _fields.append(f"multiMatchAnyIndex({final_path_item_column}, %(regex_groupings)s) AS group_index")
+        _fields.append(f"if(group_index > 0, %(groupings)s[group_index], {final_path_item_column}) AS path_item")
 
         return _fields, params
-
-    def _get_current_url_parsing(self):
-        path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-        return f"if(length({path_type}) > 1, replaceRegexpAll({path_type}, '/$', ''), {path_type})"
-
-    def _get_screen_name_parsing(self):
-        path_type, _ = get_property_string_expr("events", "$screen_name", "'$screen_name'", "properties")
-        return path_type
 
     def _get_event_query(self) -> Tuple[str, Dict[str, Any]]:
         params: Dict[str, Any] = {}
@@ -192,6 +196,9 @@ class PathEventQuery(EventQuery):
 
         if self._filter.include_all_custom_events:
             or_conditions.append(f"NOT event LIKE '$%%'")
+
+        if self._filter.include_hogql:
+            or_conditions.append(f"1 = 1")
 
         if self._filter.custom_events:
             or_conditions.append(f"event IN %(custom_events)s")
@@ -225,6 +232,16 @@ class PathEventQuery(EventQuery):
         ) and SCREEN_EVENT not in self._filter.exclude_events:
             return True
         elif self._filter.include_screenviews:
+            return True
+
+        return False
+
+    def _should_query_hogql(self) -> bool:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and HOGQL not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_hogql:
             return True
 
         return False

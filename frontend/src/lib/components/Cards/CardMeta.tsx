@@ -75,13 +75,13 @@ export function CardMeta({
     return (
         <CSSTransition in={areDetailsShown} timeout={200} classNames="CardMeta--expansion">
             {(transitionState) => (
-                // eslint-disable-next-line react/forbid-dom-props
                 <div
                     className={clsx(
                         'CardMeta',
                         className,
                         showDetailsControls ? 'CardMeta--WithDetails' : 'CardMeta--WithoutDetails'
                     )}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={transitionStyles[transitionState]}
                 >
                     <div className="CardMeta__primary" ref={primaryRef}>
@@ -100,7 +100,7 @@ export function CardMeta({
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
                                             status="muted"
-                                            size={'small'}
+                                            size="small"
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>

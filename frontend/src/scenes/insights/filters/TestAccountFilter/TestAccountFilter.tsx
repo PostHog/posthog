@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 
 export function TestAccountFilter({
     filters,
@@ -14,13 +15,14 @@ export function TestAccountFilter({
 }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+    const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
 
     return (
         <LemonSwitch
             checked={hasFilters ? !!filters.filter_test_accounts : false}
             onChange={(checked: boolean) => {
-                localStorage.setItem('default_filter_test_accounts', checked.toString())
                 onChange({ filter_test_accounts: checked })
+                setLocalDefault(checked)
             }}
             id="test-account-filter"
             bordered

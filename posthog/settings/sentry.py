@@ -32,8 +32,11 @@ def traces_sampler(sampling_context: dict) -> float:
         if path.startswith("/batch"):
             return 0.00000001  # 0.000001%
         # Ingestion endpoints (high volume)
-        elif path.startswith(("/capture", "/decide", "/track", "/s", "/e")):
+        elif path.startswith(("/capture", "/track", "/s", "/e")):
             return 0.0000001  # 0.00001%
+        # Get more traces for /decide than other high volume endpoints
+        elif path.startswith("/decide"):
+            return 0.00001  # 0.001%
         # Probes/monitoring endpoints
         elif path.startswith(("/_health", "/_readyz", "/_livez")):
             return 0.00001  # 0.001%
@@ -45,7 +48,9 @@ def traces_sampler(sampling_context: dict) -> float:
         elif path.startswith("/api/feature_flag"):
             return 0.00001  # 0.001%
         elif path.startswith("/api/projects") and ("dashboard" in path or "insight" in path) and "timing" not in path:
-            return 0.1  # 10%
+            return 0.001  # 0.1%
+        elif path.startswith("/api/projects") and path.endswith("/query/"):
+            return 0.001  # 0.1%
         elif path.startswith("/api"):
             return 0.001  # 0.1%
         else:
@@ -69,18 +74,26 @@ def traces_sampler(sampling_context: dict) -> float:
 def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
-        # https://docs.sentry.io/platforms/python/
-        sentry_logging = LoggingIntegration(level=logging.INFO, event_level=None)
+
+        # Setting this on enables more visibility, at the risk of capturing personal information we should not:
+        #   - standard sentry "client IP" field, through send_default_pii
+        #   - django access logs (info level)
+        #   - request payloads
+        # See https://docs.sentry.io/platforms/python/data-collected/
+        send_pii = get_from_env("SENTRY_SEND_PII", type_cast=bool, default=False)
+
+        sentry_logging_level = logging.INFO if send_pii else logging.ERROR
+        sentry_logging = LoggingIntegration(level=sentry_logging_level, event_level=None)
         profiles_sample_rate = get_from_env("SENTRY_PROFILES_SAMPLE_RATE", type_cast=float, default=0.0)
 
         sentry_sdk.init(
+            send_default_pii=send_pii,
             dsn=os.environ["SENTRY_DSN"],
-            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration(), sentry_logging],
-            request_bodies="always",
+            request_bodies="always" if send_pii else "never",
             sample_rate=1.0,
-            # Configures the sample rate for error events, in the range of 0.0 to 1.0. The default is 1.0 which means that 100% of error events are sent. If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
-            send_default_pii=True,
+            # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
+            # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             traces_sampler=traces_sampler,
             _experiments={
                 # https://docs.sentry.io/platforms/python/profiling/

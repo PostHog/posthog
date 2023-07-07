@@ -3,15 +3,15 @@ import { useValues } from 'kea'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
 import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
-import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/views/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import './FunnelHistogram.scss'
+import { funnelDataLogic } from './funnelDataLogic'
 
 export function FunnelHistogram(): JSX.Element | null {
     const { insightProps, isInDashboardContext } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { histogramGraphData } = useValues(logic)
+    const { histogramGraphData } = useValues(funnelDataLogic(insightProps))
+
     const ref = useRef(null)
     const [width, height] = useSize(ref)
 

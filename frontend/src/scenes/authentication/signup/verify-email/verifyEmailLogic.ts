@@ -53,6 +53,12 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         )
                         return true
                     } catch (e: any) {
+                        if (e.code === 'throttled') {
+                            lemonToast.error(
+                                'You have requested a new verification link too many times. Please try again later.'
+                            )
+                            return false
+                        }
                         lemonToast.error(
                             'Requesting verification link failed. Please try again later or contact support.'
                         )

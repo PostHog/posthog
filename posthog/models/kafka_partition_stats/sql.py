@@ -3,9 +3,9 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-CREATE_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
-    lambda: f"""
-CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.kafka_events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE_PARTITION_STATISTICS_KAFKA_TABLE = (
+    lambda monitored_topic: f"""
+CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.kafka_{monitored_topic}_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 (
     `uuid` String,
     `distinct_id` String,
@@ -17,17 +17,16 @@ CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.kafka_events_plugin_ingestion
     `sent_at` String,
     `token` String
 )
-ENGINE={kafka_engine(topic=KAFKA_EVENTS_PLUGIN_INGESTION, group="partition_statistics")}
+ENGINE={kafka_engine(topic=monitored_topic, group="partition_statistics")}
 SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages = 100;
 """
 )
 
-DROP_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
-    lambda: f"""
-DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.kafka_events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}';
+DROP_PARTITION_STATISTICS_KAFKA_TABLE = (
+    lambda monitored_topic: f"""
+DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.kafka_{monitored_topic}_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}';
 """
 )
-
 
 EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "events_plugin_ingestion_partition_statistics"
@@ -54,10 +53,9 @@ DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE = (
     lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 )
 
-
-CREATE_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = (
-    lambda: f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE_PARTITION_STATISTICS_MV = (
+    lambda monitored_topic: f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 TO `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics
 AS SELECT
     toStartOfMinute(_timestamp) AS `timestamp`,
@@ -68,7 +66,7 @@ AS SELECT
     `distinct_id`,
     countState(1) AS `messages`,
     sumState(length(data)) AS `data_size`
-FROM {CLICKHOUSE_DATABASE}.kafka_events_plugin_ingestion_partition_statistics
+FROM {CLICKHOUSE_DATABASE}.kafka_{monitored_topic}_partition_statistics
 GROUP BY
     `timestamp`,
     `_topic`,
@@ -79,6 +77,20 @@ GROUP BY
 """
 )
 
-DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = (
-    lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_PARTITION_STATISTICS_MV = (
+    lambda monitored_topic: f"""
+DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC
+"""
 )
+
+CREATE_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = CREATE_PARTITION_STATISTICS_KAFKA_TABLE(
+    KAFKA_EVENTS_PLUGIN_INGESTION
+)
+
+CREATE_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = CREATE_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)
+
+DROP_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = DROP_PARTITION_STATISTICS_KAFKA_TABLE(
+    KAFKA_EVENTS_PLUGIN_INGESTION
+)
+
+DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = DROP_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)

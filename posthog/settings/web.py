@@ -1,8 +1,9 @@
 # Web app specific settings/middleware/apps setup
-# :NOTE: posthog-cloud modifies some of these values
 import os
 from datetime import timedelta
 from typing import List
+
+from corsheaders.defaults import default_headers
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.statsd import STATSD_HOST
@@ -17,6 +18,17 @@ AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+
+# Decide rate limit setting
+
+DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
+DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
+
+# Decide billing analytics
+
+DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
+DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
 # Application definition
 
@@ -42,7 +54,6 @@ INSTALLED_APPS = [
     "django_otp.plugins.otp_totp",
     # 'django_otp.plugins.otp_email',  # <- if you want email capability.
     "two_factor",
-    "social_2fa",
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
@@ -50,7 +61,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -79,8 +90,10 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "django_prometheus.middleware.PrometheusAfterMiddleware",
+    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
+
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
@@ -149,7 +162,6 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
-    "social_2fa.social_pipeline.two_factor_auth",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
@@ -202,7 +214,8 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^/api/.*$"
+CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
+CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -249,6 +262,17 @@ CSRF_COOKIE_NAME = "posthog_csrftoken"
 
 # see posthog.gzip_middleware.ScopedGZipMiddleware
 # for how adding paths here can add vulnerability to the "breach" attack
+GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
+    os.getenv(
+        "GZIP_POST_RESPONSE_ALLOW_LIST",
+        ",".join(
+            [
+                "^/?api/projects/\\d+/query/?$",
+            ]
+        ),
+    )
+)
+
 GZIP_RESPONSE_ALLOW_LIST = get_list(
     os.getenv(
         "GZIP_RESPONSE_ALLOW_LIST",
@@ -280,6 +304,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/projects/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
                 "^api/projects/@current/feature_flags/my_flags/?$",
+                "^/?api/projects/\\d+/query/?$",
             ]
         ),
     )
@@ -292,3 +317,5 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1] + [float("inf")]
+
+SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")

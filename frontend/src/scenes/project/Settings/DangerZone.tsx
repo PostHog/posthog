@@ -4,6 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/lemon-ui/icons'
+import { TeamType } from '~/types'
 
 export function DeleteProjectModal({
     isOpen,
@@ -33,7 +34,7 @@ export function DeleteProjectModal({
                         loading={isDeletionInProgress}
                         data-attr="delete-project-ok"
                         status="danger"
-                        onClick={currentTeam ? () => deleteTeam(currentTeam) : undefined}
+                        onClick={currentTeam ? () => deleteTeam(currentTeam as TeamType) : undefined}
                     >{`Delete ${currentTeam ? currentTeam.name : 'the current project'}`}</LemonButton>
                 </>
             }

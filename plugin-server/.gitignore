@@ -8,3 +8,4 @@ yalc.lock
 tmp
 *.0x
 coverage/
+.tmp/

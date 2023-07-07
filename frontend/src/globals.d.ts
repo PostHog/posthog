@@ -18,5 +18,6 @@ declare global {
             isIdentifiedID: boolean
             featureFlags: Record<string, boolean | string>
         }
+        IMPERSONATED_SESSION?: boolean
     }
 }

@@ -1,6 +1,5 @@
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
-import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
@@ -11,7 +10,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,7 +20,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -29,11 +28,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 const { TabPane } = Tabs
@@ -41,7 +37,7 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -88,6 +84,23 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 <span className="text-muted">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
             </div>
+            <div>
+                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <Link
+                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
+                >
+                    <Tooltip
+                        title={
+                            <>
+                                {person.is_identified ? <strong>Cannot</strong> : 'Can'} be used as `alias_id` - click
+                                for more info.
+                            </>
+                        }
+                    >
+                        <IconInfo className="ml-1 text-base shrink-0" />
+                    </Tooltip>
+                </Link>
+            </div>
         </div>
     )
 }
@@ -100,18 +113,25 @@ export function Person(): JSX.Element | null {
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!person) {
-        return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
     }
+
+    const url = urls.person(urlId || person.distinct_ids[0] || String(person.id))
 
     return (
         <>
             <PageHeader
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
+                notebookProps={
+                    url
+                        ? {
+                              href: url,
+                          }
+                        : undefined
+                }
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
@@ -153,36 +173,30 @@ export function Person(): JSX.Element | null {
                     key={PersonsTabType.PROPERTIES}
                 >
                     <PropertiesTable
+                        type={PropertyDefinitionType.Person}
                         properties={person.properties || {}}
                         searchable
                         onEdit={editProperty}
                         sortProperties
                         embedded={false}
                         onDelete={(key) => deleteProperty(key)}
+                        filterable
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    {featureDataExploration ? (
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                full: true,
-                                hiddenColumns: ['person'],
-                                source: {
-                                    kind: NodeKind.EventsQuery,
-                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    personId: person.id,
-                                },
-                            }}
-                        />
-                    ) : (
-                        <EventsTable
-                            pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                            fixedFilters={{ person_id: person.id }}
-                            showPersonColumn={false}
-                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
-                        />
-                    )}
+                    <Query
+                        query={{
+                            kind: NodeKind.DataTableNode,
+                            full: true,
+                            hiddenColumns: ['person'],
+                            source: {
+                                kind: NodeKind.EventsQuery,
+                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                personId: person.id,
+                                after: '-24h',
+                            },
+                        }}
+                    />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
@@ -190,18 +204,14 @@ export function Person(): JSX.Element | null {
                 >
                     {!currentTeam?.session_recording_opt_in ? (
                         <div className="mb-4">
-                            <AlertMessage type="info">
+                            <LemonBanner type="info">
                                 Session recordings are currently disabled for this project. To use this feature, please
                                 go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
                                 enable it.
-                            </AlertMessage>
+                            </LemonBanner>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist
-                        personUUID={person.uuid}
-                        updateSearchParams
-                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
-                    />
+                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
@@ -254,10 +264,10 @@ export function Person(): JSX.Element | null {
                         scope={ActivityScope.PERSON}
                         id={person.id}
                         caption={
-                            <AlertMessage type="info">
+                            <LemonBanner type="info">
                                 This page only shows changes made by users in the PostHog site. Automatic changes from
                                 the API aren't shown here.
-                            </AlertMessage>
+                            </LemonBanner>
                         }
                     />
                 </TabPane>

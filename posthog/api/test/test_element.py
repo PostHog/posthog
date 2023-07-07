@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Dict, List
 
+from corsheaders.defaults import default_headers
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
@@ -142,7 +143,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response), 1)
 
     # checking postgres, don't care about person on events
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_element_stats_postgres_queries_are_as_expected(self) -> None:
         self._setup_events()
@@ -272,6 +273,28 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response_json["next"] is None
         limit_to_one_results = response_json["results"]
         assert limit_to_one_results == [expected_all_data_response_results[1]]
+
+    def test_element_stats_cors_headers(self) -> None:
+        # Azure App Insights sends the same tracing headers as Sentry
+        # _and_ a request-context header
+        # this is added by the cors headers package so should apply to any endpoint
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/api/element/stats/",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader,request-context",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+
+        assert response.headers["Access-Control-Allow-Headers"] == ", ".join(
+            default_headers
+            + (
+                "traceparent",
+                "request-id",
+                "request-context",
+            )
+        )
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")

@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Type, cast
+from rest_framework.serializers import BaseSerializer
 
 import structlog
 from django.db.models import Prefetch, QuerySet
@@ -23,10 +24,10 @@ from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
-from posthog.models.team.team import get_available_features_for_team
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -64,7 +65,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "insight"]
         depth = 1
 
-    def to_representation(self, instance: Insight):
+    def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
         insight_representation = representation["insight"] or {}  # May be missing for text tiles
@@ -75,7 +76,43 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class DashboardBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
+    created_by = UserBasicSerializer(read_only=True)
+    effective_privilege_level = serializers.SerializerMethodField()
+    effective_restriction_level = serializers.SerializerMethodField()
+    is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+
+    class Meta:
+        model = Dashboard
+        fields = [
+            "id",
+            "name",
+            "description",
+            "pinned",
+            "created_at",
+            "created_by",
+            "is_shared",
+            "deleted",
+            "creation_mode",
+            "tags",
+            "restriction_level",
+            "effective_restriction_level",
+            "effective_privilege_level",
+        ]
+        read_only_fields = fields
+
+    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        return self.user_permissions.dashboard(dashboard).effective_restriction_level
+
+    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+        return self.user_permissions.dashboard(dashboard).effective_privilege_level
+
+
+class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
@@ -110,11 +147,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
 
     def validate_description(self, value: str) -> str:
-        available_features = get_available_features_for_team(self.context["team_id"])
-
-        if value and AvailableFeature.DASHBOARD_COLLABORATION not in (available_features or []):
+        if value and not check_is_feature_available_for_team(
+            self.context["team_id"], AvailableFeature.DASHBOARD_COLLABORATION
+        ):
             raise PermissionDenied("You must have paid for dashboard collaboration to set the dashboard description")
-
         return value
 
     def validate_filters(self, value) -> Dict:
@@ -126,13 +162,13 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        team = Team.objects.get(id=self.context["team_id"])
+        team_id = self.context["team_id"]
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
-        dashboard = Dashboard.objects.create(team=team, **validated_data)
+        dashboard = Dashboard.objects.create(team_id=team_id, **validated_data)
 
         if use_template:
             try:
@@ -140,7 +176,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             except AttributeError as error:
                 logger.error(
                     "dashboard_create.create_from_template_failed",
-                    team_id=team.id,
+                    team_id=team_id,
                     template=use_template,
                     error=error,
                     exc_info=True,
@@ -149,7 +185,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
+                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team_id=team_id)
                 existing_tiles = (
                     DashboardTile.objects.filter(dashboard=existing_dashboard)
                     .exclude(deleted=True)
@@ -332,16 +368,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return serialized_tiles
 
-    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.user_permissions.dashboard(dashboard).effective_restriction_level
-
-    def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        if self.context.get("is_shared"):
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-        return self.user_permissions.dashboard(dashboard).effective_privilege_level
-
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
@@ -358,13 +384,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
 class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Dashboard.objects.order_by("name")
-    serializer_class = DashboardSerializer
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
         CanEditDashboard,
     ]
+
+    def get_serializer_class(self) -> Type[BaseSerializer]:
+        return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
     def get_queryset(self) -> QuerySet:
         if (
@@ -445,6 +473,18 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
             create_from_template(dashboard, dashboard_template)
+
+            report_user_action(
+                cast(User, request.user),
+                "dashboard created",
+                {
+                    **dashboard.get_analytics_metadata(),
+                    "from_template": True,
+                    "template_key": dashboard_template.template_name,
+                    "duplicated": False,
+                    "dashboard_id": dashboard.pk,
+                },
+            )
         except Exception as e:
             dashboard.delete()
             raise e

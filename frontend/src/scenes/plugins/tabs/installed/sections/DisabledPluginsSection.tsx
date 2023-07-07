@@ -41,7 +41,7 @@ export function DisabledPluginSection(): JSX.Element {
                             ))}
                         </Row>
                     ) : (
-                        <p style={{ margin: 10 }}>No apps match your search.</p>
+                        <p className="m-2.5">No apps match your search.</p>
                     )}
                 </>
             ) : null}

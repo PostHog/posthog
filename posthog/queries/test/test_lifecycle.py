@@ -4,6 +4,7 @@ from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Action, ActionStep, Filter
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
@@ -13,7 +14,6 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from posthog.utils import relative_date_parse
 
 
 def create_action(**kwargs):
@@ -26,7 +26,7 @@ def create_action(**kwargs):
 
 
 class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
-    def _create_events(self, data):
+    def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
             with freeze_time(timestamps[0]):
@@ -38,7 +38,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                     )
                 )
             for timestamp in timestamps:
-                _create_event(team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp)
+                _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp)
         return person_result
 
     def test_lifecycle_trend(self):
@@ -67,6 +67,54 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_trend_any_event(self):
+        self._create_events(
+            event="$pageview",
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ],
+        )
+        self._create_events(
+            event="$other",
+            data=[
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ],
+        )
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": None, "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
                 }
             ),
@@ -145,7 +193,6 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_lifecycle_trend_prop_filtering(self):
-
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -257,7 +304,6 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_lifecycle_trend_person_prop_filtering(self):
-
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -379,7 +425,6 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_lifecycle_trend_people(self):
-
         people = self._create_events(
             data=[
                 (
@@ -470,7 +515,6 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
     def test_lifecycle_trend_action(self):
-
         self._create_events(
             data=[
                 (
@@ -692,19 +736,19 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         Trends().get_people(
-            Filter(
+            LifecycleFilter(
                 data={
+                    "target_date": "2020-01-13T00:00:00Z",
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
                     FILTER_TEST_ACCOUNTS: True,
+                    "lifecycle_type": "dormant",
                 },
                 team=self.team,
             ),
             self.team,
-            relative_date_parse("2020-01-13T00:00:00Z"),
-            "dormant",
         )
 
     @snapshot_clickhouse_queries

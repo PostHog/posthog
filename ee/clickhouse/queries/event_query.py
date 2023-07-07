@@ -12,6 +12,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
 from posthog.models.team import Team
 from posthog.queries.event_query.event_query import EventQuery
+from posthog.utils import PersonOnEventsMode
 
 
 class EnterpriseEventQuery(EventQuery):
@@ -31,7 +32,7 @@ class EnterpriseEventQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        using_person_on_events: bool = False,
+        person_on_events_mode: PersonOnEventsMode = PersonOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -44,7 +45,7 @@ class EnterpriseEventQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
-            using_person_on_events=using_person_on_events,
+            person_on_events_mode=person_on_events_mode,
             **kwargs,
         )
 
@@ -54,5 +55,5 @@ class EnterpriseEventQuery(EventQuery):
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs groups query")
         return GroupsJoinQuery(
-            self._filter, self._team_id, self._column_optimizer, using_person_on_events=self._using_person_on_events
+            self._filter, self._team_id, self._column_optimizer, person_on_events_mode=self._person_on_events_mode
         ).get_join_query()

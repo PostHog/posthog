@@ -12,10 +12,8 @@ import {
     getFormattedDate,
 } from './insightTooltipUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconHandClick } from 'lib/lemon-ui/icons'
 import { shortTimeZone } from 'lib/utils'
-import { humanFriendlyNumber } from 'lib/utils'
 import { useValues } from 'kea'
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue } from 'scenes/insights/utils'
@@ -58,6 +56,7 @@ function renderDatumToTableCell(
         <div className="series-data-cell">
             {
                 color && (
+                    // eslint-disable-next-line react/forbid-dom-props
                     <span className="mr-2" style={{ color }}>
                         ●
                     </span>
@@ -76,25 +75,11 @@ export function InsightTooltip({
     seriesData = [],
     altTitle,
     altRightTitle,
-    renderSeries = (value: React.ReactNode, datum: SeriesDatum) => {
-        const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
-        return (
-            <div className="datum-label-column">
-                <SeriesLetter
-                    className="mr-2"
-                    hasBreakdown={hasBreakdown}
-                    seriesIndex={datum?.action?.order ?? datum.id}
-                />
-                {value}
-            </div>
-        )
-    },
-    renderCount = (value: number) => {
-        return <>{humanFriendlyNumber(value)}</>
-    },
+    renderSeries,
+    renderCount,
     hideColorCol = false,
     hideInspectActorsSection = false,
-    forceEntitiesAsColumns = false,
+    entitiesAsColumnsOverride,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
@@ -102,9 +87,9 @@ export function InsightTooltip({
 }: InsightTooltipProps): JSX.Element {
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
-    // Throw these rules out the window if `forceEntitiesAsColumns` is true
+    // Throw these rules out the window if `entitiesAsColumnsOverride` is set
     const itemizeEntitiesAsColumns =
-        forceEntitiesAsColumns ||
+        entitiesAsColumnsOverride ??
         ((seriesData?.length ?? 0) > 1 &&
             (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined))
 
@@ -112,7 +97,11 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
+        (!!date
+            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
+                  timezone ? shortTimeZone(timezone) : 'UTC'
+              })`
+            : null)
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     if (itemizeEntitiesAsColumns) {

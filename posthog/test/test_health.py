@@ -210,6 +210,12 @@ def test_readyz_accepts_role_decide_and_filters_by_relevant_services(client: Cli
     with simulate_cache_cannot_connect():
         resp = get_readyz(client=client, role="decide")
 
+    assert resp.status_code == 200, resp.content
+
+    # only when both redis and postgres are down do we fail
+    with simulate_cache_cannot_connect(), simulate_postgres_error():
+        resp = get_readyz(client=client, role="decide")
+
     assert resp.status_code == 503, resp.content
 
 

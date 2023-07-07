@@ -32,6 +32,7 @@ module.exports = {
     },
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
     rules: {
+        'no-debugger': 'error',
         'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
         'react/react-in-jsx-scope': [0],
@@ -145,6 +146,10 @@ module.exports = {
                     {
                         element: 'Badge',
                         message: 'use LemonBadge instead',
+                    },
+                    {
+                        element: 'Collapse',
+                        message: 'use <LemonCollapse> instead',
                     },
                 ],
             },

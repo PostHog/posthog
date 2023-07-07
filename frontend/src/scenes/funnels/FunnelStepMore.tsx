@@ -1,18 +1,27 @@
 import { FunnelPathType, PathType, InsightType } from '~/types'
-import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { funnelDataLogic } from './funnelDataLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
-export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Element | null {
+type FunnelStepMoreProps = {
+    stepIndex: number
+}
+
+export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { propertiesForUrl: filterProps, filters } = useValues(logic)
+    const { querySource } = useValues(funnelDataLogic(insightProps))
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const filterProps = cleanFilters(queryNodeToFilter(querySource!))
+
+    const aggregationGroupTypeIndex = querySource?.aggregation_group_type_index
 
     // Don't show paths modal if aggregating by groups - paths is user-based!
-    if (filters.aggregation_group_type_index != undefined) {
+    if (aggregationGroupTypeIndex != undefined) {
         return null
     }
 
@@ -20,6 +29,7 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
     return (
         <More
             placement="bottom-start"
+            noPadding
             overlay={
                 <>
                     {stepNumber > 1 && (

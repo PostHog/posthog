@@ -61,7 +61,7 @@ export function Library(): JSX.Element {
                         render: function RenderHedgehog(Hedgehog) {
                             Hedgehog = Hedgehog as HedgehogDefinition['hedgehog']
                             return (
-                                <div style={{ height: 200 }}>
+                                <div className="h-40">
                                     <Hedgehog className="max-h-full w-auto object-contain" />
                                 </div>
                             )

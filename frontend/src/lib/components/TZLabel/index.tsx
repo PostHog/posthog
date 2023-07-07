@@ -12,7 +12,7 @@ import clsx from 'clsx'
 import React from 'react'
 import { styles } from '../../../styles/vars'
 
-const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
+const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 
 function TZConversionHeader(): JSX.Element {
     return (

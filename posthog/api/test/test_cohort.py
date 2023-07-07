@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
 from django.utils import timezone
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -13,10 +14,17 @@ from posthog.api.test.test_exports import TestExportMixin
 from posthog.models import FeatureFlag, Person
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    QueryMatchingTest,
+)
 
 
-class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest):
+class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating(self, patch_calculate_cohort, patch_capture):
@@ -86,6 +94,34 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_list_cohorts_is_not_nplus1(self, patch_calculate_cohort, patch_capture):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        Person.objects.create(team=self.team, properties={"team_id": 5})
+        Person.objects.create(team=self.team, properties={"team_id": 6})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+            assert len(response.json()["results"]) == 1
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+            assert len(response.json()["results"]) == 2
+
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
         self.team.app_urls = ["http://somewebsite.com"]
@@ -116,6 +152,9 @@ email@example.org,
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
+        calculate_cohort_from_list(response.json()["id"], ["email@example.org", "123"])
+        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 1)
+
         csv = SimpleUploadedFile(
             "example.csv",
             str.encode(
@@ -140,6 +179,9 @@ User ID,
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+
+        calculate_cohort_from_list(response.json()["id"], ["456"])
+        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 2)
 
         # Only change name without updating CSV
         response = client.patch(
@@ -564,6 +606,72 @@ email@example.org,
             },
             response.json(),
         )
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
+
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
+        )
+
+        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
+        )
+
+        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+        self.assertEqual(new_cohort.is_static, True)
+
+        while new_cohort.is_calculating:
+            new_cohort.refresh_from_db()
+            import time
+
+            time.sleep(0.1)
+        self.assertEqual(new_cohort.name, "cohort A (static copy)")
+        self.assertEqual(new_cohort.is_calculating, False)
+        self.assertEqual(new_cohort.errors_calculating, 0)
+        self.assertEqual(new_cohort.count, 2)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):

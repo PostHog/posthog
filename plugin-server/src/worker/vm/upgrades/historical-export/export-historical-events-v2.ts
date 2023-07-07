@@ -131,6 +131,7 @@ export interface ExportParams {
     parallelism: number
     dateFrom: ISOTimestamp
     dateTo: ISOTimestamp
+    abortMessage?: string
 }
 
 interface CoordinationPayload {
@@ -249,6 +250,12 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (!params) {
             // No export running!
+            return
+        }
+
+        if (params.abortMessage) {
+            // For manually triggering the export to abort
+            await stopExport(params, `Export aborted: ${params.abortMessage}`, 'fail')
             return
         }
 
@@ -399,6 +406,14 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        if (activeExportParameters.abortMessage) {
+            // For manually triggering the export to abort
+            createLog(`Export manually aborted ${activeExportParameters.abortMessage}`, {
+                type: PluginLogEntryType.Info,
+            })
+            return
+        }
+
         if (payload.timestampCursor >= payload.endTime) {
             createLog(`Finished exporting chunk from ${dateRange(payload.startTime, payload.endTime)}`, {
                 type: PluginLogEntryType.Debug,
@@ -434,7 +449,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 eventsPerRun
             )
         } catch (error) {
-            Sentry.captureException(error)
+            Sentry.captureException(error, { tags: { team_id: pluginConfig.team_id } })
 
             await handleFetchError(error, activeExportParameters, payload)
             return

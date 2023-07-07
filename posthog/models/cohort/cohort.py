@@ -100,7 +100,7 @@ class Cohort(models.Model):
 
         if self.filters:
             # Do not try simplifying properties at this stage. We'll let this happen at query time.
-            return Filter(data={**self.filters, "is_simplified": True}, team=self.team).property_groups
+            return Filter(data={**self.filters, "is_simplified": True}).property_groups
 
         # convert deprecated groups to properties
         if self.groups:
@@ -128,9 +128,7 @@ class Cohort(models.Model):
                         group["properties"] = new_properties
 
                     # Do not try simplifying properties at this stage. We'll let this happen at query time.
-                    property_groups.append(
-                        Filter(data={**group, "is_simplified": True}, team=self.team).property_groups
-                    )
+                    property_groups.append(Filter(data={**group, "is_simplified": True}).property_groups)
                 elif group.get("action_id") or group.get("event_id"):
                     key = group.get("action_id") or group.get("event_id")
                     event_type: Literal["actions", "events"] = "actions" if group.get("action_id") else "events"
@@ -236,8 +234,9 @@ class Cohort(models.Model):
         """
         Items can be distinct_id or email
         """
+
         batchsize = 1000
-        from posthog.models.cohort.util import insert_static_cohort
+        from posthog.models.cohort.util import insert_static_cohort, get_static_cohort_size
 
         if TEST:
             from posthog.test.base import flush_persons_and_events
@@ -263,6 +262,10 @@ class Cohort(models.Model):
                     ),
                 )
                 cursor.execute(query, params)
+
+            count = get_static_cohort_size(self)
+            self.count = count
+
             self.is_calculating = False
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
@@ -277,6 +280,8 @@ class Cohort(models.Model):
 
     def insert_users_list_by_uuid(self, items: List[str]) -> None:
         batchsize = 1000
+        from posthog.models.cohort.util import get_static_cohort_size
+
         try:
             cursor = connection.cursor()
             for i in range(0, len(items), batchsize):
@@ -292,6 +297,9 @@ class Cohort(models.Model):
                     ),
                 )
                 cursor.execute(query, params)
+
+            count = get_static_cohort_size(self)
+            self.count = count
 
             self.is_calculating = False
             self.last_calculation = timezone.now()

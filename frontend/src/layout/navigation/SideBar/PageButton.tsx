@@ -28,6 +28,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
     const buttonStatus = isActive ? 'primary' : 'stealth'
+    title = title || sceneConfigurations[identifier]?.name || identifier
 
     return (
         <li>
@@ -46,7 +47,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                     data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
                     {...buttonProps}
                 >
-                    <span className="text-default">{title || sceneConfigurations[identifier].name}</span>
+                    <span className="text-default">{title}</span>
                 </LemonButtonWithSideAction>
             ) : (
                 <LemonButton
@@ -57,7 +58,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                     onClick={hideSideBarMobile}
                     {...buttonProps}
                 >
-                    <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
+                    <span className="text-default grow">{title}</span>
                     {highlight === 'beta' ? (
                         <LemonTag type="warning" className="ml-1 float-right uppercase">
                             Beta

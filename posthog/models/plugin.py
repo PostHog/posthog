@@ -109,7 +109,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
             raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
-        if not (Version(VERSION) in spec):
+        if Version(VERSION) not in spec:
             raise ValidationError(
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )

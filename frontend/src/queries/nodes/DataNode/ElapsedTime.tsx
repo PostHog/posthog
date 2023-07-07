@@ -3,12 +3,15 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { useState } from 'react'
 
 export function ElapsedTime(): JSX.Element | null {
-    const { elapsedTime, loadingStart, responseError } = useValues(dataNodeLogic)
+    const { elapsedTime, loadingStart, responseError, isShowingCachedResults } = useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
     let time = elapsedTime
+    if (isShowingCachedResults) {
+        time = 0
+    }
 
-    if (loadingStart && !elapsedTime) {
+    if (!isShowingCachedResults && loadingStart && !elapsedTime) {
         time = performance.now() - loadingStart
         window.requestAnimationFrame(() => {
             setTick((tick) => tick + 1)

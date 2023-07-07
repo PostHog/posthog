@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from rest_framework.status import (
     HTTP_200_OK,
     HTTP_204_NO_CONTENT,
@@ -48,8 +46,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     def test_create_demo_project(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -67,8 +63,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     def test_create_two_demo_projects(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -437,8 +431,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         Team.objects.create(organization=self.organization, name="Other", access_control=True)
 
         # The other team should not be returned as it's restricted for the logged-in user
-        with self.assertNumQueries(7):
-            projects_response = self.client.get(f"/api/projects/")
+        projects_response = self.client.get(f"/api/projects/")
 
         # 9 (above) + 2 below:
         # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...

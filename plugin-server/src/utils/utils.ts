@@ -1,6 +1,7 @@
-import Piscina from '@posthog/piscina'
+import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
@@ -13,6 +14,7 @@ import {
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
+    RedisPool,
     TimestampFormat,
 } from '../types'
 import { Hub } from './../types'
@@ -215,7 +217,10 @@ export class UUIDT extends UUID {
     }
 }
 
-/** Format timestamp for ClickHouse. */
+/* Format timestamps.
+Allowed timestamp formats support ISO and ClickHouse formats according to
+`timestampFormat`. This distinction is relevant because ClickHouse does NOT
+ necessarily accept all possible ISO timestamps. */
 export function castTimestampOrNow(
     timestamp?: DateTime | string | null,
     timestampFormat?: TimestampFormat.ISO
@@ -283,6 +288,12 @@ export function clickHouseTimestampToISO(timestamp: ClickHouseTimestamp): ISOTim
     return clickHouseTimestampToDateTime(timestamp).toISO() as ISOTimestamp
 }
 
+export function clickHouseTimestampSecondPrecisionToISO(timestamp: ClickHouseTimestamp): ISOTimestamp {
+    return DateTime.fromFormat(timestamp, DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION, {
+        zone: 'UTC',
+    }).toISO() as ISOTimestamp
+}
+
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
@@ -328,7 +339,6 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         return await callback()
     }
 }
-
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
     const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
         ? {
@@ -360,6 +370,22 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
         })
     await redis.info()
     return redis
+}
+
+export function createRedisPool(serverConfig: PluginsServerConfig): RedisPool {
+    return createPool<Redis.Redis>(
+        {
+            create: () => createRedis(serverConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            min: serverConfig.REDIS_POOL_MIN_SIZE,
+            max: serverConfig.REDIS_POOL_MAX_SIZE,
+            autostart: true,
+        }
+    )
 }
 
 export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
@@ -399,34 +425,6 @@ export function createPostgresPool(connectionString: string, onError?: (error: E
     pgPool.on('error', handleError)
 
     return pgPool
-}
-
-export function getPiscinaStats(piscina: Piscina): Record<string, number> {
-    return {
-        utilization: (piscina.utilization || 0) * 100,
-        threads: piscina.threads.length,
-        queue_size: piscina.queueSize,
-        'waitTime.average': piscina.waitTime.average,
-        'waitTime.mean': piscina.waitTime.mean,
-        'waitTime.stddev': piscina.waitTime.stddev,
-        'waitTime.min': piscina.waitTime.min,
-        'waitTime.p99_99': piscina.waitTime.p99_99,
-        'waitTime.p99': piscina.waitTime.p99,
-        'waitTime.p95': piscina.waitTime.p95,
-        'waitTime.p90': piscina.waitTime.p90,
-        'waitTime.p75': piscina.waitTime.p75,
-        'waitTime.p50': piscina.waitTime.p50,
-        'runTime.average': piscina.runTime.average,
-        'runTime.mean': piscina.runTime.mean,
-        'runTime.stddev': piscina.runTime.stddev,
-        'runTime.min': piscina.runTime.min,
-        'runTime.p99_99': piscina.runTime.p99_99,
-        'runTime.p99': piscina.runTime.p99,
-        'runTime.p95': piscina.runTime.p95,
-        'runTime.p90': piscina.runTime.p90,
-        'runTime.p75': piscina.runTime.p75,
-        'runTime.p50': piscina.runTime.p50,
-    }
 }
 
 export function pluginConfigIdFromStack(
@@ -600,4 +598,19 @@ export function stalenessCheck(hub: Hub | undefined, stalenessSeconds: number): 
         lastActivity: hub?.lastActivity ? new Date(hub.lastActivity).toISOString() : null,
         lastActivityType: hub?.lastActivityType,
     }
+}
+
+/** Get a value from a properties object by its path. This allows accessing nested properties. */
+export function getPropertyValueByPath(properties: Properties, [firstKey, ...nestedKeys]: string[]): any {
+    if (firstKey === undefined) {
+        throw new Error('No path to property was provided')
+    }
+    let value = properties[firstKey]
+    for (const key of nestedKeys) {
+        if (value === undefined) {
+            return undefined
+        }
+        value = value[key]
+    }
+    return value
 }

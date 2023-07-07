@@ -1,7 +1,7 @@
 import './TextCard.scss'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import clsx from 'clsx'
-import { DashboardTile, DashboardType } from '~/types'
+import { DashboardBasicType, DashboardTile } from '~/types'
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -17,7 +17,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     children?: JSX.Element
     removeFromDashboard?: () => void
     duplicate?: () => void
-    moveToDashboard?: (dashboard: DashboardType) => void
+    moveToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     /** Whether the editing controls should be enabled or not. */

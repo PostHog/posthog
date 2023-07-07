@@ -20,6 +20,7 @@ from posthog.models.cohort.sql import (
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_STATIC_COHORT_SIZE_SQL,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
     STALE_COHORTPEOPLE,
@@ -42,7 +43,7 @@ logger = structlog.get_logger(__name__)
 
 def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
-        return format_static_cohort_query(cohort.pk, index, prepend="")
+        return format_static_cohort_query(cohort, index, prepend="")
 
     if not cohort.properties.values:
         # No person can match an empty cohort
@@ -61,16 +62,17 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     return query, params
 
 
-def format_static_cohort_query(cohort_id: int, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
+def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
+    cohort_id = cohort.pk
     return (
         f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
 
-def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
+def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort_id})
+    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort.pk, f"{prepend}_version_{index}": cohort.version})
 
 
 def get_count_operator(count_operator: Optional[str]) -> str:
@@ -179,7 +181,7 @@ def format_cohort_subquery(
 ) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
-        query, params = format_precalculated_cohort_query(cohort.pk, index)
+        query, params = format_precalculated_cohort_query(cohort, index)
     else:
         query, params = format_person_query(cohort, index, hogql_context)
 
@@ -209,6 +211,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
         ),
         {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
         query_type="get_person_ids_by_cohort_id",
+        team_id=team.pk,
     )
 
     return [str(row[0]) for row in results]
@@ -228,12 +231,27 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
+def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
+    count_result = sync_execute(
+        GET_STATIC_COHORT_SIZE_SQL,
+        {
+            "cohort_id": cohort.pk,
+            "team_id": cohort.team_id,
+        },
+    )
+
+    if count_result and len(count_result) and len(count_result[0]):
+        return count_result[0][0]
+    else:
+        return None
+
+
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    hogql_context = HogQLContext(within_non_hogql_query=True)
+    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
-    before_count = get_cohort_size(cohort.pk, cohort.team_id)
+    before_count = get_cohort_size(cohort)
 
     if before_count:
         logger.info(
@@ -254,7 +272,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         settings={"optimize_on_insert": 0},
     )
 
-    count = get_cohort_size(cohort.pk, cohort.team_id)
+    count = get_cohort_size(cohort, override_version=pending_version)
 
     if count is not None and before_count is not None:
         logger.info(
@@ -285,8 +303,15 @@ def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
                 )
 
 
-def get_cohort_size(cohort_id: int, team_id: int) -> Optional[int]:
-    count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort_id, "team_id": team_id})
+def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None) -> Optional[int]:
+    count_result = sync_execute(
+        GET_COHORT_SIZE_SQL,
+        {
+            "cohort_id": cohort.pk,
+            "version": override_version if override_version is not None else cohort.version,
+            "team_id": cohort.team_id,
+        },
+    )
 
     if count_result and len(count_result) and len(count_result[0]):
         return count_result[0][0]
@@ -362,3 +387,24 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
     static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
+
+
+def get_dependent_cohorts(cohort: Cohort) -> List[Cohort]:
+    cohorts = []
+    seen_cohort_ids = set()
+    seen_cohort_ids.add(cohort.id)
+
+    queue = [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+
+    while queue:
+        cohort_id = queue.pop()
+        try:
+            cohort = Cohort.objects.get(pk=cohort_id)
+            if cohort.id not in seen_cohort_ids:
+                cohorts.append(cohort)
+                seen_cohort_ids.add(cohort.id)
+                queue += [prop.value for prop in cohort.properties.flat if prop.type == "cohort"]
+        except Cohort.DoesNotExist:
+            continue
+
+    return cohorts

@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { expectLogic, partial } from 'kea-test-utils'
-import { PropertyDefinition, PropertyDefinitionState, PropertyType } from '~/types'
+import { PropertyDefinition, PropertyDefinitionState, PropertyDefinitionType, PropertyType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 
@@ -12,6 +12,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         description: 'a description',
         volume_30_day: null,
         query_usage_30_day: null,
+        type: PropertyDefinitionType.Event,
     },
     {
         id: 'an id',
@@ -20,6 +21,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.String,
+        type: PropertyDefinitionType.Event,
     },
     {
         id: 'an id',
@@ -28,6 +30,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
+        type: PropertyDefinitionType.Event,
     },
     {
         id: 'an id',
@@ -36,6 +39,7 @@ const propertyDefinitions: PropertyDefinition[] = [
         volume_30_day: null,
         query_usage_30_day: null,
         property_type: PropertyType.DateTime,
+        type: PropertyDefinitionType.Event,
     },
 ]
 
@@ -76,98 +80,104 @@ describe('the property definitions model', () => {
     describe('loading properties', () => {
         it('can load property definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['a string'])
+                logic.actions.loadPropertyDefinitions(['a string'], PropertyDefinitionType.Event)
             })
                 .toDispatchActions([
-                    logic.actionCreators.updatePropertyDefinitions({ 'a string': PropertyDefinitionState.Pending }),
-                    logic.actionCreators.fetchAllPendingDefinitions(),
-                    logic.actionCreators.updatePropertyDefinitions({ 'a string': PropertyDefinitionState.Loading }),
                     logic.actionCreators.updatePropertyDefinitions({
-                        'a string': propertyDefinitions.find(({ name }) => name === 'a string') as PropertyDefinition,
+                        'event/a string': PropertyDefinitionState.Pending,
+                    }),
+                    logic.actionCreators.fetchAllPendingDefinitions(),
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'event/a string': PropertyDefinitionState.Loading,
+                    }),
+                    logic.actionCreators.updatePropertyDefinitions({
+                        'event/a string': propertyDefinitions.find(
+                            ({ name }) => name === 'a string'
+                        ) as PropertyDefinition,
                     }),
                 ])
                 .toMatchValues({
                     propertyDefinitionStorage: partial({
-                        'a string': propertyDefinitions.find(({ name }) => name === 'a string'),
+                        'event/a string': propertyDefinitions.find(({ name }) => name === 'a string'),
                     }),
-                    propertyDefinitions: [
-                        {
-                            description: 'Duration of the session',
-                            id: '$session_duration',
-                            is_seen_on_filtered_events: false,
-                            is_numerical: true,
-                            name: '$session_duration',
-                            property_type: 'Duration',
-                        },
-                        propertyDefinitions.find(({ name }) => name === 'a string'),
-                    ],
                 })
+            expect(logic.values.propertyDefinitionsByType('event')).toEqual([
+                {
+                    description: 'Duration of the session',
+                    id: '$session_duration',
+                    is_seen_on_filtered_events: false,
+                    is_numerical: true,
+                    name: '$session_duration',
+                    property_type: 'Duration',
+                },
+                propertyDefinitions.find(({ name }) => name === 'a string'),
+            ])
         })
 
         it('handles network errors', async () => {
             // run twice to assure errors get retried
             for (let i = 0; i < 2; i++) {
                 await expectLogic(logic, () => {
-                    logic.actions.loadPropertyDefinitions(['network error'])
+                    logic.actions.loadPropertyDefinitions(['network error'], PropertyDefinitionType.Event)
                 })
                     .toDispatchActions([
                         logic.actionCreators.updatePropertyDefinitions({
-                            'network error': PropertyDefinitionState.Pending,
+                            'event/network error': PropertyDefinitionState.Pending,
                         }),
                         logic.actionCreators.fetchAllPendingDefinitions(),
                         logic.actionCreators.updatePropertyDefinitions({
-                            'network error': PropertyDefinitionState.Error,
+                            'event/network error': PropertyDefinitionState.Error,
                         }),
                     ])
                     .toMatchValues({
-                        propertyDefinitionStorage: partial({ 'network error': PropertyDefinitionState.Error }),
+                        propertyDefinitionStorage: partial({ 'event/network error': PropertyDefinitionState.Error }),
                     })
             }
         })
 
         it('handles missing definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['this is not there'])
+                logic.actions.loadPropertyDefinitions(['this is not there'], PropertyDefinitionType.Event)
             })
                 .toDispatchActions([
                     logic.actionCreators.updatePropertyDefinitions({
-                        'this is not there': PropertyDefinitionState.Pending,
+                        'event/this is not there': PropertyDefinitionState.Pending,
                     }),
                     logic.actionCreators.fetchAllPendingDefinitions(),
                     logic.actionCreators.updatePropertyDefinitions({
-                        'this is not there': PropertyDefinitionState.Missing,
+                        'event/this is not there': PropertyDefinitionState.Missing,
                     }),
                 ])
                 .toMatchValues({
-                    propertyDefinitionStorage: partial({ 'this is not there': PropertyDefinitionState.Missing }),
+                    propertyDefinitionStorage: partial({ 'event/this is not there': PropertyDefinitionState.Missing }),
                 })
         })
 
         it('handles local definitions', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadPropertyDefinitions(['$session_duration'])
+                logic.actions.loadPropertyDefinitions(['$session_duration'], PropertyDefinitionType.Event)
             })
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['updatePropertyDefinitions'])
                 .toMatchValues({
-                    propertyDefinitionStorage: { $session_duration: partial({ name: '$session_duration' }) },
+                    propertyDefinitionStorage: { 'event/$session_duration': partial({ name: '$session_duration' }) },
                 })
         })
     })
 
     describe('lazy loading', () => {
         it('lazy loads a property with getPropertyDefinition()', async () => {
-            expect(logic.values.getPropertyDefinition('$time')).toEqual(null)
+            expect(logic.values.getPropertyDefinition('$time', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.getPropertyDefinition('$time')).toEqual(
+            expect(logic.values.getPropertyDefinition('$time', PropertyDefinitionType.Event)).toEqual(
                 partial({ name: '$time', property_type: 'DateTime' })
             )
         })
 
         it('lazy loads a property with describeProperty()', async () => {
-            expect(logic.values.describeProperty('$time')).toEqual(null)
+            expect(logic.values.describeProperty('$time', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.describeProperty('$time')).toEqual('DateTime')
+            expect(logic.values.describeProperty('$time', PropertyDefinitionType.Event)).toEqual('DateTime')
         })
 
         it('lazy loads a property with formatPropertyValueForDisplay()', async () => {
@@ -177,7 +187,7 @@ describe('the property definitions model', () => {
         })
 
         it('does not refetch missing properties', async () => {
-            expect(logic.values.describeProperty('not a prop')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
@@ -188,15 +198,35 @@ describe('the property definitions model', () => {
                     'updatePropertyDefinitions',
                 ])
                 .toMatchValues({
-                    propertyDefinitionStorage: partial({ 'not a prop': PropertyDefinitionState.Missing }),
+                    propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
                 })
-            expect(logic.values.describeProperty('not a prop')).toEqual(null)
+            expect(logic.values.describeProperty('not a prop', PropertyDefinitionType.Event)).toEqual(null)
             await expectLogic(logic)
                 .delay(15)
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['loadPropertyDefinitions'])
                 .toMatchValues({
-                    propertyDefinitionStorage: partial({ 'not a prop': PropertyDefinitionState.Missing }),
+                    propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
+                })
+        })
+
+        it('works with different types', async () => {
+            expect(logic.values.describeProperty('not a prop', PropertyDefinitionType.Event)).toEqual(null)
+            await expectLogic(logic)
+                .delay(15)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({ 'event/not a prop': PropertyDefinitionState.Missing }),
+                })
+            expect(logic.values.describeProperty('$time', PropertyDefinitionType.Person)).toEqual(null)
+            await expectLogic(logic)
+                .delay(15)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    propertyDefinitionStorage: partial({
+                        'event/not a prop': PropertyDefinitionState.Missing,
+                        'person/$time': partial({ name: '$time', property_type: 'DateTime' }),
+                    }),
                 })
         })
     })
@@ -204,22 +234,25 @@ describe('the property definitions model', () => {
     describe('formatting properties', () => {
         beforeEach(async () => {
             await expectLogic(() => {
-                logic.actions.loadPropertyDefinitions(['a string', '$timestamp', 'no property type'])
+                logic.actions.loadPropertyDefinitions(
+                    ['a string', '$timestamp', 'no property type'],
+                    PropertyDefinitionType.Event
+                )
             }).toFinishAllListeners()
         })
 
         describe('formatting simple properties', () => {
             it('does not describe a property that has no server provided type', () => {
-                expect(logic.values.describeProperty('no property type')).toBeNull()
+                expect(logic.values.describeProperty('no property type', PropertyDefinitionType.Event)).toBeNull()
             })
 
             it('does not describe a property that has not yet been cached', () => {
-                expect(logic.values.describeProperty('not yet cached')).toBeNull()
+                expect(logic.values.describeProperty('not yet cached', PropertyDefinitionType.Event)).toBeNull()
             })
 
             it('does describe a property that has a server provided type', () => {
-                expect(logic.values.describeProperty('a string')).toEqual('String')
-                expect(logic.values.describeProperty('$timestamp')).toEqual('DateTime')
+                expect(logic.values.describeProperty('a string', PropertyDefinitionType.Event)).toEqual('String')
+                expect(logic.values.describeProperty('$timestamp', PropertyDefinitionType.Event)).toEqual('DateTime')
             })
 
             it('can format a property with no formatting needs for display', () => {

@@ -28,13 +28,26 @@ RUN apt-get update \
     && apt-get -y install --no-install-recommends \
     # Add in useful db debugging tools
     "postgresql-client=13+*" \
+    # needed for posthog to run
+    netcat brotli curl \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && sudo apt update \
+    && sudo apt install gh -y
 
 # Install node via NVM (https://github.com/nvm-sh/nvm)
 ARG NODE_VERSION="18"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
-RUN curl -fsSL https://get.pnpm.io/install.sh | sh -
+# install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
+# so `RUN curl -fsSL https://get.pnpm.io/install.sh | sh -` fails
+# see https://github.com/pnpm/pnpm/issues/4495
+RUN npm install --global pnpm \
+    && SHELL=bash pnpm setup \
+    && source /root/.bashrc
 
 WORKDIR /workspace
 

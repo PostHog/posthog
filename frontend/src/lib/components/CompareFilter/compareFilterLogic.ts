@@ -6,19 +6,19 @@ import { isStickinessFilter, keyForInsightLogicProps } from 'scenes/insights/sha
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { StickinessFilter, TrendsFilter } from '~/queries/schema'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { filterForQuery } from '~/queries/utils'
+import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'CompareFilter', 'compareFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateInsightFilter']],
+        actions: [insightLogic(props), ['setFilters'], insightVizDataLogic(props), ['updateInsightFilter']],
         values: [
             insightLogic(props),
             ['filters as inflightFilters', 'canEditInsight'],
-            insightDataLogic(props),
+            insightVizDataLogic(props),
             ['querySource'],
         ],
     }),
@@ -57,10 +57,13 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
                 actions.setFilters(newFilters)
             }
 
-            const currentCompare = (filterForQuery(values.querySource) as TrendsFilter | StickinessFilter | undefined)
-                ?.compare
-            if (currentCompare !== compare) {
-                actions.updateInsightFilter({ compare })
+            if (isInsightQueryNode(values.querySource)) {
+                const currentCompare = (
+                    filterForQuery(values.querySource) as TrendsFilter | StickinessFilter | undefined
+                )?.compare
+                if (currentCompare !== compare) {
+                    actions.updateInsightFilter({ compare })
+                }
             }
         },
         toggleCompare: () => {

@@ -35,9 +35,7 @@ class AvailableFeature(str, Enum):
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
-SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
 SESSION_RECORDINGS_FILTER_IDS = "session_ids"
-SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -98,6 +96,7 @@ SCREEN_EVENT = "$screen"
 AUTOCAPTURE_EVENT = "$autocapture"
 PAGEVIEW_EVENT = "$pageview"
 CUSTOM_EVENT = "custom_event"
+HOGQL = "hogql"
 
 
 DATE_FROM = "date_from"
@@ -154,6 +153,7 @@ FUNNEL_STEP = "funnel_step"
 FUNNEL_CUSTOM_STEPS = "funnel_custom_steps"
 FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_LAYOUT = "layout"
+FUNNEL_AGGREAGTE_BY_HOGQL = "funnel_aggregate_by_hogql"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
@@ -174,6 +174,7 @@ BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
 FUNNEL_PATHS = "funnel_paths"
+PATHS_HOGQL_EXPRESSION = "paths_hogql_expression"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
 PATHS_INCLUDE_CUSTOM_EVENTS = "include_custom_events"
 PATHS_EXCLUDE_EVENTS = "exclude_events"
@@ -279,3 +280,8 @@ class EventDefinitionType(str, Enum):
     EVENT = "event"
     EVENT_POSTHOG = "event_posthog"
     EVENT_CUSTOM = "event_custom"
+
+
+class FlagRequestType(str, Enum):
+    DECIDE = "decide"
+    LOCAL_EVALUATION = "local-evaluation"

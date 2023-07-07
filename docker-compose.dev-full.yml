@@ -71,17 +71,72 @@ services:
             file: docker-compose.base.yml
             service: worker
         build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
+            - PLUGIN_SERVER_IDLE=1
 
     web:
         extends:
             file: docker-compose.base.yml
             service: web
         ports:
-            - '8080:8080'
+            - 8000:8000
         build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
 
     plugins:
         extends:
             file: docker-compose.base.yml
             service: plugins
         build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
+            - DOCKER=1
+
+    migrate:
+        extends:
+            file: docker-compose.base.yml
+            service: migrate
+        build: .
+        volumes:
+            - .:/app/posthog
+        environment:
+            - DEBUG=1
+
+    # Temporal containers
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch
+        expose:
+            - 9200
+    temporal:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal
+        ports:
+            - 7233:7233
+    temporal-admin-tools:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-admin-tools
+    temporal-ui:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-ui
+        ports:
+            - 8081:8080
+    temporal-django-worker:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-django-worker
+        build: .
+        volumes:
+            - .:/app/posthog

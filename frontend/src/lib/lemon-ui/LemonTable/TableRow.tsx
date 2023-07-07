@@ -36,6 +36,14 @@ function TableRowRaw<T extends Record<string, any>>({
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record, recordIndex)
 
+    const expandedRowClassNameDetermined =
+        expandable &&
+        isRowExpanded &&
+        expandable.expandedRowClassName &&
+        (typeof expandable.expandedRowClassName === 'function'
+            ? expandable.expandedRowClassName(record, recordIndex)
+            : expandable.expandedRowClassName)
+
     return (
         <>
             <tr
@@ -49,6 +57,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 {rowRibbonColorDetermined !== undefined && (
                     <td
                         className="LemonTable__ribbon"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: rowRibbonColorDetermined || 'transparent' }}
                     />
                 )}
@@ -102,7 +111,7 @@ function TableRowRaw<T extends Record<string, any>>({
             </tr>
 
             {expandable && !!rowExpandable && isRowExpanded && (
-                <tr className="LemonTable__expansion">
+                <tr className={clsx('LemonTable__expansion', expandedRowClassNameDetermined)}>
                     {!expandable.noIndent && <td />}
                     <td
                         colSpan={

@@ -7,7 +7,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function VerificationPanel(): JSX.Element {
@@ -32,7 +31,6 @@ export function VerificationPanel(): JSX.Element {
                         Once you have integrated the snippet and sent an event, we will verify it was properly received
                         and continue.
                     </p>
-                    <EventBufferNotice className="mb-4" />
                     <IngestionInviteMembersButton />
                     <LemonButton
                         fullWidth

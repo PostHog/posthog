@@ -1,9 +1,12 @@
+import uuid
 from datetime import datetime
 from unittest.case import skip
 
+from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
+from posthog.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort import Cohort
@@ -18,6 +21,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
 from posthog.test.test_journeys import journeys_for
@@ -52,6 +56,12 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         def _signup_event(self, **kwargs):
             event_factory(team=self.team, event="user signed up", **kwargs)
+
+        def _add_to_cart_event(self, **kwargs):
+            event_factory(team=self.team, event="added to cart", **kwargs)
+
+        def _checkout_event(self, **kwargs):
+            event_factory(team=self.team, event="checked out", **kwargs)
 
         def _pay_event(self, **kwargs):
             event_factory(
@@ -105,7 +115,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 filters.update({"properties": properties})
 
             filters["insight"] = INSIGHT_FUNNELS
-            filter = Filter(data=filters)
+            filter = Filter(data=filters, team=self.team)
             return Funnel(filter=filter, team=self.team)
 
         def test_funnel_default(self):
@@ -169,6 +179,68 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[2]["name"], "watched movie")
             self.assertEqual(result[2]["count"], 1)
 
+        @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+        @snapshot_clickhouse_queries
+        def test_funnel_events_with_person_on_events_v2(self):
+            # KLUDGE: We need to do this to ensure create_person_id_override_by_distinct_id
+            # works correctly. Worth considering other approaches as we generally like to
+            # avoid truncating tables in tests for speed.
+            sync_execute("TRUNCATE TABLE sharded_events")
+            with freeze_time("2012-01-01T03:21:34.000Z"):
+                funnel = self._basic_funnel()
+
+            with freeze_time("2012-01-01T03:21:35.000Z"):
+                # events
+                stopped_after_signup_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
+                self._signup_event(distinct_id="stopped_after_signup", person_id=stopped_after_signup_person_id)
+
+            with freeze_time("2012-01-01T03:21:36.000Z"):
+                stopped_after_pay_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
+                self._signup_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+            with freeze_time("2012-01-01T03:21:37.000Z"):
+                self._pay_event(distinct_id="stopped_after_pay", person_id=stopped_after_pay_person_id)
+
+            with freeze_time("2012-01-01T03:21:38.000Z"):
+                had_anonymous_id_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
+                self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:39.000Z"):
+                self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
+            with freeze_time("2012-01-01T03:21:40.000Z"):
+                self._movie_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
+
+            with freeze_time("2012-01-01T03:21:41.000Z"):
+                just_did_movie_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
+                self._movie_event(distinct_id="just_did_movie", person_id=just_did_movie_person_id)
+
+            with freeze_time("2012-01-01T03:21:42.000Z"):
+                wrong_order_person_id = uuid.uuid4()
+                person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+                self._pay_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:43.000Z"):
+                self._signup_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+            with freeze_time("2012-01-01T03:21:44.000Z"):
+                self._movie_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
+
+            with freeze_time("2012-01-01T03:21:45.000Z"):
+                create_person_id_override_by_distinct_id("stopped_after_signup", "stopped_after_pay", self.team.pk)
+
+            with freeze_time("2012-01-01T03:21:46.000Z"):
+                result = funnel.run()
+                self.assertEqual(result[0]["name"], "user signed up")
+
+                # key difference between this test and test_funnel_events.
+                # we merged two people and thus the count here is 3 and not 4
+                self.assertEqual(result[0]["count"], 3)
+
+                self.assertEqual(result[1]["name"], "paid")
+                self.assertEqual(result[1]["count"], 2)
+                self.assertEqual(result[2]["name"], "watched movie")
+                self.assertEqual(result[2]["count"], 1)
+
         def test_funnel_with_messed_up_order(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
             ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
@@ -206,6 +278,48 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertEqual(result[1]["name"], "watched movie")
             self.assertEqual(result[1]["count"], 1)
+
+        def test_funnel_with_any_event(self):
+            funnel = self._basic_funnel(
+                filters={
+                    "events": [
+                        {"id": None, "type": "events", "order": 0},
+                        {"id": None, "type": "events", "order": 1},
+                        {"id": None, "type": "events", "order": 2},
+                    ],
+                    "funnel_window_days": 14,
+                }
+            )
+
+            # events
+            person_factory(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_signup")
+
+            person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
+            self._signup_event(distinct_id="stopped_after_pay")
+            self._movie_event(distinct_id="stopped_after_pay")
+
+            person_factory(distinct_ids=["completed_movie"], team_id=self.team.pk)
+            self._signup_event(distinct_id="completed_movie")
+            self._movie_event(distinct_id="completed_movie")
+
+            person_factory(distinct_ids=["just_did_movie"], team_id=self.team.pk)
+            self._movie_event(distinct_id="just_did_movie")
+
+            person_factory(distinct_ids=["wrong_order"], team_id=self.team.pk)
+            self._movie_event(distinct_id="wrong_order")
+            self._signup_event(distinct_id="wrong_order")
+            self._movie_event(distinct_id="wrong_order")
+
+            result = funnel.run()
+            self.assertEqual(result[0]["name"], None)
+            self.assertEqual(result[0]["count"], 5)
+
+            self.assertEqual(result[1]["name"], None)
+            self.assertEqual(result[1]["count"], 3)
+
+            self.assertEqual(result[2]["name"], None)
+            self.assertEqual(result[2]["count"], 1)
 
         def test_funnel_with_new_entities_that_mess_up_order(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
@@ -2355,6 +2469,96 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 4)
 
             self.assertEqual(result[1]["name"], "watched movie")
+            self.assertEqual(result[1]["count"], 1)
+
+        def test_hogql_aggregation(self):
+            # first person
+            person_factory(
+                distinct_ids=["user"],
+                team_id=self.team.pk,
+                properties={"email": "lembitu@posthog.com", "common_prop": "yes"},
+            )
+            self._signup_event(distinct_id="user", properties={"$session_id": "1"})
+            self._add_to_cart_event(distinct_id="user", properties={"$session_id": "1"})
+            self._checkout_event(distinct_id="user", properties={"$session_id": "1"})
+
+            self._signup_event(distinct_id="user", properties={"$session_id": "2"})
+            self._add_to_cart_event(distinct_id="user", properties={"$session_id": "2"})
+
+            # second person
+            person_factory(
+                distinct_ids=["second"],
+                team_id=self.team.pk,
+                properties={"email": "toomas@posthog.com", "common_prop": "yes"},
+            )
+            self._signup_event(distinct_id="second", properties={"$session_id": "3"})
+
+            basic_filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "added to cart", "type": "events", "order": 0},
+                    {"id": "checked out", "type": "events", "order": 0},
+                ],
+                "funnel_window_days": 14,
+            }
+
+            # without hogql aggregation
+            result = self._basic_funnel(filters=basic_filters).run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
+            # properties.$session_id
+            result = self._basic_funnel(
+                filters={**basic_filters, "funnel_aggregate_by_hogql": "properties.$session_id"}
+            ).run()
+            self.assertEqual(result[0]["count"], 3)
+            self.assertEqual(result[1]["count"], 2)
+            self.assertEqual(result[2]["count"], 1)
+
+            # distinct_id
+            result = self._basic_funnel(filters={**basic_filters, "funnel_aggregate_by_hogql": "distinct_id"}).run()
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
+            # person_id
+            result = self._basic_funnel(filters={**basic_filters, "funnel_aggregate_by_hogql": "person_id"}).run()
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(result[2]["count"], 1)
+
+            # # person.properties.common_prop - not supported!
+            # result = self._basic_funnel(
+            #     filters={**basic_filters, "funnel_aggregate_by_hogql": "person.properties.common_prop"}
+            # ).run()
+            # self.assertEqual(result[0]["count"], 1)
+            # self.assertEqual(result[1]["count"], 1)
+            # self.assertEqual(result[2]["count"], 1)
+
+        def test_funnel_all_events_with_properties(self):
+            person_factory(distinct_ids=["user"], team_id=self.team.pk)
+            self._signup_event(distinct_id="user")
+            self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
+
+            filters = {
+                "events": [
+                    {"type": "events", "id": "user signed up", "order": 0, "name": "user signed up", "math": "total"},
+                    {
+                        "type": "events",
+                        "id": None,
+                        "order": 1,
+                        "name": "All events",
+                        "math": "total",
+                        "properties": [{"key": "is_saved", "value": ["true"], "operator": "exact", "type": "event"}],
+                    },
+                ],
+                "funnel_window_days": 14,
+            }
+
+            result = self._basic_funnel(filters=filters).run()
+            self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
 
     return TestGetFunnel

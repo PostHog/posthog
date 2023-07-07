@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { Breadcrumb, MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
@@ -7,7 +7,6 @@ import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 export enum WebPerformancePage {
@@ -200,7 +199,7 @@ function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPe
     let maxTime = 0
     const pointsInTime: PointInTimeMarker[] = []
     const resourceTimings: ResourceTiming[] = []
-    let timestamp: string | null = null
+    let timestamp: number | string | null = null
 
     pageviewEvents?.forEach((performanceEvent) => {
         if (performanceEvent.entry_type === 'navigation') {
@@ -402,12 +401,4 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        const featureDataExploration = values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
-        if (featureDataExploration) {
-            // data exploration manages the data loading
-            return
-        }
-        actions.loadRecentPageViews()
-    }),
 ])

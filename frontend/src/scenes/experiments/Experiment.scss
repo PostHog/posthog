@@ -16,7 +16,6 @@
 
     .insights-graph-container {
         margin-bottom: 1rem;
-        background-color: #fff;
 
         .ant-card-head {
             border-bottom: 1px solid var(--border);
@@ -117,7 +116,7 @@
             display: flex;
             align-items: center;
             padding: 0.5rem 0.5rem;
-            background: #ffffff;
+            background: var(--bg-light);
             border-width: 1px;
             border-color: var(--border);
             border-top-style: solid;
@@ -219,6 +218,7 @@
         padding: 0.5rem;
         width: 100%;
         background: #f6ebf8;
+        color: var(--bg-charcoal);
         border-radius: 4px;
         margin-bottom: 1rem;
     }
@@ -260,6 +260,12 @@
     }
 }
 
+.view-experiment {
+    .computation-time-and-sampling-notice {
+        margin-top: 8px;
+    }
+}
+
 .preview-conversion-goal-num {
     height: 24px;
     width: 24px;
@@ -291,7 +297,6 @@
 
 .experiment-implementation-details,
 .experiment-workflow {
-    border-color: var(--dark-grey);
     .ant-card-head {
         padding-left: 1rem;
         padding-right: 1rem;

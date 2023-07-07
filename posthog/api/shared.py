@@ -36,6 +36,23 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "timezone",
             "access_control",
         )
+        read_only_fields = fields
+
+
+class TeamPublicSerializer(serializers.ModelSerializer):
+    """
+    Serializer for `Team` model with attributes suitable for completely public sharing (primarily shared dashboards).
+    """
+
+    class Meta:
+        model = Team
+        fields = (
+            "id",
+            "uuid",
+            "name",
+            "timezone",
+        )
+        read_only_fields = fields
 
 
 class OrganizationBasicSerializer(serializers.ModelSerializer):

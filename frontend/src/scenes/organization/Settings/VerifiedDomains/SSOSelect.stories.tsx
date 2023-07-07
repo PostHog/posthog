@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 import { SSOSelect } from './SSOSelect'
-import { SSOProviders } from '~/types'
+import { SSOProvider } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJSON from '~/mocks/fixtures/_preflight.json'
 
@@ -11,7 +11,7 @@ export default {
 } as ComponentMeta<typeof SSOSelect>
 
 const Template: ComponentStory<typeof SSOSelect> = (args) => {
-    const [value, setValue] = useState('google-oauth2' as SSOProviders | '')
+    const [value, setValue] = useState('google-oauth2' as SSOProvider | '')
     useStorybookMocks({
         get: {
             '/_preflight': (_, __, ctx) => [

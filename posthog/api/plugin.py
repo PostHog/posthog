@@ -19,7 +19,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Plugin, PluginAttachment, PluginConfig, Team, User
+from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
@@ -236,9 +236,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return plugin
 
     def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
-        context_organization = self.context.get("organization") or Organization.objects.get(
-            id=self.context["organization_id"]
-        )
+        context_organization = self.context["get_organization"]()
         if (
             "is_global" in validated_data
             and context_organization.plugins_access_level < Organization.PluginsAccessLevel.ROOT
@@ -282,7 +280,15 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def filter_queryset_by_parents_lookups(self, queryset):
         try:
-            return queryset.filter(Q(**self.parents_query_dict) | Q(is_global=True))
+            return queryset.filter(
+                Q(**self.parents_query_dict)
+                | Q(is_global=True)
+                | Q(
+                    id__in=PluginConfig.objects.filter(
+                        team__organization_id=self.organization_id, enabled=True
+                    ).values_list("plugin_id", flat=True)
+                )
+            )
         except ValueError:
             raise NotFound()
 
@@ -365,7 +371,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def upgrade(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="upgrading")
-        serializer = PluginSerializer(plugin, context={"organization": self.organization})
+        serializer = PluginSerializer(plugin, context=self.get_serializer_context())
         if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
             validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
@@ -508,11 +514,13 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
-        if not can_configure_plugins(Team.objects.get(id=self.context["team_id"]).organization_id):
+        if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
-        validated_data["team"] = Team.objects.get(id=self.context["team_id"])
+        validated_data["team_id"] = self.context["team_id"]
         _fix_formdata_config_json(self.context["request"], validated_data)
-        existing_config = PluginConfig.objects.filter(team=validated_data["team"], plugin_id=validated_data["plugin"])
+        existing_config = PluginConfig.objects.filter(
+            team_id=validated_data["team_id"], plugin_id=validated_data["plugin"]
+        )
         if existing_config.exists():
             return self.update(existing_config.first(), validated_data)  # type: ignore
 

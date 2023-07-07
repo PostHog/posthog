@@ -4,18 +4,20 @@ import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
+import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import clsx from 'clsx'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
-import { SSO_PROVIDER_NAMES } from 'lib/constants'
-import { SSOProviders } from '~/types'
-import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import RegionSelect from './RegionSelect'
+import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { captureException } from '@sentry/react'
+import { SupportModalButton } from './SupportModalButton'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -48,37 +50,25 @@ export const scene: SceneExport = {
     logic: loginLogic,
 }
 
-function SSOLoginButton({
-    email,
-    provider,
-    status = 'primary',
-}: {
-    email: string
-    provider: SSOProviders
-    status?: LemonButtonProps['status']
-}): JSX.Element {
-    return (
-        <LemonButton
-            className="btn-bridge"
-            data-attr="sso-login"
-            htmlType="button"
-            fullWidth
-            onClick={() => (window.location.href = `/login/${provider}/?email=${email}`)}
-            icon={SocialLoginIcon(provider)}
-            status={status}
-        >
-            Login with {SSO_PROVIDER_NAMES[provider]}
-        </LemonButton>
-    )
-}
-
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
+
+    useEffect(() => {
+        try {
+            // Turn on E2E test when this flag is removed
+            if (featureFlags[FEATURE_FLAGS.AUTO_REDIRECT]) {
+                redirectIfLoggedInOtherInstance()
+            }
+        } catch (e) {
+            captureException(e)
+        }
+    }, [])
 
     useEffect(() => {
         if (!isPasswordHidden) {
@@ -96,15 +86,16 @@ export function Login(): JSX.Element {
                     <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
+            footer={<SupportModalButton />}
         >
             <div className="space-y-2">
                 <h2>Log in</h2>
                 {generalError && (
-                    <AlertMessage type="error">
+                    <LemonBanner type="error">
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
                     <RegionSelect />
@@ -152,13 +143,13 @@ export function Login(): JSX.Element {
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
                         >
-                            Login
+                            Log in
                         </LemonButton>
                     ) : (
-                        <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                        <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                     )}
                     {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                        <SSOLoginButton provider="saml" email={login.email} status="primary" />
+                        <SSOEnforcedLoginButton provider="saml" email={login.email} />
                     )}
                 </Form>
                 {preflight?.cloud && (

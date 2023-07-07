@@ -11,8 +11,9 @@ type SeriesColumnItemProps = {
     item: IndexedTrendResult
     indexedResults: IndexedTrendResult[]
     canEditSeriesNameInline: boolean
-    compare?: boolean
+    compare?: boolean | null
     handleEditClick: (item: IndexedTrendResult) => void
+    hasMultipleSeries?: boolean
 }
 
 export function SeriesColumnItem({
@@ -21,16 +22,18 @@ export function SeriesColumnItem({
     canEditSeriesNameInline,
     compare,
     handleEditClick,
+    hasMultipleSeries,
 }: SeriesColumnItemProps): JSX.Element {
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     return (
         <div className="series-name-wrapper-col">
             <InsightLabel
-                seriesColor={getSeriesColor(item.seriesIndex, compare)}
+                seriesColor={getSeriesColor(item.seriesIndex, compare || false)}
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                hasMultipleSeries={indexedResults.length > 1}
+                hasMultipleSeries={hasMultipleSeries}
+                showEventName
                 showCountedByTag={showCountedByTag}
                 breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                 hideBreakdown

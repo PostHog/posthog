@@ -52,7 +52,7 @@ export CYPRESS_BASE_URL=http://localhost:8080
 export OPT_OUT_CAPTURE=1
 export SECURE_COOKIES=0
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
-export KAFKA_URL=kafka://kafka:9092
+export KAFKA_HOSTS=kafka:9092
 export CLICKHOUSE_DATABASE=posthog_test
 export TEST=1 # Plugin server and kafka revert to 'default' Clickhouse database if TEST is not set
 export CLICKHOUSE_SECURE=0
@@ -100,9 +100,7 @@ $SKIP_MIGRATE || migrateDatabases
 $SKIP_SETUP_DEV || setupDev
 
 # parallel block
-./bin/plugin-server &
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 pnpm dlx cypress open --config-file cypress.e2e.config.ts &
 python manage.py runserver 8080
-

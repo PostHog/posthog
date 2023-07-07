@@ -24,7 +24,7 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
         }
     }
 
-    const parsedTs = handleTimestamp(data, now, sentAt, callback)
+    const parsedTs = handleTimestamp(data, now, sentAt, data.team_id, callback)
     if (!parsedTs.isValid) {
         callback?.('ignored_invalid_timestamp', {
             field: 'timestamp',
@@ -41,6 +41,7 @@ function handleTimestamp(
     data: PluginEvent,
     now: DateTime,
     sentAt: DateTime | null,
+    teamId: number,
     callback?: IngestionWarningCallback
 ): DateTime {
     let parsedTs: DateTime = now
@@ -72,7 +73,11 @@ function handleTimestamp(
             parsedTs = now.plus(timestamp.diff(sentAt))
         } catch (error) {
             status.error('⚠️', 'Error when handling timestamp:', { error: error.message })
-            Sentry.captureException(error, { extra: { data, now, sentAt } })
+            Sentry.captureException(error, {
+                tags: { team_id: teamId },
+                extra: { data, now, sentAt },
+            })
+
             return timestamp
         }
     }

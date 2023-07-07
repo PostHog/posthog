@@ -17,6 +17,7 @@ function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
 export function generateEventDeadLetterQueueMessage(
     event: PipelineEvent | PluginEvent | ProcessedPluginEvent,
     error: unknown,
+    teamId: number,
     errorLocation = 'plugin_server_ingest_event'
 ): ProducerRecord {
     let errorMessage = 'ingestEvent failed. '
@@ -43,6 +44,7 @@ export function generateEventDeadLetterQueueMessage(
         error_location: safeClickhouseString(errorLocation),
         error: safeClickhouseString(errorMessage),
         tags: ['plugin_server', 'ingest_event'],
+        team_id: event.team_id || teamId,
     }
 
     const message = {

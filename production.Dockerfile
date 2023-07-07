@@ -23,7 +23,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && \
+RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
@@ -43,12 +43,15 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
     "g++" \
     "gcc" \
     "python3" \
+    "libssl-dev" \
+    "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
@@ -157,8 +160,8 @@ RUN apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # Install and use a non-root user.
-RUN groupadd posthog && \
-    useradd -r -g posthog posthog && \
+RUN groupadd -g 1000 posthog && \
+    useradd -u 999 -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 

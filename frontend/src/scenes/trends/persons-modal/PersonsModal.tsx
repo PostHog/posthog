@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { ActorType, ExporterFormat, PropertiesTimelineFilterType, SessionRecordingType } from '~/types'
+import {
+    ActorType,
+    ExporterFormat,
+    PropertiesTimelineFilterType,
+    PropertyDefinitionType,
+    SessionRecordingType,
+} from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -16,7 +22,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Noun } from '~/models/groupsModel'
 import { LemonModalProps } from '@posthog/lemon-ui'
@@ -99,7 +105,11 @@ export function PersonsModal({
                             fullWidth
                             className="mb-2"
                             value={selectedUrlIndex}
-                            onChange={(v) => v && setSelectedUrlIndex(v)}
+                            onChange={(v) => {
+                                if (v !== null && v >= 0) {
+                                    setSelectedUrlIndex(v)
+                                }
+                            }}
                             options={(urls || []).map((url, index) => ({
                                 value: index,
                                 label: url.label,
@@ -235,7 +245,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-white">
+        <div className="relative border rounded bg-bg-light">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -292,7 +302,10 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             {propertiesTimelineFilter ? (
                                 <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
                             ) : (
-                                <PropertiesTable properties={actor.properties} />
+                                <PropertiesTable
+                                    type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
+                                    properties={actor.properties}
+                                />
                             )}
                         </Tabs.TabPane>
                         <Tabs.TabPane tab="Recordings" key="recordings">
@@ -360,13 +373,13 @@ export function MissingPersonsAlert({
     missingActorsCount: number
 }): JSX.Element {
     return (
-        <AlertMessage type="info" className="mb-2">
+        <LemonBanner type="info" className="mb-2">
             {missingActorsCount} {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
             shown because they've been merged with those listed, or deleted.{' '}
             <Link to="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
                 Learn more.
             </Link>
-        </AlertMessage>
+        </LemonBanner>
     )
 }
 

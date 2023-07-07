@@ -1,9 +1,10 @@
 from typing import Dict, List, Optional, Union
+from unittest.mock import ANY, patch
 
 from rest_framework import status
 
 from posthog.api.property_definition import PropertyDefinitionQuerySerializer
-from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team, ActivityLog
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -37,6 +38,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.get_or_create(team=self.team, name="plan", defaults={"query_usage_30_day": 1})
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", defaults={"is_numerical": True})
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase", defaults={"is_numerical": True})
+        PropertyDefinition.objects.create(
+            team=self.team, name="$initial_referrer", property_type="String"
+        )  # We want to hide this property on events, but not on persons
 
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="$browser")
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="first_visit")
@@ -230,12 +234,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             team=self.team, name="person property", property_type="String", type=PropertyDefinition.Type.PERSON
         )
         PropertyDefinition.objects.create(
+            team=self.team, name="$initial_referrer", property_type="String", type=PropertyDefinition.Type.PERSON
+        )  # We want to hide this property on events, but not on persons
+        PropertyDefinition.objects.create(
             team=self.team, name="another", property_type="String", type=PropertyDefinition.Type.PERSON
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+        self.assertEqual(
+            [row["name"] for row in response.json()["results"]], ["$initial_referrer", "another", "person property"]
+        )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -302,6 +311,28 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "plan")
+
+    @patch("posthoganalytics.capture")
+    def test_delete_property_definition(self, mock_capture):
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="test_property", property_type="String"
+        )
+        response = self.client.delete(f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(PropertyDefinition.objects.filter(id=property_definition.id).count(), 0)
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "property definition deleted",
+            properties={"name": "test_property", "type": "event"},
+            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
+        )
+
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        assert activity_log is not None
+        assert activity_log.detail["type"] == "event"
+        assert activity_log.item_id == str(property_definition.id)
+        assert activity_log.detail["name"] == "test_property"
+        assert activity_log.activity == "deleted"
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):

@@ -44,6 +44,8 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
     "events": ["http", "kafka_connected"],
     "web": [
         "http",
+        # NOTE: we include Postgres because the way we use django means every request hits the DB
+        # https://posthog.slack.com/archives/C02E3BKC78F/p1679669676438729
         "postgres",
         "postgres_migrations_uptodate",
         "cache",
@@ -58,7 +60,13 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
     # of reading from a durable queue rather that being required to perform
     # request/response, we are more resilient to service downtime.
     "worker": ["http", "postgres", "postgres_migrations_uptodate", "clickhouse", "celery_broker"],
-    "decide": ["http", "cache"],
+    "decide": ["http"],
+}
+
+# if atleast one of the checks is True, then the service is considered healthy
+# for the given role
+service_conditional_dependencies: Dict[ServiceRole, List[str]] = {
+    "decide": ["cache", "postgres"],
 }
 
 
@@ -110,11 +118,19 @@ def readyz(request: HttpRequest):
         "cache": is_cache_backend_connected,
     }
 
+    conditional_checks = {}
+
     if role:
         # If we have a role, then limit the checks to a subset defined by the
         # service_dependencies for this specific role, defaulting to all if we
         # don't find a lookup
         dependencies = service_dependencies.get(cast(ServiceRole, role), available_checks.keys())
+        conditional_dependencies = service_conditional_dependencies.get(cast(ServiceRole, role)) or []
+
+        conditional_checks = {
+            name: check for name, check in available_checks.items() if name in conditional_dependencies
+        }
+
         available_checks = {name: check for name, check in available_checks.items() if name in dependencies}
 
     # Run each check and collect the status
@@ -122,8 +138,17 @@ def readyz(request: HttpRequest):
     # TODO: handle concurrent checks(?). Only if it becomes an issue, at which
     # point maybe we're doing too many checks or they are too intensive.
     evaluated_checks = {name: check() for name, check in available_checks.items()}
+    evaluated_conditional_checks = {name: check() for name, check in conditional_checks.items()}
 
-    status = 200 if all(check_status for name, check_status in evaluated_checks.items() if name not in exclude) else 503
+    prelim_status = (
+        200 if all(check_status for name, check_status in evaluated_checks.items() if name not in exclude) else 503
+    )
+
+    if prelim_status == 200 and evaluated_conditional_checks:
+        # If there are any conditional checks, then run them
+        status = 200 if any(check_status for _, check_status in evaluated_conditional_checks.items()) else 503
+    else:
+        status = prelim_status
 
     return JsonResponse(evaluated_checks, status=status)
 

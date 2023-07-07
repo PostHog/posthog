@@ -1,31 +1,45 @@
-import { EditorFilterProps } from '~/types'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { InsightLogicProps } from '~/types'
+import { LemonButton, LemonLabel, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import posthog from 'posthog-js'
 
-export function SamplingFilter({ filters, insightProps }: EditorFilterProps): JSX.Element {
-    const logic = samplingFilterLogic({ insightType: filters.insight, insightProps })
+const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
+    'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
 
-    const { setSamplingPercentage } = useActions(logic)
-    const { samplingPercentage, samplingAvailable } = useValues(logic)
+interface SamplingFilterProps {
+    insightProps: InsightLogicProps
+    infoTooltipContent?: string
+}
 
-    if (samplingAvailable) {
-        return (
-            <>
-                <span>
-                    <b>Sampling percentage</b>{' '}
-                    <Tooltip
-                        title="Sampling computes the result on only a subset of the data, making insights load significantly
-                            faster."
-                    >
-                        <Link to="https://posthog.com/manual/sampling" target="_blank">
-                            <IconInfo className="text-xl text-muted-alt shrink-0" />
-                        </Link>
-                    </Tooltip>
-                </span>
+export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
+    const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+
+    return (
+        <>
+            <div className="flex items-center gap-1">
+                <LemonLabel
+                    info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
+                    infoLink="https://posthog.com/manual/sampling"
+                >
+                    Sampling<LemonTag type="warning">BETA</LemonTag>
+                </LemonLabel>
+                <LemonSwitch
+                    className="m-2"
+                    onChange={(checked) => {
+                        if (checked) {
+                            setSamplingPercentage(10)
+                            posthog.capture('sampling_enabled_on_insight')
+                            return
+                        }
+                        setSamplingPercentage(null)
+                        posthog.capture('sampling_disabled_on_insight')
+                    }}
+                    checked={!!samplingPercentage}
+                />
+            </div>
+            {!!samplingPercentage ? (
                 <div className="SamplingFilter">
                     <div className="flex items-center gap-2">
                         {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
@@ -34,13 +48,20 @@ export function SamplingFilter({ filters, insightProps }: EditorFilterProps): JS
                                 type="secondary"
                                 size="small"
                                 active={samplingPercentage === percentage}
-                                onClick={() => setSamplingPercentage(percentage)}
+                                onClick={() => {
+                                    setSamplingPercentage(percentage)
+
+                                    if (samplingPercentage === percentage) {
+                                        posthog.capture('sampling_disabled_on_insight')
+                                    } else {
+                                        posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                    }
+                                }}
                             >{`${percentage}%`}</LemonButton>
                         ))}
                     </div>
                 </div>
-            </>
-        )
-    }
-    return <></>
+            ) : null}
+        </>
+    )
 }

@@ -2,13 +2,12 @@ import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { format } from 'util'
 
-import { Action, Hook, IngestionPersonData, PostIngestionEvent } from '../../types'
+import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { stringify } from '../../utils/utils'
+import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
-import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
 
 export enum WebhookType {
@@ -28,36 +27,98 @@ export function determineWebhookType(url: string): WebhookType {
     return WebhookType.Teams
 }
 
-export function getUserDetails(
+// https://api.slack.com/reference/surfaces/formatting#escaping
+function escapeSlack(text: string): string {
+    return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
+function escapeMarkdown(text: string): string {
+    const markdownChars: string[] = ['\\', '`', '*', '_', '{', '}', '[', ']', '(', ')', '!']
+    const lineStartChars: string[] = ['#', '-', '+']
+
+    let escapedText = ''
+    let isNewLine = true
+
+    for (const char of text) {
+        if (isNewLine && lineStartChars.includes(char)) {
+            escapedText += '\\' + char
+        } else if (!isNewLine && markdownChars.includes(char)) {
+            escapedText += '\\' + char
+        } else {
+            escapedText += char
+        }
+
+        isNewLine = char === '\n' || char === '\r'
+    }
+
+    return escapedText
+}
+
+export function webhookEscape(text: string, webhookType: WebhookType): string {
+    if (webhookType === WebhookType.Slack) {
+        return escapeSlack(stringify(text))
+    }
+    return escapeMarkdown(stringify(text))
+}
+
+export function toWebhookLink(text: string | null, url: string, webhookType: WebhookType): [string, string] {
+    const name = stringify(text)
+    if (webhookType === WebhookType.Slack) {
+        return [escapeSlack(name), `<${escapeSlack(url)}|${escapeSlack(name)}>`]
+    } else {
+        return [escapeMarkdown(name), `[${escapeMarkdown(name)}](${escapeMarkdown(url)})`]
+    }
+}
+
+// Sync with .../api/person.py and .../lib/constants.tsx
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
+
+export function getPersonLink(event: PostIngestionEvent, siteUrl: string): string {
+    return `${siteUrl}/person/${encodeURIComponent(event.distinctId)}`
+}
+export function getPersonDetails(
     event: PostIngestionEvent,
-    person: IngestionPersonData | undefined,
+    siteUrl: string,
+    webhookType: WebhookType,
+    team: Team
+): [string, string] {
+    // Sync the logic below with the frontend `asDisplay`
+    const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+    const customPropertyKey = personDisplayNameProperties.find((x) => event.person_properties?.[x])
+    const propertyIdentifier = customPropertyKey ? event.person_properties[customPropertyKey] : undefined
+
+    const customIdentifier: string =
+        typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
+
+    const display: string | undefined = (customIdentifier || event.distinctId)?.trim()
+
+    return toWebhookLink(display, getPersonLink(event, siteUrl), webhookType)
+}
+
+export function getActionLink(action: Action, siteUrl: string): string {
+    return `${siteUrl}/action/${action.id}`
+}
+export function getActionDetails(action: Action, siteUrl: string, webhookType: WebhookType): [string, string] {
+    return toWebhookLink(action.name, getActionLink(action, siteUrl), webhookType)
+}
+
+export function getEventLink(event: PostIngestionEvent, siteUrl: string): string {
+    return `${siteUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(event.timestamp)}`
+}
+export function getEventDetails(
+    event: PostIngestionEvent,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
-    if (!person) {
-        return ['undefined', 'undefined']
-    }
-    const userName = stringify(
-        person.properties?.email || person.properties?.name || person.properties?.username || event.distinctId
-    )
-    let userMarkdown: string
-    if (webhookType === WebhookType.Slack) {
-        userMarkdown = `<${siteUrl}/person/${event.distinctId}|${userName}>`
-    } else {
-        userMarkdown = `[${userName}](${siteUrl}/person/${event.distinctId})`
-    }
-    return [userName, userMarkdown]
-}
-
-export function getActionDetails(action: Action, siteUrl: string, webhookType: WebhookType): [string, string] {
-    const actionName = stringify(action.name)
-    let actionMarkdown: string
-    if (webhookType === WebhookType.Slack) {
-        actionMarkdown = `<${siteUrl}/action/${action.id}|${actionName}>`
-    } else {
-        actionMarkdown = `[${actionName}](${siteUrl}/action/${action.id})`
-    }
-    return [actionName, actionMarkdown]
+    return toWebhookLink(event.event, getEventLink(event, siteUrl), webhookType)
 }
 
 export function getTokens(messageFormat: string): [string[], string] {
@@ -75,7 +136,7 @@ export function getTokens(messageFormat: string): [string[], string] {
 export function getValueOfToken(
     action: Action,
     event: PostIngestionEvent,
-    person: IngestionPersonData | undefined,
+    team: Team,
     siteUrl: string,
     webhookType: WebhookType,
     tokenParts: string[]
@@ -87,37 +148,49 @@ export function getValueOfToken(
         // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
         // [person] OR [event.properties.bar] should be used instead
         if (tokenParts[1] === 'name') {
-            ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
+            ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
         } else {
             const propertyName = `$${tokenParts[1]}`
             const property = event.properties?.[propertyName]
-            text = stringify(property)
-            markdown = text
+            markdown = text = webhookEscape(property, webhookType)
         }
     } else if (tokenParts[0] === 'person') {
         if (tokenParts.length === 1) {
-            ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
+            ;[text, markdown] = getPersonDetails(event, siteUrl, webhookType, team)
+        } else if (tokenParts[1] === 'link') {
+            markdown = text = webhookEscape(getPersonLink(event, siteUrl), webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-            const propertyName = tokenParts[2]
-            const property = person?.properties?.[propertyName]
-            text = stringify(property)
-            markdown = text
+            const property = event.person_properties
+                ? getPropertyValueByPath(event.person_properties, tokenParts.slice(2))
+                : undefined
+            markdown = text = webhookEscape(property, webhookType)
         }
     } else if (tokenParts[0] === 'action') {
         if (tokenParts[1] === 'name') {
             ;[text, markdown] = getActionDetails(action, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'link') {
+            markdown = text = webhookEscape(getActionLink(action, siteUrl), webhookType)
         }
     } else if (tokenParts[0] === 'event') {
-        if (tokenParts[1] === 'name') {
-            text = stringify(event.event)
+        if (tokenParts.length === 1) {
+            ;[text, markdown] = getEventDetails(event, siteUrl, webhookType)
+        } else if (tokenParts[1] === 'link') {
+            markdown = text = webhookEscape(getEventLink(event, siteUrl), webhookType)
+        } else if (tokenParts[1] === 'uuid') {
+            markdown = text = webhookEscape(event.eventUuid, webhookType)
+        } else if (tokenParts[1] === 'name') {
+            // deprecated
+            markdown = text = webhookEscape(event.event, webhookType)
+        } else if (tokenParts[1] === 'event') {
+            markdown = text = webhookEscape(event.event, webhookType)
         } else if (tokenParts[1] === 'distinct_id') {
-            text = stringify(event.distinctId)
+            markdown = text = webhookEscape(event.distinctId, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
-            const propertyName = tokenParts[2]
-            const property = event.properties?.[propertyName]
-            text = stringify(property)
+            const property = event.properties
+                ? getPropertyValueByPath(event.properties, tokenParts.slice(2))
+                : undefined
+            markdown = text = webhookEscape(property, webhookType)
         }
-        markdown = text
     } else {
         throw new Error()
     }
@@ -127,7 +200,7 @@ export function getValueOfToken(
 export function getFormattedMessage(
     action: Action,
     event: PostIngestionEvent,
-    person: IngestionPersonData | undefined,
+    team: Team,
     siteUrl: string,
     webhookType: WebhookType
 ): [string, string] {
@@ -143,7 +216,7 @@ export function getFormattedMessage(
         for (const token of tokens) {
             const tokenParts = token.match(/\$\w+|\$\$\w+|\w+/g) || []
 
-            const [value, markdownValue] = getValueOfToken(action, event, person, siteUrl, webhookType, tokenParts)
+            const [value, markdownValue] = getValueOfToken(action, event, team, siteUrl, webhookType, tokenParts)
             values.push(value)
             markdownValues.push(markdownValue)
         }
@@ -162,31 +235,26 @@ export class HookCommander {
     db: DB
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
+    siteUrl: string
 
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
-    constructor(
-        db: DB,
-        teamManager: TeamManager,
-        organizationManager: OrganizationManager,
-        siteUrlManager: SiteUrlManager,
-        statsd?: StatsD
-    ) {
+    constructor(db: DB, teamManager: TeamManager, organizationManager: OrganizationManager, statsd?: StatsD) {
         this.db = db
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.siteUrlManager = siteUrlManager
+        if (process.env.SITE_URL) {
+            this.siteUrl = process.env.SITE_URL
+        } else {
+            status.warn('⚠️', 'SITE_URL env is not set for webhooks')
+            this.siteUrl = ''
+        }
         this.statsd = statsd
     }
 
-    public async findAndFireHooks(
-        event: PostIngestionEvent,
-        person: IngestionPersonData | undefined,
-        actionMatches: Action[]
-    ): Promise<void> {
+    public async findAndFireHooks(event: PostIngestionEvent, actionMatches: Action[]): Promise<void> {
         status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
             status.debug('🔍', `No hooks to fire for event "${event.event}"`)
@@ -205,16 +273,20 @@ export class HookCommander {
         if (webhookUrl) {
             const webhookRequests = actionMatches
                 .filter((action) => action.post_to_slack)
-                .map((action) => this.postWebhook(webhookUrl, action, event, person))
-            await Promise.all(webhookRequests).catch((error) => captureException(error))
+                .map((action) => this.postWebhook(webhookUrl, action, event, team))
+            await Promise.all(webhookRequests).catch((error) =>
+                captureException(error, { tags: { team_id: event.teamId } })
+            )
         }
 
         if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
             const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             if (restHooks.length > 0) {
-                const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
-                await Promise.all(restHookRequests).catch((error) => captureException(error))
+                const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event))
+                await Promise.all(restHookRequests).catch((error) =>
+                    captureException(error, { tags: { team_id: event.teamId } })
+                )
 
                 this.statsd?.increment('zapier_hooks_fired', {
                     team_id: String(team.id),
@@ -227,11 +299,10 @@ export class HookCommander {
         webhookUrl: string,
         action: Action,
         event: PostIngestionEvent,
-        person: IngestionPersonData | undefined
+        team: Team
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
-        const siteUrl = await this.siteUrlManager.getSiteUrl()
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl || '', webhookType)
+        const [messageText, messageMarkdown] = getFormattedMessage(action, event, team, this.siteUrl, webhookType)
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {
@@ -255,30 +326,20 @@ export class HookCommander {
         })
     }
 
-    public async postRestHook(
-        hook: Hook,
-        event: PostIngestionEvent,
-        person: IngestionPersonData | undefined
-    ): Promise<void> {
+    public async postRestHook(hook: Hook, event: PostIngestionEvent): Promise<void> {
         let sendablePerson: Record<string, any> = {}
-        if (person) {
-            const { uuid, properties, team_id, id } = person
-
-            // we standardize into ISO before sending the payload
-            const createdAt = person.created_at.toISO()
-
+        const { person_id, person_created_at, person_properties, ...data } = event
+        if (person_id) {
             sendablePerson = {
-                uuid,
-                properties,
-                team_id,
-                id,
-                created_at: createdAt,
+                uuid: person_id,
+                properties: person_properties,
+                created_at: person_created_at,
             }
         }
 
         const payload = {
             hook: { id: hook.id, event: hook.event, target: hook.target },
-            data: { ...event, person: sendablePerson },
+            data: { ...data, person: sendablePerson },
         }
 
         const request = await fetch(hook.target, {

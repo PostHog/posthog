@@ -38,6 +38,7 @@ class DetailSerializer(serializers.Serializer):
     trigger = TriggerSerializer(required=False)
     name = serializers.CharField(read_only=True)
     short_id = serializers.CharField(read_only=True)
+    type = serializers.CharField(read_only=True)
 
 
 class ActivityLogSerializer(serializers.Serializer):

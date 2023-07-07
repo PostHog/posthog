@@ -17,11 +17,11 @@ export const querySceneLogic = kea<querySceneLogicType>([
     }),
     actionToUrl({
         setQuery: ({ query }) => {
-            return [urls.query(), {}, { q: query }, { replace: true }]
+            return [urls.debugQuery(), {}, { q: query }, { replace: true }]
         },
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.query()]: (_, __, { q }) => {
+        [urls.debugQuery()]: (_, __, { q }) => {
             if (q && q !== values.query) {
                 actions.setQuery(q)
             }

@@ -1,4 +1,4 @@
-import { LogLevel, PluginsServerConfig } from '../types'
+import { LogLevel, PluginsServerConfig, stringToPluginServerMode } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -32,16 +32,26 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
-        KAFKA_CLIENT_CERT_B64: null,
-        KAFKA_CLIENT_CERT_KEY_B64: null,
-        KAFKA_TRUSTED_CERT_B64: null,
-        KAFKA_SECURITY_PROTOCOL: null,
-        KAFKA_SASL_MECHANISM: null,
-        KAFKA_SASL_USER: null,
-        KAFKA_SASL_PASSWORD: null,
+        KAFKA_CLIENT_CERT_B64: undefined,
+        KAFKA_CLIENT_CERT_KEY_B64: undefined,
+        KAFKA_TRUSTED_CERT_B64: undefined,
+        KAFKA_SECURITY_PROTOCOL: undefined,
+        KAFKA_SASL_MECHANISM: undefined,
+        KAFKA_SASL_USER: undefined,
+        KAFKA_SASL_PASSWORD: undefined,
+        KAFKA_CLIENT_RACK: undefined,
+        KAFKA_CONSUMPTION_USE_RDKAFKA: false, // Transitional setting, ignored for consumers that only support one library
+        KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
+        KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
+        KAFKA_CONSUMPTION_MAX_WAIT_MS: 1_000, // Down from the 5s default for kafkajs
+        KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 500, // Timeout when a partition read fails (possibly because empty)
+        KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
+        KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
+        KAFKA_PRODUCER_WAIT_FOR_ACK: true, // Turning it off can lead to dropped data
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
@@ -54,9 +64,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         WORKER_CONCURRENCY: 1,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
+        INGESTION_CONCURRENCY: 10,
+        INGESTION_BATCH_SIZE: 500,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
+        SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',
@@ -66,18 +79,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_MMDB: isTestEnv(),
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        INTERNAL_MMDB_SERVER_PORT: 0,
         JOB_QUEUES: 'graphile',
         JOB_QUEUE_GRAPHILE_URL: '',
         JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
         JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
+        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
         JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
         JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
         JOB_QUEUE_S3_BUCKET_NAME: '',
         JOB_QUEUE_S3_PREFIX: '',
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
-        STALENESS_RESTART_SECONDS: 0,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
@@ -87,17 +99,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: 5,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
-        CONVERSION_BUFFER_ENABLED: isDevEnv() ? true : !isTestEnv(),
+        CONVERSION_BUFFER_ENABLED: false,
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
         BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
-        OBJECT_STORAGE_ENABLED: false,
+        OBJECT_STORAGE_ENABLED: true,
         OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
+        OBJECT_STORAGE_REGION: 'us-east-1',
         OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user',
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
-        OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         KAFKAJS_LOG_LEVEL: 'WARN',
@@ -108,6 +120,35 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
+        CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
+
+        // this defaults to true, but is used to disable for testing in production
+        SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: true,
+
+        SESSION_RECORDING_KAFKA_HOSTS: undefined,
+        SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
+
+        SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
+        // NOTE: 10 minutes
+        SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
+        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
+            ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
+            : 1024 * 50, // ~50MB after compression in prod
+        SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
+        SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
+        POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
+        POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
+    }
+}
+
+export const sessionRecordingBlobConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
+    // When running the blob consumer we override a bunch of settings to use the session recording ones if available
+    return {
+        ...config,
+        KAFKA_HOSTS: config.SESSION_RECORDING_KAFKA_HOSTS || config.KAFKA_HOSTS,
+        KAFKA_SECURITY_PROTOCOL: config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || config.KAFKA_SECURITY_PROTOCOL,
+        POSTHOG_REDIS_HOST: config.POSTHOG_SESSION_RECORDING_REDIS_HOST || config.POSTHOG_REDIS_HOST,
+        POSTHOG_REDIS_PORT: config.POSTHOG_SESSION_RECORDING_REDIS_PORT || config.POSTHOG_REDIS_PORT,
     }
 }
 
@@ -120,7 +161,14 @@ export function overrideWithEnv(
     const tmpConfig: any = { ...config }
     for (const key of Object.keys(config)) {
         if (typeof env[key] !== 'undefined') {
-            if (typeof defaultConfig[key] === 'number') {
+            if (key == 'PLUGIN_SERVER_MODE') {
+                const mode = env[key]
+                if (mode == null || mode in stringToPluginServerMode) {
+                    tmpConfig[key] = env[key]
+                } else {
+                    throw Error(`Invalid PLUGIN_SERVER_MODE ${env[key]}`)
+                }
+            } else if (typeof defaultConfig[key] === 'number') {
                 tmpConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
             } else if (typeof defaultConfig[key] === 'boolean') {
                 tmpConfig[key] = stringToBoolean(env[key])
@@ -130,22 +178,6 @@ export function overrideWithEnv(
         }
     }
     const newConfig: PluginsServerConfig = { ...tmpConfig }
-
-    if (
-        ![
-            'ingestion',
-            'async',
-            'exports',
-            'scheduler',
-            'jobs',
-            'ingestion-overflow',
-            'analytics-ingestion',
-            'recordings-ingestion',
-            null,
-        ].includes(newConfig.PLUGIN_SERVER_MODE)
-    ) {
-        throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
-    }
 
     if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
         throw Error(

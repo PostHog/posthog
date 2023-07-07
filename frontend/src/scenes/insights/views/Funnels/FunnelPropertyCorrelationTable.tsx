@@ -1,60 +1,54 @@
-import { useEffect, useState } from 'react'
-import { Col, ConfigProvider, Row, Table } from 'antd'
+import { useEffect } from 'react'
+import { Link } from 'lib/lemon-ui/Link'
+import { Col, ConfigProvider, Row, Table, Empty } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 import { IconSelectProperties } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { FunnelCorrelationTableEmptyState } from './FunnelCorrelationTableEmptyState'
+import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { useState } from 'react'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
+    const { steps, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
     const {
-        steps,
         propertyCorrelationValues,
         propertyCorrelationTypes,
-        excludedPropertyNames,
-        parseDisplayNameForCorrelation,
         propertyCorrelationsLoading,
-        inversePropertyNames,
         propertyNames,
-        correlationPropKey,
-        allProperties,
-        filters,
-        aggregationTargetLabel,
         loadedPropertyCorrelationsTableOnce,
-    } = useValues(logic)
-
-    const { setPropertyCorrelationTypes, setPropertyNames, openCorrelationPersonsModal, loadPropertyCorrelations } =
-        useActions(logic)
-
-    const { reportCorrelationInteraction } = useActions(eventUsageLogic)
-
-    // Load correlations only if this component is mounted, and then reload if filters change
+    } = useValues(funnelPropertyCorrelationLogic(insightProps))
+    const { setPropertyCorrelationTypes, setPropertyNames, setAllProperties, loadPropertyCorrelations } = useActions(
+        funnelPropertyCorrelationLogic(insightProps)
+    )
+    // Load correlations only if this component is mounted, and then reload if the query change
     useEffect(() => {
-        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
+        // We only automatically refresh results when the query changes after the user has manually asked for the first results to be loaded
         if (loadedPropertyCorrelationsTableOnce) {
-            if (propertyNames.length === 0) {
-                setPropertyNames(allProperties)
-            }
-
             loadPropertyCorrelations({})
         }
-    }, [filters])
+    }, [querySource])
+
+    const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
+    const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
+    const { reportCorrelationInteraction } = useActions(funnelCorrelationUsageLogic(insightProps))
+    const [isPropertiesOpen, setIsPropertiesOpen] = useState(false as boolean)
 
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
@@ -123,7 +117,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                 </h4>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -145,74 +139,95 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     </Col>
                     <Col className="table-options">
                         <Row style={{ display: 'contents' }}>
-                            {allProperties.length > 0 && (
-                                <>
-                                    <p className="title">PROPERTIES </p>
-                                    <PropertyNamesSelect
-                                        value={new Set(propertyNames)}
-                                        onChange={(selectedProperties: string[]) =>
-                                            setPropertyNames(selectedProperties)
-                                        }
-                                        allProperties={inversePropertyNames(excludedPropertyNames || [])}
-                                    />
-                                </>
-                            )}
+                            <>
+                                <p className="title">PROPERTIES </p>
+                                <Popover
+                                    visible={isPropertiesOpen}
+                                    onClickOutside={() => setIsPropertiesOpen(false)}
+                                    overlay={
+                                        <div className="p-4">
+                                            <PersonPropertySelect
+                                                onChange={setPropertyNames}
+                                                selectedProperties={
+                                                    propertyNames.length === 1 && propertyNames[0] === '$all'
+                                                        ? []
+                                                        : propertyNames
+                                                }
+                                                addText="Add properties"
+                                            />
+                                            <br />
+                                            {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                                <>All properties selected</>
+                                            ) : (
+                                                <LemonButton
+                                                    size="small"
+                                                    type="primary"
+                                                    onClick={() => setAllProperties()}
+                                                >
+                                                    Select all properties
+                                                </LemonButton>
+                                            )}
+                                        </div>
+                                    }
+                                >
+                                    <LemonButton size="small" onClick={() => setIsPropertiesOpen(true)}>
+                                        {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                            <>All properties selected</>
+                                        ) : (
+                                            <>
+                                                {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
+                                                selected
+                                            </>
+                                        )}
+                                    </LemonButton>
+                                </Popover>
+                            </>
                         </Row>
                         <Row style={{ display: 'contents' }}>
-                            <p className="title" style={{ marginLeft: 8 }}>
-                                CORRELATION
-                            </p>
-                            <div
-                                className="tab-btn ant-btn"
-                                style={{
-                                    paddingTop: '1px',
-                                    paddingBottom: '1px',
-                                    borderTopRightRadius: 0,
-                                    borderBottomRightRadius: 0,
-                                }}
-                                onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
-                            >
-                                <Checkbox
+                            <p className="title ml-2">CORRELATION</p>
+                            <div className="flex">
+                                <LemonCheckbox
                                     checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Success)}
-                                    style={{
-                                        pointerEvents: 'none',
-                                    }}
-                                >
-                                    Success
-                                </Checkbox>
-                            </div>
-                            <div
-                                className="tab-btn ant-btn"
-                                style={{
-                                    marginRight: '8px',
-                                    paddingTop: '1px',
-                                    paddingBottom: '1px',
-                                    borderTopLeftRadius: 0,
-                                    borderBottomLeftRadius: 0,
-                                }}
-                                onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
-                            >
-                                <Checkbox
+                                    onChange={() => onClickCorrelationType(FunnelCorrelationType.Success)}
+                                    label="Success"
+                                    size="small"
+                                    bordered
+                                />
+                                <LemonCheckbox
                                     checked={propertyCorrelationTypes.includes(FunnelCorrelationType.Failure)}
-                                    style={{
-                                        pointerEvents: 'none',
-                                    }}
-                                >
-                                    Drop-off
-                                </Checkbox>
+                                    onChange={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
+                                    label="Drop-off"
+                                    size="small"
+                                    bordered
+                                />
                             </div>
                         </Row>
                     </Col>
                 </Row>
                 <ConfigProvider
-                    renderEmpty={() => (
-                        <FunnelCorrelationTableEmptyState
-                            infoMessage="Correlated properties highlights properties users have that are likely to have affected their conversion
-                        rate within the funnel."
-                            showLoadResultsButton={!loadedPropertyCorrelationsTableOnce}
-                            loadResults={() => loadPropertyCorrelations({})}
-                        />
-                    )}
+                    renderEmpty={() =>
+                        loadedPropertyCorrelationsTableOnce ? (
+                            <Empty />
+                        ) : (
+                            <>
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <p className="m-auto" style={{ maxWidth: 500 }}>
+                                    Highlight properties which are likely to have affected the conversion rate within
+                                    the funnel.{' '}
+                                    <Link to="https://posthog.com/manual/correlation">
+                                        Learn more about correlation analysis.
+                                    </Link>
+                                </p>
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => setIsPropertiesOpen(true)}
+                                    className="mx-auto mt-2"
+                                >
+                                    Select properties
+                                </LemonButton>
+                            </>
+                        )
+                    }
                 >
                     <Table
                         dataSource={propertyCorrelationValues}
@@ -246,7 +261,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                     Completed
                                     <Tooltip
                                         title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                            filters.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                            querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } have this property and completed the entire funnel.`}
                                     >
                                         <InfoCircleOutlined className="column-info" />
@@ -266,7 +281,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         title={
                                             <>
                                                 {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                                                {filters.aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
+                                                {querySource?.aggregation_group_type_index != undefined
+                                                    ? 'that'
+                                                    : 'who'}{' '}
                                                 have this property and did <b>not complete</b> the entire funnel.
                                             </>
                                         }
@@ -283,7 +300,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <Column
                             title=""
                             key="actions"
-                            render={(_, record: FunnelCorrelation) => <CorrelationActionsCell record={record} />}
+                            render={(_, record: FunnelCorrelation) => (
+                                <PropertyCorrelationActionsCell record={record} />
+                            )}
                             align="center"
                             width={30}
                         />
@@ -292,44 +311,4 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             </div>
         </VisibilitySensor>
     ) : null
-}
-
-const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { excludePropertyFromProject, setFunnelCorrelationDetails } = useActions(logic)
-    const { isPropertyExcludedFromProject } = useValues(logic)
-    const propertyName = (record.event.event || '').split('::')[0]
-
-    const [popoverOpen, setPopoverOpen] = useState(false)
-
-    return (
-        <Row style={{ justifyContent: 'flex-end' }}>
-            <Popover
-                visible={popoverOpen}
-                actionable
-                onClickOutside={() => setPopoverOpen(false)}
-                overlay={
-                    <>
-                        <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth status="stealth">
-                            View correlation details
-                        </LemonButton>
-                        <LemonButton
-                            disabled={isPropertyExcludedFromProject(propertyName)}
-                            onClick={() => excludePropertyFromProject(propertyName)}
-                            fullWidth
-                            title="Remove this property from any correlation analysis report in this project."
-                            status="stealth"
-                        >
-                            Exclude property from project
-                        </LemonButton>
-                    </>
-                }
-            >
-                <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined className="insight-dropdown-actions" />
-                </LemonButton>
-            </Popover>
-        </Row>
-    )
 }

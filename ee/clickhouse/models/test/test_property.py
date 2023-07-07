@@ -23,10 +23,10 @@ from posthog.models.property.util import (
     prop_filter_json_extract,
 )
 from posthog.models.team import Team
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
+from posthog.queries.util import PersonPropertiesMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -576,6 +576,8 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     def test_get_property_string_expr_groups(self):
         if not get_instance_setting("GROUPS_ON_EVENTS_ENABLED"):
             return
+
+        materialize("events", "some_mat_prop3", table_column="group2_properties")
 
         string_expr = get_property_string_expr(
             "events",

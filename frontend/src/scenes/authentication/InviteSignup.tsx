@@ -3,7 +3,7 @@ import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
-import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -17,6 +17,7 @@ import clsx from 'clsx'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -37,8 +38,6 @@ function HelperLinks(): JSX.Element {
             <Link to="/">App Home</Link>
             <span className="mx-2">|</span>
             <Link to={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}>PostHog Website</Link>
-            <span className="mx-2">|</span>
-            <Link to={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}>Contact Us</Link>
         </div>
     )
 }
@@ -111,7 +110,7 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <BridgePage view="signup-error" hedgehog message="Oops!">
+        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalButton />}>
             <h2>{ErrorMessages[error.code].title}</h2>
             <div className="error-message">{ErrorMessages[error.code].detail}</div>
             <LemonDivider dashed className="my-4" />
@@ -126,7 +125,12 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
 
     return (
-        <BridgePage view={'accept-invite'} hedgehog message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}>
+        <BridgePage
+            view={'accept-invite'}
+            hedgehog
+            message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
+            footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
+        >
             <div className="space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
@@ -208,6 +212,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     </div>
                 </div>
             }
+            footer={<SupportModalButton name={invite.first_name} email={invite.target_email} />}
         >
             <h2 className="text-center">Create your PostHog account</h2>
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
@@ -292,7 +297,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 caption={`Remember to log in with ${invite?.target_email}`}
                 captionLocation="bottom"
                 topDivider
-                queryString={invite ? `?invite_id=${invite.id}` : ''}
+                redirectQueryParams={invite ? { invite_id: invite.id } : undefined}
             />
         </BridgePage>
     )
@@ -303,7 +308,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <SpinnerOverlay />
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (

@@ -45,8 +45,8 @@ export const elementsExample = [
         attr_class: [
             'LemonButton',
             'LemonButton--full-width',
-            'LemonButton--hasIcon',
-            'LemonButton--hasSideIcon',
+            'LemonButton--has-icon',
+            'LemonButton--has-side-icon',
             'LemonButton--status-stealth',
             'LemonButton--tertiary',
         ],
@@ -56,7 +56,7 @@ export const elementsExample = [
         nth_of_type: 1,
         attributes: {
             attr__class:
-                'LemonButton LemonButton--tertiary LemonButton--status-stealth LemonButton--full-width LemonButton--hasIcon LemonButton--hasSideIcon',
+                'LemonButton LemonButton--tertiary LemonButton--status-stealth LemonButton--full-width LemonButton--has-icon LemonButton--has-side-icon',
             'attr__data-attr': 'menu-item-savedinsights',
             attr__href: '/insights',
             attr__type: 'button',

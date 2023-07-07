@@ -5,9 +5,28 @@ import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
+
 jest.mock('~/queries/query')
 
 const testUniqueKey = 'testUniqueKey'
+
+function getDataTableQuery(extras?: {
+    orderBy?: string[]
+    select?: string[]
+    allowSorting?: boolean
+    showOpenEditorButton?: boolean
+}): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: extras?.select || ['*', 'event', 'timestamp'],
+            ...(extras?.orderBy ? { orderBy: extras.orderBy } : {}),
+        },
+        ...(extras?.allowSorting !== undefined ? { allowSorting: extras.allowSorting } : {}),
+        ...(extras?.showOpenEditorButton !== undefined ? { showOpenEditorButton: extras.showOpenEditorButton } : {}),
+    }
+}
 
 describe('dataTableLogic', () => {
     let logic: ReturnType<typeof dataTableLogic.build>
@@ -20,13 +39,7 @@ describe('dataTableLogic', () => {
     afterEach(() => logic?.unmount())
 
     it('gets the response from dataNodeLogic', async () => {
-        const dataTableQuery: DataTableNode = {
-            kind: NodeKind.DataTableNode,
-            source: {
-                kind: NodeKind.EventsQuery,
-                select: ['*', 'event', 'timestamp'],
-            },
-        }
+        const dataTableQuery: DataTableNode = getDataTableQuery()
         logic = dataTableLogic({
             key: testUniqueKey,
             query: dataTableQuery,
@@ -64,13 +77,7 @@ describe('dataTableLogic', () => {
     it('extracts sourceKind and orderBy', async () => {
         logic = dataTableLogic({
             key: testUniqueKey,
-            query: {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp'],
-                },
-            },
+            query: getDataTableQuery(),
         })
         logic.mount()
         await expectLogic(logic).toMatchValues({
@@ -81,14 +88,7 @@ describe('dataTableLogic', () => {
         // change props
         dataTableLogic({
             key: testUniqueKey,
-            query: {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp'],
-                    orderBy: ['event'],
-                },
-            },
+            query: getDataTableQuery({ orderBy: ['event'] }),
         })
 
         await expectLogic(logic).toMatchValues({
@@ -116,13 +116,7 @@ describe('dataTableLogic', () => {
     it('updates local columns if query changed', async () => {
         logic = dataTableLogic({
             key: testUniqueKey,
-            query: {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp'],
-                },
-            },
+            query: getDataTableQuery(),
         })
         logic.mount()
         await expectLogic(logic).toMatchValues({
@@ -132,13 +126,7 @@ describe('dataTableLogic', () => {
         // change props
         dataTableLogic({
             key: testUniqueKey,
-            query: {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp', 'properties.foobar'],
-                },
-            },
+            query: getDataTableQuery({ select: ['*', 'event', 'timestamp', 'properties.foobar'] }),
         })
 
         await expectLogic(logic).toMatchValues({
@@ -224,14 +212,7 @@ describe('dataTableLogic', () => {
     it('respects allowSorting', async () => {
         logic = dataTableLogic({
             key: testUniqueKey,
-            query: {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp'],
-                },
-                allowSorting: false,
-            },
+            query: getDataTableQuery({ allowSorting: false }),
         })
         logic.mount()
         await expectLogic(logic).toMatchValues({
@@ -241,18 +222,53 @@ describe('dataTableLogic', () => {
         // change props
         dataTableLogic({
             key: testUniqueKey,
-            query: {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: ['*', 'event', 'timestamp'],
-                },
-                allowSorting: true,
-            },
+            query: getDataTableQuery({ allowSorting: true }),
         })
 
         await expectLogic(logic).toMatchValues({
             canSort: true,
+        })
+    })
+
+    it('defaults to showing the open editor button', async () => {
+        logic = dataTableLogic({
+            key: testUniqueKey,
+            query: getDataTableQuery(),
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({
+            queryWithDefaults: expect.objectContaining({
+                showOpenEditorButton: true,
+            }),
+        })
+    })
+
+    it('query can set whether showing the open editor button', async () => {
+        logic = dataTableLogic({
+            key: testUniqueKey,
+            query: getDataTableQuery({ showOpenEditorButton: false }),
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({
+            queryWithDefaults: expect.objectContaining({
+                showOpenEditorButton: false,
+            }),
+        })
+    })
+
+    it('context can set whether showing the open editor button', async () => {
+        logic = dataTableLogic({
+            key: testUniqueKey,
+            query: getDataTableQuery(),
+            context: {
+                showOpenEditorButton: false,
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toMatchValues({
+            queryWithDefaults: expect.objectContaining({
+                showOpenEditorButton: false,
+            }),
         })
     })
 })

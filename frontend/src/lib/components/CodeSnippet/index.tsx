@@ -1,5 +1,6 @@
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import okaidia from 'react-syntax-highlighter/dist/esm/styles/prism/okaidia'
+import synthwave84 from 'react-syntax-highlighter/dist/esm/styles/prism/synthwave84'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
@@ -23,6 +24,9 @@ import { PopconfirmProps } from 'antd/lib/popconfirm'
 import './CodeSnippet.scss'
 import { IconCopy } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum Language {
     Text = 'text',
@@ -75,7 +79,7 @@ export interface Action {
 }
 
 export interface CodeSnippetProps {
-    children?: string
+    children: string
     language?: Language
     wrap?: boolean
     actions?: Action[]
@@ -93,7 +97,10 @@ export function CodeSnippet({
     copyDescription = 'code snippet',
     hideCopyButton = false,
 }: CodeSnippetProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
+        // eslint-disable-next-line react/forbid-dom-props
         <div className="CodeSnippet" style={style}>
             <div className="CodeSnippet__actions">
                 {actions &&
@@ -110,14 +117,14 @@ export function CodeSnippet({
                     <LemonButton
                         data-attr="copy-code-button"
                         icon={<IconCopy />}
-                        onClick={() => {
-                            children && copyToClipboard(children, copyDescription)
+                        onClick={async () => {
+                            children && (await copyToClipboard(children, copyDescription))
                         }}
                     />
                 )}
             </div>
             <SyntaxHighlighter
-                style={okaidia}
+                style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? synthwave84 : okaidia}
                 language={language}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}

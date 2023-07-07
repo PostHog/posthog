@@ -10,7 +10,9 @@
     cursor: text;
     color: var(--default);
     border: 1px solid var(--border);
+    background-color: var(--bg-light);
     outline: none;
+    display: block;
 
     &:not(:disabled):hover {
         border: 1px solid var(--primary-light);
@@ -26,10 +28,6 @@
 
     &:focus:not(:disabled) {
         border: 1px solid var(--primary);
-    }
-
-    &:placeholder-shown {
-        font-style: italic;
     }
 
     .Field--error & {

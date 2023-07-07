@@ -1,6 +1,6 @@
-/*
+/** 
 Values duplicated from global.scss
 
-If you edit this file, check there too
+TODO: Remove once Ant Popover and Drawer are replaced
 */
-export const styles = { zPopover: 1061, zDrawer: 950, zGraphAnnotationPrompt: 99 }
+export const styles = { zPopover: 1061, zDrawer: 950 }

@@ -57,7 +57,7 @@ def _handle_slack_event(event_payload: Any) -> None:
 
             team_id = sharing_config.team_id
 
-            # Now we try and get the SlackIntegration for the specificed Posthog team and Slack Team
+            # Now we try and get the SlackIntegration for the specificed PostHog team and Slack Team
             try:
                 integration = Integration.objects.get(kind="slack", team=team_id, config__team__id=slack_team_id)
                 slack_integration = SlackIntegration(integration)

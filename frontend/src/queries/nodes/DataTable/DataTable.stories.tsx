@@ -4,7 +4,6 @@ import { examples } from './DataTable.examples'
 import { mswDecorator } from '~/mocks/browser'
 import events from '../DataNode/__mocks__/EventsNode.json'
 import persons from '../DataNode/__mocks__/PersonsNode.json'
-import { QueryRunner } from '~/queries/QueryRunner/QueryRunner'
 
 export default {
     title: 'Queries/DataTable',
@@ -28,7 +27,7 @@ export default {
     ],
 } as ComponentMeta<typeof Query>
 
-const QueryTemplate: ComponentStory<typeof QueryRunner> = QueryRunner
+const QueryTemplate: ComponentStory<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
 
 export const AllDefaults = QueryTemplate.bind({})
 AllDefaults.args = { query: examples['AllDefaults'] }

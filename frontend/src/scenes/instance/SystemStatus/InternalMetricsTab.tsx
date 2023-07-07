@@ -1,15 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Button, Checkbox, Collapse, Table } from 'antd'
+import { Button, Checkbox, Table } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 export function InternalMetricsTab(): JSX.Element {
-    const { openSections, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)
+    const { openSections, queries, queriesLoading } = useValues(systemStatusLogic)
     const { setOpenSections, loadQueries } = useActions(systemStatusLogic)
 
     const [showIdle, setShowIdle] = useState(false)
@@ -25,64 +24,72 @@ export function InternalMetricsTab(): JSX.Element {
 
     return (
         <>
-            <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
-                <Collapse.Panel header="PostgreSQL - currently running queries" key="1">
-                    <div className="mb-4 float-right">
-                        <Checkbox
-                            checked={showIdle}
-                            onChange={(e) => {
-                                setShowIdle(e.target.checked)
-                            }}
-                        >
-                            Show idle queries
-                        </Checkbox>
-                        <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                            <ReloadOutlined /> Reload Queries
-                        </Button>
-                    </div>
-                    <QueryTable queries={postgresQueries} loading={queriesLoading} />
-                </Collapse.Panel>
-                {queries?.clickhouse_running != undefined ? (
-                    <Collapse.Panel header="Clickhouse - currently running queries" key="2">
-                        <div className="mb-4 float-right">
-                            <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                                <ReloadOutlined /> Reload Queries
-                            </Button>
-                        </div>
-                        <QueryTable
-                            queries={queries?.clickhouse_running}
-                            loading={queriesLoading}
-                            showAnalyze={showAnalyzeQueryButton}
-                        />
-                    </Collapse.Panel>
-                ) : null}
-                {queries?.clickhouse_slow_log != undefined ? (
-                    <Collapse.Panel header="Clickhouse - slow query log (past 6 hours)" key="3">
-                        <div className="mb-4 float-right">
-                            <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
-                                <ReloadOutlined /> Reload Queries
-                            </Button>
-                        </div>
-                        <QueryTable
-                            queries={queries?.clickhouse_slow_log}
-                            loading={queriesLoading}
-                            showAnalyze={showAnalyzeQueryButton}
-                        />
-                    </Collapse.Panel>
-                ) : null}
-            </Collapse>
-            <AnalyzeQueryModal />
+            <LemonCollapse
+                activeKeys={openSections}
+                onChange={(keys) => setOpenSections(keys)}
+                multiple
+                panels={[
+                    {
+                        key: '1',
+                        header: 'PostgreSQL - currently running queries',
+                        content: (
+                            <>
+                                <div className="mb-4 float-right">
+                                    <Checkbox
+                                        checked={showIdle}
+                                        onChange={(e) => {
+                                            setShowIdle(e.target.checked)
+                                        }}
+                                    >
+                                        Show idle queries
+                                    </Checkbox>
+                                    <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
+                                        <ReloadOutlined /> Reload Queries
+                                    </Button>
+                                </div>
+                                <QueryTable queries={postgresQueries} loading={queriesLoading} />
+                            </>
+                        ),
+                    },
+                    queries?.clickhouse_running != undefined && {
+                        key: '2',
+                        header: 'Clickhouse - currently running queries',
+                        content: (
+                            <>
+                                <div className="mb-4 float-right">
+                                    <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
+                                        <ReloadOutlined /> Reload Queries
+                                    </Button>
+                                </div>
+                                <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
+                            </>
+                        ),
+                    },
+                    queries?.clickhouse_slow_log != undefined && {
+                        key: '3',
+                        header: 'Clickhouse - slow query log (past 6 hours)',
+                        content: (
+                            <>
+                                <div className="mb-4 float-right">
+                                    <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
+                                        <ReloadOutlined /> Reload Queries
+                                    </Button>
+                                </div>
+                                <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} />
+                            </>
+                        ),
+                    },
+                ]}
+            />
         </>
     )
 }
 
 function QueryTable(props: {
-    showAnalyze?: boolean
     queries?: QuerySummary[]
     loading: boolean
     columnExtra?: Record<string, any>
 }): JSX.Element {
-    const { openAnalyzeModalWithQuery } = useActions(systemStatusLogic)
     const columns: ColumnsType<QuerySummary> = [
         {
             title: 'duration',
@@ -94,14 +101,7 @@ function QueryTable(props: {
             title: 'query',
             dataIndex: 'query',
             render: function RenderAnalyze({}, item: QuerySummary) {
-                if (!props.showAnalyze) {
-                    return item.query
-                }
-                return (
-                    <Link to="#" onClick={() => openAnalyzeModalWithQuery(item.query)}>
-                        {item.query}
-                    </Link>
-                )
+                return item.query
             },
             key: 'query',
         },

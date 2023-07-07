@@ -18,6 +18,7 @@ export function HeatmapElement({
     }
     return (
         <div
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'absolute',
                 top: `${rect.top + window.pageYOffset}px`,

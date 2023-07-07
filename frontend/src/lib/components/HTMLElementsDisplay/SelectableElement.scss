@@ -3,13 +3,13 @@
     border: 1px solid transparent;
     border-radius: 4px;
 
-    &:hover {
-        background: var(--blue-lightest);
+    &.SelectableElement--selected {
+        background: var(--primary);
     }
-
-    &--selected {
-        background: var(--blue-lightest);
-        color: black;
-        border-color: var(--blue-light);
+    &:hover {
+        background: var(--primary-light);
+    }
+    &:active {
+        background: var(--primary-dark);
     }
 }

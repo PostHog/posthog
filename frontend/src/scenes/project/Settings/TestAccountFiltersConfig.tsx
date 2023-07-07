@@ -6,10 +6,12 @@ import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam, currentTeamLoading, testAccountFilterWarningLabels, testAccountFilterFrequentMistakes } =
         useValues(teamLogic)
@@ -24,7 +26,7 @@ export function TestAccountFiltersConfig(): JSX.Element {
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4">
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
-                    <AlertMessage type="warning" className="m-2">
+                    <LemonBanner type="warning" className="m-2">
                         <p>
                             Positive filters here mean only events or persons matching these filters will be included.
                             Internal and test account filters are normally excluding filters like does not equal or does
@@ -38,10 +40,10 @@ export function TestAccountFiltersConfig(): JSX.Element {
                                 </li>
                             ))}
                         </ul>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 {!!testAccountFilterFrequentMistakes && testAccountFilterFrequentMistakes.length > 0 && (
-                    <AlertMessage type="warning" className="m-2">
+                    <LemonBanner type="warning" className="m-2">
                         <p>Your filter contains a setting that is likely to exclude or include unexpected users.</p>
                         <ul className="list-disc">
                             {testAccountFilterFrequentMistakes.map(({ key, type, fix }, i) => (
@@ -50,7 +52,7 @@ export function TestAccountFiltersConfig(): JSX.Element {
                                 </li>
                             ))}
                         </ul>
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
                 {currentTeam && (
                     <PropertyFilters
@@ -70,8 +72,8 @@ export function TestAccountFiltersConfig(): JSX.Element {
             </div>
             <LemonSwitch
                 onChange={(checked) => {
-                    localStorage.setItem('default_filter_test_accounts', checked.toString())
                     updateCurrentTeam({ test_account_filters_default_checked: checked })
+                    setTeamDefault(checked)
                 }}
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}

@@ -1,13 +1,11 @@
-import { Tabs } from 'antd'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { groupsListLogic } from './groupsListLogic'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { urls } from 'scenes/urls'
 
-export function GroupsTabs(): JSX.Element {
-    const { setTab } = useActions(groupsListLogic)
-    const { currentTab } = useValues(groupsListLogic)
+export function GroupsTabs({ activeGroupTypeIndex }: { activeGroupTypeIndex: number }): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -18,19 +16,31 @@ export function GroupsTabs(): JSX.Element {
     ].includes(groupsAccessStatus)
 
     return (
-        <Tabs activeKey={currentTab} onChange={(activeKey) => setTab(activeKey)}>
-            <Tabs.TabPane tab="Persons" key="-1" />
-
-            {showGroupsIntroductionPage ? (
-                <Tabs.TabPane tab="Groups" key="0" />
-            ) : (
-                groupTypes.map((groupType) => (
-                    <Tabs.TabPane
-                        tab={capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
-                        key={groupType.group_type_index}
-                    />
-                ))
-            )}
-        </Tabs>
+        <LemonTabs
+            activeKey={activeGroupTypeIndex}
+            tabs={[
+                {
+                    key: -1,
+                    label: 'Persons',
+                    link: urls.persons(),
+                },
+                ...(showGroupsIntroductionPage
+                    ? [
+                          {
+                              key: 0,
+                              label: 'Groups',
+                              link: urls.groups(0),
+                          },
+                      ]
+                    : groupTypes.map(
+                          (groupType) =>
+                              ({
+                                  label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                                  key: groupType.group_type_index,
+                                  link: urls.groups(groupType.group_type_index),
+                              } as LemonTab<number>)
+                      )),
+            ]}
+        />
     )
 }

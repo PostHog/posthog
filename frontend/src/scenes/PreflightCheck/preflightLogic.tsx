@@ -48,7 +48,6 @@ export const preflightLogic = kea<preflightLogicType>([
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
         handlePreflightFinished: true,
         setChecksManuallyExpanded: (expanded: boolean | null) => ({ expanded }),
-        acknowledgeEventBuffer: true,
         revalidatePreflight: true,
     }),
     reducers({
@@ -62,13 +61,6 @@ export const preflightLogic = kea<preflightLogicType>([
             null as boolean | null,
             {
                 setChecksManuallyExpanded: (_, { expanded }) => expanded,
-            },
-        ],
-        eventBufferAcknowledged: [
-            false,
-            { persist: true },
-            {
-                acknowledgeEventBuffer: () => true,
             },
         ],
     }),
@@ -100,12 +92,28 @@ export const preflightLogic = kea<preflightLogicType>([
                     {
                         id: 'redis',
                         name: 'Cache · Redis',
-                        status: preflight?.redis ? 'validated' : 'error',
+                        status: preflight?.redis
+                            ? 'validated'
+                            : preflightMode === 'experimentation'
+                            ? 'warning'
+                            : 'error',
+                        caption:
+                            !preflight?.redis && preflightMode === 'experimentation'
+                                ? 'Required in production environments'
+                                : undefined,
                     },
                     {
                         id: 'celery',
                         name: 'Background jobs · Celery',
-                        status: preflight?.celery ? 'validated' : 'error',
+                        status: preflight?.celery
+                            ? 'validated'
+                            : preflightMode === 'experimentation'
+                            ? 'warning'
+                            : 'error',
+                        caption:
+                            !preflight?.celery && preflightMode === 'experimentation'
+                                ? 'Required in production environments'
+                                : undefined,
                     },
                     {
                         id: 'plugins',

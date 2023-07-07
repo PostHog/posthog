@@ -57,10 +57,8 @@ class SessionRecording(UUIDModel):
             return True
 
         if self.object_storage_path:
-            self.load_object_data()
-
-            if not self._metadata:
-                return False
+            # Nothing todo as we have all the metadata in the model
+            pass
         else:
             # Try to load from Clickhouse
             metadata = SessionRecordingEvents(
@@ -111,12 +109,6 @@ class SessionRecording(UUIDModel):
         if not data:
             return
 
-        self._metadata = {  # type: ignore
-            "distinct_id": data["distinct_id"],
-            "start_and_end_times_by_window_id": data["start_and_end_times_by_window_id"],
-            "segments": data["segments"],
-        }
-
         self._snapshots = {
             "has_next": False,
             "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
@@ -132,16 +124,8 @@ class SessionRecording(UUIDModel):
         return self._snapshots["has_next"] if self._snapshots else False
 
     @property
-    def segments(self):
-        return self._metadata["segments"] if self._metadata else None
-
-    @property
-    def start_and_end_times_by_window_id(self):
-        return self._metadata["start_and_end_times_by_window_id"] if self._metadata else None
-
-    @property
     def storage(self):
-        return "object_storage" if self.object_storage_path else "clickhouse"
+        return "object_storage_lts" if self.object_storage_path else "clickhouse"
 
     def load_person(self) -> Optional[Person]:
         if self.person:
@@ -168,12 +152,12 @@ class SessionRecording(UUIDModel):
 
     def build_object_storage_path(self) -> str:
         path_parts: List[str] = [
-            settings.OBJECT_STORAGE_SESSION_RECORDING_FOLDER,
+            settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
             f"team-{self.team_id}",
             f"session-{self.session_id}",
         ]
 
-        return f'/{"/".join(path_parts)}'
+        return "/".join(path_parts)
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
@@ -208,13 +192,20 @@ class SessionRecording(UUIDModel):
             recording.keypress_count = ch_recording["keypress_count"]
             recording.duration = ch_recording["duration"]
             recording.distinct_id = ch_recording["distinct_id"]
-            recording.matching_events = ch_recording["matching_events"]
-            recording.set_start_url_from_urls(ch_recording["urls"])
+            recording.matching_events = ch_recording.get("matching_events", None)
+            # TODO add these new fields when we can add postgres migrations again
+            # recording.mouse_activity_count = ch_recording.get('mouse_activity_count', 0)
+            # recording.active_time = ch_recording.get('active_time', 0)
+            recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recordings.append(recording)
 
         return recordings
 
-    def set_start_url_from_urls(self, urls: Optional[List[str]] = None):
+    def set_start_url_from_urls(self, urls: Optional[List[str]] = None, first_url: Optional[str] = None):
+        if first_url:
+            self.start_url = first_url[:512]
+            return
+
         url = urls[0] if urls else None
         self.start_url = url.split("?")[0][:512] if url else None
 

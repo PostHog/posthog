@@ -29,7 +29,7 @@ export const lineGraphLogic = kea<lineGraphLogicType>({
                                     pointDataset?.compareLabels?.[dp.dataIndex] ??
                                     undefined,
                                 action: pointDataset?.action ?? pointDataset?.actions?.[dp.dataIndex] ?? undefined,
-                                label: pointDataset?.label ?? undefined,
+                                label: pointDataset?.label ?? pointDataset.labels?.[dp.dataIndex] ?? undefined,
                                 color: Array.isArray(pointDataset.borderColor)
                                     ? pointDataset.borderColor?.[dp.dataIndex]
                                     : pointDataset.borderColor,

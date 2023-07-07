@@ -2,11 +2,11 @@ import { kea, connect, path, actions, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '../navigationLogic'
+import posthog from 'posthog-js'
 
 import type { announcementLogicType } from './announcementLogicType'
 
@@ -16,6 +16,9 @@ export enum AnnouncementType {
     NewFeature = 'NewFeature',
     AttentionRequired = 'AttentionRequired',
 }
+
+export const DEFAULT_CLOUD_ANNOUNCEMENT =
+    "We're experiencing technical difficulties, see more at [status.posthog.com](https://status.posthog.com)"
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false
@@ -33,8 +36,6 @@ export const announcementLogic = kea<announcementLogicType>([
             ['user'],
             navigationLogic,
             ['asyncMigrationsOk'],
-            billingLogic,
-            ['alertToShow'],
         ],
     }),
     actions({
@@ -74,21 +75,18 @@ export const announcementLogic = kea<announcementLogicType>([
                 s.closable,
                 s.closed,
                 s.persistedClosedAnnouncements,
-                s.alertToShow,
             ],
             (
                 { pathname },
                 relevantAnnouncementType,
                 closable,
                 closed,
-                persistedClosedAnnouncements,
-                alertToShow
+                persistedClosedAnnouncements
             ): AnnouncementType | null => {
                 if (
                     (closable &&
                         (closed ||
                             (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
-                    alertToShow || // hide if there is a billing alert
                     pathname == urls.ingestion() // hide during the ingestion phase
                 ) {
                     return null
@@ -118,10 +116,14 @@ export const announcementLogic = kea<announcementLogicType>([
         cloudAnnouncement: [
             (s) => [s.featureFlags],
             (featureFlags): string | null => {
-                const flagValue = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
-                return !!flagValue && typeof flagValue === 'string'
-                    ? String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]).replace(/_/g, ' ')
-                    : null
+                const flagPayload = posthog.getFeatureFlagPayload(FEATURE_FLAGS.CLOUD_ANNOUNCEMENT)
+                const flagEnabled = featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]
+
+                if (flagEnabled && !flagPayload) {
+                    // Default to standard cloud announcement if no payload is set
+                    return DEFAULT_CLOUD_ANNOUNCEMENT
+                }
+                return !!flagPayload && typeof flagPayload === 'string' ? flagPayload : null
             },
         ],
     }),

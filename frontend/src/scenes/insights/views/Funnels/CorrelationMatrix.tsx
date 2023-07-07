@@ -1,7 +1,6 @@
 import { Button, Modal } from 'antd'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
@@ -16,15 +15,21 @@ import {
     IconTrendingFlat,
     IconTrendingFlatDown,
 } from 'lib/lemon-ui/icons'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import clsx from 'clsx'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const { correlationsLoading, funnelCorrelationDetails, parseDisplayNameForCorrelation, correlationMatrixAndScore } =
-        useValues(logic)
-    const { setFunnelCorrelationDetails, openCorrelationPersonsModal } = useActions(logic)
+    const { correlationsLoading } = useValues(funnelCorrelationLogic(insightProps))
+    const { funnelCorrelationDetails, correlationMatrixAndScore } = useValues(
+        funnelCorrelationDetailsLogic(insightProps)
+    )
+    const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
+    const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
 
     const actor = funnelCorrelationDetails?.result_type === FunnelCorrelationResultsType.Events ? 'event' : 'property'
     const action =
@@ -223,10 +228,10 @@ export function CorrelationMatrix(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    <AlertMessage type="error">
+                    <LemonBanner type="error">
                         We could not load the details for this correlation value. Please recreate your funnel and try
                         again.
-                    </AlertMessage>
+                    </LemonBanner>
                 )}
             </div>
         </Modal>

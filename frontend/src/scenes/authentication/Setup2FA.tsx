@@ -3,7 +3,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { useValues } from 'kea'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import './Setup2FA.scss'
 
 export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
@@ -16,14 +16,14 @@ export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element 
         <>
             <Form logic={setup2FALogic} formKey="token" enableFormOnSubmit className="flex flex-col space-y-4">
                 <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
-                {generalError && <AlertMessage type="error">{generalError.detail}</AlertMessage>}
+                {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}
                 <Field name="token" label="Authenticator token">
                     <LemonInput
                         className="ph-ignore-input"
                         autoFocus
                         data-attr="token"
                         placeholder="123456"
-                        type="number"
+                        inputMode="numeric"
                         autoComplete="one-time-code"
                     />
                 </Field>

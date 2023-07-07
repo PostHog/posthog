@@ -3,14 +3,14 @@ from typing import Any, Dict
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, serializers, viewsets, pagination
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation, Team
+from posthog.models import Annotation
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -48,11 +48,15 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
-        project = Team.objects.get(id=self.context["team_id"])
+        team = self.context["get_team"]()
         annotation = Annotation.objects.create(
-            organization=project.organization, team=project, created_by=request.user, **validated_data
+            organization_id=team.organization_id, team_id=team.id, created_by=request.user, **validated_data
         )
         return annotation
+
+
+class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
+    default_limit = 1000
 
 
 class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -64,7 +68,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
-    default_limit = 500
+    pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:

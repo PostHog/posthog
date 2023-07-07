@@ -195,6 +195,7 @@ export function EditableField({
                                     onClick={() => setLocalIsEditing(true)}
                                     data-attr={`edit-prop-${name}`}
                                     disabled={paywall}
+                                    noPadding
                                 />
                             )}
                         </>

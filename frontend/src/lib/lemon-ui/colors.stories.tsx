@@ -16,7 +16,6 @@ export default {
 
 const colorGroups = {
     primary: ['primary-highlight', 'primary-light', 'primary', 'primary-dark'],
-    orange: ['orange-highlight', 'orange-light', 'orange', 'orange-dark'],
     danger: ['danger-highlight', 'danger-light', 'danger', 'danger-dark'],
     warning: ['warning-highlight', 'warning-light', 'warning', 'warning-dark'],
     success: ['success-highlight', 'success-light', 'success', 'success-dark'],
@@ -24,7 +23,7 @@ const colorGroups = {
     'default (primary text)': ['default', 'default-dark'],
     'muted (secondary text)': ['muted', 'muted-dark'],
     'muted-alt ': ['muted-alt', 'muted-alt-dark'],
-    border: ['border', 'border-light', 'border-dark', 'border-active'],
+    border: ['border', 'border-light', 'border-bold', 'border-active'],
     light: ['white', 'light'],
 }
 

@@ -21,17 +21,15 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 4.
 5.
 
-## Support hero this sprint
-<!-- https://posthog.pagerduty.com/schedules#PPLGE4G -->
-Week 1: 
-Week 2:
 
 # Team sprint planning
 
 For your team sprint planning copy this template into a comment below for each team.
 
 ```
-Team ___
+# Team ___
+
+**Support hero:** ___
 
 ## Retro
 

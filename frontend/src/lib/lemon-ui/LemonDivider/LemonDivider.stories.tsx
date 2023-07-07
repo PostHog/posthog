@@ -42,6 +42,7 @@ const VerticalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDivid
         </div>
     )
 }
+VerticalTemplate.args = { vertical: true }
 
 export const Default = HorizontalTemplate.bind({})
 Default.args = {}
@@ -49,8 +50,11 @@ Default.args = {}
 export const Large = HorizontalTemplate.bind({})
 Large.args = { className: 'my-6' }
 
-export const Vertical = VerticalTemplate.bind({})
-Vertical.args = { vertical: true }
-
 export const ThickDashed = HorizontalTemplate.bind({})
 ThickDashed.args = { thick: true, dashed: true }
+
+export const Vertical = VerticalTemplate.bind({})
+Vertical.args = { ...VerticalTemplate.args }
+
+export const VerticalDashed = VerticalTemplate.bind({})
+VerticalDashed.args = { ...VerticalTemplate.args, dashed: true }

@@ -1,9 +1,10 @@
 import { InsightTooltip } from './InsightTooltip'
-import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useMountedLogic } from 'kea'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { InsightTooltipProps } from './insightTooltipUtils'
+import { humanFriendlyNumber } from 'lib/utils'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 const data = {
     date: '2022-08-31',
@@ -125,7 +126,6 @@ export default {
         seriesData: { defaultValue: data.seriesData as any },
         hideColorCol: { defaultValue: false },
         renderCount: { defaultValue: (value: number): string => `${value}` },
-        forceEntitiesAsColumns: { defaultValue: false },
         groupTypeLabel: { defaultValue: 'people' },
     },
     parameters: {
@@ -134,7 +134,6 @@ export default {
 } as ComponentMeta<typeof InsightTooltip>
 
 const BasicTemplate: ComponentStory<typeof InsightTooltip> = (props: InsightTooltipProps) => {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 
     return <InsightTooltip {...props} />
@@ -145,11 +144,10 @@ Default.args = {}
 
 export const Columns = BasicTemplate.bind({})
 Columns.args = {
-    forceEntitiesAsColumns: true,
+    entitiesAsColumnsOverride: true,
 }
 
 export function InWrapper(): JSX.Element {
-    useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
 
     return (
@@ -159,7 +157,21 @@ export function InWrapper(): JSX.Element {
                     date={data.date}
                     timezone={data.timezone}
                     seriesData={data.seriesData as any}
-                    renderCount={(value: number): string => `${value}`}
+                    renderCount={(value: number): string => humanFriendlyNumber(value)}
+                    renderSeries={(value, datum) => {
+                        const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+                        return (
+                            <div className="datum-label-column">
+                                <SeriesLetter
+                                    className="mr-2"
+                                    hasBreakdown={hasBreakdown}
+                                    seriesIndex={datum?.action?.order ?? datum.id}
+                                    seriesColor={datum.color}
+                                />
+                                {value}
+                            </div>
+                        )
+                    }}
                     groupTypeLabel={'people'}
                 />
             </div>

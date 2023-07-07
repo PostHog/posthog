@@ -6,10 +6,10 @@ from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
-from posthog.models.event.events_query import QUERY_DEFAULT_LIMIT
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
@@ -22,7 +22,7 @@ from posthog.utils import relative_date_parse
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
-    for (k, v) in conditions.items():
+    for k, v in conditions.items():
         if not isinstance(v, str):
             continue
         if k == "after":
@@ -60,18 +60,20 @@ def query_events_list(
     order_by: List[str],
     action_id: Optional[str],
     unbounded_date_from: bool = False,
-    limit: int = QUERY_DEFAULT_LIMIT,
+    limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,
 ) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext(within_non_hogql_query=True)
+    hogql_context = HogQLContext(within_non_hogql_query=True, team_id=team.pk, enable_select_queries=True)
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"
 
     if offset > 0:
         limit_sql += " OFFSET %(offset)s"
+
+    workload = Workload.OFFLINE if unbounded_date_from else Workload.ONLINE
 
     conditions, condition_params = determine_event_conditions(
         {
@@ -111,7 +113,8 @@ def query_events_list(
                 **hogql_context.values,
             },
             query_type="events_list",
-            workload=Workload.OFFLINE,
+            workload=workload,
+            team_id=team.pk,
         )
     else:
         return insight_query_with_columns(
@@ -124,5 +127,6 @@ def query_events_list(
                 **hogql_context.values,
             },
             query_type="events_list",
-            workload=Workload.OFFLINE,
+            workload=workload,
+            team_id=team.pk,
         )

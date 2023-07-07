@@ -2,9 +2,11 @@ import concurrent.futures
 from typing import cast
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
+import pytest
+from posthog.database_healthcheck import postgres_healthcheck
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
@@ -15,7 +17,7 @@ from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatchReason,
     FlagsMatcherCache,
     get_all_feature_flags,
-    hash_key_overrides,
+    get_feature_flag_hash_key_overrides,
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
@@ -53,6 +55,35 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                     "rollout_percentage": None,
                 }
             ],
+        )
+
+    def test_cohort_expansion_with_negation(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "value": ["@posthog.com"],
+                            "type": "person",
+                            "operator": "icontains",
+                            "negation": True,
+                        }
+                    ]
+                }
+            ],
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
+        )
+        self.assertEqual(
+            flag.transform_cohort_filters_for_easy_evaluation(),
+            [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}],
         )
 
     def test_cohort_expansion_multiple_properties(self):
@@ -616,6 +647,128 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
 
+    def test_coercion_of_booleans(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "enabled": True,
+                "string_enabled": "true",
+            },
+        )
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "enabled", "value": ["true"], "operator": "exact", "type": "person"}]}
+                ]
+            },
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "enabled", "value": True, "operator": "exact", "type": "person"}]},
+                    {"properties": [{"key": "enabled", "value": [True], "operator": "exact", "type": "person"}]},
+                ]
+            },
+        )
+        feature_flag3 = self.create_feature_flag(
+            key="random3",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "string_enabled", "value": [True], "operator": "exact", "type": "person"}]},
+                    {"properties": [{"key": "string_enabled", "value": True, "operator": "exact", "type": "person"}]},
+                ]
+            },
+        )
+        feature_flag4 = self.create_feature_flag(
+            key="random4",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "string_enabled", "value": ['"true"'], "operator": "exact", "type": "person"}
+                        ]
+                    },
+                    {
+                        "properties": [
+                            {"key": "string_enabled", "value": '"true"', "operator": "exact", "type": "person"}
+                        ]
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag1], "307").get_match(feature_flag1),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag2], "307").get_match(feature_flag2),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag3], "307").get_match(feature_flag3),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag4], "307").get_match(feature_flag4),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag1], "307", property_value_overrides={"enabled": True}).get_match(
+                feature_flag1
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"enabled": True}).get_match(
+                feature_flag2
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag3], "307", property_value_overrides={"string_enabled": True}).get_match(
+                feature_flag3
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag4], "307", property_value_overrides={"string_enabled": True}).get_match(
+                feature_flag4
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag1], "307", property_value_overrides={"enabled": "true"}).get_match(
+                feature_flag1
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"enabled": "true"}).get_match(
+                feature_flag2
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag3], "307", property_value_overrides={"string_enabled": "true"}).get_match(
+                feature_flag3
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag4], "307", property_value_overrides={"string_enabled": "true"}).get_match(
+                feature_flag4
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
     @snapshot_postgres_queries
     def test_db_matches_independent_of_string_or_number_type(self):
         Person.objects.create(
@@ -749,6 +902,417 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
+
+    def test_super_condition_matches_boolean(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": ["true"]}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
+        )
+
+    def test_super_condition_matches_string(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": "true"}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": "true"}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        with snapshot_postgres_queries_context(self):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+            )
+
+    def test_super_condition_matches_and_false(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": False}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
+        )
+
+    def test_super_condition_is_not_set(self):
+        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
+        )
+
+    def test_super_condition_promoted(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        # Rollout to everyone
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+
+    def test_super_condition_rolled_out_to_50(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": True}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 50,
+                    },
+                ],
+            },
+        )
+
+        # Rollout to everyone
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
+        )
+
+    def test_super_condition_with_override_properties(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com", "is_enabled": False}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id", property_value_overrides={"is_enabled": True}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+
+    def test_super_condition_with_override_properties_with_property_not_ingested(self):
+        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "fake@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 0,
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"is_enabled": True}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id", property_value_overrides={"is_enabled": True}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+        )
+
+    @pytest.mark.skip("TODO: We're going to the database for now, but we should be able to do this in memory.")
+    def test_super_condition_with_override_properties_doesnt_make_database_requests(self):
+        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {"rollout_percentage": 50},
+                ],
+                "super_groups": [
+                    {
+                        "properties": [{"key": "is_enabled", "type": "person", "operator": "exact", "value": True}],
+                        "rollout_percentage": 100,
+                    },
+                ],
+            },
+        )
+
+        with self.assertNumQueries(0), snapshot_postgres_queries_context(self):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(
+                    feature_flag
+                ),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+            )
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag], "example_id", property_value_overrides={"is_enabled": True}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
+            )
 
     def test_flag_with_variant_overrides(self):
         Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
@@ -1419,6 +1983,269 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
+    def test_cohort_cache_no_unnecessary_queries(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": r"@posthog\.com$",
+                            "negation": False,
+                            "operator": "regex",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        }
+                    ]
+                }
+            ],
+            name="cohort2",
+        )
+
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+        feature_flag2: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}]}
+        )
+        feature_flag3: FeatureFlag = self.create_feature_flag(
+            key="x2",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]},
+                    {"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+                ]
+            },
+        )
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        with self.assertNumQueries(6):
+            # no double queries for the same cohort
+            # no team queries
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2, feature_flag3], "example_id", property_value_overrides={}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    def test_cohort_filters_with_override_properties(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": r"@posthog\.com$",
+                            "negation": False,
+                            "operator": "regex",
+                        }
+                    ]
+                }
+            ],
+            name="cohort1",
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        }
+                    ]
+                }
+            ],
+            name="cohort2",
+        )
+
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+        feature_flag2: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}]}
+        )
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        with self.assertNumQueries(6):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1, feature_flag2], "example_id", property_value_overrides={}).get_match(
+                    feature_flag1
+                ),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no local computation because cohort lookup is required
+            # no postgres person query required here to get the person, because email is sufficient
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2], "example_id", property_value_overrides={"email": "bzz"}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no postgres query required here to get the person
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # Random person doesn't yet exist, but still should resolve thanks to overrides
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2], "random_id", property_value_overrides={"email": "xxx"}
+                ).get_match(feature_flag2),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1, feature_flag2],
+                    "random_id",
+                    property_value_overrides={"email": "example@posthog.com"},
+                ).get_match(feature_flag2),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+    @pytest.mark.skip("This case is not supported yet")
+    def test_complex_cohort_filter_with_override_properties(self):
+        # TODO: Currently we don't support this case for persons who haven't been ingested yet
+        # The case:
+        # - A cohort has multiple conditions
+        # - All of which are the _same_ / are true for the same property.
+        # Example: email contains .com ; email contains @ ; email contains posthog
+        # -> 3 different filters, all of which match neil@posthog.com.
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": r"@posthog\.com$",
+                            "negation": False,
+                            "operator": "regex",
+                        }
+                    ]
+                },
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@posthog.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        }
+                    ]
+                },
+            ],
+            name="cohort1",
+        )
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            key="x1", filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no local computation because cohort lookup is required
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={"email": "bzz"}).get_match(
+                    feature_flag1
+                ),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+    def test_cohort_filters_with_multiple_OR_override_properties(self):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": r"@posthog\.com$",
+                                    "negation": False,
+                                    "operator": "regex",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": ["fuzion@xyz.com"], "operator": "exact"}
+                            ],
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        feature_flag1: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}]}
+        )
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        with self.assertNumQueries(5):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+        with self.assertNumQueries(5):
+            # no local computation because cohort lookup is required
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag1], "example_id", property_value_overrides={"email": "neil@posthog.com"}
+                ).get_match(feature_flag1),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
     def test_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
         cohort = Cohort.objects.create(
@@ -1797,10 +2624,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
 
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
-
         set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
 
         with connection.cursor() as cursor:
@@ -1813,15 +2638,30 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
 
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
-
         set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
 
-        hash_keys = hash_key_overrides(self.team.pk, self.person.id)
+        hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["example_id"])
 
         self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
+
+    def test_hash_key_overrides_for_multiple_ids_when_people_are_not_merged(self):
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["1"], properties={"email": "beuk@posthog.com", "team": "posthog"}
+        )
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["2"], properties={"email": "beuk2@posthog.com", "team": "posthog"}
+        )
+
+        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1")
+        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2")
+
+        hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
+
+        self.assertEqual(hash_keys, {"beta-feature": "other_id1", "multivariate-flag": "other_id1"})
 
     def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
 
@@ -1840,7 +2680,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
         # and now we come to get new overrides
         set_feature_flag_hash_key_overrides(
-            all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
+            team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
 
         with connection.cursor() as cursor:
@@ -1850,6 +2690,19 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             res = cursor.fetchall()
             self.assertEqual(len(res), 3)
             self.assertEqual({var[0] for var in res}, {hash_key})
+
+    def test_setting_overrides_when_persons_dont_exist(self):
+
+        set_feature_flag_hash_key_overrides(
+            team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT hash_key FROM posthog_featureflaghashkeyoverride WHERE team_id = {self.team.pk} AND person_id={self.person.id}"
+            )
+            res = cursor.fetchall()
+            self.assertEqual(len(res), 0)
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
@@ -1884,7 +2737,11 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
-class TestHashKeyOverridesRaceConditions(TransactionTestCase):
+class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
+    def setUp(self) -> None:
+        postgres_healthcheck.set_connection(True)
+        return super().setUp()
+
     def test_hash_key_overrides_with_race_conditions(self):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
@@ -1933,7 +2790,8 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
-                flags, reasons, payloads, _ = future.result()
+                flags, reasons, payloads, errors = future.result()
+                assert errors is False
                 assert flags == {
                     "beta-feature": True,
                     "multivariate-flag": "first-variant",
@@ -1941,6 +2799,231 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 }
 
                 # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
+
+    def test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging(self):
+        def insert_fail(execute, sql, *args, **kwargs):
+            if "statement_timeout" in sql:
+                return execute(sql, *args, **kwargs)
+            if "insert" in sql.lower():
+                # run the sql so it shows up in snapshots
+                execute(sql, *args, **kwargs)
+
+                raise IntegrityError(
+                    """
+                    insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
+                    DETAIL:  Key (person_id)=(1487010281) is not present in table "posthog_person".
+                """
+                )
+            return execute(sql, *args, **kwargs)
+
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(insert_fail):
+            flags, reasons, payloads, errors = get_all_feature_flags(
+                team.pk, "other_id", {}, hash_key_override="example_id"
+            )
+            assert errors is False
+            # overrides failed since both insert failed :shrug:
+            assert flags == {
+                "beta-feature": False,
+                "multivariate-flag": "third-variant",
+                "default-flag": True,
+            }
+
+    def test_hash_key_overrides_with_simulated_race_conditions_on_person_merging(self):
+        class InsertFailOnce:
+            def __init__(self):
+                self.has_failed = False
+
+            def __call__(self, execute, sql, *args, **kwargs):
+                if "statement_timeout" in sql:
+                    return execute(sql, *args, **kwargs)
+                if "insert" in sql.lower() and not self.has_failed:
+                    self.has_failed = True
+                    # run the sql so it shows up in snapshots
+                    execute(sql, *args, **kwargs)
+                    # then raise an error
+                    raise IntegrityError(
+                        """
+                        insert or update on table "posthog_featureflaghashkeyoverride" violates foreign key constraint "posthog_featureflagh_person_id_7e517f7c_fk_posthog_p"
+                        DETAIL:  Key (person_id)=(1487010281) is not present in table "posthog_person".
+                    """
+                    )
+                return execute(sql, *args, **kwargs)
+
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(
+            InsertFailOnce()
+        ):
+            flags, reasons, payloads, errors = get_all_feature_flags(
+                team.pk, "other_id", {}, hash_key_override="example_id"
+            )
+            assert errors is False
+            # overrides succeeded on second try
+            assert flags == {
+                "beta-feature": True,
+                "multivariate-flag": "first-variant",
+                "default-flag": True,
+            }
+
+    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self):
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        person1 = Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+        person2 = Person.objects.create(
+            team=team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        def delete_and_add(person, person2, distinct_id):
+            FeatureFlagHashKeyOverride.objects.filter(person=person).delete()
+            Person.objects.filter(id=person.id).delete()
+            person2.add_distinct_id(distinct_id)
+            return True, "deleted and added", {}, False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_index = {
+                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
+                for index in range(5)
+            }
+
+            future_to_index = {
+                executor.submit(delete_and_add, person1, person2, "example_id"): 10,
+                **future_to_index,
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                flags, reasons, payloads, errors = future.result()
+                if flags is not True:  # type: ignore
+                    assert errors is False
+                    assert flags == {
+                        "beta-feature": True,
+                        "multivariate-flag": "first-variant",
+                        "default-flag": True,
+                    }
+
+                # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
+                # or if the insert fails because person was deleted
 
 
 class TestFeatureFlagMatcherConsistency(BaseTest):

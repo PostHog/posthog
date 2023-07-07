@@ -1,6 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { BindLogic, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -11,45 +10,29 @@ import {
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
     ChartParams,
+    DashboardBasicType,
     DashboardPlacement,
     DashboardTile,
     DashboardType,
-    ExporterFormat,
     FilterType,
     InsightColor,
     InsightLogicProps,
     InsightModel,
     InsightType,
 } from '~/types'
-import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Link } from 'lib/lemon-ui/Link'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
-import { InsightDetails } from './InsightDetails'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
+
 import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
-import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import {
@@ -59,14 +42,16 @@ import {
     isRetentionFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { Query } from '~/queries/Query/Query'
-import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
-import { InsightVizNode } from '~/queries/schema'
-import { PieChartFilled } from '@ant-design/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { QueryContext } from '~/queries/schema'
+import { InsightMeta } from './InsightMeta'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -165,310 +150,30 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     refresh?: () => void
     rename?: () => void
     duplicate?: () => void
-    moveToDashboard?: (dashboard: DashboardType) => void
+    moveToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
-    dashboardPlacement?: DashboardPlacement | null
-}
-
-interface InsightMetaProps
-    extends Pick<
-        InsightCardProps,
-        | 'insight'
-        | 'ribbonColor'
-        | 'updateColor'
-        | 'removeFromDashboard'
-        | 'deleteWithUndo'
-        | 'refresh'
-        | 'rename'
-        | 'duplicate'
-        | 'dashboardId'
-        | 'moveToDashboard'
-        | 'showEditingControls'
-        | 'showDetailsControls'
-        | 'moreButtons'
-    > {
-    /**
-     * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
-     * with InsightMeta in a way that makes it possible for meta to overlay viz in expanded (InsightDetails) state.
-     */
-    setPrimaryHeight?: (primaryHeight: number | undefined) => void
-    areDetailsShown?: boolean
-    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
-}
-
-function InsightMeta({
-    insight,
-    ribbonColor,
-    dashboardId,
-    updateColor,
-    removeFromDashboard,
-    deleteWithUndo,
-    refresh,
-    rename,
-    duplicate,
-    moveToDashboard,
-    setPrimaryHeight,
-    areDetailsShown,
-    setAreDetailsShown,
-    showEditingControls = true,
-    showDetailsControls = true,
-    moreButtons,
-}: InsightMetaProps): JSX.Element {
-    const { short_id, name, filters, dashboards } = insight
-    const { exporterResourceParams, insightProps } = useValues(insightLogic)
-    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
-    const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
-        (d: DashboardType) => !dashboards?.includes(d.id)
-    )
-    const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
-
-    // not all interactions are currently implemented for queries
-    const allInteractionsAllowed = !insight.query
-
-    const summary = !!name
-        ? null
-        : !!Object.keys(insight.filters).length
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : !!insight.query
-        ? isInsightVizNode(insight.query)
-            ? summarizeInsightQuery(
-                  (insight.query as InsightVizNode).source,
-                  aggregationLabel,
-                  cohortsById,
-                  mathDefinitions
-              )
-            : // TODO summarise other kinds of query too
-              'query: ' + insight.query.kind
-        : null
-
-    return (
-        <CardMeta
-            setPrimaryHeight={setPrimaryHeight}
-            ribbonColor={ribbonColor}
-            showEditingControls={showEditingControls}
-            showDetailsControls={showDetailsControls}
-            setAreDetailsShown={setAreDetailsShown}
-            areDetailsShown={areDetailsShown}
-            className={'border-b'}
-            topHeading={<TopHeading insight={insight} />}
-            meta={
-                <>
-                    <Link to={urls.insightView(short_id)}>
-                        <h4 title={name} data-attr="insight-card-title">
-                            {name || <i>{summary}</i>}
-                        </h4>
-                    </Link>
-
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
-                    {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
-                    <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
-                </>
-            }
-            metaDetails={<InsightDetails insight={insight} />}
-            samplingNotice={
-                insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
-                    <Tooltip
-                        title={`Insight contains data sampled at a ${100 * insight.filters.sampling_factor}% rate`}
-                    >
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
-                    </Tooltip>
-                ) : null
-            }
-            moreButtons={
-                <>
-                    {allInteractionsAllowed && (
-                        <>
-                            <LemonButton status="stealth" to={urls.insightView(short_id)} fullWidth>
-                                View
-                            </LemonButton>
-                            {refresh && (
-                                <LemonButton
-                                    status="stealth"
-                                    onClick={() => {
-                                        refresh()
-                                        reportDashboardItemRefreshed(insight)
-                                    }}
-                                    fullWidth
-                                >
-                                    Refresh
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
-                    {editable && updateColor && (
-                        <LemonButtonWithDropdown
-                            status="stealth"
-                            dropdown={{
-                                overlay: Object.values(InsightColor).map((availableColor) => (
-                                    <LemonButton
-                                        key={availableColor}
-                                        active={availableColor === (ribbonColor || InsightColor.White)}
-                                        status="stealth"
-                                        onClick={() => updateColor(availableColor)}
-                                        icon={
-                                            availableColor !== InsightColor.White ? (
-                                                <Splotch color={availableColor as string as SplotchColor} />
-                                            ) : null
-                                        }
-                                        fullWidth
-                                    >
-                                        {availableColor !== InsightColor.White
-                                            ? capitalizeFirstLetter(availableColor)
-                                            : 'No color'}
-                                    </LemonButton>
-                                )),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                            fullWidth
-                        >
-                            Set color
-                        </LemonButtonWithDropdown>
-                    )}
-                    {editable && moveToDashboard && otherDashboards.length > 0 && (
-                        <LemonButtonWithDropdown
-                            status="stealth"
-                            dropdown={{
-                                overlay: otherDashboards.map((otherDashboard) => (
-                                    <LemonButton
-                                        key={otherDashboard.id}
-                                        status="stealth"
-                                        onClick={() => {
-                                            moveToDashboard(otherDashboard)
-                                        }}
-                                        fullWidth
-                                    >
-                                        {otherDashboard.name || <i>Untitled</i>}
-                                    </LemonButton>
-                                )),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                            fullWidth
-                        >
-                            Move to
-                        </LemonButtonWithDropdown>
-                    )}
-                    <LemonDivider />
-                    {editable && allInteractionsAllowed && (
-                        <LemonButton status="stealth" to={urls.insightEdit(short_id)} fullWidth>
-                            Edit
-                        </LemonButton>
-                    )}
-                    {editable && (
-                        <LemonButton status="stealth" onClick={rename} fullWidth>
-                            Rename
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        status="stealth"
-                        onClick={duplicate}
-                        fullWidth
-                        data-attr={
-                            dashboardId ? 'duplicate-insight-from-dashboard' : 'duplicate-insight-from-card-list-view'
-                        }
-                    >
-                        Duplicate
-                    </LemonButton>
-                    <LemonDivider />
-                    {exporterResourceParams ? (
-                        <ExportButton
-                            fullWidth
-                            items={[
-                                {
-                                    export_format: ExporterFormat.PNG,
-                                    insight: insight.id,
-                                    dashboard: insightProps.dashboardId,
-                                },
-                                {
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: exporterResourceParams,
-                                },
-                            ]}
-                        />
-                    ) : null}
-                    {moreButtons && (
-                        <>
-                            <LemonDivider />
-                            {moreButtons}
-                        </>
-                    )}
-                    {editable && (
-                        <>
-                            <LemonDivider />
-                            {removeFromDashboard ? (
-                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
-                                    Remove from dashboard
-                                </LemonButton>
-                            ) : allInteractionsAllowed ? (
-                                <LemonButton status="danger" onClick={deleteWithUndo} fullWidth>
-                                    Delete insight
-                                </LemonButton>
-                            ) : null}
-                        </>
-                    )}
-                </>
-            }
-        />
-    )
-}
-
-function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
-    const { filters, query } = insight
-
-    let insightType: InsightTypeMetadata
-
-    // check the query first because the backend still adds defaults to empty filters :/
-    if (!!query?.kind) {
-        insightType = QUERY_TYPES_METADATA[query.kind]
-    } else if (!!filters.insight) {
-        insightType = INSIGHT_TYPES_METADATA[filters.insight]
-    } else {
-        // maintain the existing default
-        insightType = INSIGHT_TYPES_METADATA[InsightType.TRENDS]
-    }
-
-    let { date_from, date_to } = filters
-    if (!!query) {
-        const queryDateRange = dateRangeFor(query)
-        if (!!queryDateRange) {
-            date_from = queryDateRange.date_from
-            date_to = queryDateRange.date_to
-        }
-    }
-
-    const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
-    return (
-        <>
-            <span title={insightType?.description}>{insightType?.name}</span> •{' '}
-            {dateFilterToText(date_from, date_to, defaultDateRange)}
-        </>
-    )
+    placement: DashboardPlacement | 'SavedInsightGrid'
 }
 
 function VizComponentFallback(): JSX.Element {
-    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
+    return <LemonBanner type="warning">Unknown insight display type</LemonBanner>
 }
 
-export interface InsightVizProps
+export interface FilterBasedCardContentProps
     extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     invalidFunnelExclusion?: boolean
     empty?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    /** pass in information from queries, e.g. what text to use for empty states*/
+    context?: QueryContext
 }
 
-export function InsightViz({
+export function FilterBasedCardContent({
     insight,
+    insightProps,
     loading,
     setAreDetailsShown,
     style,
@@ -477,10 +182,16 @@ export function InsightViz({
     empty,
     tooFewFunnelSteps,
     invalidFunnelExclusion,
-}: InsightVizProps): JSX.Element {
+    context,
+}: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
-
+    const query = filtersToQueryNode(insight.filters)
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(insightProps.cachedInsight, query),
+    }
     useEffect(() => {
         // If displaying a BoldNumber Trends insight, we need to fire the window resize event
         // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
@@ -495,37 +206,35 @@ export function InsightViz({
     }, [style?.height])
 
     return (
-        <div
-            className="InsightViz"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
-            onClick={
-                setAreDetailsShown
-                    ? () => {
-                          setAreDetailsShown?.(false)
-                      }
-                    : undefined
-            }
-        >
-            {loading && !timedOut && <SpinnerOverlay />}
-            {tooFewFunnelSteps ? (
-                <FunnelSingleStepState actionable={false} />
-            ) : invalidFunnelExclusion ? (
-                <FunnelInvalidExclusionState />
-            ) : empty ? (
-                <InsightEmptyState />
-            ) : timedOut ? (
-                <InsightTimeoutState
-                    isLoading={!!loading}
-                    insightProps={{ dashboardItemId: undefined }}
-                    insightType={insight.filters.insight}
-                />
-            ) : apiErrored && !loading ? (
-                <InsightErrorState excludeDetail />
-            ) : (
-                !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} />
-            )}
-        </div>
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <div
+                className="InsightViz"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={style}
+                onClick={
+                    setAreDetailsShown
+                        ? () => {
+                              setAreDetailsShown?.(false)
+                          }
+                        : undefined
+                }
+            >
+                {loading && <SpinnerOverlay />}
+                {tooFewFunnelSteps ? (
+                    <FunnelSingleStepState actionable={false} />
+                ) : invalidFunnelExclusion ? (
+                    <FunnelInvalidExclusionState />
+                ) : empty ? (
+                    <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                ) : !loading && timedOut ? (
+                    <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
+                ) : apiErrored && !loading ? (
+                    <InsightErrorState excludeDetail />
+                ) : (
+                    !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
+                )}
+            </div>
+        </BindLogic>
     )
 }
 
@@ -552,7 +261,7 @@ function InsightCardInternal(
         className,
         children,
         moreButtons,
-        dashboardPlacement,
+        placement,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -564,11 +273,9 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
-        funnelLogic(insightLogicProps)
+        funnelDataLogic(insightLogicProps)
     )
 
     let tooFewFunnelSteps = false
@@ -587,15 +294,15 @@ function InsightCardInternal(
     if (insightLoading) {
         loading = true
     }
-    if (!!erroredQueryId) {
-        apiErrored = true
-    }
-    if (!!timedOutQueryId) {
-        timedOut = true
-    }
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+
+    const canMakeQueryAPICalls =
+        placement === 'SavedInsightGrid' ||
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
+            placement
+        )
 
     return (
         <div
@@ -635,19 +342,18 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        {isUsingDashboardQueryTiles &&
-                        dashboardPlacement &&
-                        ![DashboardPlacement.Public, DashboardPlacement.Export].includes(dashboardPlacement) ? (
-                            <Query query={insight.query} readOnly={true} />
+                        {!!insight.result ? (
+                            <Query query={insight.query} cachedResults={insight.result} readOnly />
+                        ) : canMakeQueryAPICalls ? (
+                            <Query query={insight.query} readOnly />
                         ) : (
-                            <>
-                                <QueriesUnsupportedHere />
-                            </>
+                            <QueriesUnsupportedHere />
                         )}
                     </div>
                 ) : (
-                    <InsightViz
+                    <FilterBasedCardContent
                         insight={insight}
+                        insightProps={insightLogicProps}
                         loading={loading}
                         apiErrored={apiErrored}
                         timedOut={timedOut}

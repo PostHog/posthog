@@ -91,7 +91,7 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
     ENGINE = Kafka(
-        '{KAFKA_HOSTS}', -- Kafka hosts
+        '{",".join(KAFKA_HOSTS)}', -- Kafka hosts
         '{KAFKA_PERSON_OVERRIDE}', -- Kafka topic
         'clickhouse-person-overrides', -- Kafka consumer group id
         'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
@@ -160,7 +160,7 @@ GROUP BY
 
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
-    CREATE OR REPLACE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
         team_id INT,
         old_person_id UUID,

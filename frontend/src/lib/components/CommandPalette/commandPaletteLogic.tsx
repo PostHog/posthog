@@ -117,7 +117,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic, dashboardsModel],
+        logic: [preflightLogic],
     },
     actions: {
         hidePalette: true,
@@ -567,6 +567,19 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         : [],
             }
 
+            const debugCopySessionRecordingURL: Command = {
+                key: 'debug-copy-session-recording-url',
+                scope: GLOBAL_COMMAND_SCOPE,
+                resolver: {
+                    icon: IconRecording,
+                    display: 'Debug: Copy the session recording link to clipboard',
+                    executor: () => {
+                        const url = posthog.get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+                        void copyToClipboard(url, 'Current session recording link to clipboard')
+                    },
+                },
+            }
+
             const calculator: Command = {
                 key: 'calculator',
                 scope: GLOBAL_COMMAND_SCOPE,
@@ -584,7 +597,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                   display: `= ${result}`,
                                   guarantee: true,
                                   executor: () => {
-                                      copyToClipboard(result.toString(), 'calculation result')
+                                      void copyToClipboard(result.toString(), 'calculation result')
                                   },
                               }
                     } catch {
@@ -743,6 +756,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
             actions.registerCommand(createPersonalApiKey)
             actions.registerCommand(createDashboard)
             actions.registerCommand(shareFeedback)
+            actions.registerCommand(debugCopySessionRecordingURL)
         },
         beforeUnmount: () => {
             actions.deregisterCommand('go-to')
@@ -752,6 +766,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
             actions.deregisterCommand('create-personal-api-key')
             actions.deregisterCommand('create-dashboard')
             actions.deregisterCommand('share-feedback')
+            actions.deregisterCommand('debug-copy-session-recording-url')
         },
     }),
 })

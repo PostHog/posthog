@@ -1,8 +1,7 @@
-import { FilterType } from './../types'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { userLogicType } from './userLogicType'
-import { AvailableFeature, OrganizationBasicType, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -26,7 +25,7 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-        setGlobalSessionFilters: (globalSessionFilters: Partial<FilterType>) => ({ globalSessionFilters }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -91,14 +90,8 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
-        globalSessionFilters: [
-            {} as Partial<FilterType>,
-            {
-                setGlobalSessionFilters: (_, { globalSessionFilters }) => globalSessionFilters,
-            },
-        ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         logout: () => {
             posthog.reset()
             window.location.href = '/logout'
@@ -179,12 +172,39 @@ export const userLogic = kea<userLogicType>([
             await api.update('api/users/@me/', { set_current_organization: organizationId })
             window.location.href = destination || '/'
         },
+        updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
+            await breakpoint(10)
+            await api
+                .update('api/users/@me/', {
+                    has_seen_product_intro_for: {
+                        ...values.user?.has_seen_product_intro_for,
+                        [productKey]: value,
+                    },
+                })
+                .then(() => {
+                    actions.loadUser()
+                })
+        },
     })),
     selectors({
         hasAvailableFeature: [
             (s) => [s.user],
             (user) => {
-                return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
+                return (feature: AvailableFeature, currentUsage?: number) => {
+                    const availableProductFeatures = user?.organization?.available_product_features
+                    if (availableProductFeatures && availableProductFeatures.length > 0) {
+                        const availableFeature = availableProductFeatures.find((obj) => obj.key === feature)
+                        return availableFeature
+                            ? currentUsage
+                                ? availableFeature?.limit
+                                    ? availableFeature?.limit > currentUsage
+                                    : true
+                                : true
+                            : false
+                    }
+                    // if we don't have the new available_product_features obj, fallback to old available_features
+                    return !!user?.organization?.available_features.includes(feature)
+                }
             },
         ],
         otherOrganizations: [

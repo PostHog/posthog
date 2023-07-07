@@ -25,6 +25,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                         status="stealth"
                         onClick={onClose}
                         aria-label="close"
+                        noPadding
                     />
                 )}
             </div>

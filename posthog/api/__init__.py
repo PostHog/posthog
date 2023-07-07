@@ -1,7 +1,9 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
+from posthog.warehouse.api import table
 
 from . import (
     activity_log,
@@ -10,6 +12,7 @@ from . import (
     async_migration,
     authentication,
     dead_letter_queue,
+    early_access_feature,
     event_definition,
     exports,
     feature_flag,
@@ -18,6 +21,7 @@ from . import (
     instance_status,
     integration,
     kafka_inspector,
+    notebook,
     organization,
     organization_domain,
     organization_invite,
@@ -29,13 +33,14 @@ from . import (
     property_definition,
     query,
     sharing,
-    site_app,
+    survey,
     tagged_item,
     team,
     uploaded_media,
     user,
 )
 from .dashboards import dashboard, dashboard_templates
+from .data_management import DataManagementViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -48,9 +53,11 @@ def api_not_found(request):
 router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
-router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
-router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be deleted - unified into insight viewset
-router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
+router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboards")  # Should be completely unused now
+router.register(
+    r"dashboard_item", dashboard.LegacyInsightViewSet, "legacy_insights"
+)  # To be deleted - unified into insight viewset
+router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
@@ -80,6 +87,13 @@ project_feature_flags_router = projects_router.register(
     "project_feature_flags",
     ["team_id"],
 )
+project_features_router = projects_router.register(
+    r"early_access_feature",
+    early_access_feature.EarlyAccessFeatureViewSet,
+    "project_early_access_feature",
+    ["team_id"],
+)
+project_surveys_router = projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["team_id"])
 
 projects_router.register(
     r"dashboard_templates",
@@ -99,6 +113,14 @@ projects_router.register(
     "ingestion_warnings",
     ["team_id"],
 )
+
+projects_router.register(
+    r"data_management",
+    DataManagementViewSet,
+    "data_management",
+    ["team_id"],
+)
+
 app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
 app_metrics_router.register(
     r"historical_exports",
@@ -106,6 +128,13 @@ app_metrics_router.register(
     "historical_exports",
     ["team_id", "plugin_config_id"],
 )
+
+batch_exports_router = projects_router.register(
+    r"batch_exports", batch_exports.BatchExportViewSet, "batch_exports", ["team_id"]
+)
+batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"])
+
+projects_router.register(r"warehouse_table", table.TableViewSet, "warehouse_api", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
@@ -186,7 +215,7 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
-projects_router.register(
+project_session_recordings_router = projects_router.register(
     r"session_recordings",
     SessionRecordingViewSet,
     "project_session_recordings",
@@ -195,9 +224,15 @@ projects_router.register(
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
-    from ee.clickhouse.views.groups import ClickhouseGroupsTypesView, ClickhouseGroupsView
+    from ee.clickhouse.views.groups import (
+        ClickhouseGroupsTypesView,
+        ClickhouseGroupsView,
+    )
     from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
-    from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
+    from ee.clickhouse.views.person import (
+        EnterprisePersonViewSet,
+        LegacyEnterprisePersonViewSet,
+    )
 
     projects_router.register(r"experiments", ClickhouseExperimentsViewSet, "project_experiments", ["team_id"])
     projects_router.register(r"groups", ClickhouseGroupsView, "project_groups", ["team_id"])
@@ -225,4 +260,18 @@ project_insights_router.register(
     sharing.SharingConfigurationViewSet,
     "project_insight_sharing",
     ["team_id", "insight_id"],
+)
+
+project_session_recordings_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_recording_sharing",
+    ["team_id", "recording_id"],
+)
+
+projects_router.register(
+    r"notebooks",
+    notebook.NotebookViewSet,
+    "project_notebooks",
+    ["team_id"],
 )

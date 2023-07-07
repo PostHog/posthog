@@ -39,5 +39,5 @@ class Migration(migrations.Migration):
                 condition=models.Q(level=15), fields=("organization_id",), name="only_one_owner_per_organization"
             ),
         ),
-        migrations.RunPython(make_first_administrators_owners, make_owners_administrators_again),
+        migrations.RunPython(make_first_administrators_owners, make_owners_administrators_again, elidable=True),
     ]

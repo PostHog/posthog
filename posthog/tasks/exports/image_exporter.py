@@ -1,28 +1,47 @@
 import json
 import os
-import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
 
 import structlog
 from django.conf import settings
+from prometheus_client import Counter, Summary
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception, configure_scope
-from statshog.defaults.django import statsd
+from sentry_sdk import capture_exception, configure_scope, push_scope
+
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.utils import ChromeType
 
 from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.logging.timing import timed
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
+
+IMAGE_EXPORT_SUCCEEDED_COUNTER = Counter(
+    "image_exporter_task_succeeded",
+    "An image export task succeeded",
+    labelnames=[LABEL_TEAM_ID],
+)
+
+IMAGE_EXPORT_FAILED_COUNTER = Counter(
+    "image_exporter_task_failure",
+    "An image export task failed",
+    labelnames=[LABEL_TEAM_ID],
+)
+
+IMAGE_EXPORT_TIMER = Summary(
+    "image_exporter_task_success_time",
+    "Number of seconds it took to export an image",
+    labelnames=[LABEL_TEAM_ID],
+)
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
@@ -58,8 +77,6 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
     3. Loading that screenshot into memory and saving the data representation to the relevant Insight
     4. Cleanup: Remove the old file and close the browser session
     """
-
-    _start = time.time()
 
     image_path = None
 
@@ -101,7 +118,6 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         save_content(exported_asset, image_data)
 
         os.remove(image_path)
-        statsd.timing("exporter_task_success", time.time() - _start)
 
     except Exception as err:
         # Ensure we clean up the tmp file in case anything went wrong
@@ -119,7 +135,12 @@ def _screenshot_asset(
         driver = get_driver()
         driver.set_window_size(screenshot_width, screenshot_width * 0.5)
         driver.get(url_to_render)
-        WebDriverWait(driver, 30).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+        WebDriverWait(driver, 20).until(lambda x: x.find_element_by_css_selector(wait_for_css_selector))
+        # Also wait until nothing is loading
+        try:
+            WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
+        except TimeoutException:
+            capture_exception()
         height = driver.execute_script("return document.body.scrollHeight")
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
@@ -148,25 +169,32 @@ def _screenshot_asset(
 
 @timed("image_exporter")
 def export_image(exported_asset: ExportedAsset) -> None:
-    try:
-        if exported_asset.insight:
-            # NOTE: Dashboards are regularly updated but insights are not
-            # so, we need to trigger a manual update to ensure the results are good
-            synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
+    with push_scope() as scope:
+        scope.set_tag("team_id", exported_asset.team if exported_asset else "unknown")
+        scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
-        if exported_asset.export_format == "image/png":
-            _export_to_png(exported_asset)
-            statsd.incr("image_exporter.succeeded", tags={"team_id": exported_asset.team.id})
-        else:
-            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported for insights")
-    except Exception as e:
-        if exported_asset:
-            team_id = str(exported_asset.team.id)
-        else:
-            team_id = "unknown"
+        try:
+            if exported_asset.insight:
+                # NOTE: Dashboards are regularly updated but insights are not
+                # so, we need to trigger a manual update to ensure the results are good
+                synchronously_update_cache(exported_asset.insight, exported_asset.dashboard)
 
-        capture_exception(e)
+            if exported_asset.export_format == "image/png":
+                with IMAGE_EXPORT_TIMER.labels(team_id=exported_asset.team.id).time():
+                    _export_to_png(exported_asset)
+                IMAGE_EXPORT_SUCCEEDED_COUNTER.labels(team_id=exported_asset.team.id).inc()
+            else:
+                raise NotImplementedError(
+                    f"Export to format {exported_asset.export_format} is not supported for insights"
+                )
+        except Exception as e:
+            if exported_asset:
+                team_id = str(exported_asset.team.id)
+            else:
+                team_id = "unknown"
 
-        logger.error("image_exporter.failed", exception=e, exc_info=True)
-        statsd.incr("exporter_task_failure", tags={"team_id": team_id})
-        raise e
+            capture_exception(e)
+
+            logger.error("image_exporter.failed", exception=e, exc_info=True)
+            IMAGE_EXPORT_FAILED_COUNTER.labels(team_id=team_id).inc()
+            raise e

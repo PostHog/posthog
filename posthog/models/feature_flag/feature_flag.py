@@ -1,4 +1,5 @@
 import json
+import structlog
 from typing import Dict, List, Optional, cast
 
 from django.core.cache import cache
@@ -10,11 +11,14 @@ from sentry_sdk.api import capture_exception
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
+
+logger = structlog.get_logger(__name__)
 
 
 class FeatureFlag(models.Model):
@@ -40,6 +44,14 @@ class FeatureFlag(models.Model):
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
+    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
+        "Dashboard",
+        through="FeatureFlagDashboards",
+        related_name="analytics_dashboards",
+        related_query_name="analytics_dashboard",
+    )
+    # whether a feature is sending us rich analytics, like views & interactions.
+    has_enriched_analytics: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
@@ -62,6 +74,11 @@ class FeatureFlag(models.Model):
     def conditions(self):
         "Each feature flag can have multiple conditions to match, they are OR-ed together."
         return self.get_filters().get("groups", []) or []
+
+    @property
+    def super_conditions(self):
+        "Each feature flag can have multiple super conditions to match, they are OR-ed together."
+        return self.get_filters().get("super_groups", []) or []
 
     @property
     def _payloads(self):
@@ -142,6 +159,10 @@ class FeatureFlag(models.Model):
         if not all(property.type == "person" for property in cohort.properties.flat):
             return self.conditions
 
+        if any(property.negation for property in cohort.properties.flat):
+            # Local evaluation doesn't support negation.
+            return self.conditions
+
         # all person properties, so now if we can express the cohort as feature flag groups, we'll be golden.
 
         # If there's only one effective property group, we can always express this as feature flag groups.
@@ -202,17 +223,24 @@ class FeatureFlag(models.Model):
 
         return parsed_conditions
 
-    @property
+    @cached_property
     def cohort_ids(self) -> List[int]:
-        cohort_ids = []
+        from posthog.models.cohort.util import get_dependent_cohorts
+
+        cohort_ids = set()
         for condition in self.conditions:
             props = condition.get("properties", [])
             for prop in props:
                 if prop.get("type") == "cohort":
                     cohort_id = prop.get("value")
-                    if cohort_id:
-                        cohort_ids.append(cohort_id)
-        return cohort_ids
+                    try:
+                        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+                        cohort_ids.add(cohort.pk)
+                        cohort_ids.update([dependent_cohort.pk for dependent_cohort in get_dependent_cohorts(cohort)])
+                    except Cohort.DoesNotExist:
+                        continue
+
+        return list(cohort_ids)
 
     def __str__(self):
         return f"{self.key} ({self.pk})"
@@ -273,7 +301,12 @@ def set_feature_flags_for_team_in_cache(
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
-    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+    try:
+        cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+    except Exception:
+        # redis is unavailable
+        logger.exception("Redis is unavailable")
+        capture_exception()
 
     return all_feature_flags
 
@@ -283,6 +316,7 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFl
         flag_data = cache.get(f"team_feature_flags_{team_id}")
     except Exception:
         # redis is unavailable
+        logger.exception("Redis is unavailable")
         return None
 
     if flag_data is not None:
@@ -290,7 +324,20 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFl
             parsed_data = json.loads(flag_data)
             return [FeatureFlag(**flag) for flag in parsed_data]
         except Exception as e:
+            logger.exception("Error parsing flags from cache")
             capture_exception(e)
             return None
 
     return None
+
+
+class FeatureFlagDashboards(models.Model):
+    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["feature_flag", "dashboard"], name="unique feature flag for a dashboard")
+        ]

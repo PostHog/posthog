@@ -5,11 +5,15 @@ import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { deleteWithUndo, processCohort } from 'lib/utils'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 const POLL_TIMEOUT = 5000
 
 export const cohortsModel = kea<cohortsModelType>({
     path: ['models', 'cohortsModel'],
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
@@ -42,7 +46,7 @@ export const cohortsModel = kea<cohortsModelType>({
                 if (!cohort) {
                     return state
                 }
-                return [...state].map((flag) => (flag.id === cohort.id ? cohort : flag))
+                return [...state].map((existingCohort) => (existingCohort.id === cohort.id ? cohort : existingCohort))
             },
             cohortCreated: (state = [], { cohort }) => {
                 if (!cohort) {
@@ -99,7 +103,12 @@ export const cohortsModel = kea<cohortsModelType>({
     }),
 
     events: ({ actions, values }) => ({
-        afterMount: actions.loadCohorts,
+        afterMount: () => {
+            if (isAuthenticatedTeam(values.currentTeam)) {
+                // Don't load on shared insights/dashboards
+                actions.loadCohorts()
+            }
+        },
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout || undefined)
         },

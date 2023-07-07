@@ -9,8 +9,9 @@ from posthog.models.cohort.util import format_static_cohort_query, get_count_ope
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
 from posthog.models.property.util import prop_filter_json_extract
-from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.util import PersonPropertiesMode
+from posthog.utils import PersonOnEventsMode
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -141,7 +142,7 @@ class FOSSCohortQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
-            using_person_on_events=team.person_on_events_querying_enabled,
+            person_on_events_mode=team.person_on_events_mode,
             **kwargs,
         )
 
@@ -271,7 +272,7 @@ class FOSSCohortQuery(EventQuery):
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
-                    if self._using_person_on_events:
+                    if self._person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
                         continue
@@ -303,21 +304,21 @@ class FOSSCohortQuery(EventQuery):
         if self._should_join_behavioral_query:
 
             _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
 
-            if self.should_pushdown_persons and self._using_person_on_events:
+            if self.should_pushdown_persons and self._person_on_events_mode != PersonOnEventsMode.DISABLED:
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
-                    person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+                    person_id_joined_alias=self._person_id_alias,
                 )
 
             date_condition, date_params = self._get_date_condition()
             query = f"""
             SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {self._get_person_ids_query()}
             WHERE team_id = %(team_id)s
             AND event IN %({event_param_name})s
             {date_condition}
@@ -420,7 +421,8 @@ class FOSSCohortQuery(EventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        query, params = format_static_cohort_query(cast(int, prop.value), idx, prepend)
+        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -463,7 +465,7 @@ class FOSSCohortQuery(EventQuery):
         )
 
     def _determine_should_join_distinct_ids(self) -> None:
-        self._should_join_distinct_ids = not self._using_person_on_events
+        self._should_join_distinct_ids = self._person_on_events_mode != PersonOnEventsMode.V1_ENABLED
 
     def _determine_should_join_persons(self) -> None:
         # :TRICKY: This doesn't apply to joining inside events query, but to the

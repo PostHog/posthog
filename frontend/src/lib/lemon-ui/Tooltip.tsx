@@ -39,8 +39,14 @@ export function Tooltip({
     return props.title ? (
         <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
             {React.cloneElement(child, {
-                onMouseEnter: () => setVisible(true),
-                onMouseLeave: () => setVisible(false),
+                onMouseEnter: () => {
+                    child.props.onMouseEnter?.()
+                    setVisible(true)
+                },
+                onMouseLeave: () => {
+                    child.props.onMouseLeave?.()
+                    setVisible(false)
+                },
             })}
         </AntdTooltip>
     ) : (

@@ -25,7 +25,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
     props({} as DefinitionEditLogicProps),
     key((props) => props.id || 'new'),
     connect(({ id }: DefinitionEditLogicProps) => ({
-        values: [definitionLogic({ id }), ['isEvent', 'singular', 'mode', 'hasTaxonomyFeatures']],
+        values: [definitionLogic({ id }), ['isEvent', 'isProperty', 'singular', 'mode', 'hasTaxonomyFeatures']],
         actions: [
             definitionLogic({ id }),
             ['setDefinition', 'setPageMode'],
@@ -74,7 +74,9 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                                 propertyDefinitionId: _eventProperty.id,
                                 propertyDefinitionData: _eventProperty,
                             })
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         }
                         breakpoint()
                     } catch (response: any) {

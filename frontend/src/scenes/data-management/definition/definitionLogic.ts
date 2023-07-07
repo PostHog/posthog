@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 import type { definitionLogicType } from './definitionLogicType'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { userLogic } from 'scenes/userLogic'
+import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
+import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
 
 export enum DefinitionPageMode {
     View = 'view',
@@ -75,7 +77,9 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition = await api.propertyDefinitions.get({
                                 propertyDefinitionId: id,
                             })
-                            updatePropertyDefinitions([definition as PropertyDefinition])
+                            updatePropertyDefinitions({
+                                [`event/${definition.name}`]: definition as PropertyDefinition,
+                            })
                         }
                         breakpoint()
                     } catch (response: any) {
@@ -84,6 +88,20 @@ export const definitionLogic = kea<definitionLogicType>([
                     }
 
                     return definition
+                },
+                deleteDefinition: async () => {
+                    if (values.isEvent) {
+                        await api.eventDefinitions.delete({ eventDefinitionId: values.definition.id })
+                    } else {
+                        await api.propertyDefinitions.delete({ propertyDefinitionId: values.definition.id })
+                    }
+                    router.actions.push(values.isEvent ? urls.eventDefinitions() : urls.propertyDefinitions())
+                    if (values.isEvent) {
+                        eventDefinitionsTableLogic.findMounted()?.actions.loadEventDefinitions()
+                    } else {
+                        propertyDefinitionsTableLogic.findMounted()?.actions.loadPropertyDefinitions()
+                    }
+                    return values.definition
                 },
             },
         ],
@@ -96,12 +114,8 @@ export const definitionLogic = kea<definitionLogicType>([
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.startsWith(urls.eventDefinitions())],
+        isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
-        backDetailUrl: [
-            (s) => [s.isEvent, s.definition],
-            (isEvent, definition) =>
-                isEvent ? urls.eventDefinition(definition.id) : urls.propertyDefinition(definition.id),
-        ],
         breadcrumbs: [
             (s) => [s.definition, s.isEvent],
             (definition, isEvent): Breadcrumb[] => {

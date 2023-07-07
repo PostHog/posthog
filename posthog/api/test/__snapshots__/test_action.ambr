@@ -15,11 +15,12 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -40,6 +41,9 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -57,6 +61,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -75,8 +80,8 @@
          "posthog_action"."deleted",
          "posthog_action"."post_to_slack",
          "posthog_action"."slack_message_format",
-         "posthog_action"."is_calculating",
          "posthog_action"."updated_at",
+         "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
@@ -94,11 +99,13 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
@@ -118,7 +125,9 @@
          "posthog_actionstep"."action_id",
          "posthog_actionstep"."tag_name",
          "posthog_actionstep"."text",
+         "posthog_actionstep"."text_matching",
          "posthog_actionstep"."href",
+         "posthog_actionstep"."href_matching",
          "posthog_actionstep"."selector",
          "posthog_actionstep"."url",
          "posthog_actionstep"."url_matching",
@@ -151,11 +160,12 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -176,6 +186,9 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -193,6 +206,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -219,6 +233,7 @@
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
+         "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
@@ -241,6 +256,7 @@
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
+         "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
@@ -261,8 +277,8 @@
          "posthog_action"."deleted",
          "posthog_action"."post_to_slack",
          "posthog_action"."slack_message_format",
-         "posthog_action"."is_calculating",
          "posthog_action"."updated_at",
+         "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
@@ -280,11 +296,13 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
@@ -304,7 +322,9 @@
          "posthog_actionstep"."action_id",
          "posthog_actionstep"."tag_name",
          "posthog_actionstep"."text",
+         "posthog_actionstep"."text_matching",
          "posthog_actionstep"."href",
+         "posthog_actionstep"."href_matching",
          "posthog_actionstep"."selector",
          "posthog_actionstep"."url",
          "posthog_actionstep"."url_matching",
@@ -339,6 +359,7 @@
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
+         "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
@@ -372,6 +393,7 @@
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
+         "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
@@ -392,8 +414,8 @@
          "posthog_action"."deleted",
          "posthog_action"."post_to_slack",
          "posthog_action"."slack_message_format",
-         "posthog_action"."is_calculating",
          "posthog_action"."updated_at",
+         "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
          COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
@@ -411,11 +433,13 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_action"
   LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
@@ -446,11 +470,12 @@
          "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -471,6 +496,9 @@
          "posthog_team"."anonymize_ips",
          "posthog_team"."completed_snippet_onboarding",
          "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
@@ -488,6 +516,7 @@
          "posthog_team"."live_events_columns",
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days"
   FROM "posthog_team"
@@ -514,6 +543,7 @@
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
+         "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
@@ -536,6 +566,7 @@
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
+         "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",

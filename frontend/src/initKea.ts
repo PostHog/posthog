@@ -58,26 +58,6 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-/** warn about recursive data structures in actions, as these will crash the redux dev tools */
-export const warnRecursiveDataPlugin: () => KeaPlugin = () => ({
-    name: 'kea-warn-recursive',
-    events: {
-        beforeReduxStore(options) {
-            options.middleware.push(() => (next) => (action) => {
-                try {
-                    JSON.stringify(action)
-                } catch (e: any) {
-                    if ((e.name = 'TypeError')) {
-                        console.warn('KEA WARNING - action with recursive data structure detected: ', action, e)
-                    }
-                }
-
-                return next(action)
-            })
-        },
-    },
-})
-
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
@@ -87,9 +67,9 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
             history: routerHistory,
             location: routerLocation,
             urlPatternOptions: {
-                // :TRICKY: We override default url segment matching characters.
-                // This list includes all characters which are not escaped by encodeURIComponent
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+                // :TRICKY: What chars to allow in named segment values i.e. ":key"
+                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
+                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|",
             },
         }),
         formsPlugin,
@@ -115,7 +95,6 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         }),
         subscriptionsPlugin,
         waitForPlugin,
-        warnRecursiveDataPlugin,
     ]
 
     if (window.JS_KEA_VERBOSE_LOGGING) {
