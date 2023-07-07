@@ -1343,10 +1343,6 @@ export class DB {
         }
     }
 
-    public async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await this.postgresQuery(`DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
-    }
-
     public async createUser({
         uuid,
         password,

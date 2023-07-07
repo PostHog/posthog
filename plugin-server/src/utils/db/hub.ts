@@ -220,7 +220,7 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, statsd)
+    hub.hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {
