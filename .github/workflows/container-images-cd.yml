@@ -84,6 +84,9 @@ jobs:
                   tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-arm64
                   platforms: linux/arm64
 
+            - name: Debug build-arm64 outputs
+              run: echo "${{ toJson(steps.build-arm64.outputs) }}"
+
             - name: get deployer token
               id: deployer
               uses: getsentry/action-github-app-token@v2
