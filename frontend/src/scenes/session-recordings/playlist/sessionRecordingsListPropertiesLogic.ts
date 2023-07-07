@@ -44,8 +44,8 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 -- we don't really care about the absolute value, 
                                 -- but we do care about whether timezones have an odd impact
                                 -- so, we extend the range by a day on each side so that timezones don't cause issues
-                                AND timestamp >= '${dayjs(oldestTimestamp).subtract(1, 'day')}'
-                                AND timestamp <= '${dayjs(newestTimestamp).add(1, 'day')}'
+                                AND timestamp >= ${dayjs(oldestTimestamp).subtract(1, 'day')}
+                                AND timestamp <= ${dayjs(newestTimestamp).add(1, 'day')}
                                 GROUP BY session_id`,
                     }
 
