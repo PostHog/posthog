@@ -1,11 +1,11 @@
 import { Editor as TTEditor } from '@tiptap/core'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { EditorContent, useEditor } from '@tiptap/react'
 import { useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, isCurrentNodeEmpty } from './utils'
+import { EditorRange, isCurrentNodeEmpty, JSONContent, NotebookEditor } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -17,7 +17,6 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
-import { JSONContent, NotebookEditor } from './utils'
 import { NotebookMode } from '~/types'
 
 const CustomDocument = ExtensionDocument.extend({
@@ -161,7 +160,7 @@ export function Editor({
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {_editor && <FloatingSlashCommands editor={_editor} />}
+            {_editor && viewMode !== NotebookMode.Share && <FloatingSlashCommands editor={_editor} />}
         </>
     )
 }

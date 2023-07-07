@@ -37,9 +37,13 @@ export function Notebook({ shortId, cachedNotebook, editable = false }: Notebook
     }, [])
 
     useEffect(() => {
-        // can not edit if provided a cached notebook
-        if (editor && !cachedNotebook) {
-            editor.setEditable(editable)
+        if (editor) {
+            // can not edit if provided a cached notebook
+            if (cachedNotebook) {
+                editor.setEditable(false)
+            } else {
+                editor.setEditable(editable)
+            }
         }
     }, [editor, editable])
 
