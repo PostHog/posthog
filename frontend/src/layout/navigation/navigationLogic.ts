@@ -122,7 +122,7 @@ export const navigationLogic = kea<navigationLogicType>({
         /** `bareNav` whether the current scene should display a sidebar at all */
         bareNav: [
             (s) => [s.fullscreen, s.sceneConfig],
-            (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain === 2,
+            (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
         isSideBarShown: [
             (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],

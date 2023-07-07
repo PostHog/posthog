@@ -116,11 +116,12 @@ export interface SceneConfig {
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
     /**
-     * If 1, the scene is rendered with no padding.
-     * If 2, most navigation UI (sidebar, breadcrumbs) is also hidden.
-     * Otherwise full navigation is shown.
+     * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-raw`, navigation is shown, but the scene has no padding.
+     * If `plain`, there's no navigation present, and the scene has no padding.
+     * @default 'app'
      */
-    plain?: 0 | 1 | 2
+    layout?: 'app' | 'app-raw' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

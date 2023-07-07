@@ -21,6 +21,10 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
+    if (sceneConfig?.layout === 'plain') {
+        throw new Error('Navigation should never be rendered for a plain scene')
+    }
+
     return (
         <div className="Navigation3000">
             <Navbar />
@@ -31,7 +35,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
                     <div
                         className={clsx(
                             'Navigation3000__scene',
-                            !!sceneConfig?.plain && 'Navigation3000__scene--plain'
+                            sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                         )}
                     >
                         {children}
