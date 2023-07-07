@@ -50,7 +50,8 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
+import { fetchAction, fetchAllActionsGroupedByTeam, fetchOrganization } from '../../worker/ingestion/action-manager'
+import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
@@ -1217,12 +1218,7 @@ export class DB {
     // Organization
 
     public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        const selectResult = await this.postgresQuery<RawOrganization>(
-            `SELECT * FROM posthog_organization WHERE id = $1`,
-            [organizationId],
-            'fetchOrganization'
-        )
-        return selectResult.rows[0]
+        return await fetchOrganization(this.postgres, organizationId)
     }
 
     // Team
