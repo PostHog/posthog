@@ -1430,6 +1430,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1461,6 +1462,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1486,6 +1488,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })
 

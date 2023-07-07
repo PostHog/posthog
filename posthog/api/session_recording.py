@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import json
 from typing import Any, List, Type, cast
 
+import posthoganalytics
 from dateutil import parser
 import requests
 from django.db.models import Count, Prefetch
@@ -292,6 +293,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if request.GET.get("version") == "2":
             return self._snapshots_v2(request)
 
+        event_properties = {"team_id": self.team.pk}
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+        posthoganalytics.capture(request.user.distinct_id, "v1 session recording snapshots viewed", event_properties)
+
         recording = self.get_object()
 
         # TODO: Determine if we should try Redis or not based on the recording start time and the S3 responses
@@ -321,6 +327,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
         else:
             next_url = None
+
+        # want to compare the number of snapshots loaded for the same session with different storage methods
+        event_properties["storage"] = recording.storage
+        for window_id, snapshots in recording.snapshot_data_by_window_id.items():
+            event_properties[f"snapshots_loaded_{window_id}"] = len(snapshots)
+        posthoganalytics.capture(request.user.distinct_id, "session recording snapshots loaded", event_properties)
 
         res = {
             "storage": recording.storage,
