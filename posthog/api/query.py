@@ -32,7 +32,7 @@ from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import TeamRateThrottle
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
 from posthog.utils import relative_date_parse
 
@@ -82,9 +82,14 @@ class QuerySchemaParser(JSONParser):
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [QueryThrottle]
 
     parser_classes = (QuerySchemaParser,)
+
+    def get_throttles(self):
+        if self.action == "draft_sql":
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        else:
+            return [QueryThrottle()]
 
     @extend_schema(
         parameters=[
