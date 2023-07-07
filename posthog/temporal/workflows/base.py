@@ -1,3 +1,5 @@
+import json
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -97,3 +99,49 @@ class UpdateBatchExportRunStatusInputs:
 async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
     """Activity that updates the status of an BatchExportRun."""
     await sync_to_async(update_batch_export_run)(UUID(inputs.id), status=inputs.status, latest_error=inputs.latest_error, bytes_completed=inputs.bytes_completed, records_completed=inputs.records_completed)  # type: ignore
+
+
+def json_dumps_bytes(d, encoding="utf-8") -> bytes:
+    return json.dumps(d).encode(encoding)
+
+
+class TrackableResetableTemporaryFile:
+    def __init__(self, *args, **kwargs):
+        self.named_temp_file = tempfile.NamedTemporaryFile(*args, **kwargs)
+        self.bytes_total = 0
+        self.records_total = 0
+        self.bytes_since_last_reset = 0
+        self.records_since_last_reset = 0
+
+    def __getattr__(self, name):
+        return self.named_temp_file.__getattr__(name)
+
+    def __enter__(self):
+        self.named_temp_file.__enter__()
+        return self
+
+    def __exit__(self, exc, value, tb):
+        return self.named_temp_file.__exit__(exc, value, tb)
+
+    def write(self, b):
+        self.bytes_total += len(b)
+        self.bytes_since_last_reset += len(b)
+
+        return self.named_temp_file.write(b)
+
+    def write_records_to_jsonl(self, records):
+        self.records_total += len(records)
+        self.records_since_last_reset += len(records)
+
+        jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
+
+        if len(records) == 1:
+            jsonl_dump += b"\n"
+
+        self.write(jsonl_dump)
+
+    def reset(self):
+        self.named_temp_file.seek(0)
+        self.named_temp_file.truncate()
+        self.bytes_written_since_last_reset = 0
+        self.records_since_last_reset = 0
