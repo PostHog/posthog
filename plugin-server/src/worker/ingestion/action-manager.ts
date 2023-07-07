@@ -31,14 +31,14 @@ export class ActionManager {
     }
 
     public async reloadAllActions(): Promise<void> {
-        if (this.capabilities.processAsyncHandlers) {
+        if (this.capabilities.processAsyncHandlers || this.capabilities.processAsyncWebhooksHandlers) {
             this.actionCache = await this.db.fetchAllActionsGroupedByTeam()
             status.info('🍿', 'Fetched all actions from DB anew')
         }
     }
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
-        if (!this.capabilities.processAsyncHandlers) {
+        if (!this.capabilities.processAsyncHandlers && !this.capabilities.processAsyncWebhooksHandlers) {
             return
         }
 
@@ -66,7 +66,7 @@ export class ActionManager {
     }
 
     public dropAction(teamId: Team['id'], actionId: Action['id']): void {
-        if (!this.capabilities.processAsyncHandlers) {
+        if (!this.capabilities.processAsyncHandlers && !this.capabilities.processAsyncWebhooksHandlers) {
             return
         }
 

@@ -145,17 +145,14 @@ class FunnelEventQuery(EventQuery):
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
         events: Set[Union[int, str]] = set()
         entities_to_use = entities or self._filter.entities
-        has_all_events_entity: bool = False
 
         for entity in entities_to_use:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 events.update(action.get_step_events())
             elif entity.type == TREND_FILTER_TYPE_EVENTS and entity.id is None:
-                has_all_events_entity = True
+                return "AND 1 = 1", {}
             elif entity.id is not None:
                 events.add(entity.id)
 
-        if has_all_events_entity and len(events) == 0:
-            return "AND 1 = 1", {}
         return f"AND event IN %({entity_name})s", {entity_name: sorted(list(events))}

@@ -1,13 +1,22 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema'
-
+import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
-import { editor, MarkerSeverity } from 'monaco-editor'
+// Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
+// auto reload in development. Specifically, on this line:
+// `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
+// `new MenuId('suggestWidgetStatusBar')` causes the app to crash, because it cannot be called twice in the same
+// JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
+// esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
+// re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
+import type { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
-import { Monaco } from '@monaco-editor/react'
+import type { Monaco } from '@monaco-editor/react'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface ModelMarker extends editor.IMarkerData {}
+export interface ModelMarker extends editor.IMarkerData {
+    hogQLFix?: string
+    start: number
+    end: number
+}
 
 export interface HogQLQueryEditorLogicProps {
     key: number
@@ -22,7 +31,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     props({} as HogQLQueryEditorLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
-        if (props.query.query !== oldProps.query.query) {
+        if (props.query.query !== oldProps.query.query || props.editor !== oldProps.editor) {
             actions.setQueryInput(props.query.query)
         }
     }),
@@ -36,13 +45,18 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
     })),
     selectors({
-        hasErrors: [(s) => [s.modelMarkers], (modelMarkers) => !!modelMarkers?.length],
+        hasErrors: [
+            (s) => [s.modelMarkers],
+            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === 8 /* MarkerSeverity.Error */).length,
+        ],
         error: [
             (s) => [s.hasErrors, s.modelMarkers],
-            (hasErrors, modelMarkers) =>
-                hasErrors && modelMarkers[0]
-                    ? `Error on line ${modelMarkers[0].startLineNumber}, column ${modelMarkers[0].startColumn}`
-                    : null,
+            (hasErrors, modelMarkers) => {
+                const firstError = modelMarkers.find((e) => e.severity === 8 /* MarkerSeverity.Error */)
+                return hasErrors && firstError
+                    ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
+                    : null
+            },
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -66,23 +80,37 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 select: queryInput,
             })
             breakpoint()
-            if (!response?.isValid) {
-                const start = model.getPositionAt(response?.errorStart ?? 0)
-                const end = model.getPositionAt(response?.errorEnd ?? queryInput.length)
-                const markers: ModelMarker[] = [
-                    {
-                        startLineNumber: start.lineNumber,
-                        startColumn: start.column,
-                        endLineNumber: end.lineNumber,
-                        endColumn: end.column,
-                        message: response?.error ?? 'Unknown error',
-                        severity: MarkerSeverity.Error,
-                    },
-                ]
-                actions.setModelMarkers(markers)
-            } else {
-                actions.setModelMarkers([])
+            const markers: ModelMarker[] = []
+
+            function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): void {
+                if (!model) {
+                    return
+                }
+                const start = model.getPositionAt(error.start ?? 0)
+                const end = model.getPositionAt(error.end ?? queryInput.length)
+                markers.push({
+                    start: error.start ?? 0,
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    end: error.end ?? queryInput.length,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                    message: error.message ?? 'Unknown error',
+                    severity: severity,
+                    hogQLFix: error.fix,
+                })
             }
+            for (const notice of response?.errors ?? []) {
+                noticeToMarker(notice, 8 /* MarkerSeverity.Error */)
+            }
+            for (const notice of response?.warnings ?? []) {
+                noticeToMarker(notice, 4 /* MarkerSeverity.Warning */)
+            }
+            for (const notice of response?.notices ?? []) {
+                noticeToMarker(notice, 1 /* MarkerSeverity.Hint */)
+            }
+
+            actions.setModelMarkers(markers)
         },
         setModelMarkers: ({ markers }) => {
             const model = props.editor?.getModel()

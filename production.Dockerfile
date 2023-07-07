@@ -51,6 +51,7 @@ RUN apt-get update && \
     "gcc" \
     "python3" \
     "libssl-dev" \
+    "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \

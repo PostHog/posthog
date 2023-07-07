@@ -4,7 +4,7 @@ import '@testing-library/jest-dom'
 
 import { BatchExport } from './api'
 import { createExportServiceHandlers } from './api-mocks'
-import { ExportActionButtons, Exports } from './ExportsList'
+import { NestedExportActionButtons, Exports } from './ExportsList'
 import { initKeaTests } from '../../test/init'
 import { useMocks } from '../../mocks/jest'
 
@@ -25,6 +25,8 @@ describe('ExportActionButtons', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -42,16 +44,23 @@ describe('ExportActionButtons', () => {
         initKeaTests()
 
         render(
-            <ExportActionButtons
+            <NestedExportActionButtons
                 currentTeamId={1}
                 export_={exports[exportId]}
                 loading={false}
                 updateCallback={() => {}}
             />
         )
+        const dropdownButton = await waitFor(() => {
+            const dropdownButton = screen.getByRole('button', { name: 'more' })
+            expect(dropdownButton).toBeInTheDocument()
+            return dropdownButton
+        })
+
+        userEvent.click(dropdownButton)
 
         const pauseButton = await waitFor(() => {
-            const pauseButton = screen.getByRole('button', { name: 'Pause this BatchExport' })
+            const pauseButton = screen.getByRole('button', { name: 'Pause this active BatchExport' })
             expect(pauseButton).toBeInTheDocument()
             return pauseButton
         })
@@ -83,6 +92,8 @@ describe('ExportActionButtons', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -100,16 +111,23 @@ describe('ExportActionButtons', () => {
         initKeaTests()
 
         render(
-            <ExportActionButtons
+            <NestedExportActionButtons
                 currentTeamId={1}
                 export_={exports[exportId]}
                 loading={false}
                 updateCallback={() => {}}
             />
         )
+        const dropdownButton = await waitFor(() => {
+            const dropdownButton = screen.getByRole('button', { name: 'more' })
+            expect(dropdownButton).toBeInTheDocument()
+            return dropdownButton
+        })
+
+        userEvent.click(dropdownButton)
 
         const resumeButton = await waitFor(() => {
-            const resumeButton = screen.getByRole('button', { name: 'Resume this BatchExport' })
+            const resumeButton = screen.getByRole('button', { name: 'Resume this paused BatchExport' })
             expect(resumeButton).toBeInTheDocument()
             return resumeButton
         })
@@ -141,6 +159,8 @@ describe('ExportActionButtons', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -158,13 +178,20 @@ describe('ExportActionButtons', () => {
         initKeaTests()
 
         render(
-            <ExportActionButtons
+            <NestedExportActionButtons
                 currentTeamId={1}
                 export_={exports[exportId]}
                 loading={false}
                 updateCallback={() => {}}
             />
         )
+        const dropdownButton = await waitFor(() => {
+            const dropdownButton = screen.getByRole('button', { name: 'more' })
+            expect(dropdownButton).toBeInTheDocument()
+            return dropdownButton
+        })
+
+        userEvent.click(dropdownButton)
 
         const deleteButton = await waitFor(() => {
             const deleteButton = screen.getByRole('button', { name: 'Permanently delete this BatchExport' })
@@ -192,6 +219,8 @@ describe('Exports', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -212,6 +241,8 @@ describe('Exports', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -232,6 +263,8 @@ describe('Exports', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {

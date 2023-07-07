@@ -276,12 +276,14 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
+        useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowProductIntroduction =
+        !sessionRecordingsResponseLoading &&
         !user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
@@ -334,42 +336,38 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                     }
                 />
             )}
-            {!shouldShowEmptyState && (
-                <div
-                    ref={playlistRef}
-                    data-attr="session-recordings-playlist"
-                    className={clsx('SessionRecordingsPlaylist', {
-                        'SessionRecordingsPlaylist--wide': size !== 'small',
-                    })}
-                >
-                    <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
-                        <RecordingsLists {...props} />
-                    </div>
-                    <div className="SessionRecordingsPlaylist__right-column">
-                        {activeSessionRecording?.id ? (
-                            <SessionRecordingPlayer
-                                playerKey="playlist"
-                                playlistShortId={playlistShortId}
-                                sessionRecordingId={activeSessionRecording?.id}
-                                matching={activeSessionRecording?.matching_events}
-                                recordingStartTime={
-                                    activeSessionRecording ? activeSessionRecording.start_time : undefined
-                                }
-                                nextSessionRecording={nextSessionRecording}
-                            />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
-                        )}
-                    </div>
+            <div
+                ref={playlistRef}
+                data-attr="session-recordings-playlist"
+                className={clsx('SessionRecordingsPlaylist', {
+                    'SessionRecordingsPlaylist--wide': size !== 'small',
+                })}
+            >
+                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
+                    <RecordingsLists {...props} />
                 </div>
-            )}
+                <div className="SessionRecordingsPlaylist__right-column">
+                    {activeSessionRecording?.id ? (
+                        <SessionRecordingPlayer
+                            playerKey="playlist"
+                            playlistShortId={playlistShortId}
+                            sessionRecordingId={activeSessionRecording?.id}
+                            matching={activeSessionRecording?.matching_events}
+                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
+                            nextSessionRecording={nextSessionRecording}
+                        />
+                    ) : (
+                        <div className="mt-20">
+                            <EmptyMessage
+                                title="No recording selected"
+                                description="Please select a recording from the list on the left"
+                                buttonText="Learn more about recordings"
+                                buttonTo="https://posthog.com/docs/user-guides/recordings"
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
         </>
     )
 }

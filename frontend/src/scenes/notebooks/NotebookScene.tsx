@@ -31,12 +31,12 @@ export const scene: SceneExport = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, mode } = useValues(notebookSceneLogic)
     const { setNotebookMode } = useActions(notebookSceneLogic)
-    const { notebook, notebookLoading } = useValues(notebookLogic({ shortId: notebookId }))
+    const { notebook, notebookLoading, conflictWarningVisible } = useValues(notebookLogic({ shortId: notebookId }))
     const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
     const { selectedNotebook, notebookSideBarShown } = useValues(notebookSidebarLogic)
 
-    if (!notebook && !notebookLoading) {
+    if (!notebook && !notebookLoading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
     }
 

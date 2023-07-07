@@ -1,9 +1,10 @@
 import './PropertyKeyInfo.scss'
-import { Popover } from 'antd'
-import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { KeyMapping, PropertyFilterValue } from '~/types'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import clsx from 'clsx'
+import { Popover } from 'lib/lemon-ui/Popover'
+import React, { useState } from 'react'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -48,12 +49,12 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $current_url: {
             label: 'Current URL',
-            description: 'The URL visited for this event, including all the trimings.',
+            description: 'The URL visited at the time of the event.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $initial_current_url: {
             label: 'Initial Current URL',
-            description: 'The first URL the user visited, including all the trimings.',
+            description: 'The first URL the user visited.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $browser_version: {
@@ -189,6 +190,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Pageview',
             description: 'When a user loads (or reloads) a page.',
         },
+        $pageview_id: {
+            label: 'Pageview ID',
+            description: "PostHog's internal ID for matching events to a pageview.",
+            system: true,
+        },
         $pageleave: {
             label: 'Pageleave',
             description: 'When a user leaves a page.',
@@ -197,6 +203,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Autocapture',
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
+        },
+        $autocapture_disabled_server_side: {
+            label: 'Autocapture disabled server-side',
+            description: 'If autocapture has been disabled server-side.',
+            system: true,
         },
         $screen: {
             label: 'Screen',
@@ -250,23 +261,23 @@ export const KEY_MAPPING: KeyMappingInterface = {
         // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
         $group_0: {
             label: 'Group 1',
-            hide: true,
+            system: true,
         },
         $group_1: {
             label: 'Group 2',
-            hide: true,
+            system: true,
         },
         $group_2: {
             label: 'Group 3',
-            hide: true,
+            system: true,
         },
         $group_3: {
             label: 'Group 4',
-            hide: true,
+            system: true,
         },
         $group_4: {
             label: 'Group 5',
-            hide: true,
+            system: true,
         },
         $group_set: {
             label: 'Group Set',
@@ -283,12 +294,12 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $window_id: {
             label: 'Window ID',
             description: 'Unique window ID for session recording disambiguation',
-            hide: true,
+            system: true,
         },
         $session_id: {
             label: 'Session ID',
             description: 'Unique session ID for session recording disambiguation',
-            hide: true,
+            system: true,
         },
         $rageclick: {
             label: 'Rageclick',
@@ -413,23 +424,23 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Browser Performance',
             description:
                 'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
-            hide: true,
+            system: true,
         },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
-            hide: true,
+            system: true,
         },
         $sentry_event_id: {
             label: 'Sentry Event ID',
             description: 'This is the Sentry key for an event.',
             examples: ['byroc2ar9ee4ijqp'],
-            hide: true,
+            system: true,
         },
         $sentry_exception: {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
-            hide: true,
+            system: true,
         },
         $sentry_exception_message: {
             label: 'Sentry exception message',
@@ -485,13 +496,13 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $ce_version: {
             label: '$ce_version',
             description: '',
-            hide: true,
+            system: true,
         },
         $anon_distinct_id: {
             label: 'Anon Distinct ID',
             description: 'If the user was previously anonymous, their anonymous ID will be set here.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            hide: true,
+            system: true,
         },
         $event_type: {
             label: 'Event Type',
@@ -502,20 +513,20 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $insert_id: {
             label: 'Insert ID',
             description: 'Unique insert ID for the event.',
-            hide: true,
+            system: true,
         },
         $time: {
             label: '$time (deprecated)',
             description:
                 'Use the HogQL field `timestamp` instead. This field was previously set on some client side events.',
-            hide: true,
+            system: true,
             examples: ['1681211521.345'],
         },
         $device_id: {
             label: 'Device ID',
             description: 'Unique ID for that device, consistent even if users are logging in/out.',
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
-            hide: true,
+            system: true,
         },
         // GeoIP
         $geoip_city_name: {
@@ -716,44 +727,6 @@ interface PropertyKeyInfoInterface {
     className?: string
 }
 
-function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
-    return (
-        <span className="PropertyKeyInfo">
-            <span className="PropertyKeyInfoLogo" />
-            {data.label}
-        </span>
-    )
-}
-
-function PropertyKeyDescription({
-    data,
-    value,
-    propertyType,
-}: {
-    data: KeyMapping
-    value: string
-    propertyType?: PropertyDefinition['property_type'] | null
-}): JSX.Element {
-    return (
-        <span>
-            {data.description ? <p>{data.description}</p> : null}
-            {data.examples ? (
-                <p>
-                    <i>Example: </i>
-                    {data.examples.join(', ')}
-                </p>
-            ) : null}
-            {data.description || data.examples ? <hr /> : null}
-            <div>
-                <span>
-                    Sent as <code className="p-1">{value}</code>
-                </span>
-                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
-            </div>
-        </span>
-    )
-}
-
 export function getKeyMapping(
     value: string | PropertyFilterValue | undefined,
     type: 'event' | 'element'
@@ -815,56 +788,71 @@ export function getPropertyLabel(
 export function PropertyKeyInfo({
     value,
     type = 'event',
-    tooltipPlacement = undefined,
     disablePopover = false,
     disableIcon = false,
     ellipsis = true,
     className = '',
 }: PropertyKeyInfoInterface): JSX.Element {
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
     value = value?.toString() ?? '' // convert to string
 
     const data = getKeyMapping(value, type)
     const valueDisplayText = (data ? data.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
-    // By this point, property is a PH defined property
     const innerContent = (
-        <span className={clsx('PropertyKeyInfo', className)}>
-            {!disableIcon && !!data && <span className="PropertyKeyInfoLogo" />}
-            <span
-                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}
-                title={valueDisplayText}
-            >
+        <span
+            className={clsx('PropertyKeyInfo', className)}
+            aria-label={valueDisplayText}
+            title={ellipsis && disablePopover ? valueDisplayText : undefined}
+        >
+            {!disableIcon && !!data && <span className="PropertyKeyInfo__logo" />}
+            <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
                 {valueDisplayElement}
             </span>
         </span>
     )
 
-    if (!data || disablePopover) {
-        return innerContent
-    }
-
-    const popoverProps = tooltipPlacement
-        ? {
-              visible: true,
-              placement: tooltipPlacement,
-          }
-        : {
-              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
-          }
-
-    const popoverTitle = <PropertyKeyTitle data={data} />
-    const popoverContent = <PropertyKeyDescription data={data} value={value} />
-
-    return (
+    return !data || disablePopover ? (
+        innerContent
+    ) : (
         <Popover
-            overlayStyle={{ zIndex: 99999 }}
-            overlayClassName={`PropertyKeyInfoTooltip ${className || ''}`}
-            title={popoverTitle}
-            content={popoverContent}
-            {...popoverProps}
+            className={className}
+            overlay={
+                <div className="PropertyKeyInfo__overlay">
+                    <div className="PropertyKeyInfo__header">
+                        {!!data && <span className="PropertyKeyInfo__logo" />}
+                        {data.label}
+                    </div>
+                    {data.description || data.examples ? (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <div>
+                                {data.description ? <p>{data.description}</p> : null}
+                                {data.examples ? (
+                                    <p>
+                                        <i>Example value{data.examples.length === 1 ? '' : 's'}: </i>
+                                        {data.examples.join(', ')}
+                                    </p>
+                                ) : null}
+                            </div>
+                        </>
+                    ) : null}
+                    <LemonDivider className="my-3" />
+                    <div>
+                        Sent as <code>{value}</code>
+                    </div>
+                </div>
+            }
+            visible={popoverVisible}
+            showArrow
+            placement="right"
         >
-            {innerContent}
+            {React.cloneElement(innerContent, {
+                onMouseEnter: () => setPopoverVisible(true),
+                onMouseLeave: () => setPopoverVisible(false),
+            })}
         </Popover>
     )
 }
