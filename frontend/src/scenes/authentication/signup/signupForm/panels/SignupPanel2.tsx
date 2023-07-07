@@ -5,6 +5,7 @@ import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { Field } from 'lib/forms/Field'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from '../signupLogic'
+import SignupReferralSourceSelect from 'lib/components/SignupReferralSourceSelect'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
@@ -32,14 +33,7 @@ export function SignupPanel2(): JSX.Element | null {
                     />
                 </Field>
                 <SignupRoleSelect />
-                <Field name="referral_source" label="Where did you hear about us?" showOptional>
-                    <LemonInput
-                        className="ph-ignore-input"
-                        data-attr="signup-referral-source"
-                        placeholder=""
-                        disabled={isSignupPanel2Submitting}
-                    />
-                </Field>
+                <SignupReferralSourceSelect />
                 <div className="divider" />
 
                 <LemonButton
