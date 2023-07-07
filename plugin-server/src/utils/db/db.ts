@@ -50,7 +50,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { fetchAction, fetchAllActionsGroupedByTeam, fetchOrganization } from '../../worker/ingestion/action-manager'
+import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
