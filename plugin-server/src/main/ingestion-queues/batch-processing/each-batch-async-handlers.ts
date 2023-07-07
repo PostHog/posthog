@@ -27,7 +27,7 @@ export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: Kaf
         runInstrumentedFunction({
             server: queue.pluginsServer,
             event: event,
-            func: () => queue.workerMethods.runWebhooksHandlersEventPipeline(event),
+            func: () => runWebhooks(queue.pluginsServer, event),
             statsKey: `kafka_queue.process_async_handlers_webhooks`,
             timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
             teamId: event.teamId,
@@ -92,10 +92,14 @@ export async function eachBatchWebhooksHandlers(
 }
 
 async function runWebhooks(hub: Hub, event: PostIngestionEvent) {
+    const timer = new Date()
+
     try {
         hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
         await processWebhooksStep(hub, event)
         hub.statsd?.increment('kafka_queue.webhooks.processed')
+        hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: processWebhooksStep.name })
+        hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: processWebhooksStep.name })
     } catch (error) {
         hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: processWebhooksStep.name })
 
