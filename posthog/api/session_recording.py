@@ -20,7 +20,7 @@ from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import Filter
+from posthog.models import Filter, User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
@@ -332,7 +332,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         event_properties["storage"] = recording.storage
         for window_id, snapshots in recording.snapshot_data_by_window_id.items():
             event_properties[f"snapshots_loaded_{window_id}"] = len(snapshots)
-        posthoganalytics.capture(request.user.distinct_id, "session recording snapshots loaded", event_properties)
+        posthoganalytics.capture(
+            str(cast(User, request.user).distinct_id), "session recording snapshots by window counted", event_properties
+        )
 
         res = {
             "storage": recording.storage,
