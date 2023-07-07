@@ -205,9 +205,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def _snapshots_v2(self, request: request.Request):
         """
-        This will eventually replaced the snapshots endpoint below.
+        This will eventually replace the snapshots endpoint below.
         This path only supports loading from S3 or Redis based on query params
         """
+
+        event_properties = {"team_id": self.team.pk}
+        if request.headers.get("X-POSTHOG-SESSION-ID"):
+            event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
+        posthoganalytics.capture(
+            str(cast(User, request.user).distinct_id), "v2 session recording snapshots viewed", event_properties
+        )
+
         recording = self.get_object()
         response_data = {}
         source = request.GET.get("source")
@@ -256,6 +264,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         elif source == "realtime":
             snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=recording.session_id) or []
+
+            event_properties["source"] = "realtime"
+            event_properties["snapshots_length"] = len(snapshots)
+            posthoganalytics.capture(
+                str(cast(User, request.user).distinct_id), "session recording snapshots v2 loaded", event_properties
+            )
+
             response_data["snapshots"] = snapshots
 
         elif source == "blob":
@@ -268,6 +283,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
                 raise exceptions.NotFound("Snapshot file not found")
+
+            event_properties["source"] = "blob"
+            event_properties["blob_key"] = blob_key
+            posthoganalytics.capture(
+                str(cast(User, request.user).distinct_id), "session recording snapshots v2 loaded", event_properties
+            )
 
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
@@ -296,7 +317,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         event_properties = {"team_id": self.team.pk}
         if request.headers.get("X-POSTHOG-SESSION-ID"):
             event_properties["$session_id"] = request.headers["X-POSTHOG-SESSION-ID"]
-        posthoganalytics.capture(request.user.distinct_id, "v1 session recording snapshots viewed", event_properties)
+        posthoganalytics.capture(
+            str(cast(User, request.user).distinct_id), "v1 session recording snapshots viewed", event_properties
+        )
 
         recording = self.get_object()
 
@@ -327,14 +350,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
         else:
             next_url = None
-
-        # want to compare the number of snapshots loaded for the same session with different storage methods
-        event_properties["storage"] = recording.storage
-        for window_id, snapshots in recording.snapshot_data_by_window_id.items():
-            event_properties[f"snapshots_loaded_{window_id}"] = len(snapshots)
-        posthoganalytics.capture(
-            str(cast(User, request.user).distinct_id), "session recording snapshots by window counted", event_properties
-        )
 
         res = {
             "storage": recording.storage,

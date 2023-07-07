@@ -1407,7 +1407,12 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal: options?.signal })
+            response = await fetch(url, {
+                signal: options?.signal,
+                headers: {
+                    'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                },
+            })
         } catch (e) {
             throw { status: 0, message: e }
         }
