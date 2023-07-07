@@ -126,7 +126,7 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
             "prompt_tokens_last": prompt_tokens_last,
             "completion_tokens_last": completion_tokens_last,
             "prompt_tokens_total": prompt_tokens_total,
-            "completion_tokens_otal": completion_tokens_total,
+            "completion_tokens_total": completion_tokens_total,
         },
     )
 
