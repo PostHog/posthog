@@ -114,7 +114,13 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
-        _screenshot_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector)
+        _screenshot_asset(
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_full_height=exported_asset.notebook is None,
+        )
 
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -132,7 +138,11 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
 
 def _screenshot_asset(
-    image_path: str, url_to_render: str, screenshot_width: ScreenWidth, wait_for_css_selector: CSSSelector
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: ScreenWidth,
+    wait_for_css_selector: CSSSelector,
+    screenshot_full_height: bool = True,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -146,7 +156,8 @@ def _screenshot_asset(
         except TimeoutException:
             capture_exception()
         height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(screenshot_width, height)
+        if screenshot_full_height:
+            driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
     except Exception as e:
         if driver:

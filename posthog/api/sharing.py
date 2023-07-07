@@ -322,7 +322,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
         )
 
     def exported_asset_for_sharing_configuration(self, resource: SharingConfiguration) -> ExportedAsset | None:
-        target = resource.insight or resource.dashboard
+        target = resource.insight or resource.dashboard or resource.notebook
         if not target:
             return None
 

@@ -125,7 +125,7 @@ def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedel
 
 def asset_for_token(token: str) -> ExportedAsset:
     info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
-    asset = ExportedAsset.objects.select_related("dashboard", "insight", "Notebook").get(pk=info["id"])
+    asset = ExportedAsset.objects.select_related("dashboard", "insight", "notebook").get(pk=info["id"])
 
     return asset
 
