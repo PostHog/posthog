@@ -13,7 +13,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
             logger.debug("No AsyncDeletion for cohorts to perform")
             return
 
-        logger.info(
+        logger.warn(
             "Starting AsyncDeletion on `cohortpeople` table in ClickHouse",
             {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions))},
         )
