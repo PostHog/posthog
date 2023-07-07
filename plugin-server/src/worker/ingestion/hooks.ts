@@ -1,9 +1,10 @@
 import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
+import { Client, Pool } from 'pg'
 import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
-import { DB } from '../../utils/db/db'
+import { postgresQuery } from '../../utils/db/postgres'
 import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
@@ -232,7 +233,7 @@ export function getFormattedMessage(
 }
 
 export class HookCommander {
-    db: DB
+    postgres: Client | Pool
     teamManager: TeamManager
     organizationManager: OrganizationManager
     statsd: StatsD | undefined
@@ -241,8 +242,13 @@ export class HookCommander {
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
-    constructor(db: DB, teamManager: TeamManager, organizationManager: OrganizationManager, statsd?: StatsD) {
-        this.db = db
+    constructor(
+        postgres: Client | Pool,
+        teamManager: TeamManager,
+        organizationManager: OrganizationManager,
+        statsd?: StatsD
+    ) {
+        this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
         if (process.env.SITE_URL) {
@@ -350,8 +356,12 @@ export class HookCommander {
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's
-            await this.db.deleteRestHook(hook.id)
+            await this.deleteRestHook(hook.id)
         }
         this.statsd?.increment('rest_hook_firings')
+    }
+
+    private async deleteRestHook(hookId: Hook['id']): Promise<void> {
+        await postgresQuery(this.postgres, `DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
     }
 }
