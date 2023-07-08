@@ -4,9 +4,13 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 # :KLUDGE: Work around test_migrations_are_safe
-class AddFieldConstraintIsSafe(migrations.AddField):
+class AddFieldWithConstraintAndIndexIsSafe(migrations.AddField):
     def describe(self):
-        return super().describe() + " -- existing-table-constraint-ignore"
+        # both constraint and index are added automagically by Django AddField
+        # so, they can't be edited in the migration
+        # both tables are relatively small and low-traffic
+        # so these checks should be safe to ignore here
+        return super().describe() + " -- existing-table-constraint-ignore -- concurrent-index-ignore"
 
 
 class Migration(migrations.Migration):
@@ -16,12 +20,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddFieldConstraintIsSafe(
+        AddFieldWithConstraintAndIndexIsSafe(
             model_name="exportedasset",
             name="notebook",
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.notebook"),
         ),
-        AddFieldConstraintIsSafe(
+        AddFieldWithConstraintAndIndexIsSafe(
             model_name="sharingconfiguration",
             name="notebook",
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.notebook"),

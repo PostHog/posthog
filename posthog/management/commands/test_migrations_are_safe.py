@@ -23,9 +23,18 @@ class Command(BaseCommand):
             try:
                 results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
                 sql = call_command("sqlmigrate", results[0], results[1])
+
                 new_tables = self._get_new_tables(sql)
-                operations = sql.split("\n")
                 tables_created_so_far: List[str] = []
+
+                operations = sql.split("\n")
+
+                can_add_null_to_existing_model = "-- not-null-ignore" in sql
+                can_rename = "-- rename-ignore" in sql
+                can_drop_columns = "-- drop-column-ignore" in sql
+                can_add_constraint = "-- existing-table-constraint-ignore" in sql
+                can_add_index = "-- concurrent-index-ignore" in sql
+
                 for operation_sql in operations:
                     # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
                     table_being_altered: Optional[str] = (
@@ -41,20 +50,20 @@ class Command(BaseCommand):
                     if (
                         re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
                         and "CREATE TABLE" not in operation_sql
-                        and "-- not-null-ignore" not in operation_sql
+                        and can_add_null_to_existing_model is False
                     ):
                         print(
                             f"\n\n\033[91mFound a non-null field or default added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field.\nSource: `{operation_sql}`"
                         )
                         sys.exit(1)
 
-                    if "RENAME" in operation_sql and "-- rename-ignore" not in operation_sql:
+                    if "RENAME" in operation_sql and can_rename is False:
                         print(
                             f"\n\n\033[91mFound a rename command. This will lock up the table while migrating. Please create a new column and provide alternative method for swapping columns.\nSource: `{operation_sql}`"
                         )
                         sys.exit(1)
 
-                    if "DROP COLUMN" in operation_sql and "-- drop-column-ignore" not in operation_sql:
+                    if "DROP COLUMN" in operation_sql and can_drop_columns is False:
                         print(
                             f"\n\n\033[91mFound a drop command. This could lead to unsafe states for the app. Please avoid dropping columns.\nSource: `{operation_sql}`"
                         )
@@ -65,12 +74,15 @@ class Command(BaseCommand):
                             f"\n\n\033[91mFound a DROP TABLE command. This could lead to unsafe states for the app. Please avoid dropping tables.\nSource: `{operation_sql}`"
                         )
                         sys.exit(1)
-                    if "CONSTRAINT" in operation_sql and (
-                        "-- existing-table-constraint-ignore" not in operation_sql
-                        or (
+
+                    if (
+                        can_add_constraint is False
+                        and "CONSTRAINT" in operation_sql
+                        and (
                             table_being_altered not in tables_created_so_far
                             or self._get_table("ALTER TABLE", operation_sql) not in new_tables
-                        )  # Ignore for brand-new tables
+                            # Ignore for brand-new tables
+                        )
                     ):
                         print(
                             f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
@@ -79,6 +91,7 @@ class Command(BaseCommand):
                     if (
                         "CREATE INDEX" in operation_sql
                         and "CONCURRENTLY" not in operation_sql
+                        and can_add_index is False
                         and self._get_table(" ON", operation_sql) not in new_tables
                     ):
                         print(
