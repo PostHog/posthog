@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import type { eventUsageLogicType } from './eventUsageLogicType'
@@ -221,9 +221,9 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
 
 export const eventUsageLogic = kea<eventUsageLogicType>({
     path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: {
+    connect: () => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    },
+    }),
     actions: {
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),

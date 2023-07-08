@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import List, Optional
 
 from prometheus_client import Counter
-from rest_framework.throttling import SimpleRateThrottle, BaseThrottle
+from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
@@ -221,29 +221,41 @@ class DecideRateThrottle(BaseThrottle):
 
 class BurstRateThrottle(TeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
-    # Intended to block quick bursts of requests
+    # Intended to block quick bursts of requests, per project
     scope = "burst"
     rate = "480/minute"
 
 
 class SustainedRateThrottle(TeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
-    # Intended to block slower but sustained bursts of requests
+    # Intended to block slower but sustained bursts of requests, per project
     scope = "sustained"
     rate = "4800/hour"
 
 
 class ClickHouseBurstRateThrottle(TeamRateThrottle):
-    # Throttle class that's a bit more aggressive and is used specifically
-    # on endpoints that generally hit ClickHouse
-    # Intended to block quick bursts of requests
+    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
+    # Intended to block quick bursts of requests, per project
     scope = "clickhouse_burst"
     rate = "240/minute"
 
 
 class ClickHouseSustainedRateThrottle(TeamRateThrottle):
-    # Throttle class that's a bit more aggressive and is used specifically
-    # on endpoints that generally hit ClickHouse
-    # Intended to block slower but sustained bursts of requests
+    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
     rate = "1200/hour"
+
+
+class AIBurstRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block quick bursts of requests, per user
+    scope = "ai_burst"
+    rate = "10/minute"
+
+
+class AISustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per user
+    scope = "ai_sustained"
+    rate = "40/day"

@@ -24,11 +24,12 @@ type InsightVizProps = {
     query: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
     context?: QueryContext
+    readOnly?: boolean
 }
 
 let uniqueNode = 0
 
-export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.Element {
+export function InsightViz({ query, setQuery, context, readOnly }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
     const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}` }
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -60,11 +61,13 @@ export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.E
                         'insight-wrapper--singlecolumn': isFunnels,
                     })}
                 >
-                    <EditorFilters
-                        query={query.source}
-                        setQuery={setQuerySource}
-                        showing={insightMode === ItemMode.Edit}
-                    />
+                    {!readOnly && (
+                        <EditorFilters
+                            query={query.source}
+                            setQuery={setQuerySource}
+                            showing={insightMode === ItemMode.Edit}
+                        />
+                    )}
 
                     <div className="insights-container" data-attr="insight-view">
                         <InsightContainer

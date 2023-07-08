@@ -9,7 +9,8 @@ import {
     VerifiedPropertyIcon,
     IconSelectAll,
 } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
