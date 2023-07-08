@@ -66,7 +66,7 @@ export class SessionOffsetHighWaterMark {
             await this.run(`write offset high-water mark ${key} `, async (client) => {
                 const returnCountOfUpdatedAndAddedElements = 'CH'
                 const updatedCount = await client.zadd(key, returnCountOfUpdatedAndAddedElements, offset, sessionId)
-                status.info('📝', 'WrittenOffsetCache added high-water mark for partition', {
+                status.info('📝', 'SessionOffsetHighWaterMark added high-water mark for partition', {
                     key,
                     ...tp,
                     sessionId,
@@ -76,7 +76,7 @@ export class SessionOffsetHighWaterMark {
                 this.setWaterMarkFor(tp, sessionId, offset)
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
+            status.error('🧨', 'SessionOffsetHighWaterMark failed to add high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,
@@ -122,7 +122,7 @@ export class SessionOffsetHighWaterMark {
             }
             return await this.getAllPromise
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to read high-water marks for partition', {
+            status.error('🧨', 'SessionOffsetHighWaterMark failed to read high-water marks for partition', {
                 error: error.message,
                 key,
                 ...tp,
@@ -146,7 +146,7 @@ export class SessionOffsetHighWaterMark {
         try {
             return await this.run(`commit all below offset high-water mark for ${key} `, async (client) => {
                 const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
-                status.info('📝', 'WrittenOffsetCache committed all below high-water mark for partition', {
+                status.info('📝', 'SessionOffsetHighWaterMark committed all below high-water mark for partition', {
                     numberRemoved,
                     ...tp,
                     offset,
@@ -162,7 +162,7 @@ export class SessionOffsetHighWaterMark {
                 return currentHighWaterMarks
             })
         } catch (error) {
-            status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
+            status.error('🧨', 'SessionOffsetHighWaterMark failed to commit high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,
@@ -192,7 +192,17 @@ export class SessionOffsetHighWaterMark {
                 this.topicPartitionWaterMarks[tp.partition] = highWaterMarks
             }
         }
-        return offset <= this.topicPartitionWaterMarks[tp.partition]?.[sessionId]
+        const highWaterMarkForSession: number | undefined = this.topicPartitionWaterMarks[tp.partition]?.[sessionId]
+        const isBelow = offset <= highWaterMarkForSession
+        status.info('💦', 'SessionOffsetHighWaterMark checked if offset is below high-water mark ', {
+            isBelow,
+            ...tp,
+            sessionId,
+            offset,
+            highWaterMarkForSession,
+        })
+
+        return isBelow
     }
 
     public revoke(tp: TopicPartition) {
