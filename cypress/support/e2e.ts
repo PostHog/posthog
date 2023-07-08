@@ -60,6 +60,14 @@ beforeEach(() => {
     }
 })
 
+afterEach(() => {
+    if (process.env.E2E_TESTING) {
+        cy.window().then((win) => {
+            ;(win as any).posthog?.capture('e2e_testing_test_passed')
+        })
+    }
+})
+
 const resizeObserverLoopErrRe = /^[^(ResizeObserver loop limit exceeded)]/
 Cypress.on('uncaught:exception', (err) => {
     /* returning false here prevents Cypress from failing the test */
