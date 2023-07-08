@@ -55,7 +55,8 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
                 db: 'database',
             },
             workerMethods: {
-                runAsyncHandlersEventPipeline: jest.fn(),
+                runAppsOnEventPipeline: jest.fn(),
+                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
@@ -173,7 +174,8 @@ describe('eachBatchLegacyIngestion with overflow reroute', () => {
                 db: 'database',
             },
             workerMethods: {
-                runAsyncHandlersEventPipeline: jest.fn(),
+                runAppsOnEventPipeline: jest.fn(),
+                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }

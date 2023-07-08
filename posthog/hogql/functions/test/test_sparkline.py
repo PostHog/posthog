@@ -8,7 +8,7 @@ class TestSparkline(BaseTest):
         response = execute_hogql_query("select sparkline([1,2,3])", self.team)
         self.assertEqual(
             response.clickhouse,
-            f"SELECT tuple(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, [1, 2, 3]) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
+            f"SELECT tuple(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, [1, 2, 3]) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
         )
         self.assertEqual(
             response.hogql,
@@ -19,4 +19,4 @@ class TestSparkline(BaseTest):
     def test_sparkline_error(self):
         with self.assertRaises(HogQLException) as e:
             execute_hogql_query(f"SELECT sparkline()", self.team)
-        self.assertEqual(str(e.exception), "sparkline() takes exactly one argument")
+        self.assertEqual(str(e.exception), "Function 'sparkline' expects 1 argument, found 0")

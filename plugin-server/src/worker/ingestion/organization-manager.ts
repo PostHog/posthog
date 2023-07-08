@@ -1,5 +1,7 @@
+import { Client, Pool } from 'pg'
+
 import { RawOrganization, Team, TeamId } from '../../types'
-import { DB } from '../../utils/db/db'
+import { postgresQuery } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
@@ -9,13 +11,13 @@ const ONE_DAY = 24 * 60 * 60 * 1000
 type OrganizationCache<T> = Map<RawOrganization['id'], [T, number]>
 
 export class OrganizationManager {
-    db: DB
+    postgres: Client | Pool
     teamManager: TeamManager
     organizationCache: OrganizationCache<RawOrganization | null>
     availableFeaturesCache: Map<TeamId, [Array<string>, number]>
 
-    constructor(db: DB, teamManager: TeamManager) {
-        this.db = db
+    constructor(postgres: Client | Pool, teamManager: TeamManager) {
+        this.postgres = postgres
         this.teamManager = teamManager
         this.organizationCache = new Map()
         this.availableFeaturesCache = new Map()
@@ -29,7 +31,8 @@ export class OrganizationManager {
 
         const timeout = timeoutGuard(`Still running "fetchOrganization". Timeout warning after 30 sec!`)
         try {
-            const organization: RawOrganization | null = (await this.db.fetchOrganization(organizationId)) || null
+            const organization: RawOrganization | null =
+                (await fetchOrganization(this.postgres, organizationId)) || null
             this.organizationCache.set(organizationId, [organization, Date.now()])
             return organization
         } finally {
@@ -61,4 +64,17 @@ export class OrganizationManager {
         this.availableFeaturesCache = new Map()
         this.organizationCache.delete(organizationId)
     }
+}
+
+export async function fetchOrganization(
+    client: Client | Pool,
+    organizationId: string
+): Promise<RawOrganization | undefined> {
+    const selectResult = await postgresQuery<RawOrganization>(
+        client,
+        `SELECT * FROM posthog_organization WHERE id = $1`,
+        [organizationId],
+        'fetchOrganization'
+    )
+    return selectResult.rows[0]
 }

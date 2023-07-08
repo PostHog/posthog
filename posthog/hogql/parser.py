@@ -635,12 +635,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnIdentifier())
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
-        if ctx.columnExprList():
-            raise NotImplementedException(f"Functions that return functions are not supported")
         name = self.visit(ctx.identifier())
-        args = self.visit(ctx.columnArgList()) if ctx.columnArgList() else []
-        distinct = True if ctx.DISTINCT() else None
-        return ast.Call(name=name, args=args, distinct=distinct)
+        column_expr_list = ctx.columnExprList()
+        parameters = self.visit(column_expr_list) if column_expr_list is not None else None
+        column_arg_list = ctx.columnArgList()
+        args = self.visit(column_arg_list) if column_arg_list is not None else []
+        distinct = True if ctx.DISTINCT() else False
+        return ast.Call(name=name, params=parameters, args=args, distinct=distinct)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         if ctx.tableIdentifier():

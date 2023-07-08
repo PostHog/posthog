@@ -275,7 +275,9 @@ def create_batch_export(
     """
     destination = BatchExportDestination.objects.create(**destination_data)
 
-    batch_export = BatchExport.objects.create(team_id=team_id, name=name, interval=interval, destination=destination)
+    batch_export = BatchExport.objects.create(
+        team_id=team_id, name=name, interval=interval, destination=destination, start_at=start_at, end_at=end_at
+    )
 
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
 

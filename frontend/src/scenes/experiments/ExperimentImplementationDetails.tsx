@@ -134,7 +134,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
                 </div>
             </div>
             <b>Implement your experiment in code</b>
-            <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag_key ?? ''} />
+            <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
 
             <Link to={selectedOption.documentationLink} target="_blank">
                 See the docs for more implementation information.

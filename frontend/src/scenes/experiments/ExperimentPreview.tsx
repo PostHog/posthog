@@ -6,13 +6,15 @@ import { dayjs } from 'lib/dayjs'
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
-import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { TZLabel } from 'lib/components/TZLabel'
 import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
+import { urls } from 'scenes/urls'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -67,7 +69,7 @@ export function ExperimentPreview({
     const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
     const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
 
-    const experimentProperties = convertPropertyGroupToProperties(experiment?.filters?.properties)
+    const targetingProperties = experiment.feature_flag?.filters
 
     return (
         <Row>
@@ -208,29 +210,26 @@ export function ExperimentPreview({
                         </Col>
                         <Col span={12}>
                             <div className="card-secondary">Participants</div>
-                            <div>
-                                {!!experimentProperties?.length ? (
-                                    <div>
-                                        {experimentProperties?.map((item: AnyPropertyFilter) => {
-                                            return (
-                                                <PropertyFilterButton
-                                                    key={item.key}
-                                                    item={item}
-                                                    style={{ margin: 2, cursor: 'default' }}
-                                                />
-                                            )
-                                        })}
-                                    </div>
-                                ) : (
+                            <div style={{ display: 'inline-block' }}>
+                                {targetingProperties ? (
                                     <>
-                                        100% of{' '}
-                                        {experiment?.filters?.aggregation_group_type_index != undefined
-                                            ? capitalizeFirstLetter(
-                                                  aggregationLabel(experiment.filters.aggregation_group_type_index)
-                                                      .plural
-                                              )
-                                            : 'users'}
+                                        {groupFilters(targetingProperties, undefined, aggregationLabel)}
+                                        <LemonButton
+                                            to={
+                                                experiment.feature_flag
+                                                    ? urls.featureFlag(experiment.feature_flag.id)
+                                                    : undefined
+                                            }
+                                            size="small"
+                                            className="mt-0.5"
+                                            type="secondary"
+                                            center
+                                        >
+                                            Check flag release conditions
+                                        </LemonButton>
                                     </>
+                                ) : (
+                                    '100% of all users'
                                 )}
                             </div>
                         </Col>
@@ -356,6 +355,7 @@ export function ExperimentPreview({
                         <MetricSelector
                             dashboardItemId={EXPERIMENT_INSIGHT_ID}
                             setPreviewInsight={setNewExperimentInsight}
+                            showDateRangeBanner
                         />
                     </Field>
                 </Form>

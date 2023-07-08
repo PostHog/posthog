@@ -17,8 +17,8 @@ export function TaxonomicBreakdownFilter({ filters, setFilters }: TaxonomicBreak
             breakdownFilter={filters}
             display={(filters as TrendsFilterType).display}
             isTrends={filters.insight === InsightType.TRENDS}
-            updateBreakdown={(breakdownFilter) => setFilters?.(breakdownFilter, true)}
-            updateDisplay={(display) => setFilters?.({ display } as TrendsFilterType, true)}
+            updateBreakdown={setFilters ? (breakdownFilter) => setFilters(breakdownFilter, true) : undefined}
+            updateDisplay={setFilters ? (display) => setFilters({ display } as TrendsFilterType, true) : undefined}
         />
     )
 }

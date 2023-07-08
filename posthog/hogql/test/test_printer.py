@@ -233,14 +233,23 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "toInt64OrNull(%(hogql_val_0)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "toFloat64OrNull(%(hogql_val_1)s)")
+        self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
-        self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' requires between 0 and 1 arguments, found 4")
-        self._assert_expr_error("countIf()", "Aggregation 'countIf' requires between 1 and 2 arguments, found 0")
-        self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' requires between 1 and 2 arguments, found 3")
-        self._assert_expr_error("uniq()", "Aggregation 'uniq' requires at least 1 argument, found 0")
+        self._assert_expr_error("count(1,2,3,4)", "Aggregation 'count' expects at most 1 argument, found 4")
+        self._assert_expr_error("countIf()", "Aggregation 'countIf' expects at least 1 argument, found 0")
+        self._assert_expr_error("countIf(2,3,4)", "Aggregation 'countIf' expects at most 2 arguments, found 3")
+        self._assert_expr_error("uniq()", "Aggregation 'uniq' expects at least 1 argument, found 0")
+        self._assert_expr_error(
+            "quantile(event)", "Aggregation 'quantile' requires parameters in addition to arguments"
+        )
+        self._assert_expr_error(
+            "quantile()(event)", "Aggregation 'quantile' requires parameters in addition to arguments"
+        )
+        self._assert_expr_error("quantile(0.5, 2)(event)", "Aggregation 'quantile' expects 1 parameter, found 2")
+        self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
         self._assert_expr_error("noway(event)", "Unsupported function call 'noway(...)'. Perhaps you meant 'now(...)'?")

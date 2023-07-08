@@ -145,7 +145,6 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
-    NEW_EMPTY_STATES: 'new-empty-states', // experiment, owner: @raquelmsmith
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
@@ -153,6 +152,7 @@ export const FEATURE_FLAGS = {
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER: 'session-recording-show-console-logs-filter', // owner: #team-monitoring
+    ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

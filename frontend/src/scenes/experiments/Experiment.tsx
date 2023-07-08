@@ -1,11 +1,7 @@
 import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
@@ -25,7 +21,7 @@ import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
 import { FunnelLayout } from 'lib/constants'
-import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { SecondaryMetrics } from './SecondaryMetrics'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -36,7 +32,6 @@ import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -46,14 +41,14 @@ import { userLogic } from 'scenes/userLogic'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
-import { actionsAndEventsToSeries, filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { NodeKind } from '~/queries/schema'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Query } from '~/queries/Query/Query'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { ExperimentInsightCreator } from './MetricSelector'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -81,13 +76,9 @@ export function Experiment(): JSX.Element {
         getIndexForVariant,
         significanceBannerDetails,
         areTrendResultsConfusing,
-        taxonomicGroupTypesForSelection,
-        groupTypes,
-        aggregationLabel,
         isExperimentRunning,
         experimentResultCalculationError,
         flagImplementationWarning,
-        flagAvailabilityWarning,
         props,
         sortedExperimentResultVariants,
     } = useValues(experimentLogic)
@@ -102,6 +93,7 @@ export function Experiment(): JSX.Element {
         archiveExperiment,
         resetRunningExperiment,
         loadExperiment,
+        loadExperimentResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
@@ -116,16 +108,8 @@ export function Experiment(): JSX.Element {
     // insightDataLogic
     const { query } = useValues(insightDataLogic(insightProps))
 
-    // insightVizDataLogic
-    const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-
     const { conversionMetrics, results } = useValues(funnelDataLogic(insightProps))
     const { results: trendResults } = useValues(trendsDataLogic(insightProps))
-
-    // calculated properties
-    const filterSteps = series || []
-    const isStepsEmpty = filterSteps.length === 0
 
     // Parameters for creating experiment
     const conversionRate = conversionMetrics.totalRate * 100
@@ -230,7 +214,7 @@ export function Experiment(): JSX.Element {
                                         loading={experimentLoading}
                                         disabled={experimentLoading}
                                     >
-                                        Save
+                                        {editingExistingExperiment ? 'Save' : 'Save as draft'}
                                     </LemonButton>
                                 </div>
                             }
@@ -362,87 +346,19 @@ export function Experiment(): JSX.Element {
                                         <div className="mb-2">
                                             <strong>Select participants</strong>
                                         </div>
-                                        <div className="text-muted">
-                                            Select the entities who will participate in this experiment. If no filters
-                                            are set, 100% of participants will be targeted.
-                                        </div>
-                                        <div className="mt-4 mb-2">
-                                            <strong>Participant type</strong>
-                                        </div>
-                                        <LemonSelect
-                                            value={
-                                                experiment.filters.aggregation_group_type_index != undefined
-                                                    ? experiment.filters.aggregation_group_type_index
-                                                    : -1
-                                            }
-                                            data-attr="participant-aggregation-filter"
-                                            dropdownMatchSelectWidth={false}
-                                            onChange={(rawGroupTypeIndex) => {
-                                                const groupTypeIndex =
-                                                    rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
-
-                                                updateQuerySource({
-                                                    aggregation_group_type_index: groupTypeIndex ?? undefined,
-                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
-                                                    properties: [],
-                                                })
-                                            }}
-                                            options={[
-                                                { value: -1, label: 'Persons' },
-                                                ...groupTypes.map((groupType) => ({
-                                                    value: groupType.group_type_index,
-                                                    label: capitalizeFirstLetter(
-                                                        aggregationLabel(groupType.group_type_index).plural
-                                                    ),
-                                                })),
-                                            ]}
-                                        />
-                                        <div className="mt-4 mb-2">
-                                            <strong>Filters</strong>
-                                        </div>
-                                        <div className="mb-4">
-                                            <PropertyFilters
-                                                pageKey={`experiment-participants-property-${JSON.stringify(
-                                                    experiment.filters
-                                                )}`}
-                                                propertyFilters={convertPropertyGroupToProperties(
-                                                    experiment.filters.properties
-                                                )}
-                                                onChange={(anyProperties) => {
-                                                    updateQuerySource({
-                                                        properties: anyProperties.filter(isValidPropertyFilter),
-                                                    })
-                                                }}
-                                                taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                            />
-                                        </div>
-                                        {flagAvailabilityWarning && (
-                                            <LemonBanner type="info" className="mt-3 mb-3">
-                                                These properties aren't immediately available on first page load for
-                                                unidentified persons. This experiment requires that at least one event
-                                                is sent prior to becoming available to your product or website.{' '}
-                                                <a
-                                                    href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags"
-                                                    target="_blank"
-                                                >
-                                                    {' '}
-                                                    Learn more about how to make feature flags available instantly.
-                                                </a>
-                                            </LemonBanner>
-                                        )}
-                                        <div className="mt-4 mb-2">
-                                            <strong>Advanced Options</strong>
-                                        </div>
-                                        <div className="mb-4">
-                                            For more advanced options like changing the rollout percentage and
-                                            persisting feature flags, you can{' '}
+                                        <div className="text-muted mb-4">
+                                            Experiments use feature flags to target users. By default, 100% of
+                                            participants will be targeted.
+                                            <br />
+                                            For any advanced options like changing the rollout percentage, and targeting
+                                            by groups, you can{' '}
                                             {experimentId === 'new' ? (
-                                                'change settings on the feature flag after creation.'
+                                                'change settings on the feature flag after saving this experiment.'
                                             ) : (
                                                 <Link
                                                     to={
                                                         experiment.feature_flag
-                                                            ? urls.featureFlag(experiment.feature_flag)
+                                                            ? urls.featureFlag(experiment.feature_flag.id)
                                                             : undefined
                                                     }
                                                 >
@@ -503,33 +419,7 @@ export function Experiment(): JSX.Element {
                                             </LemonBanner>
                                         )}
 
-                                        <ActionFilter
-                                            bordered
-                                            filters={queryNodeToFilter(querySource as InsightQueryNode)}
-                                            setFilters={(payload: Partial<FilterType>): void => {
-                                                updateQuerySource({
-                                                    series: actionsAndEventsToSeries(payload as any),
-                                                } as TrendsQuery | FunnelsQuery)
-                                            }}
-                                            typeKey={`experiment-${
-                                                isTrends ? InsightType.TRENDS : InsightType.FUNNELS
-                                            }-goal`}
-                                            mathAvailability={isTrends ? undefined : MathAvailability.None}
-                                            hideDeleteBtn={isTrends || filterSteps.length === 1}
-                                            buttonCopy={isTrends ? 'Add graph series' : 'Add funnel step'}
-                                            showSeriesIndicator={isTrends || !isStepsEmpty}
-                                            entitiesLimit={isTrends ? 1 : undefined}
-                                            seriesIndicatorType={isTrends ? undefined : 'numeric'}
-                                            sortable={isTrends ? undefined : true}
-                                            showNestedArrow={isTrends ? undefined : true}
-                                            propertiesTaxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                                TaxonomicFilterGroupType.Elements,
-                                            ]}
-                                        />
+                                        <ExperimentInsightCreator insightProps={insightProps} />
                                     </Col>
                                     <Col span={12} className="pl-4">
                                         <div className="card-secondary mb-4" data-attr="experiment-preview">
@@ -597,7 +487,7 @@ export function Experiment(): JSX.Element {
                                 loading={experimentLoading}
                                 disabled={experimentLoading}
                             >
-                                Save
+                                {editingExistingExperiment ? 'Save' : 'Save as draft'}
                             </LemonButton>
                         </div>
                     </Form>
@@ -614,10 +504,10 @@ export function Experiment(): JSX.Element {
                                         buttons={
                                             <>
                                                 <CopyToClipboardInline
-                                                    explicitValue={experiment.feature_flag_key}
+                                                    explicitValue={experiment.feature_flag?.key}
                                                     iconStyle={{ color: 'var(--muted-alt)' }}
                                                 >
-                                                    <span className="text-muted">{experiment.feature_flag_key}</span>
+                                                    <span className="text-muted">{experiment.feature_flag?.key}</span>
                                                 </CopyToClipboardInline>
                                                 <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
                                                     <b className="uppercase">{status()}</b>
@@ -671,6 +561,23 @@ export function Experiment(): JSX.Element {
                             )}
                             {experiment && isExperimentRunning && (
                                 <div className="flex flex-row gap-2">
+                                    <>
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={() => loadExperimentResults(true)}
+                                                        fullWidth
+                                                        data-attr="refresh-experiment"
+                                                    >
+                                                        Refresh experiment results
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                        <LemonDivider vertical />
+                                    </>
                                     <Popconfirm
                                         placement="topLeft"
                                         title={
@@ -756,7 +663,7 @@ export function Experiment(): JSX.Element {
                                     <Link
                                         to={
                                             experiment.feature_flag
-                                                ? urls.featureFlag(experiment.feature_flag)
+                                                ? urls.featureFlag(experiment.feature_flag.id)
                                                 : undefined
                                         }
                                     >
@@ -1030,55 +937,31 @@ export function Experiment(): JSX.Element {
                             )
                         )}
                         {experimentResults ? (
-                            <BindLogic
-                                logic={insightLogic}
-                                props={{
-                                    dashboardItemId: experimentResults.fakeInsightId,
-                                    cachedInsight: {
-                                        short_id: experimentResults.fakeInsightId,
-                                        filters: {
-                                            ...experimentResults.filters,
-                                            insight: experimentInsightType,
-                                            ...(experimentInsightType === InsightType.FUNNELS && {
-                                                layout: FunnelLayout.vertical,
-                                                funnel_viz_type: FunnelVizType.Steps,
-                                            }),
-                                            ...(experimentInsightType === InsightType.TRENDS && {
-                                                display: ChartDisplayType.ActionsLineGraphCumulative,
-                                            }),
-                                        },
-                                        result: experimentResults.insight,
-                                        disable_baseline: true,
-                                    },
-                                    doNotLoad: true,
-                                }}
-                            >
-                                <div className="mt-4">
-                                    <Query
-                                        query={{
-                                            kind: NodeKind.InsightVizNode,
-                                            source: filtersToQueryNode(
-                                                transformResultFilters(experimentResults.filters)
-                                            ),
-                                            showTable: true,
-                                            showLegendButton: false,
-                                        }}
-                                        context={{
-                                            insightProps: {
-                                                dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
-                                                cachedInsight: {
-                                                    short_id: experimentResults.fakeInsightId as InsightShortId,
-                                                    filters: transformResultFilters(experimentResults.filters),
-                                                    result: experimentResults.insight,
-                                                    disable_baseline: true,
-                                                },
-                                                doNotLoad: true,
+                            <div className="mt-4">
+                                <Query
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
+                                        showTable: true,
+                                        showLegendButton: false,
+                                        showLastComputation: true,
+                                    }}
+                                    context={{
+                                        insightProps: {
+                                            dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
+                                            cachedInsight: {
+                                                short_id: experimentResults.fakeInsightId as InsightShortId,
+                                                filters: transformResultFilters(experimentResults.filters),
+                                                result: experimentResults.insight,
+                                                disable_baseline: true,
+                                                last_refresh: experimentResults.last_refresh,
                                             },
-                                        }}
-                                        readOnly
-                                    />
-                                </div>
-                            </BindLogic>
+                                            doNotLoad: true,
+                                        },
+                                    }}
+                                    readOnly
+                                />
+                            </div>
                         ) : (
                             experiment.start_date && (
                                 <>

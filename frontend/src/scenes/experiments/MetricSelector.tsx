@@ -8,21 +8,34 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { FilterType, InsightShortId, InsightType } from '~/types'
+import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { Query } from '~/queries/Query/Query'
 import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 import './Experiment.scss'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { DEFAULT_DURATION } from './experimentLogic'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
     setPreviewInsight: (filters?: Partial<FilterType>) => void
+    showDateRangeBanner?: boolean
 }
 
-export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSelectorProps): JSX.Element {
+export function MetricSelector({
+    dashboardItemId,
+    setPreviewInsight,
+    showDateRangeBanner,
+}: MetricSelectorProps): JSX.Element {
     // insightLogic
     const logic = insightLogic({ dashboardItemId, syncWithUrl: false })
     const { insightProps } = useValues(logic)
@@ -31,12 +44,7 @@ export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSel
     const { query } = useValues(insightDataLogic(insightProps))
 
     // insightVizDataLogic
-    const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-
-    // calculated properties
-    const filterSteps = series || []
-    const isStepsEmpty = filterSteps.length === 0
+    const { isTrends } = useValues(insightVizDataLogic(insightProps))
 
     return (
         <>
@@ -62,6 +70,35 @@ export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSel
                 <br />
             </div>
 
+            <ExperimentInsightCreator insightProps={insightProps} />
+
+            {showDateRangeBanner && (
+                <LemonBanner type="info" className="mt-3 mb-3">
+                    Preview insights are generated based on {DEFAULT_DURATION} days of data. This can cause a mismatch
+                    between the preview and the actual results.
+                </LemonBanner>
+            )}
+
+            <div className="mt-4">
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <Query query={query} context={{ insightProps }} readOnly />
+                </BindLogic>
+            </div>
+        </>
+    )
+}
+
+export function ExperimentInsightCreator({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+    // insightVizDataLogic
+    const { isTrends, series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+
+    // calculated properties
+    const filterSteps = series || []
+    const isStepsEmpty = filterSteps.length === 0
+
+    return (
+        <>
             <ActionFilter
                 bordered
                 filters={queryNodeToFilter(querySource as InsightQueryNode)}
@@ -85,14 +122,55 @@ export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSel
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
-
-            <div className="mt-4">
-                <BindLogic logic={insightLogic} props={insightProps}>
-                    <Query query={query} context={{ insightProps }} readOnly />
-                </BindLogic>
+            <div className="mt-4 space-y-4">
+                {!isTrends && (
+                    <>
+                        <div className="flex items-center w-full gap-2">
+                            <span>Aggregating by</span>
+                            <AggregationSelect insightProps={insightProps} hogqlAvailable />
+                        </div>
+                        <FunnelConversionWindowFilter insightProps={insightProps} />
+                        <AttributionSelect
+                            insightProps={insightProps}
+                            query={querySource as InsightQueryNode}
+                            setQuery={updateQuerySource}
+                        />
+                    </>
+                )}
+                <TestAccountFilter query={querySource as InsightQueryNode} setQuery={updateQuerySource} />
             </div>
         </>
+    )
+}
+
+export function AttributionSelect({ insightProps, query, setQuery }: EditorFilterProps): JSX.Element {
+    return (
+        <div className="flex items-center w-full gap-2">
+            <span>
+                Attribution type
+                <Tooltip
+                    title={
+                        <div>
+                            When breaking funnels down by a property, you can choose how to assign users to the various
+                            property values. This is useful because property values can change for a user/group as
+                            someone travels through the funnel.
+                            <ul className="list-disc pl-4 pt-4">
+                                <li>First step: the first property value seen from all steps is chosen.</li>
+                                <li>Last step: last property value seen from all steps is chosen.</li>
+                                <li>Specific step: the property value seen at that specific step is chosen.</li>
+                                <li>All steps: the property value must be seen in all steps.</li>
+                                <li>Any step: the property value must be seen on at least one step of the funnel.</li>
+                            </ul>
+                        </div>
+                    }
+                >
+                    <InfoCircleOutlined className="info-indicator" />
+                </Tooltip>
+            </span>
+            <Attribution insightProps={insightProps} query={query} setQuery={setQuery} />
+        </div>
     )
 }
