@@ -45,7 +45,7 @@ export function loadPostHogJS(): void {
             Object.entries(Cypress.env()).forEach(([key, value]) => {
                 if (key.startsWith('POSTHOG_PROPERTY_')) {
                     posthog.register_for_session({
-                        [key.replace('POSTHOG_PROPERTY_', '').toLowerCase()]: value,
+                        [key.replace('POSTHOG_PROPERTY_', 'E2E_TESTING_').toLowerCase()]: value,
                     })
                 }
             })
