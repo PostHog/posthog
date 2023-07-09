@@ -2,19 +2,83 @@ from typing import cast
 
 from django.utils import timezone
 from rest_framework import status
-
+from django.test import override_settings
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.license import License
+from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.dashboard import Dashboard
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.signals import mute_selected_signals
 from posthog.models.user import User
 
 
 class TestDashboardEnterpriseAPI(APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_features = [
+            AvailableFeature.TAGGING,
+            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
+        self.organization.save()
+
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    def test_listing_dashboards_is_not_nplus1(self) -> None:
+        self.client.logout()
+
+        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
+        self.organization.save()
+        self.team.access_control = True
+        self.team.save()
+
+        user_with_collaboration = User.objects.create_and_join(
+            self.organization, "no-collaboration-feature@posthog.com", None
+        )
+        self.client.force_login(user_with_collaboration)
+
+        with self.assertNumQueries(7):
+            self.dashboard_api.list_dashboards()
+
+        for i in range(5):
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": f"dashboard-{i}", "description": i})
+            for j in range(3):
+                self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
+
+            with self.assertNumQueries(8):
+                self.dashboard_api.list_dashboards(query_params={"limit": 300})
+
+    # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_adding_insights_is_not_nplus1_for_gets(self):
+        with mute_selected_signals():
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+            filter_dict = {
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                "insight": "TRENDS",
+            }
+
+            with self.assertNumQueries(11):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
     def test_retrieve_dashboard_forbidden_for_project_outsider(self):
         self.team.access_control = True
         self.team.save()

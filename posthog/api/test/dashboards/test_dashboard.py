@@ -10,10 +10,8 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -53,13 +51,7 @@ valid_template: Dict = {
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
-        self.organization.available_features = [
-            AvailableFeature.TAGGING,
-            AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.DASHBOARD_PERMISSIONING,
-        ]
-        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
-        self.organization.save()
+
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @snapshot_postgres_queries
@@ -198,40 +190,36 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(11):
+            with self.assertNumQueries(10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
+
+    def test_cannot_create_a_dashboard_with_a_description_when_unlicensed(self) -> None:
+        self.dashboard_api.create_dashboard(
+            {"name": f"dashboard", "description": "should not be provided when unlicensed"},
+            expected_status=status.HTTP_403_FORBIDDEN,
+        )
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
-        self.client.logout()
-
-        self.organization.available_features = [AvailableFeature.DASHBOARD_COLLABORATION]
-        self.organization.save()
-        self.team.access_control = True
-        self.team.save()
-
-        user_with_collaboration = User.objects.create_and_join(
-            self.organization, "no-collaboration-feature@posthog.com", None
-        )
-        self.client.force_login(user_with_collaboration)
 
         with self.assertNumQueries(7):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
-            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": f"dashboard-{i}", "description": i})
+            # description is an enterprise feature and safely ignored
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": f"dashboard-{i}"})
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 

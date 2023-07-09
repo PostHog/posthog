@@ -1,7 +1,7 @@
 import functools
 import json
 from random import randint
-from typing import Literal, TypedDict
+from typing import TypedDict
 from unittest import mock
 from uuid import uuid4
 
@@ -14,9 +14,6 @@ from django.test import override_settings
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from ee.clickhouse.materialized_columns.columns import materialize
-
-from asgiref.sync import sync_to_async
 
 from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
@@ -129,12 +126,6 @@ def s3_client(bucket_name):
     s3_client.delete_bucket(Bucket=bucket_name)
 
 
-@sync_to_async
-def amaterialize(table: Literal["events", "person", "groups"], column: str):
-    """Materialize a column in a table."""
-    return materialize(table, column)
-
-
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client, activity_environment):
@@ -157,10 +148,6 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         password=settings.CLICKHOUSE_PASSWORD,
         database=settings.CLICKHOUSE_DATABASE,
     )
-
-    # Add a materialized column such that we can verify that it is NOT included
-    # in the export.
-    await amaterialize("events", "$browser")
 
     # Create enough events to ensure we span more than 5MB, the smallest
     # multipart chunk size for multipart uploads to S3.
