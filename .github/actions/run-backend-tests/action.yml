@@ -104,10 +104,12 @@ runs:
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
           shell: bash
           run: | # async_migrations are covered in ci-async-migrations.yml
+              mv ee/ ee-hidden/; \
               pytest hogvm posthog -m "not async_migrations" \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
-                  $PYTEST_ARGS
+                  $PYTEST_ARGS; \
+              mv ee-hidden/ ee/
 
         - name: Run Decide read replica tests
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
