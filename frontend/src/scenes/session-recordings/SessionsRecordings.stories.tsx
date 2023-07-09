@@ -17,15 +17,26 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
+        mockDate: '2023-02-01',
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recordings': { results: recordings },
+                '/api/projects/:team_id/session_recordings': (req) => {
+                    const version = req.url.searchParams.get('version')
+                    return [
+                        200,
+                        {
+                            has_next: false,
+                            results: recordings,
+                            version,
+                        },
+                    ]
+                },
                 '/api/projects/:team_id/session_recording_playlists': recording_playlists,
                 // without the session-recording-blob-replay feature flag, we only load via ClickHouse
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
-                '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,
