@@ -36,7 +36,7 @@ export const urls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
 
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    createAction: (): string => `/data-management/actions/new`,
+    createAction: (): string => `/data-management/actions/new`, // TODO: Convert all to simply .action('new')
     copyAction: (action: ActionType | null): string => {
         const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
         return `/data-management/actions/new/${queryParams}`

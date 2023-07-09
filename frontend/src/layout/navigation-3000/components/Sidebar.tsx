@@ -1,7 +1,7 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
-import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconClose, IconMagnifier, IconPlus } from 'lib/lemon-ui/icons'
 import React, { useRef, useState } from 'react'
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
@@ -9,12 +9,10 @@ import { SidebarAccordion } from './SidebarAccordion'
 import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useDebouncedCallback } from 'use-debounce'
+import { SidebarList } from './SidebarList'
 
 /** A small delay that prevents us from making a search request on each key press. */
 const SEARCH_DEBOUNCE_MS = 300
-
-/** Multi-segment item keys are joined using this separator for easy comparisons. */
-const ITEM_KEY_PART_SEPARATOR = '::'
 
 interface SidebarProps {
     navbarItem: SidebarNavbarItem // Sidebar can only be rendered if there's an active sidebar navbar item
@@ -30,7 +28,7 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
         isSidebarKeyboardShortcutAcknowledged,
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { beginResize, setIsSearchShown } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
+    const { beginResize } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { contents } = useValues(navbarItem.logic)
 
     const title =
@@ -56,19 +54,7 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
             <div className="Sidebar3000__content">
                 <div className="Sidebar3000__header">
                     <h3 className="grow">{title}</h3>
-                    <LemonButton
-                        icon={<IconMagnifier />}
-                        size="small"
-                        noPadding
-                        onClick={() => setIsSearchShown(!isSearchShown)}
-                        active={isSearchShown}
-                        tooltip={
-                            <>
-                                Find <KeyboardShortcut shift command f />
-                            </>
-                        }
-                        tooltipPlacement="bottom"
-                    />
+                    <SidebarActions activeSidebarLogic={navbarItem.logic} />
                 </div>
                 {navbarItem?.logic && isSearchShown && (
                     <SidebarSearchBar activeSidebarLogic={navbarItem.logic} inputElementRef={inputElementRef} />
@@ -87,6 +73,47 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
                 }}
             />
         </div>
+    )
+}
+
+function SidebarActions({ activeSidebarLogic }: { activeSidebarLogic: LogicWrapper<SidebarLogic> }): JSX.Element {
+    const { isSearchShown, isNewItemBeingAdded } = useValues(navigation3000Logic)
+    const { setIsSearchShown, initiateNewItemInCategory } = useActions(navigation3000Logic)
+    const { contents } = useValues(activeSidebarLogic)
+
+    return (
+        <>
+            {contents.length === 1 && !!contents[0].onAdd && (
+                // If there's only one category, show a top level "New" button
+                <LemonButton
+                    icon={<IconPlus />}
+                    size="small"
+                    noPadding
+                    to={typeof contents[0].onAdd === 'string' ? contents[0].onAdd : undefined}
+                    onClick={
+                        typeof contents[0].onAdd === 'function'
+                            ? () => initiateNewItemInCategory(contents[0].key)
+                            : undefined
+                    }
+                    active={isNewItemBeingAdded}
+                    tooltip="New"
+                    tooltipPlacement="bottom"
+                />
+            )}
+            <LemonButton
+                icon={<IconMagnifier />}
+                size="small"
+                noPadding
+                onClick={() => setIsSearchShown(!isSearchShown)}
+                active={isSearchShown}
+                tooltip={
+                    <>
+                        Find <KeyboardShortcut shift command f />
+                    </>
+                }
+                tooltipPlacement="bottom"
+            />
+        </>
     )
 }
 
@@ -151,44 +178,16 @@ function SidebarContent({
 }: {
     activeSidebarLogic: LogicWrapper<SidebarLogic>
 }): JSX.Element | null {
-    const { accordionCollapseMapping } = useValues(navigation3000Logic)
-    const { toggleAccordion } = useActions(navigation3000Logic)
-    const { contents, activeListItemKey } = useValues(activeSidebarLogic)
-
-    const normalizedActiveItemKey = Array.isArray(activeListItemKey)
-        ? activeListItemKey.join(ITEM_KEY_PART_SEPARATOR)
-        : activeListItemKey
+    const { contents } = useValues(activeSidebarLogic)
 
     return contents.length !== 1 ? (
         <>
             {(contents as SidebarCategory[]).map((accordion) => (
-                <SidebarAccordion
-                    key={accordion.key}
-                    title={accordion.title}
-                    items={accordion.items.map((item) => ({
-                        ...item,
-                        // Normalize keys in-place so that item refs can be injected later during rendering
-                        key: Array.isArray(item.key)
-                            ? item.key.map((keyPart) => `${accordion.key}${ITEM_KEY_PART_SEPARATOR}${keyPart}`)
-                            : `${accordion.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`,
-                    }))}
-                    remote={accordion.remote}
-                    loading={accordion.loading}
-                    collapsed={accordionCollapseMapping[accordion.key]}
-                    toggle={() => toggleAccordion(accordion.key)}
-                    activeItemKey={normalizedActiveItemKey ?? null}
-                />
+                <SidebarAccordion key={accordion.key} category={accordion} />
             ))}
         </>
     ) : (
-        <SidebarAccordion
-            key={contents[0].key}
-            title={contents[0].title}
-            items={contents[0].items}
-            remote={contents[0].remote}
-            loading={contents[0].loading}
-            activeItemKey={normalizedActiveItemKey ?? null}
-        />
+        <SidebarList category={contents[0]} />
     )
 }
 

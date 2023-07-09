@@ -30,6 +30,7 @@ export const annotationsSidebarLogic = kea<annotationsSidebarLogicType>([
                 {
                     key: 'annotations',
                     title: 'Annotations',
+                    // TODO: Add onAdd opening modal
                     items: relevantAnnotations.map(
                         ([annotation, matches]) =>
                             ({

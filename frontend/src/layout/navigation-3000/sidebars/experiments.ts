@@ -72,6 +72,7 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
                             ],
                         } as ExtendedListItem
                     }),
+                    onAdd: urls.experiment('new'),
                 } as SidebarCategory,
             ],
         ],
@@ -79,7 +80,7 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
             (s) => [s.activeScene, s.sceneParams],
             (activeScene, sceneParams) => {
                 return activeScene === Scene.Experiment && sceneParams.params.id
-                    ? parseInt(sceneParams.params.id)
+                    ? ['experiments', parseInt(sceneParams.params.id)]
                     : null
             },
         ],

@@ -2,7 +2,7 @@ import {
     appEditorUrl,
     authorizedUrlListLogic,
     AuthorizedUrlListType,
-    validateProposedURL,
+    validateProposedUrl,
 } from './authorizedUrlListLogic'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -57,7 +57,7 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: { url: 'not a domain or url' },
                 proposedUrlChanged: true,
                 proposedUrlHasErrors: true,
-                proposedUrlValidationErrors: { url: 'Please type a valid URL or domain.' },
+                proposedUrlValidationErrors: { url: 'Please type a valid URL or domain' },
             })
         })
     })
@@ -86,16 +86,16 @@ describe('the authorized urls list logic', () => {
 
         testCases.forEach((testCase) => {
             it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
-                expect(validateProposedURL(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
+                expect(validateProposedUrl(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
             })
         })
 
         it('fails if the proposed URL is already authorized', () => {
-            expect(validateProposedURL('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
+            expect(validateProposedUrl('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
                 'This URL is already registered.'
             )
             expect(
-                validateProposedURL(
+                validateProposedUrl(
                     'https://valid.and-not-already-authorized.example.com',
                     ['https://valid.*.example.com'],
                     false
@@ -142,7 +142,7 @@ describe('the authorized urls list logic', () => {
 
             testCases.forEach((testCase) => {
                 it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
-                    expect(validateProposedURL(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
+                    expect(validateProposedUrl(testCase.proposedUrl, [], true)).toEqual(testCase.validityMessage)
                 })
             })
         })

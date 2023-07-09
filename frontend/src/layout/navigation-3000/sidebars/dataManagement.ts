@@ -163,6 +163,7 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
                     key: 'actions',
                     title: 'Actions',
                     loading: actionsLoading,
+                    onAdd: urls.action('new'), // TODO: Show "New button" at accordion level
                     items: relevantActions.map(([action, matches]) => ({
                         key: action.id,
                         name: action.name,

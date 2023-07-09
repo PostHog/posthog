@@ -49,6 +49,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
                     key: 'dashboards',
                     title: 'Dashboards',
                     loading: dashboardsLoading,
+                    // TODO: Add onAdd opening modal
                     items: relevantDashboards.map(
                         ([dashboard, matches]) =>
                             ({
@@ -128,7 +129,9 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
             (activeScene, sceneParams) => {
-                return activeScene === Scene.Dashboard && sceneParams.params.id ? parseInt(sceneParams.params.id) : null
+                return activeScene === Scene.Dashboard && sceneParams.params.id
+                    ? ['dashboards', parseInt(sceneParams.params.id)]
+                    : null
             },
         ],
         relevantDashboards: [
