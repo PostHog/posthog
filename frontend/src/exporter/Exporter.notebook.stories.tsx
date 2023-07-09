@@ -21,7 +21,7 @@ export default {
         testOptions: {
             // KLUDGE: duplicated from Exporter.insight-and-dashboard.stories.tsx
             // so that we can set the correct waitForLoadersToDisappear
-            waitForLoadersToDisappear: '[data-attr=notebook-loading-state]',
+            waitForLoadersToDisappear: '.Notebook',
         },
         mockDate: '2023-02-01',
         viewMode: 'story',
