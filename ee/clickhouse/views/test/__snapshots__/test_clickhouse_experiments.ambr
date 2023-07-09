@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results
   '
-  /* user_id:65 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:38 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -81,10 +81,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -93,13 +92,14 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target, timestamp, step_0,
-                                                    latest_0,
-                                                    step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
-                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target, prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                   if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -138,7 +138,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones
   '
-  /* user_id:66 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:39 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -219,10 +219,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -231,13 +230,14 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target, timestamp, step_0,
-                                                    latest_0,
-                                                    step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
-                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([['test'], ['control']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target, prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                   if(has([['test'], ['control']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -276,7 +276,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
-  /* user_id:68 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:41 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -357,10 +357,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -369,13 +368,14 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target, timestamp, step_0,
-                                                    latest_0,
-                                                    step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
-                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([[''], ['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target, prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                   if(has([[''], ['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -414,7 +414,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_with_hogql_aggregation
   '
-  /* user_id:69 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:42 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -495,10 +495,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -507,13 +506,14 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target, timestamp, step_0,
-                                                    latest_0,
-                                                    step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
-                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target, prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                   if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -552,7 +552,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '
-  /* user_id:71 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:44 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -719,7 +719,9 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -749,7 +751,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
-  /* user_id:72 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:45 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -892,7 +894,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
   '
-  /* user_id:74 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:47 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -1059,7 +1061,9 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -1089,7 +1093,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_with_hogql_filter
   '
-  /* user_id:75 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:48 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -1258,7 +1262,9 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,

@@ -1,6 +1,6 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '
-  /* user_id:59 celery:posthog.celery.sync_insight_caching_state */
+  /* user_id:32 celery:posthog.celery.sync_insight_caching_state */
   SELECT team_id,
          date_diff('second', max(timestamp), now()) AS age
   FROM events
@@ -145,10 +145,9 @@
      FROM
        (SELECT aggregation_target,
                steps,
-               max(steps) over (PARTITION BY aggregation_target,
-                                             prop) as max_steps,
-                               step_1_conversion_time ,
-                               prop
+               max(steps) over (PARTITION BY aggregation_target, prop) as max_steps,
+               step_1_conversion_time ,
+               prop
         FROM
           (SELECT *,
                   if(latest_0 <= latest_1
@@ -157,13 +156,14 @@
                      AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
                   prop
            FROM
-             (SELECT aggregation_target, timestamp, step_0,
-                                                    latest_0,
-                                                    step_1,
-                                                    min(latest_1) over (PARTITION by aggregation_target,
-                                                                                     prop
-                                                                        ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                                                       if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target, prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                   if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop

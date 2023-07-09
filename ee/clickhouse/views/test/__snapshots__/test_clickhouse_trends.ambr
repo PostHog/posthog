@@ -266,7 +266,9 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -552,7 +554,7 @@
                     day_start
            UNION ALL SELECT counts AS total,
                             timestamp AS day_start,
-                            breakdown_value
+                                         breakdown_value
            FROM
              (SELECT d.timestamp,
                      COUNT(DISTINCT person_id) counts,
@@ -594,8 +596,9 @@
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                 GROUP BY timestamp, person_id,
-                                     breakdown_value) e
+                 GROUP BY timestamp,
+                          person_id,
+                          breakdown_value) e
               WHERE e.timestamp <= d.timestamp
                 AND e.timestamp > d.timestamp - INTERVAL 6 DAY
               GROUP BY d.timestamp,
