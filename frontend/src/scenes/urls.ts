@@ -123,6 +123,7 @@ export const urls = {
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',
+    site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
     // Onboarding / setup routes
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',

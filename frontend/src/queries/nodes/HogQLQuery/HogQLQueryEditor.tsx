@@ -54,26 +54,32 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             value={prompt}
                             onPressEnter={() => draftFromPrompt()}
                             onChange={(value) => setPrompt(value)}
-                            placeholder="What do you want to know? How would you like to tweak the query?"
+                            placeholder={
+                                aiAvailable
+                                    ? 'What do you want to know? How would you like to tweak the query?'
+                                    : 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
+                            }
+                            disabled={!aiAvailable}
                             maxLength={400}
                         />
                         <LemonButton
                             type="primary"
                             onClick={() => draftFromPrompt()}
                             disabledReason={
-                                !prompt
+                                !aiAvailable
+                                    ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
+                                    : !prompt
                                     ? 'Provide a prompt first'
-                                    : !aiAvailable
-                                    ? 'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
                                     : null
                             }
+                            tooltipPlacement="left"
                             loading={promptLoading}
                         >
                             Think
                         </LemonButton>
                     </div>
                 </FlaggedFeature>
-                {promptError ? <LemonBanner type="error">{promptError}</LemonBanner> : null}
+                {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1">
                     <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
                         <LemonButtonWithDropdown

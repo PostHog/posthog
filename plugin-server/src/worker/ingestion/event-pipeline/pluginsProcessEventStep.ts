@@ -9,7 +9,6 @@ export async function pluginsProcessEventStep(
     event: PluginEvent
 ): Promise<PluginEvent | null> {
     const processedEvent = await runInstrumentedFunction({
-        server: runner.hub,
         event,
         func: (event) => runProcessEvent(runner.hub, event),
         statsKey: 'kafka_queue.single_event',

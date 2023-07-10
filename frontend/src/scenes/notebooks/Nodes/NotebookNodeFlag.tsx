@@ -21,7 +21,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeWrapper
             nodeType={NotebookNodeType.FeatureFlag}
-            title="FeatureFlag"
+            title="Feature Flag"
             {...props}
             href={urls.featureFlag(id)}
             heightEstimate={'3rem'}

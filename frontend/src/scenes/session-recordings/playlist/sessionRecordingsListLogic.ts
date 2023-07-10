@@ -282,6 +282,26 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
+        sessionRecordingsAPIErrored: [
+            false,
+            {
+                loadSessionRecordingsFailure: () => true,
+                loadSessionRecordingSuccess: () => false,
+                setFilters: () => false,
+                loadNext: () => false,
+                loadPrev: () => false,
+            },
+        ],
+        pinnedRecordingsAPIErrored: [
+            false,
+            {
+                loadPinnedRecordingsFailure: () => true,
+                loadPinnedRecordingsSuccess: () => false,
+                setFilters: () => false,
+                loadNext: () => false,
+                loadPrev: () => false,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -330,9 +350,27 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     selectors({
         shouldShowEmptyState: [
-            (s) => [s.sessionRecordings, s.customFilters, s.sessionRecordingsResponseLoading],
-            (sessionRecordings, customFilters, sessionRecordingsResponseLoading): boolean => {
-                return !sessionRecordingsResponseLoading && sessionRecordings.length === 0 && !customFilters
+            (s) => [
+                s.sessionRecordings,
+                s.customFilters,
+                s.sessionRecordingsResponseLoading,
+                s.sessionRecordingsAPIErrored,
+                s.pinnedRecordingsAPIErrored,
+            ],
+            (
+                sessionRecordings,
+                customFilters,
+                sessionRecordingsResponseLoading,
+                sessionRecordingsAPIErrored,
+                pinnedRecordingsAPIErrored
+            ): boolean => {
+                return (
+                    !sessionRecordingsAPIErrored &&
+                    !pinnedRecordingsAPIErrored &&
+                    !sessionRecordingsResponseLoading &&
+                    sessionRecordings.length === 0 &&
+                    !customFilters
+                )
             },
         ],
 
