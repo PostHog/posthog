@@ -59,10 +59,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ) {
             actions.loadData()
         }
-        if (
-            props.cachedResults &&
-            (!values.response || (oldProps.cachedResults && !equal(props.cachedResults, oldProps.cachedResults)))
-        ) {
+        if (props.cachedResults && !values.response) {
             actions.setResponse(props.cachedResults)
         }
     }),
