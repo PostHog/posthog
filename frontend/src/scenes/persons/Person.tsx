@@ -3,7 +3,7 @@ import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
-import './Person.scss'
+import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
@@ -107,7 +107,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function Person(): JSX.Element | null {
     const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
-    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
+    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
@@ -135,7 +135,7 @@ export function Person(): JSX.Element | null {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            onClick={() => showPersonDeleteModal(person)}
+                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"

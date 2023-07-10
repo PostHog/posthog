@@ -1,21 +1,26 @@
-import { connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
+import { personsLogic } from 'scenes/persons/personsLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '../navigationLogic'
 import { SidebarCategory, BasicListItem } from '../types'
-import { urls } from '@posthog/apps-common'
+import { asDisplay, asLink, urls } from '@posthog/apps-common'
 import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { combineUrl } from 'kea-router'
+import { PersonType } from '~/types'
 
 export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'personsAndGroupsSidebarLogic']),
     connect(() => ({
         values: [
+            personsLogic,
+            ['persons', 'personsLoading'],
             groupsModel,
             ['groupTypes'],
             sceneLogic,
@@ -23,12 +28,68 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
             navigation3000Logic,
             ['searchTerm'],
         ],
+        actions: [personsLogic, ['setListFilters as setPersonsListFilters', 'loadPersons']],
     })),
-    selectors(({ values }) => ({
+    reducers(() => ({
+        infinitePersons: [
+            [] as (PersonType | undefined)[],
+            {
+                [personsLogic.actionTypes.loadPersonsSuccess]: (state, { persons }) => {
+                    // Reset array if offset is 0
+                    const items: (PersonType | undefined)[] = persons.offset === 0 ? [] : state.slice()
+                    for (let i = 0; i < persons.results.length; i++) {
+                        items[persons.offset + i] = persons.results[i]
+                    }
+                    return items
+                },
+            },
+        ],
+    })),
+    selectors(({ values, cache }) => ({
         contents: [
-            (s) => [s.groupTypes, s.groups, s.groupsLoading],
-            (groupTypes, groups, groupsLoading): SidebarCategory[] => {
+            (s) => [s.persons, s.infinitePersons, s.personsLoading, s.groupTypes, s.groups, s.groupsLoading],
+            (persons, infinitePersons, personsLoading, groupTypes, groups, groupsLoading): SidebarCategory[] => {
                 return [
+                    {
+                        key: 'persons',
+                        title: 'Persons',
+                        items: infinitePersons.map((person) => {
+                            if (!person) {
+                                return person
+                            }
+                            const name = asDisplay(person)
+                            // It is not typical to use `values` in a selector instead of a selector dependency,
+                            // but this is intentional: we only want to take the new search term into account AFTER
+                            // person results using it have been loaded.
+                            const { searchTerm } = values
+                            return {
+                                key: person.distinct_ids,
+                                name: asDisplay(person),
+                                url: asLink(person),
+                                searchMatch: findSearchTermInItemName(name, searchTerm),
+                            } as BasicListItem
+                        }),
+                        loading: personsLoading,
+                        remote: {
+                            isItemLoaded: (index) => !!(cache.requestedPersons[index] || infinitePersons[index]),
+                            loadMoreItems: async (startIndex, stopIndex) => {
+                                let moreUrl = persons.next || persons.previous
+                                if (!moreUrl) {
+                                    throw new Error('No URL for loading more persons is known')
+                                }
+                                for (let i = startIndex; i <= stopIndex; i++) {
+                                    cache.requestedPersons[i] = true
+                                }
+                                moreUrl = combineUrl(moreUrl, {
+                                    offset: startIndex,
+                                    limit: stopIndex - startIndex + 1,
+                                }).url
+                                await personsLogic.asyncActions.loadPersons(moreUrl)
+                            },
+                            itemCount: persons.count,
+                            minimumBatchSize: 100,
+                        },
+                    } as SidebarCategory,
                     ...groupTypes.map(
                         (groupType) =>
                             ({
@@ -108,11 +169,25 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         // kea-typegen doesn't like selectors without deps, so searchTerm is just for appearances
         debounceSearch: [(s) => [s.searchTerm], () => true],
     })),
-    subscriptions(({ values }) => ({
+    listeners(({ cache }) => ({
+        loadPersons: async ({ url }) => {
+            const offset = url ? parseInt(new URL(url).searchParams.get('offset') || '0') : 0
+            if (offset === 0) {
+                cache.requestedPersons.length = 0 // Clear cache
+            }
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
         searchTerm: (searchTerm) => {
+            actions.setPersonsListFilters({ search: searchTerm })
+            actions.loadPersons()
             for (const { group_type_index: groupTypeIndex } of values.groupTypes) {
                 groupsListLogic({ groupTypeIndex }).actions.setSearch(searchTerm, false)
             }
         },
     })),
+    afterMount(({ actions, cache }) => {
+        cache.requestedPersons = []
+        actions.loadPersons()
+    }),
 ])
