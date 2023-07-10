@@ -79,7 +79,7 @@ PostHog brings all the tools and data you need to build better products.
 
 ## Docs and support
 
-Read how to [integrate](https://posthog.com/docs/integrate), and [extend](https://posthog.com/docs/apps) PostHog in our [documentation](https://posthog.com/docs).
+Read how to [integrate](https://posthog.com/docs/integrate), and [extend](https://posthog.com/docs/apps) an open-source 'Hobby' deployment of PostHog in our [documentation](https://posthog.com/docs).
 
 Check out our [tutorials](https://posthog.com/docs/apps) for step-by-step guides, how-to's, and best practices.
 
