@@ -44,6 +44,7 @@ import {
     DashboardTemplateListParams,
     PropertyDefinitionType,
     DataWarehouseTable,
+    NotebookListItemType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -1217,7 +1218,7 @@ const api = {
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
-        async list(): Promise<PaginatedResponse<NotebookType>> {
+        async list(): Promise<PaginatedResponse<NotebookListItemType>> {
             return await new ApiRequest().notebooks().withQueryString('basic=true').get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'title'>): Promise<NotebookType> {
