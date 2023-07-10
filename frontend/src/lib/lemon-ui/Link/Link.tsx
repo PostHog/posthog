@@ -78,15 +78,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             onClickRaw?.(event)
         }
 
-        const MaybeTooltip = ({ children }: { children: JSX.Element }): JSX.Element =>
-            !!disabledReason ? (
-                <Tooltip title={<span className="italic">{disabledReason}</span>}>
-                    <span>{children}</span>
-                </Tooltip>
-            ) : (
-                <span>{children}</span>
-            )
-
         return to ? (
             <a
                 ref={ref as any}
@@ -101,18 +92,20 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <MaybeTooltip>
-                <button
-                    ref={ref as any}
-                    className={clsx('Link', className)}
-                    onClick={onClick}
-                    type="button"
-                    disabled={disabled || !!disabledReason}
-                    {...props}
-                >
-                    {children}
-                </button>
-            </MaybeTooltip>
+            <Tooltip title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>
+                <span>
+                    <button
+                        ref={ref as any}
+                        className={clsx('Link', className)}
+                        onClick={onClick}
+                        type="button"
+                        disabled={disabled || !!disabledReason}
+                        {...props}
+                    >
+                        {children}
+                    </button>
+                </span>
+            </Tooltip>
         )
     }
 )
