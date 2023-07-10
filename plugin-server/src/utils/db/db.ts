@@ -12,7 +12,6 @@ import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
-    ActionStep,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
@@ -42,7 +41,6 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
-    RawAction,
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
@@ -52,6 +50,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
@@ -1192,93 +1191,11 @@ export class DB {
     // Action & ActionStep & Action<>Event
 
     public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-        const restHooks = await this.fetchActionRestHooks()
-        const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
-
-        const rawActions = (
-            await this.postgresQuery<RawAction>(
-                `
-                SELECT
-                    id,
-                    team_id,
-                    name,
-                    description,
-                    created_at,
-                    created_by_id,
-                    deleted,
-                    post_to_slack,
-                    slack_message_format,
-                    is_calculating,
-                    updated_at,
-                    last_calculated_at
-                FROM posthog_action
-                WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
-            `,
-                [restHookActionIds],
-                'fetchActions'
-            )
-        ).rows
-
-        const pluginIds: number[] = rawActions.map(({ id }) => id)
-        const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
-            await this.postgresQuery(
-                `
-                    SELECT posthog_actionstep.*, posthog_action.team_id
-                    FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
-                    WHERE posthog_action.id = ANY($1)
-                `,
-                [pluginIds],
-                'fetchActionSteps'
-            )
-        ).rows
-        const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
-        for (const rawAction of rawActions) {
-            if (!actions[rawAction.team_id]) {
-                actions[rawAction.team_id] = {}
-            }
-
-            actions[rawAction.team_id][rawAction.id] = {
-                ...rawAction,
-                steps: [],
-                hooks: [],
-            }
-        }
-        for (const hook of restHooks) {
-            if (hook.resource_id !== null && actions[hook.team_id]?.[hook.resource_id]) {
-                actions[hook.team_id][hook.resource_id].hooks.push(hook)
-            }
-        }
-        for (const actionStep of actionSteps) {
-            if (actions[actionStep.team_id]?.[actionStep.action_id]) {
-                actions[actionStep.team_id][actionStep.action_id].steps.push(actionStep)
-            }
-        }
-        return actions
+        return fetchAllActionsGroupedByTeam(this.postgres)
     }
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
-        const rawActions: RawAction[] = (
-            await this.postgresQuery(
-                `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
-                [id],
-                'fetchActions'
-            )
-        ).rows
-        if (!rawActions.length) {
-            return null
-        }
-
-        const [steps, hooks] = await Promise.all([
-            this.postgresQuery<ActionStep>(
-                `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
-                [id],
-                'fetchActionSteps'
-            ),
-            this.fetchActionRestHooks(id),
-        ])
-
-        const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
-        return action.post_to_slack || action.hooks.length > 0 ? action : null
+        return await fetchAction(this.postgres, id)
     }
 
     // Organization
@@ -1298,29 +1215,6 @@ export class DB {
     }
 
     // Hook (EE)
-
-    private async fetchActionRestHooks(actionId?: Hook['resource_id']): Promise<Hook[]> {
-        try {
-            const { rows } = await this.postgresQuery<Hook>(
-                `
-                SELECT *
-                FROM ee_hook
-                WHERE event = 'action_performed'
-                ${actionId !== undefined ? 'AND resource_id = $1' : ''}
-                `,
-                actionId !== undefined ? [actionId] : [],
-                'fetchActionRestHooks'
-            )
-            return rows
-        } catch (err) {
-            // On FOSS this table does not exist - ignore errors
-            if (err.message.includes('relation "ee_hook" does not exist')) {
-                return []
-            }
-
-            throw err
-        }
-    }
 
     public async deleteRestHook(hookId: Hook['id']): Promise<void> {
         await this.postgresQuery(`DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')

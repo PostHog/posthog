@@ -10,7 +10,7 @@ import { mockEvent, mockEventDefinitions, mockEventPropertyDefinitions } from '~
 import { useMocks } from '~/mocks/jest'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
-import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
+import { keyMappingKeys } from 'lib/taxonomy'
 import { urls } from 'scenes/urls'
 import { EventDefinitionType } from '~/types'
 

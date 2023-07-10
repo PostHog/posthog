@@ -344,13 +344,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                 }
                 if (isPersonsNode(query) && response && !responseError) {
-                    const personsResults = (response as PersonsNode['response'])?.results
-                    const nextQuery: PersonsNode = {
-                        ...query,
-                        limit: query.limit || 100,
-                        offset: personsResults.length,
+                    if (!!(response as PersonsNode['response'])?.next) {
+                        const personsResults = (response as PersonsNode['response'])?.results
+                        const nextQuery: PersonsNode = {
+                            ...query,
+                            limit: query.limit || 100,
+                            offset: personsResults.length,
+                        }
+                        return nextQuery
                     }
-                    return nextQuery
                 }
                 return null
             },
