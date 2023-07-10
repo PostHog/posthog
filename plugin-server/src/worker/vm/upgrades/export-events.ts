@@ -1,4 +1,5 @@
 import { Plugin, PluginEvent, PluginMeta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { Counter } from 'prom-client'
 
 import { Hub, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
 import { isTestEnv } from '../../../utils/env-utils'
@@ -13,6 +14,12 @@ const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
 const EXPORT_BUFFER_SECONDS_MINIMUM = 1
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
 const EXPORT_BUFFER_SECONDS_DEFAULT = isTestEnv() ? 0 : 10
+
+export const appRetriesCounter = new Counter({
+    name: 'export_app_retries',
+    help: 'Count of events retries processing onEvent apps, by team and plugin.',
+    labelNames: ['team_id', 'plugin_id'],
+})
 
 type ExportEventsUpgrade = Plugin<{
     global: {
@@ -120,6 +127,12 @@ export function upgradeExportEvents(
                         plugin: pluginConfig.plugin?.name ?? '?',
                         teamId: pluginConfig.team_id.toString(),
                     })
+                    appRetriesCounter
+                        .labels({
+                            team_id: pluginConfig.team_id,
+                            plugin_id: pluginConfig.plugin_id,
+                        })
+                        .inc()
                 } else {
                     status.info(
                         '☠️',
