@@ -254,7 +254,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     before_count = get_cohort_size(cohort)
 
     if before_count:
-        logger.info(
+        logger.warn(
             "Recalculating cohortpeople starting", team_id=cohort.team_id, cohort_id=cohort.pk, size_before=before_count
         )
 
@@ -275,7 +275,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     count = get_cohort_size(cohort, override_version=pending_version)
 
     if count is not None and before_count is not None:
-        logger.info(
+        logger.warn(
             "Recalculating cohortpeople done",
             team_id=cohort.team_id,
             cohort_id=cohort.pk,
