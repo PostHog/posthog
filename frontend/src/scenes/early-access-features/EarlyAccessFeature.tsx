@@ -22,14 +22,12 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { PersonsLogicProps, personsLogic } from 'scenes/persons/personsLogic'
 import clsx from 'clsx'
 import { InstructionsModal } from './InstructionsModal'
-import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PersonsSearch } from 'scenes/persons/PersonsSearch'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -42,8 +40,14 @@ export const scene: SceneExport = {
 export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const { earlyAccessFeature, earlyAccessFeatureLoading, isEarlyAccessFeatureSubmitting, isEditingFeature } =
         useValues(earlyAccessFeatureLogic)
-    const { submitEarlyAccessFeatureRequest, cancel, editFeature, updateStage, deleteEarlyAccessFeature } =
-        useActions(earlyAccessFeatureLogic)
+    const {
+        submitEarlyAccessFeatureRequest,
+        cancel,
+        editFeature,
+        updateStage,
+        deleteEarlyAccessFeature,
+        toggleImplementOptInInstructionsModal,
+    } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
     return (
@@ -113,6 +117,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         Archive
                                     </LemonButton>
                                 )}
+                                <LemonDivider vertical />
+                                <div className="flex flex-row justify-between">
+                                    <LemonButton
+                                        key="help-button"
+                                        type="secondary"
+                                        onClick={toggleImplementOptInInstructionsModal}
+                                        sideIcon={<IconHelpOutline />}
+                                    >
+                                        Implement public opt-in
+                                    </LemonButton>
+                                </div>
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Archived && (
                                     <LemonButton
                                         data-attr="reactive-feature"
@@ -393,55 +408,15 @@ interface PersonsTableByFilterProps {
 }
 
 function PersonsTableByFilter({ properties, emptyState }: PersonsTableByFilterProps): JSX.Element {
-    const { toggleImplementOptInInstructionsModal } = useActions(earlyAccessFeatureLogic)
-
-    const personsLogicProps: PersonsLogicProps = {
-        cohort: undefined,
-        syncWithUrl: false,
-        fixedProperties: properties,
-    }
-    const logic = personsLogic(personsLogicProps)
-    const { persons, personsLoading, listFilters } = useValues(logic)
-    const { loadPersons, setListFilters } = useActions(logic)
-
     return (
-        <div className="space-y-2">
-            {
-                <div className="flex-col">
-                    <PersonsSearch />
-                </div>
-            }
-            <div className="flex flex-row justify-between">
-                <PropertyFilters
-                    pageKey="persons-list-page"
-                    propertyFilters={listFilters.properties}
-                    onChange={(properties) => {
-                        setListFilters({ properties })
-                        loadPersons()
-                    }}
-                    endpoint="person"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                    showConditionBadge
-                />
-                <LemonButton
-                    key="help-button"
-                    onClick={toggleImplementOptInInstructionsModal}
-                    sideIcon={<IconHelpOutline />}
-                >
-                    Implement public opt-in
-                </LemonButton>
-            </div>
-            <PersonsTable
-                people={persons.results}
-                loading={personsLoading}
-                hasPrevious={!!persons.previous}
-                hasNext={!!persons.next}
-                loadPrevious={() => loadPersons(persons.previous)}
-                loadNext={() => loadPersons(persons.next)}
-                compact={true}
-                extraColumns={[]}
-                emptyState={emptyState}
-            />
-        </div>
+        <Query
+            query={{
+                kind: NodeKind.DataTableNode,
+                columns: ['*', 'person'],
+                source: { kind: NodeKind.PersonsNode, fixedProperties: properties },
+                full: true,
+            }}
+            context={{ emptyState: emptyState }}
+        />
     )
 }
