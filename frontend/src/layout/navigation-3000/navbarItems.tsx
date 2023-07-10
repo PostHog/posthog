@@ -1,18 +1,18 @@
 import {
-    IconApps,
-    IconBarChart,
-    IconCohort,
-    IconComment,
-    IconCottage,
-    IconExperiment,
-    IconFlag,
-    IconGauge,
-    IconLive,
-    IconPerson,
-    IconRecording,
-    IconTools,
-    IconUnverifiedEvent,
-} from 'lib/lemon-ui/icons'
+    Home,
+    Dashboard,
+    Database,
+    Apps,
+    Person,
+    Question,
+    GridMasonry,
+    People,
+    TestTube,
+    Toggle,
+    RewindPlay,
+    Graph,
+    Toolbar,
+} from '@posthog/icons'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { NavbarItem } from './types'
@@ -32,37 +32,37 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.ProjectHomepage,
             label: 'Project homepage',
-            icon: <IconCottage />,
+            icon: <Home />,
             to: urls.projectHomepage(),
         },
         {
             identifier: Scene.Dashboards,
             label: 'Dashboards',
-            icon: <IconGauge />,
+            icon: <Dashboard />,
             logic: dashboardsSidebarLogic,
         },
         {
             identifier: Scene.DataManagement,
             label: 'Data management',
-            icon: <IconUnverifiedEvent />,
+            icon: <Database />,
             logic: dataManagementSidebarLogic,
         },
         {
             identifier: Scene.Persons,
             label: 'Persons and groups',
-            icon: <IconPerson />,
+            icon: <Person />,
             logic: personsAndGroupsSidebarLogic,
         },
         {
             identifier: Scene.Cohorts,
             label: 'Cohorts',
-            icon: <IconCohort />,
+            icon: <People />,
             logic: cohortsSidebarLogic,
         },
         {
             identifier: Scene.Annotations,
             label: 'Annotations',
-            icon: <IconComment />,
+            icon: <Question />, // TODO: Should be bubble
             logic: annotationsSidebarLogic,
         },
     ],
@@ -70,35 +70,35 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.Events,
             label: 'Events',
-            icon: <IconLive />,
+            icon: <GridMasonry />, // TODO: Should be live signal
         },
         {
             identifier: Scene.SavedInsights,
             label: 'Product Analytics',
-            icon: <IconBarChart />,
+            icon: <Graph />,
             logic: insightsSidebarLogic,
         },
         {
             identifier: Scene.Replay,
             label: 'Session Replay',
-            icon: <IconRecording />,
+            icon: <RewindPlay />,
         },
         {
             identifier: Scene.FeatureFlags,
             label: 'Feature Flags',
-            icon: <IconFlag />,
+            icon: <Toggle />,
             logic: featureFlagsSidebarLogic,
         },
         {
             identifier: Scene.Experiments,
             label: 'A/B Testing',
-            icon: <IconExperiment />,
+            icon: <TestTube />,
             logic: experimentsSidebarLogic,
         },
         {
             identifier: Scene.ToolbarLaunch,
             label: 'Toolbar',
-            icon: <IconTools />,
+            icon: <Toolbar />,
             logic: toolbarSidebarLogic,
         },
     ],
@@ -106,7 +106,7 @@ export const NAVBAR_ITEMS: NavbarItem[][] = [
         {
             identifier: Scene.Apps,
             label: 'Apps',
-            icon: <IconApps />,
+            icon: <Apps />,
         },
     ],
 ]
