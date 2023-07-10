@@ -10,7 +10,7 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
     def process(self, deletions: List[AsyncDeletion]):
         if len(deletions) == 0:
-            logger.debug("No AsyncDeletion for cohorts to perform")
+            logger.warn("No AsyncDeletion for cohorts to perform")
             return
 
         logger.warn(
