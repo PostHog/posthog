@@ -22,8 +22,9 @@ export function SecondaryMetrics({
     onMetricsChange,
     initialMetrics,
     experimentId,
+    defaultAggregationType,
 }: SecondaryMetricsProps): JSX.Element {
-    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
+    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
     const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricIdx } =
         useValues(logic)
 

@@ -1,7 +1,7 @@
 import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import {
@@ -78,7 +78,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -298,6 +298,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         setNewExperimentInsight: async ({ filters }) => {
             let newInsightFilters
+            const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
             if (filters?.insight === InsightType.FUNNELS) {
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
@@ -305,13 +306,19 @@ export const experimentLogic = kea<experimentLogicType>([
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
                     ...filters,
                 })
             } else {
+                const groupAggregation =
+                    aggregationGroupTypeIndex !== undefined
+                        ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
+                        : {}
                 newInsightFilters = cleanFilters({
                     insight: InsightType.TRENDS,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    events: [{ ...getDefaultEvent(), ...groupAggregation }],
                     ...filters,
                 })
             }
