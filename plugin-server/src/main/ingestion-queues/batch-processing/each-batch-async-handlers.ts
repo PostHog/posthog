@@ -21,7 +21,6 @@ export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: Kaf
 
     await Promise.all([
         runInstrumentedFunction({
-            statsd: queue.pluginsServer.statsd,
             event: event,
             func: () => queue.workerMethods.runAppsOnEventPipeline(event),
             statsKey: `kafka_queue.process_async_handlers_on_event`,
@@ -29,7 +28,6 @@ export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: Kaf
             teamId: event.teamId,
         }),
         runInstrumentedFunction({
-            statsd: queue.pluginsServer.statsd,
             event: event,
             func: () =>
                 runWebhooks(
@@ -61,7 +59,6 @@ export async function eachMessageAppsOnEventHandlers(
     const event = convertToIngestionEvent(clickHouseEvent)
 
     await runInstrumentedFunction({
-        statsd: queue.pluginsServer.statsd,
         event: event,
         func: () => queue.workerMethods.runAppsOnEventPipeline(event),
         statsKey: `kafka_queue.process_async_handlers_on_event`,
@@ -80,7 +77,6 @@ export async function eachMessageWebhooksHandlers(
     const event = convertToIngestionEvent(clickHouseEvent)
 
     await runInstrumentedFunction({
-        statsd,
         event: event,
         func: () => runWebhooks(statsd, actionMatcher, hookCannon, event),
         statsKey: `kafka_queue.process_async_handlers_webhooks`,

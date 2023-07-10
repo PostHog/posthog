@@ -1,5 +1,5 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { PostIngestionEvent } from '../../../types'
+import { Hub, PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
 import { ActionMatcher } from '../action-matcher'
@@ -10,7 +10,6 @@ export async function processOnEventStep(runner: EventPipelineRunner, event: Pos
     const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
-        statsd: runner.hub.statsd,
         event: processedPluginEvent,
         func: (event) => runOnEvent(runner.hub, event),
         statsKey: `kafka_queue.single_on_event`,
