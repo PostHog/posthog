@@ -1,4 +1,16 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import {
+    actions,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -20,6 +32,13 @@ export type NotebookLogicProps = {
 
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
+    propsChanged(({ props }) => {
+        if (!!props.cachedNotebook && props.shortId !== props.cachedNotebook?.short_id) {
+            throw new Error(
+                "If you provide a cached notebook, the short id prop must match the cached notebook's short id"
+            )
+        }
+    }),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId }) => shortId),
     connect({
@@ -174,10 +193,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     selectors(({ props }) => ({
-        shortId: [
-            () => [(_, props) => props],
-            (props): string => (props.cachedNotebook ? props.cachedNotebook.short_id : props.shortId),
-        ],
+        shortId: [() => [(_, props) => props], (props): string => props.shortId],
         isLocalOnly: [() => [(_, props) => props], (props): boolean => props.shortId === 'scratchpad'],
         content: [
             (s) => [s.notebook, s.localContent],
