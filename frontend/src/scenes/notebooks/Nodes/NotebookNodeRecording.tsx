@@ -36,6 +36,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             heightEstimate={HEIGHT}
             viewMode={props.extension.options.viewMode}
         >
+            {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={wrappingDivStyle}>
                 <SessionRecordingPlayer {...recordingLogicProps} />
             </div>
