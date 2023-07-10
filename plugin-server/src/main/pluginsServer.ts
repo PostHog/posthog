@@ -9,12 +9,13 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient } from '../utils/db/hub'
+import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
+import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -330,14 +331,23 @@ export async function startPluginsServer(
             if (capabilities.processAsyncHandlers) {
                 throw Error('async and webhooks together are not allowed - would send twice')
             }
+
+            // If we have a hub, then reuse some of it's attributes, otherwise
+            // we need to create them. We only initialize the ones we need.
+            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
+            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
 
             const { consumer: webhooksConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
                     postgres: postgres,
                     kafka: kafka,
+                    teamManager: teamManager,
+                    organizationManager: organizationManager,
                     serverConfig: serverConfig,
+                    statsd: statsd,
                 })
 
             webhooksHandlerConsumer = webhooksConsumer
@@ -360,22 +370,9 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
-                    ? {
-                          'reload-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                          'drop-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                      }
-                    : {}),
             })
 
             await pubSub.start()
-
-            // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-            schedule.scheduleJob('*/5 * * * *', async () => {
-                await piscina?.broadcastTask({ task: 'reloadAllActions' })
-            })
 
             startPreflightSchedules(hub)
 

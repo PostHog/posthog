@@ -66,38 +66,11 @@ export async function createHub(
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    let statsd: StatsD | undefined
-
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
 
-    if (serverConfig.STATSD_HOST) {
-        status.info('🤔', `Connecting to StatsD...`)
-        statsd = new StatsD({
-            port: serverConfig.STATSD_PORT,
-            host: serverConfig.STATSD_HOST,
-            prefix: serverConfig.STATSD_PREFIX,
-            telegraf: true,
-            globalTags: serverConfig.PLUGIN_SERVER_MODE
-                ? { pluginServerMode: serverConfig.PLUGIN_SERVER_MODE }
-                : undefined,
-            errorHandler: (error) => {
-                status.warn('⚠️', 'StatsD error', error)
-                Sentry.captureException(error, {
-                    extra: { threadId },
-                })
-            },
-        })
-        // don't repeat the same info in each thread
-        if (threadId === null) {
-            status.info(
-                '🪵',
-                `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
-            )
-        }
-        status.info('👍', `StatsD ready`)
-    }
+    const statsd: StatsD | undefined = createStatsdClient(serverConfig, threadId)
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
@@ -234,6 +207,38 @@ export type KafkaConfig = {
     KAFKA_SASL_USER?: string
     KAFKA_SASL_PASSWORD?: string
     KAFKA_CLIENT_RACK?: string
+}
+
+export function createStatsdClient(serverConfig: PluginsServerConfig, threadId: number | null) {
+    let statsd: StatsD | undefined
+
+    if (serverConfig.STATSD_HOST) {
+        status.info('🤔', `Connecting to StatsD...`)
+        statsd = new StatsD({
+            port: serverConfig.STATSD_PORT,
+            host: serverConfig.STATSD_HOST,
+            prefix: serverConfig.STATSD_PREFIX,
+            telegraf: true,
+            globalTags: serverConfig.PLUGIN_SERVER_MODE
+                ? { pluginServerMode: serverConfig.PLUGIN_SERVER_MODE }
+                : undefined,
+            errorHandler: (error) => {
+                status.warn('⚠️', 'StatsD error', error)
+                Sentry.captureException(error, {
+                    extra: { threadId },
+                })
+            },
+        })
+        // don't repeat the same info in each thread
+        if (threadId === null) {
+            status.info(
+                '🪵',
+                `Sending metrics to StatsD at ${serverConfig.STATSD_HOST}:${serverConfig.STATSD_PORT}, prefix: "${serverConfig.STATSD_PREFIX}"`
+            )
+        }
+        status.info('👍', `StatsD ready`)
+    }
+    return statsd
 }
 
 export function createKafkaClient({

@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Kafka } from 'kafkajs'
 import { Consumer } from 'kafkajs'
@@ -7,6 +6,7 @@ import { Pool } from 'pg'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
+import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -87,10 +87,16 @@ export const startAsyncOnEventHandlerConsumer = async ({
 export const startAsyncWebhooksHandlerConsumer = async ({
     kafka, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
     postgres,
+    teamManager,
+    organizationManager,
+    statsd,
     serverConfig,
 }: {
     kafka: Kafka
     postgres: Pool
+    teamManager: TeamManager
+    organizationManager: OrganizationManager
+    statsd: StatsD | undefined
     serverConfig: PluginsServerConfig
 }) => {
     /*
@@ -112,31 +118,29 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     })
     setupEventHandlers(consumer)
 
-    let statsd: StatsD | undefined
-    if (serverConfig.STATSD_HOST) {
-        status.info('🤔', `Connecting to StatsD...`)
-        statsd = new StatsD({
-            port: serverConfig.STATSD_PORT,
-            host: serverConfig.STATSD_HOST,
-            prefix: serverConfig.STATSD_PREFIX,
-            telegraf: true,
-            globalTags: serverConfig.PLUGIN_SERVER_MODE
-                ? { pluginServerMode: serverConfig.PLUGIN_SERVER_MODE }
-                : undefined,
-            errorHandler: (error) => {
-                status.warn('⚠️', 'StatsD error', error)
-                Sentry.captureException(error)
-            },
-        })
-        status.info('👍', `StatsD ready`)
-    }
-
-    const teamManager = new TeamManager(postgres, serverConfig, statsd)
-    const organizationManager = new OrganizationManager(postgres, teamManager)
     const actionManager = new ActionManager(postgres)
+    await actionManager.prepare()
     const actionMatcher = new ActionMatcher(postgres, actionManager, statsd)
     const hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
     const concurrency = 20
+
+    const pubSub = new PubSub(serverConfig, {
+        'reload-action': async (message) => {
+            const payload = JSON.parse(message)
+            await actionManager.reloadAction(payload.team_id, payload.action_id)
+        },
+        'drop-action': (message) => {
+            const payload = JSON.parse(message)
+            actionManager.dropAction(payload.team_id, payload.action_id)
+        },
+    })
+
+    await pubSub.start()
+
+    // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+    schedule.scheduleJob('*/5 * * * *', async () => {
+        await actionManager.reloadAllActions()
+    })
 
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
