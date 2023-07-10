@@ -49,7 +49,7 @@ You can deploy a hobby instance in one line on Linux with Docker (recommended 4G
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)" 
  ``` 
 
-Open source deployments should scale to approximately <100k events per month, after which we recommend migrating to a PostHog Cloud instance. See our [docs for more info and limitations](https://posthog.com/docs/self-host/open-source/deployment).
+Open source deployments should scale to approximately 100k events per month, after which we recommend migrating to a PostHog Cloud instance. See our [docs for more info and limitations](https://posthog.com/docs/self-host/open-source/deployment).
 
 ## Features
 ![ui-demo](https://user-images.githubusercontent.com/85295485/144591577-fe97e4a5-5631-4a60-a684-45caf421507f.gif)
