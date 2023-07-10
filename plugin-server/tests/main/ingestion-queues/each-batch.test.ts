@@ -1,6 +1,9 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
-import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
+import {
+    eachBatchAppsOnEventHandlers,
+    eachBatchWebhooksHandlers,
+} from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
@@ -18,7 +21,15 @@ import {
     RawClickHouseEvent,
 } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
+import { processWebhooksStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 
+jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
+    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
+    return {
+        ...originalModule,
+        processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
+    }
+})
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
 
@@ -123,7 +134,8 @@ describe('eachBatchX', () => {
                 },
             },
             workerMethods: {
-                runAsyncHandlersEventPipeline: jest.fn(),
+                runAppsOnEventPipeline: jest.fn(),
+                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
@@ -149,18 +161,35 @@ describe('eachBatchX', () => {
         })
     })
 
-    describe('eachBatchAsyncHandlers', () => {
-        it('calls runAsyncHandlersEventPipeline', async () => {
-            await eachBatchAsyncHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+    describe('eachBatchWebhooksHandlers', () => {
+        it('calls runWebhooksHandlersEventPipeline', async () => {
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
 
-            expect(queue.workerMethods.runAsyncHandlersEventPipeline).toHaveBeenCalledWith({
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
                 ...event,
                 properties: {
                     $ip: '127.0.0.1',
                 },
             })
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers',
+                'kafka_queue.each_batch_async_handlers_on_event',
+                expect.any(Date)
+            )
+        })
+    })
+
+    describe('eachBatchWebhooksHandlers', () => {
+        it('calls runWebhooksHandlersEventPipeline', async () => {
+            await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+
+            expect(processWebhooksStep).toHaveBeenCalledWith(expect.anything(), {
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
+                },
+            })
+            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
+                'kafka_queue.each_batch_async_handlers_webhooks',
                 expect.any(Date)
             )
         })

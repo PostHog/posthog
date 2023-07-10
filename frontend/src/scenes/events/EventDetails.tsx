@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { Tabs } from 'antd'

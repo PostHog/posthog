@@ -16,8 +16,11 @@
     justify-content: center;
     gap: 0.25rem;
 
-    &:not(.LemonInput--focused):not(.LemonInput--disabled):hover {
+    &:hover:not([aria-disabled='true']) {
         border-color: var(--primary-light);
+    }
+    &.LemonInput--focused:not([aria-disabled='true']) {
+        border-color: var(--primary);
     }
 
     &.LemonInput--transparent-background {
@@ -34,6 +37,7 @@
         outline: none;
         background: none;
         width: 100%;
+        align-self: stretch; // Improves selectability
         text-overflow: ellipsis;
 
         &:disabled {
@@ -63,12 +67,6 @@
     &.LemonInput--has-content {
         > .LemonIcon {
             color: var(--primary);
-        }
-    }
-
-    &.LemonInput--focused {
-        &:not(.LemonInput--disabled) {
-            border: 1px solid var(--primary);
         }
     }
 

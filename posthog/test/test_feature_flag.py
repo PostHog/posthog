@@ -1,5 +1,6 @@
 import concurrent.futures
 from typing import cast
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
@@ -2377,6 +2378,53 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_invalid_filters_dont_set_db_down(self, mock_database_healthcheck):
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                ]
+            },
+        )
+
+        matcher = FeatureFlagMatcher([flag], "example_id_1")
+
+        self.assertEqual(matcher.get_matches(), ({}, {}, {}, True))
+        self.assertEqual(matcher.failed_to_fetch_conditions, False)
+        mock_database_healthcheck.set_connection.assert_not_called()
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)

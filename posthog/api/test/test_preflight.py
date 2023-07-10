@@ -52,6 +52,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
+            "openai_available": False,
             **options,
         }
 

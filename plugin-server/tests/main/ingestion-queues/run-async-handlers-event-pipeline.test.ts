@@ -1,4 +1,4 @@
-// While these test cases focus on runAsyncHandlersEventPipeline, they were
+// While these test cases focus on runAppsOnEventPipeline, they were
 // explicitly intended to test that failures to produce to the `jobs` topic
 // due to availability errors would be bubbled up to the consumer, where we can
 // then make decisions about how to handle this case e.g. here we test that it
@@ -39,8 +39,8 @@ import {
 
 jest.setTimeout(10000)
 
-describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
-    // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
+describe('workerTasks.runAppsOnEventPipeline()', () => {
+    // Tests the failure cases for the workerTasks.runAppsOnEventPipeline
     // task. Note that this equally applies to e.g. runEventPipeline task as
     // well and likely could do with adding additional tests for that.
     //
@@ -120,7 +120,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
         await expect(
             piscinaTaskRunner({
-                task: 'runAsyncHandlersEventPipeline',
+                task: 'runAppsOnEventPipeline',
                 args: {
                     event: {
                         distinctId: 'asdf',
@@ -167,12 +167,12 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
 
         await expect(
             piscinaTaskRunner({
-                task: 'runAsyncHandlersEventPipeline',
+                task: 'runAppsOnEventPipeline',
                 args: { event },
             })
         ).resolves.toEqual({
             args: [expect.objectContaining(event)],
-            lastStep: 'runAsyncHandlersStep',
+            lastStep: 'processOnEventStep',
         })
     })
 })

@@ -355,6 +355,7 @@ export function ExperimentPreview({
                         <MetricSelector
                             dashboardItemId={EXPERIMENT_INSIGHT_ID}
                             setPreviewInsight={setNewExperimentInsight}
+                            showDateRangeBanner
                         />
                     </Field>
                 </Form>
