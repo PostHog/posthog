@@ -333,7 +333,7 @@ function summarizeQuery(query: Node): string {
         }
     }
 
-    return `Query of kind ${query?.kind}`
+    return `${query?.kind} query`
 }
 
 export interface SummaryContext {
