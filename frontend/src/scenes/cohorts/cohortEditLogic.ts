@@ -10,6 +10,7 @@ import {
     CohortType,
     FilterLogicalOperator,
 } from '~/types'
+import { personsLogic } from 'scenes/persons/personsLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
@@ -297,6 +298,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } else {
                 actions.setCohort(cohort)
                 cohortsModel.actions.updateCohort(cohort)
+                personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {
                     clearTimeout(values.pollTimeout)
                     actions.setPollTimeout(null)

@@ -102,6 +102,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        context?.emptyState ?? <InsightEmptyState />
+        <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     )
 }
