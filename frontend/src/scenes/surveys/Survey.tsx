@@ -179,10 +179,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         {id === 'new' && (
                                             <LemonButton
                                                 type="secondary"
+                                                status="danger"
                                                 className="w-max"
                                                 onClick={() => setHasTargetingFlag(false)}
                                             >
-                                                Remove all user targeting
+                                                Remove all user properties
                                             </LemonButton>
                                         )}
                                     </>
