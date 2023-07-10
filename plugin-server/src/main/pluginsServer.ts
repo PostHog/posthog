@@ -336,8 +336,9 @@ export async function startPluginsServer(
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { queue: webhooksQueue, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
-                    hub: hub,
-                    piscina: piscina,
+                    postgres: hub.postgres,
+                    kafka: hub.kafka,
+                    serverConfig: serverConfig,
                 })
 
             webhooksHandlerConsumer = webhooksQueue
