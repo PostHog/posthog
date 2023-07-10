@@ -5,11 +5,17 @@ import { PluginKey } from '@tiptap/pm/state'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { forwardRef } from 'react'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { EditorRange } from './utils'
 import { useValues } from 'kea'
 import { notebookLogic } from './notebookLogic'
+import { NotebookNodeType } from '~/types'
 
 type BacklinkCommandsProps = {
     query?: string
@@ -34,15 +40,25 @@ const BacklinkCommands = forwardRef<ReactRenderer, BacklinkCommandsProps>(functi
 }): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
 
-    const onSelect = (): void => {
+    const onSelect = (
+        { type }: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        { id, name }: { id: number; name: string }
+    ): void => {
         if (!editor) {
             return
+        }
+
+        const attrs = {
+            id: type === TaxonomicFilterGroupType.Events ? id : value,
+            title: name,
+            type: type,
         }
 
         editor
             .deleteRange(range)
             .insertContentAt(range, [
-                { type: 'text', text: 'this is a test' },
+                { type: NotebookNodeType.Backlink, attrs },
                 { type: 'text', text: ' ' },
             ])
             .run()
@@ -60,7 +76,6 @@ const BacklinkCommands = forwardRef<ReactRenderer, BacklinkCommandsProps>(functi
         taxonomicGroupTypes: [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.Persons,
-            TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.Insights,
             TaxonomicFilterGroupType.FeatureFlags,

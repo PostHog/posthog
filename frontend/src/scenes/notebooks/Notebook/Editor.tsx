@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
+import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -65,7 +66,7 @@ export function Editor({
                 },
             }),
             NotebookNodeLink,
-
+            NotebookNodeBacklink,
             NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
