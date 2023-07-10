@@ -9,8 +9,9 @@ import { useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
-import { NotebookNodeType } from '~/types'
+import { NotebookMode, NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -20,7 +21,7 @@ export interface NodeWrapperProps extends NodeViewProps {
     href?: string
     resizeable?: boolean
     // for example when displaying "cannot share" content and we can show a smaller container
-    compact?: boolean
+    viewMode?: NotebookMode
 }
 
 export function NodeWrapper({
@@ -33,15 +34,17 @@ export function NodeWrapper({
     resizeable = true,
     node,
     updateAttributes,
-    compact,
+    viewMode,
 }: NodeWrapperProps): JSX.Element {
     const { shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
+    const isInSharedView = viewMode === NotebookMode.Share
+
     // If resizeable is true then the node attr "height" is required
-    const height = compact ? '10rem' : node.attrs.height
-    const skeletonHeight = compact ? '10rem' : heightEstimate
+    const height = isInSharedView ? '10rem' : node.attrs.height
+    const skeletonHeight = isInSharedView ? '10rem' : heightEstimate
 
     useEffect(() => {
         if (selected && shortId) {
@@ -71,7 +74,9 @@ export function NodeWrapper({
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
-    return (
+    return isInSharedView ? (
+        <NotebookNodeCannotShare type={'flags'} />
+    ) : (
         <NodeViewWrapper
             ref={ref}
             as="div"
@@ -114,7 +119,7 @@ export function NodeWrapper({
                             ref={contentRef}
                             className={clsx(
                                 'flex flex-col relative z-0 overflow-hidden',
-                                !compact && 'min-h-40',
+                                !isInSharedView && 'min-h-40',
                                 resizeable && 'resize-y'
                             )}
                             // eslint-disable-next-line react/forbid-dom-props

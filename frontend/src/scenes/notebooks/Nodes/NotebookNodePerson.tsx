@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookMode, NotebookNodeType, PropertyDefinitionType } from '~/types'
+import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -10,13 +10,11 @@ import { PersonHeader } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
     const logic = personLogic({ id })
     const { person, personLoading } = useValues(logic)
-    const isShared = props.extension.options.viewMode === NotebookMode.Share
 
     return (
         <NodeWrapper
@@ -25,35 +23,31 @@ const Component = (props: NodeViewProps): JSX.Element => {
             {...props}
             href={urls.person(id)}
             resizeable={false}
-            compact={isShared}
+            viewMode={props.extension.options.viewMode}
         >
-            {isShared ? (
-                <NotebookNodeCannotShare type={'persons'} />
-            ) : (
-                <div className="border bg-bg-light rounded">
-                    <div className="p-4">
-                        {personLoading ? (
-                            <LemonSkeleton className="h-6" />
-                        ) : (
-                            <PersonHeader withIcon person={person} noLink />
-                        )}
-                    </div>
-
-                    {props.selected && (
-                        <>
-                            <LemonDivider className="my-0" />
-                            <div className="p-2 max-h-100 overflow-y-auto">
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Person}
-                                    properties={person?.properties}
-                                    filterable
-                                    searchable
-                                />
-                            </div>
-                        </>
+            <div className="border bg-bg-light rounded">
+                <div className="p-4">
+                    {personLoading ? (
+                        <LemonSkeleton className="h-6" />
+                    ) : (
+                        <PersonHeader withIcon person={person} noLink />
                     )}
                 </div>
-            )}
+
+                {props.selected && (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className="p-2 max-h-100 overflow-y-auto">
+                            <PropertiesTable
+                                type={PropertyDefinitionType.Person}
+                                properties={person?.properties}
+                                filterable
+                                searchable
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
         </NodeWrapper>
     )
 }

@@ -8,7 +8,6 @@ import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookMode, NotebookNodeType } from '~/types'
 import { urls } from 'scenes/urls'
 import { posthogNodePasteRule } from './utils'
-import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
 const HEIGHT = 500
 
@@ -19,7 +18,14 @@ const Component = (props: NodeViewProps): JSX.Element => {
         playerKey: `notebook-${id}`,
         autoPlay: false,
     }
+
+    // KLUDGE: while this node is not shareable we don\t want to set the height here
+    // soon we'll make it shareable and then this can be removed
     const isShared = props.extension.options.viewMode === NotebookMode.Share
+    const wrappingDivStyle = {}
+    if (!isShared) {
+        wrappingDivStyle['height'] = HEIGHT
+    }
 
     return (
         <NodeWrapper
@@ -28,15 +34,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
             title="Recording"
             href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             heightEstimate={HEIGHT}
-            compact={isShared}
+            viewMode={props.extension.options.viewMode}
         >
-            {isShared ? (
-                <NotebookNodeCannotShare type={'recordings'} />
-            ) : (
-                <div style={{ height: HEIGHT }}>
-                    <SessionRecordingPlayer {...recordingLogicProps} />
-                </div>
-            )}
+            <div style={wrappingDivStyle}>
+                <SessionRecordingPlayer {...recordingLogicProps} />
+            </div>
         </NodeWrapper>
     )
 }
