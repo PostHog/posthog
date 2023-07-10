@@ -1,6 +1,7 @@
 from typing import List, Any
 
 from posthog.hogql import ast
+from posthog.hogql.base import ExprStatement, VariableDeclaration
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, SUPPORTED_FUNCTIONS
@@ -112,3 +113,12 @@ class BytecodeBuilder(Visitor):
             response.extend(self.visit(expr))
         response.extend([Operation.CALL, node.name, len(node.args)])
         return response
+
+    def visit_expr_statement(self, node: ExprStatement):
+        return [*self.visit(node.expr), Operation.POP]
+
+    def visit_variable_declaration(self, node: VariableDeclaration):
+        return [*(self.visit(node.expr) if node.expr else [Operation.NULL]), Operation.DEFINE_GLOBAL, node.name]
+
+    def visit_if_statement(self, node: ast.IfStatement):
+        return []

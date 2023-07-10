@@ -1,10 +1,10 @@
-from typing import cast, Optional, Dict
+from typing import cast, Optional, Dict, List
 
 import math
 
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_program
 from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest
 
@@ -17,6 +17,9 @@ class TestParser(BaseTest):
 
     def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
         return clear_locations(parse_select(query, placeholders=placeholders))
+
+    def _program(self, program: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> List[ast.Expr]:
+        return [row for row in parse_program(program, placeholders=placeholders)]
 
     def test_numbers(self):
         self.assertEqual(self._expr("1"), ast.Constant(value=1))
@@ -1109,3 +1112,9 @@ class TestParser(BaseTest):
             self._select(query)
         self.assertEqual(e.exception.start, 7)
         self.assertEqual(e.exception.end, 24)
+
+    def test_program(self):
+        code = "var a := '123'; var b := a - 2; print(b);"
+        program = self._program(code)
+        expected = []
+        self.assertEqual(program, expected)

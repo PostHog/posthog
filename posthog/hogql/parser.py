@@ -4,7 +4,7 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleC
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import AST, VariableDeclaration, ExprStatement, Block, IfStatement
 from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import NotImplementedException, HogQLException, SyntaxException
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
@@ -13,8 +13,28 @@ from posthog.hogql.parse_string import parse_string, parse_string_literal
 from posthog.hogql.placeholders import replace_placeholders
 
 
+def parse_program(
+    program: str, placeholders: Optional[Dict[str, ast.Expr]] = None, start: Optional[int] = 0
+) -> ast.Expr:
+    parse_tree = get_parser(program).program()
+    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+    if placeholders:
+        return replace_placeholders(node, placeholders)
+    return node
+
+
 def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, start: Optional[int] = 0) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
+    node = HogQLParseTreeConverter(start=start).visit(parse_tree)
+    if placeholders:
+        return replace_placeholders(node, placeholders)
+    return node
+
+
+def parse_expr_alias(
+    expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, start: Optional[int] = 0
+) -> ast.Expr:
+    parse_tree = get_parser(expr).columnExprWithAlias()
     node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
@@ -90,6 +110,36 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 e.start = start
                 e.end = end
             raise e
+
+    def visitProgram(self, ctx: HogQLParser.ProgramContext):
+        return [self.visit(declaration) for declaration in ctx.declaration()]
+
+    def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
+        return self.visitChildren(ctx)
+
+    def visitExpression(self, ctx: HogQLParser.ExpressionContext):
+        return self.visitChildren(ctx)
+
+    def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
+        return VariableDeclaration(
+            name=ctx.IDENTIFIER().getText(), expr=self.visit(ctx.expression()) if ctx.expression() else None
+        )
+
+    def visitStatement(self, ctx: HogQLParser.StatementContext):
+        return self.visitChildren(ctx)
+
+    def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
+        return ExprStatement(expr=self.visit(ctx.expression()))
+
+    def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
+        return IfStatement(
+            expr=self.visit(ctx.expression()),
+            then=self.visit(ctx.statement(0)),
+            else_=self.visit(ctx.statement(1)) if ctx.statement(1) else None,
+        )
+
+    def visitBlock(self, ctx: HogQLParser.BlockContext):
+        return Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
 
     def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
@@ -371,7 +421,19 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedException(f"Unsupported node: ColumnTypeExprParam")
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
-        return [self.visit(c) for c in ctx.columnExpr()]
+        return [self.visit(c) for c in ctx.columnExprWithAlias()]
+
+    def visitColumnExprWithAlias(self, ctx: HogQLParser.ColumnExprWithAliasContext):
+        expr = self.visit(ctx.columnExpr())
+
+        if not ctx.alias():
+            return expr
+        alias = self.visit(ctx.alias())
+
+        if alias in RESERVED_KEYWORDS:
+            raise HogQLException(f"Alias '{alias}' is a reserved keyword")
+
+        return ast.Alias(expr=expr, alias=alias)
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         return ast.Call(

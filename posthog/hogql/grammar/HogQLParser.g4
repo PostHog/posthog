@@ -4,6 +4,27 @@ options {
     tokenVocab = HogQLLexer;
 }
 
+
+program: declaration* EOF;
+declaration
+    : varDecl
+    | statement ;
+
+expression: columnExpr;
+
+varDecl: VAR IDENTIFIER ( COLON EQ_SINGLE expression )? SEMICOLON ;
+
+statement      : exprStmt
+               | ifStmt
+               | block ;
+
+exprStmt       : expression SEMICOLON ;
+ifStmt         : IF LPAREN expression RPAREN statement
+                 ( ELSE statement )? ;
+block          : LBRACE declaration* RBRACE ;
+
+
+
 // SELECT statement
 select: (selectUnionStmt | selectStmt) EOF;
 
@@ -96,7 +117,9 @@ columnTypeExpr
     | identifier LPAREN columnTypeExpr (COMMA columnTypeExpr)* RPAREN                        # ColumnTypeExprComplex  // Array, Tuple
     | identifier LPAREN columnExprList? RPAREN                                               # ColumnTypeExprParam    // FixedString(N)
     ;
-columnExprList: columnExpr (COMMA columnExpr)*;
+columnExprList: columnExprWithAlias (COMMA columnExprWithAlias)*;
+columnExprWithAlias: columnExpr (alias | AS identifier | AS STRING_LITERAL)?;
+
 columnExpr
     : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast

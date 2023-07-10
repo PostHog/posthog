@@ -1,6 +1,6 @@
 import re
 from pydantic import BaseModel, Extra
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedException
@@ -42,6 +42,33 @@ class Type(AST):
 
 class Expr(AST):
     type: Optional[Type] = None
+
+
+class Declaration(AST):
+    type: Optional[Type] = None
+
+
+class VariableDeclaration(Declaration):
+    name: str
+    expr: Optional[Expr] = None
+
+
+class Statement(Declaration):
+    pass
+
+
+class ExprStatement(Statement):
+    expr: Expr
+
+
+class IfStatement(Statement):
+    expr: Expr
+    then: Statement
+    else_: Optional[Statement] = None
+
+
+class Block(Statement):
+    declarations: List[Declaration]
 
 
 class CTE(Expr):

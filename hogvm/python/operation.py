@@ -41,3 +41,8 @@ class Operation(int, Enum):
     STRING = 32
     INTEGER = 33
     FLOAT = 34
+
+    JUMP = 35
+    JUMP_IF_FALSE = 36
+    POP = 37
+    DEFINE_GLOBAL = 38
