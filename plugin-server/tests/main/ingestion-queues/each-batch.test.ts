@@ -21,7 +21,15 @@ import {
     RawClickHouseEvent,
 } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
+import { processWebhooksStep } from '../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 
+jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
+    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
+    return {
+        ...originalModule,
+        processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
+    }
+})
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
 
@@ -174,7 +182,7 @@ describe('eachBatchX', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
             await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), queue)
 
-            expect(queue.workerMethods.runWebhooksHandlersEventPipeline).toHaveBeenCalledWith({
+            expect(processWebhooksStep).toHaveBeenCalledWith(expect.anything(), {
                 ...event,
                 properties: {
                     $ip: '127.0.0.1',

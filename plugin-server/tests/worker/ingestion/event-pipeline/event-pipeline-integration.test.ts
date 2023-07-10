@@ -6,6 +6,7 @@ import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
@@ -24,7 +25,7 @@ describe('Event Pipeline integration test', () => {
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
         return Promise.all([
             runner.runAppsOnEventPipeline(postIngestionEvent),
-            runner.runWebhooksEventPipeline(postIngestionEvent),
+            processWebhooksStep(runner.hub, postIngestionEvent),
         ])
     }
 
