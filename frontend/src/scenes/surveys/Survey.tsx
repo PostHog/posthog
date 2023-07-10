@@ -111,8 +111,8 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">
-                            Select release conditions for the survey based on url, class/id selector, and user
-                            properties.
+                            If a targeting option is set, the survey will only be shown to users who match the following
+                            conditions.
                         </span>
                         <Field
                             name="linked_flag_id"
@@ -174,7 +174,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 {hasTargetingFlag && (
                                     <>
                                         <div className="mt-2">
-                                            <FeatureFlagReleaseConditions />
+                                            <FeatureFlagReleaseConditions excludeTitle={true} />
                                         </div>
                                         {id === 'new' && (
                                             <LemonButton
@@ -247,14 +247,10 @@ export function SurveyReleaseSummary({
 }): JSX.Element {
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                {!hasTargetingFlag && <div className="font-semibold">Release conditions</div>}
-                <span>
-                    Set targeting options if you want to restrict your survey's release. By default surveys will be
-                    released to everyone.
-                </span>
-                {hasTargetingFlag && <FeatureFlagReleaseConditions readOnly />}
-            </BindLogic>
+            <div className="font-semibold">Release conditions</div>
+            <span className="text-muted">
+                By default surveys will be released to everyone unless targeting options are set.
+            </span>
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
@@ -283,6 +279,9 @@ export function SurveyReleaseSummary({
                     )}
                 </div>
             )}
+            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                {hasTargetingFlag && <FeatureFlagReleaseConditions readOnly excludeTitle />}
+            </BindLogic>
         </div>
     )
 }
