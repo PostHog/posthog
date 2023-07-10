@@ -37,6 +37,7 @@ def pushed_metrics_registry(job_name: str):
 
     NOTE: only use to expose gauges, for use cases where one value per
     region makes sense (e.g. instance metrics computed by celery jobs).
+    dummy commit
     """
 
     registry = CollectorRegistry()
