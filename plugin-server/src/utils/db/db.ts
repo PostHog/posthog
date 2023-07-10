@@ -27,7 +27,6 @@ import {
     GroupKey,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
-    Hook,
     OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
