@@ -13,6 +13,8 @@ import { NotebookMode, NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeCannotShare } from 'scenes/notebooks/Nodes/NotebookNodeCannotShare'
 
+const shareableNodeAllowList: NotebookNodeType[] = [NotebookNodeType.Link]
+
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
     nodeType: NotebookNodeType
@@ -74,8 +76,8 @@ export function NodeWrapper({
         window.addEventListener('mouseup', onResizedEnd)
     }, [resizeable, updateAttributes])
 
-    return isInSharedView ? (
-        <NotebookNodeCannotShare type={'flags'} />
+    return isInSharedView && !shareableNodeAllowList.includes(nodeType) ? (
+        <NotebookNodeCannotShare type={nodeType} />
     ) : (
         <NodeViewWrapper
             ref={ref}
