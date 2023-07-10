@@ -122,3 +122,4 @@ jobs:
                       {
                         "image_tag": "${{ steps.build-arm64.outputs.digest }}"
                       }
+
