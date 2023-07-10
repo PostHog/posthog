@@ -1,6 +1,5 @@
 import { Editor as TTEditor, Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
-import { PluginKey } from '@tiptap/pm/state'
 
 import { FloatingMenu, ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
@@ -288,15 +287,12 @@ export function FloatingSlashCommands({ editor }: { editor: TTEditor }): JSX.Ele
     ) : null
 }
 
-const SlashCommandsPluginKey = new PluginKey('slash-commands')
-
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
 
     addProseMirrorPlugins() {
         return [
             Suggestion({
-                pluginKey: SlashCommandsPluginKey,
                 editor: this.editor,
                 char: '/',
                 startOfLine: true,

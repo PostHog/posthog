@@ -14,14 +14,11 @@ import { notebookLogic } from './notebookLogic'
 type BacklinkCommandsProps = {
     query?: string
     range?: EditorRange
+    onClose: () => void
     decorationNode?: any
 }
 
-type BacklinkCommandsRef = {
-    onKeyDown: (event: KeyboardEvent) => boolean
-}
-
-const BacklinkCommandsPopover = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(function BacklinkCommandsPopover(
+const BacklinkCommandsPopover = forwardRef<ReactRenderer, BacklinkCommandsProps>(function BacklinkCommandsPopover(
     props: BacklinkCommandsProps,
     ref
 ): JSX.Element | null {
@@ -30,13 +27,14 @@ const BacklinkCommandsPopover = forwardRef<BacklinkCommandsRef, BacklinkCommands
     )
 })
 
-const BacklinkCommands = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(function BacklinkCommands({
+const BacklinkCommands = forwardRef<ReactRenderer, BacklinkCommandsProps>(function BacklinkCommands({
     range = { from: 0, to: 0 },
     query,
+    onClose,
 }): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
 
-    const onPressEnter = (): void => {
+    const onSelect = (): void => {
         if (!editor) {
             return
         }
@@ -44,7 +42,7 @@ const BacklinkCommands = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(
         editor
             .deleteRange(range)
             .insertContentAt(range, [
-                { type: 'text', marks: [{ type: 'underline' }], text: ' ' },
+                { type: 'text', text: 'this is a test' },
                 { type: 'text', text: ' ' },
             ])
             .run()
@@ -57,7 +55,8 @@ const BacklinkCommands = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType: TaxonomicFilterGroupType.Events,
         value: query,
-        onChange: onPressEnter,
+        onChange: onSelect,
+        onClose: onClose,
         taxonomicGroupTypes: [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.Persons,
@@ -65,7 +64,6 @@ const BacklinkCommands = forwardRef<BacklinkCommandsRef, BacklinkCommandsProps>(
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.Insights,
             TaxonomicFilterGroupType.FeatureFlags,
-            TaxonomicFilterGroupType.Plugins,
             TaxonomicFilterGroupType.Experiments,
             TaxonomicFilterGroupType.Dashboards,
         ],
@@ -89,13 +87,19 @@ export const BacklinkCommandsExtension = Extension.create({
                 pluginKey: BacklinkCommandsPluginKey,
                 editor: this.editor,
                 char: '#',
+                allow: ({ range }) => range.to - range.from === 1,
                 render: () => {
-                    let renderer: ReactRenderer<BacklinkCommandsRef>
+                    let renderer: ReactRenderer
+
+                    const onClose = (): void => {
+                        renderer.destroy()
+                        this.editor.chain().focus().run()
+                    }
 
                     return {
                         onStart: (props) => {
                             renderer = new ReactRenderer(BacklinkCommandsPopover, {
-                                props,
+                                props: { ...props, onClose },
                                 editor: props.editor,
                             })
                         },
@@ -108,16 +112,8 @@ export const BacklinkCommandsExtension = Extension.create({
                             }
                         },
 
-                        onKeyDown(props) {
-                            if (props.event.key === 'Escape') {
-                                renderer.destroy()
-                                return true
-                            }
-                            return renderer.ref?.onKeyDown(props.event) ?? false
-                        },
-
                         onExit() {
-                            renderer.destroy()
+                            onClose()
                         },
                     }
                 },
