@@ -41,7 +41,7 @@ async def get_client():
         async with ClientSession(connector=connector, timeout=timeout) as session:
             client = ChClient(
                 session,
-                url=settings.CLICKHOUSE_HTTP_URL,
+                url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
                 user=settings.CLICKHOUSE_USER,
                 password=settings.CLICKHOUSE_PASSWORD,
                 database=settings.CLICKHOUSE_DATABASE,
