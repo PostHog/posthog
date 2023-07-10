@@ -122,6 +122,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 except StopAsyncIteration:
                     break
                 except json.JSONDecodeError:
+                    activity.logger.info(
+                        "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
+                    )
                     # This is raised by aiochclient as we try to decode an error message from ClickHouse.
                     # So far, this error message only indicated that we were too slow consuming rows.
                     # So, we can resume from the last result.
