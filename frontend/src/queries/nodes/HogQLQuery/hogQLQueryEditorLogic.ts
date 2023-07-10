@@ -11,6 +11,9 @@ import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 import type { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import type { Monaco } from '@monaco-editor/react'
+import api from 'lib/api'
+import { combineUrl } from 'kea-router'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -39,10 +42,20 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
         setModelMarkers: (markers: ModelMarker[]) => ({ markers }),
+        setPrompt: (prompt: string) => ({ prompt }),
+        setPromptError: (error: string | null) => ({ error }),
+        draftFromPrompt: true,
+        draftFromPromptComplete: true,
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
         modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
+        prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
+        promptError: [
+            null as string | null,
+            { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
+        ],
+        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
     })),
     selectors({
         hasErrors: [
@@ -58,10 +71,12 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                     : null
             },
         ],
+        aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {
             const query = values.queryInput
+            // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
             props.setQuery?.({ ...props.query, query })
         },
@@ -111,6 +126,27 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             }
 
             actions.setModelMarkers(markers)
+        },
+        draftFromPrompt: async () => {
+            if (!values.aiAvailable) {
+                throw new Error(
+                    'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
+                )
+            }
+            try {
+                const result = await api.get(
+                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                        prompt: values.prompt,
+                        current_query: values.queryInput,
+                    }).url
+                )
+                const { sql } = result
+                actions.setQueryInput(sql)
+            } catch (e) {
+                actions.setPromptError((e as { code: string; detail: string }).detail)
+            } finally {
+                actions.draftFromPromptComplete()
+            }
         },
         setModelMarkers: ({ markers }) => {
             const model = props.editor?.getModel()

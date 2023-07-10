@@ -73,6 +73,12 @@
         top: 0;
         z-index: 1;
     }
+
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary);
+    }
 }
 
 .NotebookFloatingButton {

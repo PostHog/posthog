@@ -48,6 +48,7 @@ import { Query } from '~/queries/Query/Query'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentInsightCreator } from './MetricSelector'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -92,6 +93,7 @@ export function Experiment(): JSX.Element {
         archiveExperiment,
         resetRunningExperiment,
         loadExperiment,
+        loadExperimentResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
@@ -559,6 +561,23 @@ export function Experiment(): JSX.Element {
                             )}
                             {experiment && isExperimentRunning && (
                                 <div className="flex flex-row gap-2">
+                                    <>
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={() => loadExperimentResults(true)}
+                                                        fullWidth
+                                                        data-attr="refresh-experiment"
+                                                    >
+                                                        Refresh experiment results
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                        <LemonDivider vertical />
+                                    </>
                                     <Popconfirm
                                         placement="topLeft"
                                         title={
@@ -918,55 +937,31 @@ export function Experiment(): JSX.Element {
                             )
                         )}
                         {experimentResults ? (
-                            <BindLogic
-                                logic={insightLogic}
-                                props={{
-                                    dashboardItemId: experimentResults.fakeInsightId,
-                                    cachedInsight: {
-                                        short_id: experimentResults.fakeInsightId,
-                                        filters: {
-                                            ...experimentResults.filters,
-                                            insight: experimentInsightType,
-                                            ...(experimentInsightType === InsightType.FUNNELS && {
-                                                layout: FunnelLayout.vertical,
-                                                funnel_viz_type: FunnelVizType.Steps,
-                                            }),
-                                            ...(experimentInsightType === InsightType.TRENDS && {
-                                                display: ChartDisplayType.ActionsLineGraphCumulative,
-                                            }),
-                                        },
-                                        result: experimentResults.insight,
-                                        disable_baseline: true,
-                                    },
-                                    doNotLoad: true,
-                                }}
-                            >
-                                <div className="mt-4">
-                                    <Query
-                                        query={{
-                                            kind: NodeKind.InsightVizNode,
-                                            source: filtersToQueryNode(
-                                                transformResultFilters(experimentResults.filters)
-                                            ),
-                                            showTable: true,
-                                            showLegendButton: false,
-                                        }}
-                                        context={{
-                                            insightProps: {
-                                                dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
-                                                cachedInsight: {
-                                                    short_id: experimentResults.fakeInsightId as InsightShortId,
-                                                    filters: transformResultFilters(experimentResults.filters),
-                                                    result: experimentResults.insight,
-                                                    disable_baseline: true,
-                                                },
-                                                doNotLoad: true,
+                            <div className="mt-4">
+                                <Query
+                                    query={{
+                                        kind: NodeKind.InsightVizNode,
+                                        source: filtersToQueryNode(transformResultFilters(experimentResults.filters)),
+                                        showTable: true,
+                                        showLegendButton: false,
+                                        showLastComputation: true,
+                                    }}
+                                    context={{
+                                        insightProps: {
+                                            dashboardItemId: experimentResults.fakeInsightId as InsightShortId,
+                                            cachedInsight: {
+                                                short_id: experimentResults.fakeInsightId as InsightShortId,
+                                                filters: transformResultFilters(experimentResults.filters),
+                                                result: experimentResults.insight,
+                                                disable_baseline: true,
+                                                last_refresh: experimentResults.last_refresh,
                                             },
-                                        }}
-                                        readOnly
-                                    />
-                                </div>
-                            </BindLogic>
+                                            doNotLoad: true,
+                                        },
+                                    }}
+                                    readOnly
+                                />
+                            </div>
                         ) : (
                             experiment.start_date && (
                                 <>
