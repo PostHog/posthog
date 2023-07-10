@@ -13,7 +13,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 mmdb: true,
                 ingestion: true,
                 ingestionOverflow: true,
-                ingestionHistorical: false,
+                ingestionHistorical: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncHandlers: true,
