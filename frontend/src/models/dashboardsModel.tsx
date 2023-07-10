@@ -192,7 +192,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             },
         ],
         rawDashboards: [
-            {} as Record<string, DashboardType>,
+            {} as Record<string, DashboardBasicType | DashboardType>,
             {
                 loadDashboardsSuccess: (state, { pagedDashboards }) => {
                     if (!pagedDashboards) {
