@@ -17,6 +17,10 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                         value: 'product',
                     },
                     {
+                        label: 'Founder',
+                        value: 'founder
+                    },
+                    {
                         label: 'Executive',
                         value: 'leadership',
                     },
