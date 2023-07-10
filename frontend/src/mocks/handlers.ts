@@ -25,6 +25,7 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
 
 export const defaultMocks: Mocks = {
     get: {
+        '/api/projects/:team_id/activity_log/important_changes/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,

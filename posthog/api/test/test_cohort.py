@@ -566,6 +566,28 @@ email@example.org,
 
         cohort_pk = response.json()["id"]
 
+        second_cohort_pk = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort XX",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                        ],
+                    }
+                },
+            },
+        ).json()["id"]
+
         FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [{"key": "id", "value": cohort_pk, "type": "cohort"}]}]},
@@ -575,7 +597,7 @@ email@example.org,
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+            f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
             data={
                 "name": "cohort A",
                 "filters": {
@@ -602,6 +624,36 @@ email@example.org,
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "attr": "filters",
+            },
+            response.json(),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
+            data={
+                "name": "cohort C",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "id",
+                                "value": second_cohort_pk,
+                                "type": "cohort",
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "A dependent cohort (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
             },
             response.json(),

@@ -8,10 +8,10 @@ from rest_framework import status
 from posthog.models import Team, Organization
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
-class TestNotebooks(APIBaseTest):
+class TestNotebooks(APIBaseTest, QueryMatchingTest):
     def created_activity(self, item_id: str, short_id: str) -> Dict:
         return {
             "activity": "created",
@@ -100,6 +100,7 @@ class TestNotebooks(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["short_id"] == create_response.json()["short_id"]
 
+    @snapshot_postgres_queries
     def test_updates_notebook(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data={})
         assert response.status_code == status.HTTP_201_CREATED

@@ -552,8 +552,7 @@ export interface QueryContext {
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
     insightProps?: InsightLogicProps
-    emptyStateHeading?: string
-    emptyStateDetail?: string
+    emptyState?: JSX.Element
 }
 
 interface QueryContextColumn {

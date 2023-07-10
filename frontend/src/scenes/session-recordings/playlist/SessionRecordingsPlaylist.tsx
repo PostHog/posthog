@@ -58,6 +58,8 @@ export function RecordingsLists({
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
         listingVersion,
+        sessionRecordingsAPIErrored,
+        pinnedRecordingsAPIErrored,
     } = useValues(logic)
     const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
         useActions(logic)
@@ -103,6 +105,11 @@ export function RecordingsLists({
                             </>
                         }
                         activeRecordingId={activeSessionRecording?.id}
+                        empty={
+                            pinnedRecordingsAPIErrored ? (
+                                <LemonBanner type="error">Error while trying to load pinned recordings.</LemonBanner>
+                            ) : undefined
+                        }
                     />
                 ) : null}
 
@@ -200,24 +207,28 @@ export function RecordingsLists({
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
                     empty={
-                        <div className={'flex flex-col items-center space-y-2'}>
-                            <span>No matching recordings found</span>
-                            {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
-                                <>
-                                    <LemonButton
-                                        type={'secondary'}
-                                        data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
-                                        onClick={() => {
-                                            setFilters({
-                                                date_from: '-21d',
-                                            })
-                                        }}
-                                    >
-                                        Search over the last 21 days
-                                    </LemonButton>
-                                </>
-                            )}
-                        </div>
+                        sessionRecordingsAPIErrored ? (
+                            <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                        ) : (
+                            <div className={'flex flex-col items-center space-y-2'}>
+                                <span>No matching recordings found</span>
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                    <>
+                                        <LemonButton
+                                            type={'secondary'}
+                                            data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                            onClick={() => {
+                                                setFilters({
+                                                    date_from: '-21d',
+                                                })
+                                            }}
+                                        >
+                                            Search over the last 21 days
+                                        </LemonButton>
+                                    </>
+                                )}
+                            </div>
+                        )
                     }
                     activeRecordingId={activeSessionRecording?.id}
                     onScrollToEnd={() => maybeLoadSessionRecordings('older')}

@@ -11,7 +11,7 @@ import {
 } from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isDataTableNode, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -175,6 +175,24 @@ export const dataTableLogic = kea<dataTableLogicType>([
         canSort: [
             (s) => [s.queryWithDefaults],
             (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
+        ],
+        emptyStateHeading: [
+            (s) => [s.queryWithDefaults],
+            (query: DataTableNode) =>
+                `There are no ${
+                    isHogQLQuery(query.source)
+                        ? 'results'
+                        : isPersonsNode(query.source)
+                        ? 'matching persons'
+                        : 'matching events'
+                } for this query`,
+        ],
+        emptyStateDetail: [
+            (s) => [s.queryWithDefaults],
+            (query: DataTableNode) =>
+                isPersonsNode(query.source)
+                    ? 'Try adjusting the filters.'
+                    : 'Try changing the date range, or pick another action, event or breakdown.',
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {

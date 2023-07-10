@@ -1,6 +1,6 @@
 import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 import { BreakdownFilter, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
-import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
     isFunnelsFilter,

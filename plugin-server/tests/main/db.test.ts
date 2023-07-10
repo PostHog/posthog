@@ -870,29 +870,6 @@ describe('DB', () => {
         })
     })
 
-    describe('fetchInstanceSetting & upsertInstanceSetting', () => {
-        it('fetch returns null by default', async () => {
-            const result = await db.fetchInstanceSetting('SOME_SETTING')
-            expect(result).toEqual(null)
-        })
-
-        it('can create and update settings', async () => {
-            await db.upsertInstanceSetting('SOME_SETTING', 'some_value')
-            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('some_value')
-
-            await db.upsertInstanceSetting('SOME_SETTING', 'new_value')
-            expect(await db.fetchInstanceSetting('SOME_SETTING')).toEqual('new_value')
-        })
-
-        it('handles different types', async () => {
-            await db.upsertInstanceSetting('NUMERIC_SETTING', 56)
-            await db.upsertInstanceSetting('BOOLEAN_SETTING', true)
-
-            expect(await db.fetchInstanceSetting('NUMERIC_SETTING')).toEqual(56)
-            expect(await db.fetchInstanceSetting('BOOLEAN_SETTING')).toEqual(true)
-        })
-    })
-
     describe('addFeatureFlagHashKeysForMergedPerson()', () => {
         let team: Team
         let sourcePersonID: Person['id']
@@ -1075,19 +1052,25 @@ describe('DB', () => {
             })
             await hub.db.addPersonToCohort(cohort2.id, person.id, cohort.version)
 
-            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
+            expect(await hub.actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(
+                false
+            )
         })
 
         it('returns true if person belongs to cohort', async () => {
             await hub.db.addPersonToCohort(cohort.id, person.id, cohort.version)
 
-            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(true)
+            expect(await hub.actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(
+                true
+            )
         })
 
         it('returns false if person does not belong to current version of the cohort', async () => {
             await hub.db.addPersonToCohort(cohort.id, person.id, -1)
 
-            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
+            expect(await hub.actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(
+                false
+            )
         })
 
         it('handles NULL version cohorts', async () => {
@@ -1097,10 +1080,14 @@ describe('DB', () => {
                 team_id: team.id,
                 version: null,
             })
-            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(false)
+            expect(await hub.actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(
+                false
+            )
 
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
-            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
+            expect(await hub.actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(
+                true
+            )
         })
     })
 
