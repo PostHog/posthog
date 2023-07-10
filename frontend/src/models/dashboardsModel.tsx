@@ -4,7 +4,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { dashboardsModelType } from './dashboardsModelType'
-import { DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
+import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
@@ -79,7 +79,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
     loaders: ({ values, actions }) => ({
         pagedDashboards: [
-            null as PaginatedResponse<DashboardType> | null,
+            null as PaginatedResponse<DashboardBasicType> | null,
             {
                 loadDashboards: async (url?: string) => {
                     // looking at a fully exported dashboard, return its contents
