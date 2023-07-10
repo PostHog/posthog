@@ -8,7 +8,6 @@ export async function processOnEventStep(runner: EventPipelineRunner, event: Pos
     const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
-        server: runner.hub,
         event: processedPluginEvent,
         func: (event) => runOnEvent(runner.hub, event),
         statsKey: `kafka_queue.single_on_event`,
