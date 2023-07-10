@@ -13,6 +13,7 @@ on:
     push:
         branches:
             - master
+    workflow_dispatch:
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
