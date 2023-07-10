@@ -109,9 +109,11 @@ export function upgradeExportEvents(
 
                     status.info(
                         '🚃',
-                        `Enqueued PluginConfig ${pluginConfig.id} batch ${payload.batchId} for retry #${
-                            payload.retriesPerformedSoFar + 1
-                        } in ${Math.round(nextRetrySeconds)}s`
+                        `Enqueued PluginConfig ${pluginConfig.id} (plugin=${pluginConfig.plugin_id}, team=${
+                            pluginConfig.team_id
+                        }) batch ${payload.batchId} for retry #${payload.retriesPerformedSoFar + 1} in ${Math.round(
+                            nextRetrySeconds
+                        )}s`
                     )
                     hub.statsd?.increment('plugin.export_events.retry_enqueued', {
                         retry: `${payload.retriesPerformedSoFar + 1}`,
@@ -121,7 +123,7 @@ export function upgradeExportEvents(
                 } else {
                     status.info(
                         '☠️',
-                        `Dropped PluginConfig ${pluginConfig.id} batch ${payload.batchId} after retrying ${payload.retriesPerformedSoFar} times`
+                        `Dropped PluginConfig ${pluginConfig.id} (plugin=${pluginConfig.plugin_id}, team=${pluginConfig.team_id}) batch ${payload.batchId} after retrying ${payload.retriesPerformedSoFar} times`
                     )
                     hub.statsd?.increment('plugin.export_events.retry_dropped', {
                         retry: `${payload.retriesPerformedSoFar}`,
