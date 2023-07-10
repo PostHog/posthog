@@ -14,7 +14,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         super().tearDown()
 
     def recreate_database(self, create_tables=True):
-        sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
+        sync_execute(f"DROP DATABASE IF EXISTS {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         if create_tables:
             create_clickhouse_tables(0)

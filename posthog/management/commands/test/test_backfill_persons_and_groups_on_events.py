@@ -29,7 +29,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         super().tearDown()
 
     def recreate_database(self, create_tables=True):
-        sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
+        sync_execute(f"DROP DATABASE IF EXISTS {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         if create_tables:
             create_clickhouse_tables(0)
@@ -52,8 +52,7 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         sync_execute(
             f"""
             INSERT INTO person_distinct_id2 (person_id, distinct_id, team_id)
-            VALUES
-                ('{str(person_id)}', 'some_distinct_id', 1)
+            VALUES ('{str(person_id)}', 'some_distinct_id', 1)
             """
         )
 
