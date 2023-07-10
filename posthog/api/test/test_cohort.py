@@ -566,6 +566,28 @@ email@example.org,
 
         cohort_pk = response.json()["id"]
 
+        second_cohort_pk = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort XX",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                        ],
+                    }
+                },
+            },
+        ).json()["id"]
+
         FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [{"key": "id", "value": cohort_pk, "type": "cohort"}]}]},
@@ -575,7 +597,7 @@ email@example.org,
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
+            f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
             data={
                 "name": "cohort A",
                 "filters": {
@@ -606,6 +628,102 @@ email@example.org,
             },
             response.json(),
         )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
+            data={
+                "name": "cohort C",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "id",
+                                "value": second_cohort_pk,
+                                "type": "cohort",
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "A dependent cohort (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+                "attr": "filters",
+            },
+            response.json(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
+
+        _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
+        )
+
+        _create_person(distinct_ids=["p2"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p2", timestamp=datetime.now() - timedelta(hours=12)
+        )
+
+        _create_person(distinct_ids=["p3"], team_id=self.team.pk, properties={"$some_prop": "not it"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p3", timestamp=datetime.now() - timedelta(days=12)
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "$some_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+        self.assertEqual(new_cohort.is_static, True)
+
+        while new_cohort.is_calculating:
+            new_cohort.refresh_from_db()
+            import time
+
+            time.sleep(0.1)
+        self.assertEqual(new_cohort.name, "cohort A (static copy)")
+        self.assertEqual(new_cohort.is_calculating, False)
+        self.assertEqual(new_cohort.errors_calculating, 0)
+        self.assertEqual(new_cohort.count, 2)
 
 
 def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):

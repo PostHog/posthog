@@ -675,6 +675,7 @@ export interface SessionPlayerData {
     durationMs: number
     start?: Dayjs
     end?: Dayjs
+    fullyLoaded: boolean
 }
 
 export enum SessionRecordingUsageType {
@@ -1196,6 +1197,7 @@ export interface BillingV2Type {
     available_plans?: BillingV2PlanType[]
     discount_percent?: number
     discount_amount_usd?: string
+    amount_off_expires_at?: Dayjs
 }
 
 export interface BillingV2PlanType {
@@ -2059,13 +2061,16 @@ export interface SurveyAppearance {
     backgroundColor?: string
     submitButtonColor?: string
     textColor?: string
+    submitButtonText?: string
+    descriptionTextColor?: string
 }
 
 export interface SurveyQuestion {
     type: SurveyQuestionType
     question: string
+    description?: string | null
     required?: boolean
-    link?: string | null
+    link: string | null
     choices?: string[] | null
 }
 
@@ -2225,6 +2230,7 @@ export interface PreflightStatus {
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
+    openai_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -2428,12 +2434,14 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface TrendsExperimentResults {
@@ -2490,7 +2498,8 @@ export interface KeyMapping {
     label: string
     description?: string | JSX.Element
     examples?: string[]
-    hide?: boolean
+    /** System properties are hidden in properties table by default. */
+    system?: boolean
 }
 
 export interface TileParams {
@@ -2838,6 +2847,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    expires_after?: Dayjs
 }
 
 export enum FeatureFlagReleaseType {

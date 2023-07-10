@@ -33,6 +33,11 @@ class EnterpriseFeatureException(APIException):
         )
 
 
+class Conflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "conflict"
+
+
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long"

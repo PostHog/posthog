@@ -1,4 +1,5 @@
 import json
+import structlog
 from typing import Dict, List, Optional, cast
 
 from django.core.cache import cache
@@ -16,6 +17,8 @@ from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
+
+logger = structlog.get_logger(__name__)
 
 
 class FeatureFlag(models.Model):
@@ -298,7 +301,12 @@ def set_feature_flags_for_team_in_cache(
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
-    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+    try:
+        cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+    except Exception:
+        # redis is unavailable
+        logger.exception("Redis is unavailable")
+        capture_exception()
 
     return all_feature_flags
 
@@ -308,6 +316,7 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFl
         flag_data = cache.get(f"team_feature_flags_{team_id}")
     except Exception:
         # redis is unavailable
+        logger.exception("Redis is unavailable")
         return None
 
     if flag_data is not None:
@@ -315,6 +324,7 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFl
             parsed_data = json.loads(flag_data)
             return [FeatureFlag(**flag) for flag in parsed_data]
         except Exception as e:
+            logger.exception("Error parsing flags from cache")
             capture_exception(e)
             return None
 

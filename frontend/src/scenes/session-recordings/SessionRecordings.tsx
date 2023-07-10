@@ -6,7 +6,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Tabs } from 'antd'
 import { AvailableFeature, ReplayTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
@@ -20,6 +19,7 @@ import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -74,16 +74,14 @@ export function SessionsRecordings(): JSX.Element {
                     </>
                 }
             />
-            <Tabs
+            <LemonTabs
                 activeKey={tab}
-                animated={false}
-                style={{ borderColor: '#D9D9D9' }}
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            >
-                {Object.values(ReplayTabs).map((value) => (
-                    <Tabs.TabPane tab={humanFriendlyTabName(value)} key={value} />
-                ))}
-            </Tabs>
+                tabs={Object.values(ReplayTabs).map((replayTab) => ({
+                    label: humanFriendlyTabName(replayTab),
+                    key: replayTab,
+                }))}
+            />
             {recordingsDisabled ? (
                 <div className="mb-4">
                     <LemonBanner

@@ -7,7 +7,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SurveyType } from 'posthog-js'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
@@ -17,6 +16,7 @@ import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
+import { SurveyQuestionType } from '~/types'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries } = useValues(surveyLogic)
@@ -112,11 +112,18 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <div className="flex flex-row">
                                         <div className="flex flex-col w-full">
                                             <span className="card-secondary mt-4">Type</span>
-                                            <span>{capitalizeFirstLetter(SurveyType.Popover)}</span>
-                                            <span className="card-secondary mt-4">Questions</span>
+                                            <span>{capitalizeFirstLetter(survey.questions[0].type)}</span>
+                                            <span className="card-secondary mt-4">Question</span>
                                             {survey.questions.map((q, idx) => (
                                                 <span key={idx}>{q.question}</span>
                                             ))}
+                                            {survey.questions[0].type === SurveyQuestionType.Link && (
+                                                <>
+                                                    <span className="card-secondary mt-4">Link url</span>
+                                                    <span>{survey.questions[0].link}</span>
+                                                </>
+                                            )}
+
                                             <span className="card-secondary mt-4">Linked feature flag</span>
                                             {survey.linked_flag ? (
                                                 <Link to={urls.featureFlag(survey.linked_flag.id)}>
@@ -198,8 +205,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             />
                                             <div className="mt-6">
                                                 <SurveyAppearance
+                                                    type={survey.questions[0].type}
                                                     appearance={survey.appearance || defaultSurveyAppearance}
                                                     question={survey.questions[0].question}
+                                                    description={survey.questions[0].description}
+                                                    link={survey.questions[0].link}
                                                     readOnly={true}
                                                     onAppearanceChange={() => {}}
                                                 />
