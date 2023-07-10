@@ -111,8 +111,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">
-                            If a targeting option is set, the survey will only be shown to users who match the following
-                            conditions.
+                            If targeting options are set, the survey will be released to users who match <b>all</b> of
+                            the conditions. If no targeting options are set, the survey{' '}
+                            <b>will be released to everyone</b>.
                         </span>
                         <Field
                             name="linked_flag_id"
@@ -281,7 +282,12 @@ export function SurveyReleaseSummary({
                 </div>
             )}
             <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                {hasTargetingFlag && <FeatureFlagReleaseConditions readOnly excludeTitle />}
+                {hasTargetingFlag && (
+                    <>
+                        <span className="font-medium">User properties:</span>{' '}
+                        <FeatureFlagReleaseConditions readOnly excludeTitle />
+                    </>
+                )}
             </BindLogic>
         </div>
     )

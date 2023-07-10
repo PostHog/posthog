@@ -1361,7 +1361,7 @@ export function FeatureFlagReleaseConditions({
 
     return (
         <>
-            <div className="feature-flag-form-row mb-4">
+            <div className="feature-flag-form-row mb-2">
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
                         excludeTitle ? null : (
