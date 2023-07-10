@@ -86,7 +86,7 @@ export async function startPluginsServer(
     let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
-    let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
+    let webhooksHandlerConsumer: Consumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -334,14 +334,14 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: webhooksQueue, isHealthy: isWebhooksIngestionHealthy } =
+            const { consumer: webhooksConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
                     postgres: hub.postgres,
                     kafka: hub.kafka,
                     serverConfig: serverConfig,
                 })
 
-            webhooksHandlerConsumer = webhooksQueue
+            webhooksHandlerConsumer = webhooksConsumer
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
@@ -363,11 +363,11 @@ export async function startPluginsServer(
                 },
                 ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
                     ? {
-                          'reload-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                          'drop-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                      }
+                        'reload-action': async (message) =>
+                            await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                        'drop-action': async (message) =>
+                            await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                    }
                     : {}),
             })
 
