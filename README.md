@@ -19,7 +19,7 @@
 
 - Specify events manually, or use autocapture to get started quickly
 - Analyze data with ready-made visualizations, or do it yourself with SQL
-- Gather insights by capturing session replays, console logs and network monitoring
+- Gather insights by capturing session replays, console logs, and network monitoring
 - Improve your product with A/B testing that automatically analyzes performance
 - Safely roll out features to select users or cohorts with feature flags
 - Connect to external services and manage data flows with PostHog CDP
