@@ -24,10 +24,7 @@ import {
     PluginServerCapabilities,
     PluginsServerConfig,
 } from '../../types'
-import { ActionManager } from '../../worker/ingestion/action-manager'
-import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
-import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -164,8 +161,6 @@ export async function createHub(
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const actionManager = new ActionManager(postgres)
-    await actionManager.prepare()
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -212,15 +207,12 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         promiseManager,
-        actionManager,
-        actionMatcher: new ActionMatcher(postgres, actionManager, statsd),
         conversionBufferEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {

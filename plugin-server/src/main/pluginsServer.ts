@@ -9,7 +9,7 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub } from '../utils/db/hub'
+import { createHub, createKafkaClient } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
@@ -330,14 +330,13 @@ export async function startPluginsServer(
             if (capabilities.processAsyncHandlers) {
                 throw Error('async and webhooks together are not allowed - would send twice')
             }
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
+            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
 
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
             const { consumer: webhooksConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
-                    postgres: hub.postgres,
-                    kafka: hub.kafka,
+                    postgres: postgres,
+                    kafka: kafka,
                     serverConfig: serverConfig,
                 })
 
@@ -363,11 +362,11 @@ export async function startPluginsServer(
                 },
                 ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
                     ? {
-                        'reload-action': async (message) =>
-                            await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                        'drop-action': async (message) =>
-                            await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                    }
+                          'reload-action': async (message) =>
+                              await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                          'drop-action': async (message) =>
+                              await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                      }
                     : {}),
             })
 
