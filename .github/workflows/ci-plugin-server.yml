@@ -35,7 +35,6 @@ env:
     OBJECT_STORAGE_BUCKET: 'posthog'
     # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
-    SESSION_RECORDING_BLOB_PROCESSING_TEAMS: 'all'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

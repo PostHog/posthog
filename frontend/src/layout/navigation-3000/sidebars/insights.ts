@@ -139,7 +139,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     listeners(({ values, cache }) => ({
         loadInsights: () => {
             if (!values.paramsFromFilters.offset) {
-                cache.requestedInsights.length = 0
+                cache.requestedInsights = []
             }
         },
     })),

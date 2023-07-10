@@ -131,7 +131,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
 
         for series_event in insight_series_events:
             if series_event not in event_definitions:
-                logger.info(
+                logger.warn(
                     "calculate_event_property_usage_for_team.insight_uses_event_with_no_definition",
                     team=team_id,
                     event_id=series_event,
@@ -145,7 +145,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
             count_for_property = counted_properties[counted_property]
 
             if property_name not in property_definitions:
-                logger.info(
+                logger.warn(
                     "calculate_event_property_usage_for_team.insight_uses_property_with_no_definition",
                     team=team_id,
                     property=property_name,
@@ -159,7 +159,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
         events_volume = _get_events_volume(team_id, since)
         for event, (volume, last_seen_at) in events_volume.items():
             if event not in event_definitions:
-                logger.info(
+                logger.warn(
                     "calculate_event_property_usage_for_team.event_volume_found_for_event_with_no_definition",
                     team_id=team_id,
                     event_name=event,
@@ -282,7 +282,7 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
     for id, item_filters in insight_filters:
         try:
             if item_filters is None:
-                logger.info(
+                logger.warn(
                     "calculate_event_property_usage_for_team.insight_has_no_filters",
                     team=team_id,
                     insight_id=id,
