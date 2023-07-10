@@ -16,7 +16,7 @@
 # endpoints are for a very specific purpose and we want to make sure that any
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
-#Trigger tests on PG15
+# Trigger tests on PG15
 
 from typing import Callable, Dict, List, Literal, cast, get_args
 
