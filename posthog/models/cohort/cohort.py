@@ -194,7 +194,7 @@ class Cohort(models.Model):
     def calculate_people_ch(self, pending_version):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
-        logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
+        logger.warn("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
         start_time = time.monotonic()
 
         try:
@@ -223,7 +223,7 @@ class Cohort(models.Model):
         )
         self.refresh_from_db()
 
-        logger.info(
+        logger.warn(
             "cohort_calculation_completed",
             id=self.pk,
             version=pending_version,
