@@ -49,6 +49,7 @@ export function ExperimentPreview({
         isExperimentGoalModalOpen,
         isExperimentExposureModalOpen,
         experimentLoading,
+        experimentCountPerUserMath,
     } = useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
@@ -289,7 +290,7 @@ export function ExperimentPreview({
                                             Change experiment goal
                                         </LemonButton>
                                     </div>
-                                    {experimentInsightType === InsightType.TRENDS && (
+                                    {experimentInsightType === InsightType.TRENDS && !experimentCountPerUserMath && (
                                         <>
                                             <div className="card-secondary mb-2 mt-4">
                                                 Exposure metric
@@ -391,7 +392,7 @@ export function ExperimentPreview({
                 isOpen={isExperimentExposureModalOpen}
                 onClose={closeExperimentExposureModal}
                 width={1000}
-                title={'Change experiment goal'}
+                title={'Change experiment exposure'}
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton

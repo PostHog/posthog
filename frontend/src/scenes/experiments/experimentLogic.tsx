@@ -18,6 +18,7 @@ import {
     SignificanceCode,
     CountPerActorMathType,
     ActionFilter as ActionFilterType,
+    TrendExperimentVariant,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -95,10 +96,10 @@ export const experimentLogic = kea<experimentLogicType>([
             ['setQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['updateQuerySource'],
-        ],
-        logic: [
             insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+            ['setQuery as setExposureQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+            ['updateQuerySource as updateExposureQuerySource'],
         ],
     })),
     actions({
@@ -206,6 +207,7 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 updateExperimentGoal: () => true,
+                updateExperimentExposure: () => true,
                 loadExperimentResults: () => false,
             },
         ],
@@ -253,6 +255,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: () => true,
                 loadExperiment: () => false,
+                updateExperiment: () => false,
             },
         ],
     }),
@@ -352,13 +355,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 ...filters,
             })
 
-            const { updateQuerySource } = insightVizDataLogic({
-                dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID,
-            }).actions
-            updateQuerySource(filtersToQueryNode(newInsightFilters))
+            actions.updateExposureQuerySource(filtersToQueryNode(newInsightFilters))
         },
         // // sync form value `filters` with query
-        [insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }).actionTypes.setQuery]: ({ query }) => {
+        setExposureQuery: ({ query }) => {
             actions.setExperiment({
                 parameters: {
                     custom_exposure_filter: queryNodeToFilter((query as InsightVizNode).source),
@@ -402,7 +402,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentExposure: async ({ filters }) => {
             actions.updateExperiment({
                 parameters: {
-                    custom_exposure_filter: filters,
+                    custom_exposure_filter: filters ?? undefined,
                     feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
                 },
             })
@@ -803,6 +803,31 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (experimentCountPerUserMath) {
                         result = variantResults.count / variantResults.data.length
                     }
+
+                    if (result % 1 !== 0) {
+                        // not an integer, so limit to 2 digits post decimal
+                        return result.toFixed(2)
+                    } else {
+                        return result.toString()
+                    }
+                },
+        ],
+        exposureCountDataForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string): string => {
+                    const errorResult = '--'
+                    if (!experimentResults) {
+                        return errorResult
+                    }
+                    const variantResults = (experimentResults.variants as TrendExperimentVariant[]).find(
+                        (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
+                    )
+                    if (!variantResults) {
+                        return errorResult
+                    }
+
+                    const result = variantResults.absolute_exposure
 
                     if (result % 1 !== 0) {
                         // not an integer, so limit to 2 digits post decimal
