@@ -24,7 +24,7 @@
 - Safely roll out features to select users or cohorts with feature flags
 - Connect to external services and manage data flows with PostHog CDP
 
-PostHog can be deployed in the EU or US and is fully SOC 2 compliant. It's free to get started and your first 1 million events (and 15k replays) are free every month. We're constantly adding new features, such as user surveys!
+PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and your first 1 million events (and 15k replays) are free every month. We're constantly adding new features, such as user surveys!
 
 ## Table of Contents
 
