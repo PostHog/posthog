@@ -18,7 +18,8 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         $sent_at: {
             label: 'Sent At',
-            description: 'Time the event was sent to PostHog. Used for setting the correct timestamp on the events when computer clocks are off',
+            description:
+                'Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.',
             examples: [new Date().toISOString()],
         },
         $browser: {
