@@ -67,6 +67,7 @@ export function Experiment(): JSX.Element {
         variants,
         experimentResults,
         countDataForVariant,
+        exposureCountDataForVariant,
         editingExistingExperiment,
         experimentInsightType,
         experimentResultsLoading,
@@ -81,6 +82,7 @@ export function Experiment(): JSX.Element {
         flagImplementationWarning,
         props,
         sortedExperimentResultVariants,
+        experimentCountPerUserMath,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -881,27 +883,40 @@ export function Experiment(): JSX.Element {
                                                         <b>{capitalizeFirstLetter(variant)}</b>
                                                     </div>
                                                     {experimentInsightType === InsightType.TRENDS ? (
-                                                        <Row>
-                                                            <b className="pr-1">
-                                                                <Row>
-                                                                    {'action' in experimentResults.insight[0] && (
-                                                                        <EntityFilterInfo
-                                                                            filter={experimentResults.insight[0].action}
-                                                                        />
-                                                                    )}
-                                                                    <span className="pl-1">count:</span>
-                                                                </Row>
-                                                            </b>{' '}
-                                                            {countDataForVariant(variant)}{' '}
-                                                            {areTrendResultsConfusing && idx === 0 && (
-                                                                <Tooltip
-                                                                    placement="right"
-                                                                    title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
-                                                                >
-                                                                    <InfoCircleOutlined className="py-1 px-0.5" />
-                                                                </Tooltip>
-                                                            )}
-                                                        </Row>
+                                                        <>
+                                                            <Row>
+                                                                <b className="pr-1">
+                                                                    <Row>
+                                                                        {'action' in experimentResults.insight[0] && (
+                                                                            <EntityFilterInfo
+                                                                                filter={
+                                                                                    experimentResults.insight[0].action
+                                                                                }
+                                                                            />
+                                                                        )}
+                                                                        <span className="pl-1">
+                                                                            {experimentCountPerUserMath
+                                                                                ? 'metric'
+                                                                                : 'count'}
+                                                                            :
+                                                                        </span>
+                                                                    </Row>
+                                                                </b>{' '}
+                                                                {countDataForVariant(variant)}{' '}
+                                                                {areTrendResultsConfusing && idx === 0 && (
+                                                                    <Tooltip
+                                                                        placement="right"
+                                                                        title="It might seem confusing that the best variant has lower absolute count, but this can happen when fewer people are exposed to this variant, so its relative count is higher."
+                                                                    >
+                                                                        <InfoCircleOutlined className="py-1 px-0.5" />
+                                                                    </Tooltip>
+                                                                )}
+                                                            </Row>
+                                                            <div className="flex">
+                                                                <b className="pr-1">Exposure:</b>{' '}
+                                                                {exposureCountDataForVariant(variant)}
+                                                            </div>
+                                                        </>
                                                     ) : (
                                                         <Row>
                                                             <b className="pr-1">Conversion rate:</b>{' '}
