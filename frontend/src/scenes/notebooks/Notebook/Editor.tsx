@@ -6,7 +6,7 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
 import { EditorRange, isCurrentNodeEmpty } from './utils'
-import { Image as ImageNode } from '@tiptap/extension-image'
+import Image from '@tiptap/extension-image'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -21,49 +21,43 @@ import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
 import api from 'lib/api'
 import { lazyImageBlobReducer } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { NodeType } from '@tiptap/pm/model'
+import { EditorView } from '@tiptap/pm/view'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
 })
 
-function uploadImage(
-    file: File,
-    editor: TTEditor,
-    coordinates: { pos: number; inside: number } | null,
-    imageNodeSchema: NodeType
-): boolean {
+function uploadImage(file: File, view: EditorView, event: DragEvent): boolean {
     try {
         const formData = new FormData()
         if (file.type.startsWith('image/')) {
-            const img = new Image()
-            img.src = window.URL.createObjectURL(file)
-            img.onload = () => {
-                lazyImageBlobReducer(file).then((compressedBlob) => {
-                    file = new File([compressedBlob], file.name, { type: compressedBlob.type })
-                    formData.append('image', file)
-                    api.media.upload(formData).then((media) => {
-                        const node = imageNodeSchema.create({
-                            src: media.image_location,
-                            alt: media.name,
-                        })
-
-                        editor
-                            .chain()
-                            .focus()
-                            .setTextSelection(coordinates?.pos || 0)
-                            .insertContent({ type: node.type.name, attrs: node.attrs })
-                            .run()
-                    })
+            lazyImageBlobReducer(file).then((compressedBlob) => {
+                file = new File([compressedBlob], file.name, { type: compressedBlob.type })
+                formData.append('image', file)
+                api.media.upload(formData).then((media) => {
+                    const { schema } = view.state
+                    const coordinates = view.posAtCoords({
+                        left: event.clientX,
+                        top: event.clientY,
+                    }) ?? {
+                        pos: 0,
+                    }
+                    const node = schema.nodes.image.create({
+                        src: media.image_location,
+                        alt: media.name,
+                    }) // creates the image element
+                    const transaction = view.state.tr.insert(coordinates.pos, node) // places it in the correct position
+                    return view.dispatch(transaction)
                 })
-            }
-            return true
+            })
         }
     } catch (error) {
         const errorDetail = (error as any).detail || 'unknown error'
         console.error('could not upload image', errorDetail)
+        return false
     }
-    return false
+
+    return true
 }
 
 export function Editor({
@@ -115,7 +109,7 @@ export function Editor({
             NotebookNodePerson,
             NotebookNodeFlag,
             SlashCommandsExtension,
-            ImageNode.configure({
+            Image.configure({
                 HTMLAttributes: {
                     class: 'max-w-4/5 mx-auto block',
                 },
@@ -171,9 +165,8 @@ export function Editor({
                             console.log('we can only add image files to notebooks: Dropped file!', file)
                             return false
                         }
-                        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
-                        const imageNodeSchema = view.state.schema.nodes.image
-                        return uploadImage(file, editor, coordinates, imageNodeSchema)
+
+                        return uploadImage(file, view, event)
                     }
                 }
 
