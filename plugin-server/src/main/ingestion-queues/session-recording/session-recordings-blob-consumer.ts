@@ -50,10 +50,6 @@ const gaugeSessionsRevoked = new Gauge({
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-const gaugeBytesBuffered = new Gauge({
-    name: 'recording_blob_ingestion_bytes_buffered',
-    help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
-})
 export const gaugeRealtimeSessions = new Gauge({
     name: 'recording_realtime_sessions',
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
@@ -172,7 +168,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        await this.sessions.get(key)?.add(event)
+        this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -390,12 +386,8 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so, we try catch it just in case
-            let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
-                sessionManagerBufferSizes += sessionManager.buffer.size
-
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const referenceTime = this.partitionNow[sessionManager.partition]
                 if (!referenceTime) {
@@ -428,7 +420,6 @@ export class SessionRecordingBlobIngester {
             }
 
             gaugeSessionsHandled.set(this.sessions.size)
-            gaugeBytesBuffered.set(sessionManagerBufferSizes)
             gaugeRealtimeSessions.set(
                 Array.from(this.sessions.values()).reduce(
                     (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),

@@ -396,33 +396,28 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         properties: List[Dict] = [
-            {"name": "4_when_verified", "query_usage_30_day": 4, "verified": False},
-            {"name": "5_when_verified", "query_usage_30_day": 4, "verified": False},
-            {"name": "1_when_verified", "query_usage_30_day": 4, "verified": True},
-            {"name": "2_when_verified", "query_usage_30_day": 3, "verified": True},
-            {"name": "6_when_verified", "query_usage_30_day": 1, "verified": False},
-            {"name": "3_when_verified", "query_usage_30_day": 1, "verified": True},
+            {"name": "1_when_verified", "verified": True},
+            {"name": "2_when_verified", "verified": True},
+            {"name": "3_when_verified", "verified": True},
+            {"name": "4_when_verified", "verified": False},
+            {"name": "5_when_verified", "verified": False},
+            {"name": "6_when_verified", "verified": False},
         ]
 
         for property in properties:
-            EnterprisePropertyDefinition.objects.create(
-                team=self.team, name=property["name"], query_usage_30_day=property["query_usage_30_day"]
-            )
+            EnterprisePropertyDefinition.objects.create(team=self.team, name=property["name"])
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(properties))
 
-        assert [
-            (r["name"], r["query_usage_30_day"], r["verified"], r["is_seen_on_filtered_events"])
-            for r in response.json()["results"]
-        ] == [
-            ("1_when_verified", 4, False, None),
-            ("4_when_verified", 4, False, None),
-            ("5_when_verified", 4, False, None),
-            ("2_when_verified", 3, False, None),
-            ("3_when_verified", 1, False, None),
-            ("6_when_verified", 1, False, None),
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+            ("1_when_verified", False, None),
+            ("2_when_verified", False, None),
+            ("3_when_verified", False, None),
+            ("4_when_verified", False, None),
+            ("5_when_verified", False, None),
+            ("6_when_verified", False, None),
         ]
 
         for property in properties:
@@ -434,16 +429,13 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
-        assert [
-            (r["name"], r["query_usage_30_day"], r["verified"], r["is_seen_on_filtered_events"])
-            for r in response.json()["results"]
-        ] == [
-            ("1_when_verified", 4, True, None),
-            ("2_when_verified", 3, True, None),
-            ("3_when_verified", 1, True, None),
-            ("4_when_verified", 4, False, None),
-            ("5_when_verified", 4, False, None),
-            ("6_when_verified", 1, False, None),
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+            ("1_when_verified", True, None),
+            ("2_when_verified", True, None),
+            ("3_when_verified", True, None),
+            ("4_when_verified", False, None),
+            ("5_when_verified", False, None),
+            ("6_when_verified", False, None),
         ]
 
         # We should prefer properties that have been seen on an event if that is available
@@ -453,15 +445,11 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
 
-        assert [
-            (r["name"], r["query_usage_30_day"], r["verified"], r["is_seen_on_filtered_events"])
-            for r in response.json()["results"]
-        ] == [
-            ("3_when_verified", 1, True, True),
-            # second even though it has a higher count because it is not verified
-            ("4_when_verified", 4, False, True),
-            ("1_when_verified", 4, True, False),
-            ("2_when_verified", 3, True, False),
-            ("5_when_verified", 4, False, False),
-            ("6_when_verified", 1, False, False),
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+            ("3_when_verified", True, True),
+            ("4_when_verified", False, True),
+            ("1_when_verified", True, False),
+            ("2_when_verified", True, False),
+            ("5_when_verified", False, False),
+            ("6_when_verified", False, False),
         ]
