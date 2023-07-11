@@ -393,7 +393,7 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.size === 0) {
+        if (this.buffer.count === 0) {
             return null
         }
         return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
