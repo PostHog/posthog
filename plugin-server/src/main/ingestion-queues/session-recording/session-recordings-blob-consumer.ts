@@ -168,7 +168,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        await this.sessions.get(key)?.add(event)
+        this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
