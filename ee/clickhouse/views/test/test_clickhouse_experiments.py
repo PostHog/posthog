@@ -1547,6 +1547,140 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
         self.assertFalse(response_data["significant"])
 
+    def test_experiment_flow_with_event_results_with_custom_exposure(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    # exposure measured via $feature_flag_called events
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "no-bonk"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
+                    },
+                    # 1 exposure, but more absolute counts
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person3": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "no-bonk"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "random", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "no-bonk"},
+                    },
+                ],
+                "person_out_of_end_date": [
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "custom_exposure_filter": {
+                        "events": [
+                            {
+                                "id": "custom_exposure_event",
+                                "order": 0,
+                                "properties": [{"key": "bonk", "value": "bonk"}],
+                            }
+                        ],
+                    }
+                },
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [{"order": 0, "id": "$pageview"}],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["count"], 4)
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["count"], 5)
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
+        self.assertFalse(response_data["significant"])
+
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results_with_hogql_filter(self):
         journeys_for(
