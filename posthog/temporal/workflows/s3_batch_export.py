@@ -115,7 +115,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
 
         result = None
-
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
@@ -150,7 +149,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     break
 
                 # Write the results to a local file
-                local_results_file.write(json.dumps(result).encode("utf-8"))
+                local_results_file.write(
+                    json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
+                )
                 local_results_file.write("\n".encode("utf-8"))
 
                 # Write results to S3 when the file reaches 50MB and reset the
