@@ -80,8 +80,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 308)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
+        self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(
-            response.json()["results"][0]["name"], "$current_url", [r["name"] for r in response.json()["results"]]
+            response.json()["results"][1]["name"], "$current_url", [r["name"] for r in response.json()["results"]]
         )
 
         property_checkpoints = [

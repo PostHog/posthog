@@ -97,7 +97,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 306)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
         self.assertEqual(response.json()["results"][0]["name"], "$pageview")
-        self.assertEqual(response.json()["results"][1]["name"], "watched_movie")
+        self.assertEqual(response.json()["results"][1]["name"], "entered_free_trial")
 
         event_checkpoints = [
             184,
