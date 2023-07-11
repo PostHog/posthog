@@ -100,21 +100,21 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         details = activity.info().heartbeat_details
 
         if len(details) == 2:
-            interval_start, upload_id = details
+            interval_start, upload_id, parts, part_number = details
             activity.logger.info(f"Received details from previous activity. Export will resume from {interval_start}")
 
         else:
             multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
             upload_id = multipart_response["UploadId"]
             interval_start = inputs.data_interval_start
+            parts: List[CompletedPartTypeDef] = []
+            part_number = 1
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
         # even if the entire results set is large. We receive results from
         # ClickHouse, write them to a local file, and then upload the file to S3
         # when it reaches 50MB in size.
-        parts: List[CompletedPartTypeDef] = []
-        part_number = 1
 
         results_iterator = get_results_iterator(
             client=client,
@@ -193,12 +193,11 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         Body=local_results_file,
                     )
                     last_uploaded_part_timestamp = result["_timestamp"]
-                    activity.heartbeat(last_uploaded_part_timestamp, upload_id)
-
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
-
                     part_number += 1
+
+                    activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
 
                     # Reset the file
                     local_results_file.seek(0)
@@ -213,7 +212,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 UploadId=upload_id,
                 Body=local_results_file,
             )
-            activity.heartbeat(last_uploaded_part_timestamp, upload_id)
+            activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
 
             # Record the ETag for the last part
             parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
