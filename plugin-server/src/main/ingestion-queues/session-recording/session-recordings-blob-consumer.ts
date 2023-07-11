@@ -295,6 +295,8 @@ export class SessionRecordingBlobIngester {
             throw e
         }
         await this.realtimeManager.subscribe()
+        // Load teams into memory
+        await this.teamsRefresher.refresh()
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
         this.producer = await createKafkaProducer(connectionConfig)
