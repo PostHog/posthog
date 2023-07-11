@@ -22,7 +22,6 @@ export interface NodeWrapperProps extends NodeViewProps {
     heightEstimate?: number | string
     href?: string
     resizeable?: boolean
-    // for example when displaying "cannot share" content and we can show a smaller container
     viewMode?: NotebookMode
 }
 
