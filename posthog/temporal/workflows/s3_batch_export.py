@@ -101,7 +101,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         parts: List[CompletedPartTypeDef] = []
 
-        if len(details) == 2:
+        if len(details) == 4:
             interval_start, upload_id, parts, part_number = details
             activity.logger.info(f"Received details from previous activity. Export will resume from {interval_start}")
 
