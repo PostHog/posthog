@@ -124,31 +124,10 @@ export class SessionManager {
         }
 
         await this.addToBuffer(message)
-        await this.flushIfBufferExceedsCapacity()
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0
-    }
-
-    public async flushIfBufferExceedsCapacity(): Promise<void> {
-        if (this.destroying) {
-            return
-        }
-
-        // loosely estimated value, we don't want to flush too often based on size
-        // but tracking the size closely was expensive when looking at time spent in CPU flamegraphs
-        // when flushing based on time we see a mean of 500ish lines per file
-        // although peaks much higher than that
-        if (this.buffer.count > this.serverConfig.SESSION_RECORDING_MAX_LINES_PER_FILE) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                lines: this.buffer.count,
-                threshold: this.serverConfig.SESSION_RECORDING_MAX_LINES_PER_FILE,
-                ...this.logContext(),
-            })
-            // return the promise and let the caller decide whether to await
-            return this.flush('buffer_size')
-        }
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
