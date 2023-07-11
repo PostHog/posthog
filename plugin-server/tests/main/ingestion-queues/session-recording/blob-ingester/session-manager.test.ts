@@ -1,5 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { createReadStream, writeFileSync } from 'fs'
+import { createReadStream, createWriteStream, writeFileSync } from 'fs'
 import { appendFile, unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
@@ -15,6 +15,13 @@ jest.mock('fs', () => {
         createReadStream: jest.fn().mockImplementation(() => {
             return {
                 pipe: () => ({ close: jest.fn() }),
+            }
+        }),
+        createWriteStream: jest.fn().mockImplementation(() => {
+            return {
+                write: jest.fn(),
+                pipe: () => ({ close: jest.fn() }),
+                end: jest.fn(),
             }
         }),
     }
@@ -37,7 +44,6 @@ jest.mock('fs/promises', () => {
     return {
         ...jest.requireActual('fs/promises'),
         unlink: jest.fn().mockResolvedValue(undefined),
-        appendFile: jest.fn().mockResolvedValue(undefined),
     }
 })
 
@@ -94,6 +100,7 @@ describe('session-manager', () => {
             oldestKafkaTimestamp: timestamp,
             newestKafkaTimestamp: timestamp,
             file: expect.any(String),
+            fileStream: expect.any(Object),
             id: expect.any(String),
             size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
@@ -105,7 +112,7 @@ describe('session-manager', () => {
         })
 
         // the buffer file was created
-        expect(writeFileSync).toHaveBeenCalledWith(sessionManager.buffer.file, '', 'utf-8')
+        expect(createWriteStream).toHaveBeenCalledWith(sessionManager.buffer.file, 'utf-8')
     })
 
     it('does not flush if it has received a message recently', async () => {
@@ -249,7 +256,6 @@ describe('session-manager', () => {
         expect(sessionManager.buffer.count).toEqual(1)
 
         const firstBufferFile = sessionManager.buffer.file
-
         const flushPromise = sessionManager.flush('buffer_size')
         await sessionManager.add(event2)
 
@@ -258,17 +264,19 @@ describe('session-manager', () => {
         expect(sessionManager.buffer.file).toBeDefined()
         expect(sessionManager.buffer.file).not.toEqual(firstBufferFile)
 
+        const flushWriteSteamMock = sessionManager.flushBuffer?.fileStream?.write as jest.Mock
+
         await flushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(sessionManager.buffer.count).toEqual(1)
+        const bufferWriteSteamMock = sessionManager.buffer.fileStream.write as jest.Mock
 
-        expect((appendFile as jest.Mock).mock.calls.length).toBe(2)
-        const lastCall = (appendFile as jest.Mock).mock.calls[1]
+        expect(flushWriteSteamMock.mock.calls.length).toBe(1)
+        expect(bufferWriteSteamMock.mock.calls.length).toBe(1)
+        const lastCall = bufferWriteSteamMock.mock.calls[0]
         expect(lastCall).toEqual([
-            sessionManager.buffer.file,
             '{"window_id":"window_id_1","data":[{"timestamp":1234,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n',
-            'utf-8',
         ])
     })
 })
