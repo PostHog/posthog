@@ -622,11 +622,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
-        self.assertTrue("aggregation_group_type_index" not in created_ff.filters)
+        self.assertTrue(created_ff.filters["aggregation_group_type_index"] is None)
 
         id = response.json()["id"]
 
-        # Now update group type index
+        # Now update group type index on filter
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
@@ -650,7 +650,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
-        self.assertTrue("aggregation_group_type_index" not in created_ff.filters)
+        self.assertTrue(created_ff.filters["aggregation_group_type_index"] is None)
 
         # Now remove group type index
         response = self.client.patch(
@@ -676,7 +676,67 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
-        self.assertTrue("aggregation_group_type_index" not in created_ff.filters)
+        self.assertTrue(created_ff.filters["aggregation_group_type_index"] is None)
+
+    def test_creating_experiment_with_group_aggregation_parameter(self):
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "aggregation_group_type_index": 0,
+                },
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+        self.assertEqual(created_ff.filters["aggregation_group_type_index"], 0)
+
+        id = response.json()["id"]
+
+        # Now update group type index on filter
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [],
+                    "aggregation_group_type_index": 1,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.description, "Bazinga")
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertFalse(created_ff.active)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+        self.assertEqual(created_ff.filters["aggregation_group_type_index"], 0)
 
     def test_used_in_experiment_is_populated_correctly_for_feature_flag_list(self) -> None:
 
@@ -797,6 +857,7 @@ class TestExperimentCRUD(APILicensedTest):
                         {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -832,6 +893,7 @@ class TestExperimentCRUD(APILicensedTest):
                         {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -849,6 +911,8 @@ class TestExperimentCRUD(APILicensedTest):
                 },
             },
         )
+        # changing variants isn't really supported by experiments anymore, need to do it directly
+        # on the FF
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # ensure cache doesn't change either
@@ -872,6 +936,7 @@ class TestExperimentCRUD(APILicensedTest):
                         {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
+                "aggregation_group_type_index": None,
             },
         )
 
