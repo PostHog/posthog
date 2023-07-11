@@ -1,11 +1,11 @@
+import signal
+import sys
 from datetime import timedelta
+
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.client import connect
 from posthog.temporal.workflows import ACTIVITIES, WORKFLOWS
-
-import signal
-import sys
 
 
 async def start_worker(host, port, namespace, task_queue, server_root_ca_cert=None, client_cert=None, client_key=None):
