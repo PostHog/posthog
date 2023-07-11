@@ -1,6 +1,6 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { createReadStream, createWriteStream, writeFileSync } from 'fs'
-import { appendFile, unlink } from 'fs/promises'
+import { createReadStream, createWriteStream } from 'fs'
+import { unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
