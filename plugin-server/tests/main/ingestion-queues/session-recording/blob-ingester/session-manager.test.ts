@@ -93,7 +93,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        await sessionManager.add(event)
+        sessionManager.add(event)
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
@@ -102,7 +102,6 @@ describe('session-manager', () => {
             file: expect.any(String),
             fileStream: expect.any(Object),
             id: expect.any(String),
-            size: 4139, // The size of the event payload - this may change when test data changes
             offsets: {
                 highest: 1,
                 lowest: 1,
@@ -132,7 +131,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        await sessionManager.add(event)
+        sessionManager.add(event)
         await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
 
         // as a proxy for flush having been called or not
@@ -172,8 +171,8 @@ describe('session-manager', () => {
             } as any,
         })
 
-        await sessionManager.add(eventOne)
-        await sessionManager.add(eventTwo)
+        sessionManager.add(eventOne)
+        sessionManager.add(eventTwo)
 
         await sessionManager.flushIfSessionBufferIsOld(now(), flushThreshold)
 
@@ -203,7 +202,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        await sessionManager.add(event)
+        sessionManager.add(event)
 
         await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
 
@@ -221,7 +220,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        await sessionManager.add(event)
+        sessionManager.add(event)
         await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
         expect(createReadStream).not.toHaveBeenCalled()
 
@@ -233,7 +232,7 @@ describe('session-manager', () => {
 
     it('flushes messages', async () => {
         const event = createIncomingRecordingMessage()
-        await sessionManager.add(event)
+        sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
         const file = sessionManager.buffer.file
         expect(unlink).not.toHaveBeenCalled()
@@ -255,12 +254,12 @@ describe('session-manager', () => {
         const event2 = createIncomingRecordingMessage({
             events: [{ timestamp: 1234, type: 4, data: { href: 'http://localhost:3001/' } }],
         })
-        await sessionManager.add(event)
+        sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
 
         const firstBufferFile = sessionManager.buffer.file
         const flushPromise = sessionManager.flush('buffer_size')
-        await sessionManager.add(event2)
+        sessionManager.add(event2)
 
         // that the second event is in a new buffer file
         // that the original buffer file is deleted

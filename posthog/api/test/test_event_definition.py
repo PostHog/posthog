@@ -13,7 +13,6 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import Action, EventDefinition, Organization, Team, ActivityLog
-from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 
 
@@ -23,12 +22,12 @@ class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None},
-        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None},
-        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None},
-        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None},
-        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None},
-        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None},
+        {"name": "installed_app"},
+        {"name": "rated_app"},
+        {"name": "purchase"},
+        {"name": "entered_free_trial"},
+        {"name": "watched_movie"},
+        {"name": "$pageview"},
     ]
 
     @classmethod
@@ -39,20 +38,15 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition, team_id=cls.demo_team.pk)
-            for _ in range(event_definition["volume_30_day"]):
-                capture_event(
-                    event=EventData(
-                        event=event_definition["name"],
-                        team_id=cls.demo_team.pk,
-                        distinct_id="abc",
-                        timestamp=datetime(2020, 1, 1),
-                        properties={},
-                    )
+            capture_event(
+                event=EventData(
+                    event=event_definition["name"],
+                    team_id=cls.demo_team.pk,
+                    distinct_id="abc",
+                    timestamp=datetime(2020, 1, 1),
+                    properties={},
                 )
-
-        # To ensure `volume_30_day` and `query_usage_30_day` are returned non
-        # None, we need to call this task to have them calculated.
-        calculate_event_property_usage_for_team(cls.demo_team.pk)
+            )
 
     def test_list_event_definitions(self):
         response = self.client.get("/api/projects/@current/event_definitions/")
@@ -64,21 +58,14 @@ class TestEventDefinitionAPI(APIBaseTest):
             response_item: Dict[str, Any] = next(
                 (_i for _i in response.json()["results"] if _i["name"] == item["name"]), {}
             )
-            self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
-            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
-            self.assertEqual(
-                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item
-            )
-
             self.assertAlmostEqual(
                 (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(), 0
             )
 
         # Test ordering
-        response = self.client.get("/api/projects/@current/event_definitions/?ordering=volume_30_day")
+        response = self.client.get("/api/projects/@current/event_definitions/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"][0]["volume_30_day"], 1)
 
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
@@ -109,8 +96,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 306)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "$pageview")  # Order by volume (desc)
-        self.assertEqual(response.json()["results"][1]["name"], "watched_movie")  # Order by volume (desc)
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")
+        self.assertEqual(response.json()["results"][1]["name"], "entered_free_trial")
 
         event_checkpoints = [
             184,

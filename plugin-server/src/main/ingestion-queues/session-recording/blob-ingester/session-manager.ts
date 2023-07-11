@@ -33,18 +33,10 @@ export const counterS3WriteErrored = new Counter({
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3FilesBytesWritten = new Gauge({
-    name: 'recording_s3_bytes_written',
-    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
-    labelNames: ['team'],
-})
-
 export const gaugeS3LinesWritten = new Gauge({
     name: 'recording_s3_lines_written',
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
-
-const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -52,7 +44,6 @@ type SessionBuffer = {
     oldestKafkaTimestamp: number | null
     newestKafkaTimestamp: number | null
     count: number
-    size: number
     file: string
     fileStream: WriteStream
     offsets: {
@@ -131,37 +122,16 @@ export class SessionManager {
         }
     }
 
-    public async add(message: IncomingRecordingMessage): Promise<void> {
+    public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
         }
 
         this.addToBuffer(message)
-        await this.flushIfBufferExceedsCapacity()
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0
-    }
-
-    public async flushIfBufferExceedsCapacity(): Promise<void> {
-        if (this.destroying) {
-            return
-        }
-
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-
-        if (gzippedCapacity > 1) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                gzippedCapacity,
-                gzipSizeKb,
-                ...this.logContext(),
-            })
-            // return the promise and let the caller decide whether to await
-            return this.flush('buffer_size')
-        }
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
@@ -260,7 +230,6 @@ export class SessionManager {
             fileStream.close()
 
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             gaugeS3LinesWritten.set(this.flushBuffer.count)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
@@ -299,7 +268,6 @@ export class SessionManager {
                 id,
                 createdAt: now(),
                 count: 0,
-                size: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
                 file,
@@ -338,7 +306,6 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
-            this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
             this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 

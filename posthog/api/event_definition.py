@@ -35,8 +35,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         fields = (
             "id",
             "name",
-            "volume_30_day",
-            "query_usage_30_day",
             "created_at",
             "last_seen_at",
             "last_updated_at",
@@ -76,7 +74,7 @@ class EventDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
 
     search_fields = ["name"]
-    ordering_fields = ["volume_30_day", "query_usage_30_day", "name"]
+    ordering_fields = ["name"]
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -103,14 +101,6 @@ class EventDefinitionViewSet(
                     to_attr="prefetched_tags",
                 )
             )
-            order_expressions = (
-                [
-                    ("verified", "DESC"),
-                    ("volume_30_day", "DESC"),
-                ]
-                if order_expressions == [("volume_30_day", "DESC")]
-                else order_expressions
-            )
         else:
             event_definition_object_manager = EventDefinition.objects
 
@@ -135,8 +125,8 @@ class EventDefinitionViewSet(
             else:
                 order_direction = "ASC"
         else:
-            order = "volume_30_day"
-            order_direction = "DESC"
+            order = "name"
+            order_direction = "ASC"
 
         return order, order_direction
 
