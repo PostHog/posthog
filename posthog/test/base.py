@@ -97,7 +97,6 @@ class FuzzyInt(int):
 
 
 class ErrorResponsesMixin:
-
     ERROR_INVALID_CREDENTIALS = {
         "type": "validation_error",
         "code": "invalid_credentials",
@@ -158,7 +157,6 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
-
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
@@ -168,7 +166,6 @@ class TestMixin:
             _setup_test_data(self)
 
     def tearDown(self):
-
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -232,7 +229,6 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
     initial_cloud_mode: Optional[bool] = False
 
     def setUp(self):
-
         super().setUp()
 
         TEST_clear_cloud_cache(self.initial_cloud_mode)
@@ -912,3 +908,18 @@ def create_person_id_override_by_distinct_id(
         VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
     """
     )
+
+
+def class_not_available(class_name):
+    """
+    Returns True if the class is not available, False otherwise.
+
+    Example usage:
+    @pytest.mark.skipif(not_available("ee.pkg.someclass", reason="ee module is not available")
+    @patch("ee.pkg.someclass")
+    """
+    try:
+        __import__(class_name)
+        return False
+    except ImportError:
+        return True

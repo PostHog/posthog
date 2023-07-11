@@ -26,7 +26,11 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    class_not_available,
 )
+import pytest
+
+LOAD_PERFORMANCE_EVENTS_RECENT_PAGEVIEWS = "ee.api.performance_events.load_performance_events_recent_pageviews"
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -488,7 +492,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         assert api_response.status_code == 200
 
-    @patch("ee.api.performance_events.load_performance_events_recent_pageviews")
+    @pytest.mark.skipif(
+        class_not_available(LOAD_PERFORMANCE_EVENTS_RECENT_PAGEVIEWS), reason="ee module is not available"
+    )
+    @patch(LOAD_PERFORMANCE_EVENTS_RECENT_PAGEVIEWS)
     def test_valid_recent_performance_pageviews_defaults_to_the_last_hour(self, patched_load_performance_events):
         frozen_now = "2020-01-10T12:14:00Z"
         one_hour_before = "2020-01-10T11:14:00Z"
