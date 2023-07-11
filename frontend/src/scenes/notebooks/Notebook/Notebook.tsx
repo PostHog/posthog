@@ -18,11 +18,12 @@ export type NotebookProps = {
     shortId: string
     editable?: boolean
     cachedNotebook?: NotebookType
+    viewMode?: NotebookMode
 }
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-export function Notebook({ shortId, cachedNotebook, editable = false }: NotebookProps): JSX.Element {
+export function Notebook({ shortId, cachedNotebook, editable = false, viewMode }: NotebookProps): JSX.Element {
     const logic = notebookLogic({ shortId, cachedNotebook })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
@@ -109,7 +110,7 @@ export function Notebook({ shortId, cachedNotebook, editable = false }: Notebook
 
                         return ''
                     }}
-                    viewMode={cachedNotebook ? NotebookMode.Share : undefined}
+                    viewMode={viewMode}
                 />
             </div>
         </BindLogic>

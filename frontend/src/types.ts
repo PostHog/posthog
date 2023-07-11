@@ -2969,6 +2969,7 @@ export enum NotebookMode {
     View = 'view',
     Edit = 'edit',
     Share = 'share',
+    SharedView = 'shared-view',
 }
 
 export enum NotebookNodeType {

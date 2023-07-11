@@ -160,7 +160,7 @@ export function Editor({
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {_editor && viewMode !== NotebookMode.Share && <FloatingSlashCommands editor={_editor} />}
+            {_editor && viewMode !== NotebookMode.SharedView && <FloatingSlashCommands editor={_editor} />}
         </>
     )
 }
