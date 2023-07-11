@@ -5,6 +5,9 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import notebook12345Json from './__mocks__/notebook-12345.json'
+import { notebookWithPostHogNodes } from './__mocks__/notebook-with-posthog-nodes'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { NotebookMode } from '~/types'
 
 export default {
     title: 'Scenes-App/Notebooks',
@@ -92,3 +95,16 @@ export function NotebookNotFound(): JSX.Element {
     }, [])
     return <App />
 }
+
+export function SharedNotebook(): JSX.Element {
+    return (
+        <Notebook
+            shortId={'12345'}
+            cachedNotebook={notebookWithPostHogNodes}
+            editable={false}
+            viewMode={NotebookMode.SharedView}
+        />
+    )
+}
+
+// TODO add a version of SharedNotebook in view mode with the appropriate mocks
