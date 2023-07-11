@@ -27,6 +27,10 @@ beforeAll(async () => {
     organizationId = await createOrganization()
 })
 
+afterAll(async () => {
+    await dlqConsumer.disconnect()
+})
+
 test.concurrent('consumer handles messages just less than 1MB gracefully', async () => {
     // For this we basically want the plugin-server to try and produce a new
     // message larger than 1MB. We do this by creating a person with a lot of
