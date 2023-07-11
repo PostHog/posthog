@@ -1,12 +1,7 @@
-// A background refresher will:
-// 1. Run a function on a schedule
-// 2. Run the function immediately on startup
-// 3. Provide a promise getter that returns the result of the function
-// 4. Will only run a single instance of the function at a time
-// 5. Will refresh the cached value at a given interval
-
+// A background refresher will act like a TTL cache but choosing to refresh the value in the background rather than
+// dropping the data or blocking the request.
 export class BackgroundRefresher<T> {
-    private cachedValue: T | null = null
+    private cachedValue: T | undefined = undefined
     private cachedValuePromise: Promise<T> | null = null
     private lastRefreshTime = 0
 
@@ -36,7 +31,7 @@ export class BackgroundRefresher<T> {
     }
 
     public async get(): Promise<T> {
-        if (!this.cachedValuePromise) {
+        if (!this.cachedValue) {
             await this.refresh()
         }
 
@@ -45,6 +40,6 @@ export class BackgroundRefresher<T> {
             void this.refresh()
         }
 
-        return this.cachedValuePromise!
+        return this.cachedValue!
     }
 }
