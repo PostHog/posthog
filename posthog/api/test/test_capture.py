@@ -1316,7 +1316,6 @@ class TestCapture(BaseTest):
         default_kafka_producer_mock: MagicMock,
         session_recording_producer_factory_mock: MagicMock,
     ) -> None:
-
         with self.settings(
             KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
             SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
@@ -1407,7 +1406,10 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
     def test_quota_limits_ignored_if_disabled(self, kafka_produce) -> None:
-        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        try:
+            from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        except ImportError:
+            pytest.skip("ee module not available")
 
         replace_limited_team_tokens(QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000})
         replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
@@ -1417,7 +1419,10 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
     def test_quota_limits(self, kafka_produce) -> None:
-        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        try:
+            from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        except ImportError:
+            pytest.skip("ee module not available")
 
         def _produce_events():
             kafka_produce.reset_mock()
