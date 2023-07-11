@@ -17,10 +17,7 @@ import {
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { humanFriendlyNumber } from 'lib/utils'
-import {
-    ThirtyDayQueryCountTitle,
-    ThirtyDayVolumeTitle,
-} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/taxonomy'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -219,14 +216,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         )}
 
-                        <DefinitionPopover.Card
-                            title={<ThirtyDayQueryCountTitle />}
-                            value={
-                                definition.query_usage_30_day == null
-                                    ? '-'
-                                    : humanFriendlyNumber(definition.query_usage_30_day)
-                            }
-                        />
                         {isProperty && (
                             <DefinitionPopover.Card
                                 title="Property Type"

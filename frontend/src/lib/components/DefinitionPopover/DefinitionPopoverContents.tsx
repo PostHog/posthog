@@ -39,26 +39,6 @@ export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 
         30-day volume
     </TitleWithIcon>
 )
-
-export const ThirtyDayQueryCountTitle = ({
-    tooltipPlacement,
-}: {
-    tooltipPlacement?: 'top' | 'bottom'
-}): JSX.Element => (
-    <TitleWithIcon
-        icon={
-            <Tooltip
-                title="Estimated number of queries in which the event was used in the past 30 days, updated once every 24 hours."
-                placement={tooltipPlacement}
-            >
-                <IconInfo />
-            </Tooltip>
-        }
-    >
-        30-day query count
-    </TitleWithIcon>
-)
-
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
         <div className="h-full w-full overflow-hidden text-ellipsis text-muted">
@@ -74,7 +54,6 @@ function TaxonomyIntroductionSection(): JSX.Element {
                 <DefinitionPopover.Card title="First seen" value={<Lock />} />
                 <DefinitionPopover.Card title="Last seen" value={<Lock />} />
                 <DefinitionPopover.Card title={<ThirtyDayVolumeTitle />} value={<Lock />} />
-                <DefinitionPopover.Card title={<ThirtyDayQueryCountTitle />} value={<Lock />} />
             </DefinitionPopover.Grid>
             <DefinitionPopover.Section>
                 <Link
@@ -191,14 +170,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 _definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)
                             }
                         />
-                        <DefinitionPopover.Card
-                            title={<ThirtyDayQueryCountTitle />}
-                            value={
-                                _definition.query_usage_30_day == null
-                                    ? '-'
-                                    : humanFriendlyNumber(_definition.query_usage_30_day)
-                            }
-                        />
                     </DefinitionPopover.Grid>
                 ) : (
                     <TaxonomyIntroductionSection />
@@ -235,14 +206,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="30 day queries"
-                        value={
-                            _definition.query_usage_30_day == null
-                                ? '-'
-                                : humanFriendlyNumber(_definition.query_usage_30_day)
-                        }
-                    />
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
                 <DefinitionPopover.HorizontalLine />

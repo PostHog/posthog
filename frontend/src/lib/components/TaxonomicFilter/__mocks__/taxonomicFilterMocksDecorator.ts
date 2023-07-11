@@ -42,7 +42,6 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
                 name: 'signed up',
                 description: 'signed up',
                 volume_30_day: 10,
-                query_usage_30_day: 5,
                 count: 101,
             },
             {
@@ -50,7 +49,6 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
                 name: 'viewed insights',
                 description: 'signed up',
                 volume_30_day: 10,
-                query_usage_30_day: 5,
                 count: 1,
                 verified: true,
             },
@@ -59,7 +57,6 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
                 name: 'logged out',
                 description: 'signed up',
                 volume_30_day: 10,
-                query_usage_30_day: 5,
                 count: 103,
             },
         ],

@@ -15,10 +15,7 @@ import { EventDefinitionProperties } from 'scenes/data-management/events/EventDe
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/data-management/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import {
-    ThirtyDayQueryCountTitle,
-    ThirtyDayVolumeTitle,
-} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -89,19 +86,6 @@ export function EventDefinitionsTable(): JSX.Element {
                       render: function Render(_, definition: EventDefinition) {
                           return definition.volume_30_day ? (
                               humanFriendlyNumber(definition.volume_30_day)
-                          ) : (
-                              <span className="text-muted">—</span>
-                          )
-                      },
-                      sorter: true,
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-                  {
-                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
-                      key: 'query_usage_30_day',
-                      align: 'right',
-                      render: function Render(_, definition: EventDefinition) {
-                          return definition.query_usage_30_day ? (
-                              humanFriendlyNumber(definition.query_usage_30_day)
                           ) : (
                               <span className="text-muted">—</span>
                           )

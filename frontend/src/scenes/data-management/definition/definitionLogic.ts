@@ -20,7 +20,6 @@ export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
     volume_30_day: null,
-    query_usage_30_day: null,
 })
 
 export interface SetDefinitionProps {
