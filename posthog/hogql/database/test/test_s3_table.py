@@ -106,3 +106,31 @@ class TestS3Table(BaseTest):
             clickhouse,
             f"WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_1)s)) SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
+
+    def test_s3_table_select_alias_escaped(self):
+        self._init_database()
+
+        escaped_table = create_aapl_stock_s3_table(name="random as (SELECT * FROM events), SELECT * FROM events --")
+        self.database.add_warehouse_tables(
+            **{"random as (SELECT * FROM events), SELECT * FROM events --": escaped_table}
+        )
+
+        hogql = self._select(
+            query='SELECT High, Low FROM "random as (SELECT * FROM events), SELECT * FROM events --" JOIN events ON "random as (SELECT * FROM events), SELECT * FROM events --".High = events.event LIMIT 10',
+            dialect="hogql",
+        )
+        self.assertEqual(
+            hogql,
+            "SELECT High, Low FROM `random as (SELECT * FROM events), SELECT * FROM events --` AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) LIMIT 10",
+        )
+
+        clickhouse = self._select(
+            query='SELECT High, Low FROM "random as (SELECT * FROM events), SELECT * FROM events --" JOIN events ON "random as (SELECT * FROM events), SELECT * FROM events --".High = events.event LIMIT 10',
+            dialect="clickhouse",
+        )
+
+        # table name is escaped
+        self.assertEqual(
+            clickhouse,
+            f"WITH `random as (SELECT * FROM events), SELECT * FROM events --` AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_1)s)) SELECT `random as (SELECT * FROM events), SELECT * FROM events --`.High, `random as (SELECT * FROM events), SELECT * FROM events --`.Low FROM `random as (SELECT * FROM events), SELECT * FROM events --` AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+        )
