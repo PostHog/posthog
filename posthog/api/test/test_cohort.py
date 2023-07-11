@@ -32,7 +32,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
     # select all queries for snapshots
     def capture_select_queries(self):
-        return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", ""))
+        return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select"))
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
