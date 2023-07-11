@@ -23,7 +23,10 @@ import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
-import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
+import {
+    NullSessionOffsetHighWaterMark,
+    SessionOffsetHighWaterMark,
+} from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 import { now } from './blob-ingester/utils'
 
@@ -47,10 +50,6 @@ const gaugeSessionsRevoked = new Gauge({
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-const gaugeBytesBuffered = new Gauge({
-    name: 'recording_blob_ingestion_bytes_buffered',
-    help: 'A gauge of the bytes of data buffered in files. Maybe the consumer needs this much RAM as it might flush many of the files close together and holds them in memory when it does',
-})
 export const gaugeRealtimeSessions = new Gauge({
     name: 'recording_realtime_sessions',
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
@@ -81,7 +80,6 @@ export class SessionRecordingBlobIngester {
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
     flushInterval: NodeJS.Timer | null = null
-    enabledTeams: number[] | null
     // the time at the most recent message of a particular partition
     partitionNow: Record<number, number | null> = {}
 
@@ -91,19 +89,24 @@ export class SessionRecordingBlobIngester {
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
-        const enabledTeamsString = this.serverConfig.SESSION_RECORDING_BLOB_PROCESSING_TEAMS
-        this.enabledTeams =
-            enabledTeamsString === 'all' ? null : enabledTeamsString.split(',').filter(Boolean).map(parseInt)
-
         this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
 
-        this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(
-            this.redisPool,
-            serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
-        )
+        this.sessionOffsetHighWaterMark = this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING
+            ? new SessionOffsetHighWaterMark(this.redisPool, serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY)
+            : // this receives a redis pool but doesn't use it,
+              // it is simpler to override the original like this, but will also let us see if
+              // the redis pool is contributing to RAM troubles
+              new NullSessionOffsetHighWaterMark(
+                  this.redisPool,
+                  serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+              )
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
+        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
+        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
+        gaugeSessionsRevoked.set(0)
+
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
@@ -165,7 +168,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        await this.sessions.get(key)?.add(event)
+        this.sessions.get(key)?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -383,12 +386,8 @@ export class SessionRecordingBlobIngester {
         // We trigger the flushes from this level to reduce the number of running timers
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
-            // It's unclear what happens if an exception occurs here so, we try catch it just in case
-            let sessionManagerBufferSizes = 0
 
             for (const [key, sessionManager] of this.sessions) {
-                sessionManagerBufferSizes += sessionManager.buffer.size
-
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const referenceTime = this.partitionNow[sessionManager.partition]
                 if (!referenceTime) {
@@ -421,7 +420,6 @@ export class SessionRecordingBlobIngester {
             }
 
             gaugeSessionsHandled.set(this.sessions.size)
-            gaugeBytesBuffered.set(sessionManagerBufferSizes)
             gaugeRealtimeSessions.set(
                 Array.from(this.sessions.values()).reduce(
                     (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
@@ -467,8 +465,9 @@ export class SessionRecordingBlobIngester {
         await Promise.allSettled(destroyPromises)
     }
 
-    // Given a topic and partition and a list of offsets, commit the highest offset that is no longer found across any of the existing sessions.
-    // This approach is fault tolerant in that if anything goes wrong, the next commit on that partition will work
+    // Given a topic and partition and a list of offsets, commit the highest offset
+    // that is no longer found across any of the existing sessions.
+    // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
     private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
         let potentiallyBlockingSession: SessionManager | undefined
 
@@ -508,7 +507,7 @@ export class SessionRecordingBlobIngester {
         void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
-            this.batchConsumer?.consumer.commitSync({
+            this.batchConsumer?.consumer.commit({
                 topic,
                 partition,
                 // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
@@ -522,12 +521,8 @@ export class SessionRecordingBlobIngester {
                 extra: { partition, offsetToCommit: highestOffsetToCommit, sessionId },
                 tags: { partition },
             })
-            if (e.message !== 'Broker: Specified group generation id is not valid') {
-                // If this is not a known error that happens when you commit just after a re-balance
-                // then we throw instead of swallowing
-                // TODO: ideally we'd only swallow this if it really was just after re-balance
-                throw e
-            }
+
+            throw e
         }
     }
 }

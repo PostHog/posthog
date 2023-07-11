@@ -104,6 +104,8 @@ export type BatchExportData = {
     name: string
     destination: Destination
     interval: 'hour' | 'day'
+    start_at: string | null
+    end_at: string | null
 }
 
 export type BatchExport = {

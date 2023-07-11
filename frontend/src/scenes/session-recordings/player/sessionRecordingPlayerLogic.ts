@@ -683,8 +683,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             const doExport = async (): Promise<void> => {
-                while (values.sessionPlayerData.bufferedToTime !== values.sessionPlayerData.durationMs) {
-                    await delay(1000)
+                const delaytime = 1000
+                let maxWaitTime = 30000
+                while (!values.sessionPlayerData.fullyLoaded) {
+                    if (maxWaitTime <= 0) {
+                        throw new Error('Timeout waiting for recording to load')
+                    }
+                    maxWaitTime -= delaytime
+                    await delay(delaytime)
                 }
 
                 const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))

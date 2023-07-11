@@ -156,7 +156,7 @@ jobs:
                   KAFKA_HOSTS=kafka:9092
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
-                  OPT_OUT_CAPTURE=1
+                  OPT_OUT_CAPTURE=0
                   SELF_CAPTURE=0
                   E2E_TESTING=1
                   SKIP_SERVICE_VERSION_REQUIREMENTS=1
@@ -168,6 +168,7 @@ jobs:
                   OBJECT_STORAGE_ENDPOINT=http://localhost:19000
                   OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+                  GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   EOT
 
             - name: Lowercase GITHUB_REPOSITORY

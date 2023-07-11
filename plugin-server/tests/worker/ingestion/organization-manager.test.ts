@@ -15,7 +15,7 @@ describe('OrganizationManager()', () => {
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
-        organizationManager = new OrganizationManager(hub.db, hub.teamManager)
+        organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
     })
     afterEach(async () => {
         await closeHub()
@@ -24,7 +24,7 @@ describe('OrganizationManager()', () => {
     describe('fetchOrganization()', () => {
         it('fetches and caches the team', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
-            jest.spyOn(hub.db, 'postgresQuery')
+            jest.spyOn(hub.postgres, 'query')
 
             let organization = await organizationManager.fetchOrganization(commonOrganizationId)
 
@@ -33,19 +33,19 @@ describe('OrganizationManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
             await hub.db.postgresQuery("UPDATE posthog_organization SET name = 'Updated Name!'", undefined, 'testTag')
 
-            jest.mocked(hub.db.postgresQuery).mockClear()
+            jest.mocked(hub.postgres.query).mockClear()
 
             organization = await organizationManager.fetchOrganization(commonOrganizationId)
 
             expect(organization!.name).toEqual('TEST ORG')
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
+            expect(hub.postgres.query).toHaveBeenCalledTimes(0)
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
             organization = await organizationManager.fetchOrganization(commonOrganizationId)
 
             expect(organization!.name).toEqual('Updated Name!')
-            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+            expect(hub.postgres.query).toHaveBeenCalledTimes(1)
         })
 
         it('returns null when no such team', async () => {

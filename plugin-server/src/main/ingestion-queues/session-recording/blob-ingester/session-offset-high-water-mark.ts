@@ -199,3 +199,34 @@ export class SessionOffsetHighWaterMark {
         delete this.topicPartitionWaterMarks[`${tp.topic}-${tp.partition}`]
     }
 }
+
+/**
+ * To test if the offset high-water mark functionality is introducing playback errors
+ * here's a version that does nothing that can be swapped in
+ */
+export class NullSessionOffsetHighWaterMark extends SessionOffsetHighWaterMark {
+    getWatermarkFor(_tp: TopicPartition): Record<string, number> {
+        return {}
+    }
+
+    async add(_tp: TopicPartition, _sessionId: string, _offset: number): Promise<void> {
+        return Promise.resolve()
+    }
+
+    async getAll(_tp: TopicPartition): Promise<Record<string, number> | null> {
+        return Promise.resolve(null)
+    }
+
+    async onCommit(_tp: TopicPartition, _offset: number): Promise<Record<string, number> | null> {
+        return Promise.resolve(null)
+    }
+
+    async isBelowHighWaterMark(_tp: TopicPartition, _sessionId: string, _offset: number): Promise<boolean> {
+        // always return false so that we never drop messages
+        return Promise.resolve(false)
+    }
+
+    revoke(_tp: TopicPartition) {
+        return
+    }
+}
