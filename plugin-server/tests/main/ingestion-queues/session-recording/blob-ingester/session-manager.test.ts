@@ -103,7 +103,10 @@ describe('session-manager', () => {
             fileStream: expect.any(Object),
             id: expect.any(String),
             size: 4139, // The size of the event payload - this may change when test data changes
-            offsets: [1],
+            offsets: {
+                highest: 1,
+                lowest: 1,
+            },
             createdAt: now(),
             eventsRange: {
                 firstTimestamp: 1679568314158,
@@ -278,5 +281,37 @@ describe('session-manager', () => {
         expect(lastCall).toEqual([
             '{"window_id":"window_id_1","data":[{"timestamp":1234,"type":4,"data":{"href":"http://localhost:3001/"}}]}\n',
         ])
+    })
+
+    it('tracks the offsets', async () => {
+        const addEvent = async (offset: number) =>
+            await sessionManager.add(
+                createIncomingRecordingMessage({
+                    metadata: {
+                        offset,
+                    } as any,
+                })
+            )
+
+        await addEvent(4)
+
+        expect(sessionManager.buffer.offsets).toEqual({
+            highest: 4,
+            lowest: 4,
+        })
+
+        await addEvent(10)
+
+        expect(sessionManager.buffer.offsets).toEqual({
+            highest: 10,
+            lowest: 4,
+        })
+
+        await addEvent(2)
+
+        expect(sessionManager.buffer.offsets).toEqual({
+            highest: 10,
+            lowest: 2,
+        })
     })
 })
