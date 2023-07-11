@@ -87,19 +87,12 @@ export enum PluginServerMode {
     recordings_blob_ingestion = 'recordings-blob-ingestion',
 }
 
-export const stringToPluginServerMode: { [key: string]: PluginServerMode } = {
-    ingestion: PluginServerMode.ingestion,
-    'ingestion-overflow': PluginServerMode.ingestion_overflow,
-    async: PluginServerMode.plugins_async,
-    'async-onevent': PluginServerMode.async_onevent,
-    'async-webhooks': PluginServerMode.async_webhooks,
-    exports: PluginServerMode.plugins_exports,
-    jobs: PluginServerMode.jobs,
-    scheduler: PluginServerMode.scheduler,
-    'analytics-ingestion': PluginServerMode.analytics_ingestion,
-    'recordings-ingestion': PluginServerMode.recordings_ingestion,
-    'recordings-blob-ingestion': PluginServerMode.recordings_blob_ingestion,
-}
+export const stringToPluginServerMode = Object.fromEntries(
+    Object.entries(PluginServerMode).map(([key, value]) => [
+        value,
+        PluginServerMode[key as keyof typeof PluginServerMode],
+    ])
+) as Record<string, PluginServerMode>
 
 export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number // number of concurrent worker threads
