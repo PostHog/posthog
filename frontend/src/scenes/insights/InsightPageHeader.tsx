@@ -39,15 +39,18 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
 import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { ThunderboltFilled } from '@ant-design/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showRefreshInMenu = !featureFlags[FEATURE_FLAGS.REFRESH_BUTTON_ON_INSIGHT]
+
     // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
@@ -63,7 +66,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         hasDashboardItemId,
         exporterResourceParams,
-        isUsingDashboardQueries,
     } = useValues(logic)
     const { setInsightMetadata, saveAs } = useActions(logic)
 
@@ -89,7 +91,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { globalInsightFilters } = useValues(globalInsightLogic)
     const { setGlobalInsightFilters } = useActions(globalInsightLogic)
 
@@ -126,7 +127,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
-                            isUsingDashboardQueries,
                         })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
@@ -148,37 +148,45 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <div className="flex justify-between items-center gap-2">
                         {!hasDashboardItemId ? (
                             <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => loadData(true)}
-                                                fullWidth
-                                                data-attr="refresh-insight-from-insight-view"
-                                                disabledReason={insightRefreshButtonDisabledReason}
-                                            >
-                                                Refresh
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
+                                {showRefreshInMenu ? (
+                                    <>
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={() => loadData(true)}
+                                                        fullWidth
+                                                        data-attr="refresh-insight-from-insight-view"
+                                                        disabledReason={insightRefreshButtonDisabledReason}
+                                                    >
+                                                        Refresh
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                        <LemonDivider vertical />
+                                    </>
+                                ) : (
+                                    <></>
+                                )}
                             </>
                         ) : (
                             <>
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => loadData(true)}
-                                                fullWidth
-                                                data-attr="refresh-insight-from-insight-view"
-                                                disabledReason={insightRefreshButtonDisabledReason}
-                                            >
-                                                Refresh
-                                            </LemonButton>
+                                            {showRefreshInMenu && (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => loadData(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-insight-from-insight-view"
+                                                    disabledReason={insightRefreshButtonDisabledReason}
+                                                >
+                                                    Refresh
+                                                </LemonButton>
+                                            )}
                                             <LemonButton
                                                 status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
@@ -255,41 +263,42 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <LemonDivider vertical />
                             </>
                         )}
-                        {!!featureFlags[FEATURE_FLAGS.SAMPLING] ? (
-                            <>
-                                <Tooltip
-                                    title="Turning on fast mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results"
-                                    placement="bottom"
-                                >
-                                    <div>
-                                        <LemonSwitch
-                                            onChange={(checked) => {
-                                                let samplingFilter: { sampling_factor: FilterType['sampling_factor'] } =
-                                                    { sampling_factor: null }
-                                                if (checked) {
-                                                    samplingFilter = { sampling_factor: 0.1 }
-                                                    posthog.capture('sampling_fast_mode_enabled')
-                                                } else {
-                                                    posthog.capture('sampling_fast_mode_disabled')
-                                                }
-                                                setGlobalInsightFilters({ ...globalInsightFilters, ...samplingFilter })
-                                            }}
-                                            checked={!!globalInsightFilters.sampling_factor}
-                                            icon={
-                                                <ThunderboltFilled
-                                                    style={
-                                                        !!globalInsightFilters.sampling_factor
-                                                            ? { color: 'var(--primary)' }
-                                                            : {}
-                                                    }
-                                                />
+
+                        <>
+                            <Tooltip
+                                title="Turning on fast mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results"
+                                placement="bottom"
+                            >
+                                <div>
+                                    <LemonSwitch
+                                        onChange={(checked) => {
+                                            let samplingFilter: { sampling_factor: FilterType['sampling_factor'] } = {
+                                                sampling_factor: null,
                                             }
-                                        />
-                                    </div>
-                                </Tooltip>
-                                <LemonDivider vertical />
-                            </>
-                        ) : null}
+                                            if (checked) {
+                                                samplingFilter = { sampling_factor: 0.1 }
+                                                posthog.capture('sampling_fast_mode_enabled')
+                                            } else {
+                                                posthog.capture('sampling_fast_mode_disabled')
+                                            }
+                                            setGlobalInsightFilters({ ...globalInsightFilters, ...samplingFilter })
+                                        }}
+                                        checked={!!globalInsightFilters.sampling_factor}
+                                        icon={
+                                            <ThunderboltFilled
+                                                style={
+                                                    !!globalInsightFilters.sampling_factor
+                                                        ? { color: 'var(--primary)' }
+                                                        : {}
+                                                }
+                                            />
+                                        }
+                                    />
+                                </div>
+                            </Tooltip>
+                            <LemonDivider vertical />
+                        </>
+
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel

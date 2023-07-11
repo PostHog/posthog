@@ -16,6 +16,7 @@ export type ProjectNoticeVariant =
     | 'real_project_with_no_events'
     | 'invite_teammates'
     | 'unverified_email'
+    | 'is_impersonated'
 
 export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
@@ -119,7 +120,10 @@ export const navigationLogic = kea<navigationLogicType>({
     }),
     selectors: {
         /** `bareNav` whether the current scene should display a sidebar at all */
-        bareNav: [(s) => [s.fullscreen, s.sceneConfig], (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain],
+        bareNav: [
+            (s) => [s.fullscreen, s.sceneConfig],
+            (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
+        ],
         isSideBarShown: [
             (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
             (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
@@ -203,8 +207,9 @@ export const navigationLogic = kea<navigationLogicType>({
                 if (!organization) {
                     return null
                 }
-
-                if (currentTeam?.is_demo && !preflight?.demo) {
+                if (user?.is_impersonated) {
+                    return ['is_impersonated', false]
+                } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide

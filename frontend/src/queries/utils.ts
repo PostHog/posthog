@@ -26,8 +26,11 @@ import {
     TimeToSeeDataWaterfallNode,
     TimeToSeeDataJSONNode,
     DatabaseSchemaQuery,
+    SavedInsightNode,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
@@ -74,6 +77,10 @@ export function isPersonsNode(node?: Node | null): node is PersonsNode {
 
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {
+    return node?.kind === NodeKind.SavedInsightNode
 }
 
 export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
@@ -267,3 +274,48 @@ export function isHogQlAggregation(hogQl: string): boolean {
         hogQl.includes('max(')
     )
 }
+
+export interface HogQLIdentifier {
+    __hogql_identifier: true
+    identifier: string
+}
+
+function hogQlIdentifier(identifier: string): HogQLIdentifier {
+    return {
+        __hogql_identifier: true,
+        identifier,
+    }
+}
+
+function isHogQlIdentifier(value: any): value is HogQLIdentifier {
+    return !!value?.__hogql_identifier
+}
+
+function formatHogQlValue(value: any): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(formatHogQlValue).join(', ')}]`
+    } else if (dayjs.isDayjs(value)) {
+        return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+    } else if (isHogQlIdentifier(value)) {
+        return escapePropertyAsHogQlIdentifier(value.identifier)
+    } else if (typeof value === 'string') {
+        return `'${value}'`
+    } else if (typeof value === 'number') {
+        return String(value)
+    } else if (value === null) {
+        throw new Error(
+            `null cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+        )
+    } else {
+        throw new Error(`Unsupported interpolated value type: ${typeof value}`)
+    }
+}
+
+/**
+ * Template tag for HogQL formatting. Handles formatting of values for you.
+ * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
+ */
+export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
+    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
+}
+hogql.identifier = hogQlIdentifier

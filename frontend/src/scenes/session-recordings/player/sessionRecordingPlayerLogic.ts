@@ -418,7 +418,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
                     const searchParams = fromParamsGivenUrl(window.location.search)
-                    if (searchParams.t) {
+                    if (searchParams.timestamp) {
+                        const desiredStartTime = Number(searchParams.timestamp)
+                        actions.seekToTimestamp(desiredStartTime, true)
+                    } else if (searchParams.t) {
                         const desiredStartTime = Number(searchParams.t) * 1000
                         actions.seekToTime(desiredStartTime)
                     }
@@ -680,8 +683,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             const doExport = async (): Promise<void> => {
-                while (values.sessionPlayerData.bufferedToTime !== values.sessionPlayerData.durationMs) {
-                    await delay(1000)
+                const delaytime = 1000
+                let maxWaitTime = 30000
+                while (!values.sessionPlayerData.fullyLoaded) {
+                    if (maxWaitTime <= 0) {
+                        throw new Error('Timeout waiting for recording to load')
+                    }
+                    maxWaitTime -= delaytime
+                    await delay(delaytime)
                 }
 
                 const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
@@ -758,6 +767,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
     beforeUnmount(({ values, actions, cache }) => {
         cache.resetConsoleWarn?.()
+        cache.hasInitialized = false
         clearTimeout(cache.consoleWarnDebounceTimer)
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         values.player?.replayer?.pause()

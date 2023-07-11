@@ -1,7 +1,13 @@
 import time
 from typing import Optional
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import connections
 import structlog
+from django.conf import settings
+
+DATABASE_FOR_FLAG_MATCHING = (
+    "default" if ("decide" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES) else "replica"
+)
+
 
 logger = structlog.get_logger(__name__)
 
@@ -44,7 +50,7 @@ class DatabaseHealthcheck:
 
     def is_postgres_connected_check(self) -> bool:
         try:
-            with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+            with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
                 cursor.execute("SELECT 1")
             return True
         except Exception:

@@ -4,10 +4,10 @@ import funnelOneStep from './funnelOneStep.json'
 import { useStorybookMocks } from '~/mocks/browser'
 import { router } from 'kea-router'
 import insight from '../__mocks__/trendsLine.json'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId } from '~/types'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 import { App } from 'scenes/App'
+import { insightVizDataLogic } from '../insightVizDataLogic'
 
 // some metadata and optional parameters
 export default {
@@ -69,19 +69,14 @@ export function TimeoutState(): JSX.Element {
                 ctx.status(200),
                 ctx.json({ result: insight.result }),
             ],
-            '/api/projects/:team_id/insights/:id': (_, __, ctx) => [
-                ctx.delay(86400000),
-                ctx.status(200),
-                ctx.json({ result: insight.result }),
-            ],
         },
     })
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
         window.setTimeout(() => {
-            const logic = insightLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
-            logic?.actions.markInsightTimedOut('a-uuid-query-id')
-        }, 50)
+            const logic = insightVizDataLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
+            logic?.actions.setTimedOutQueryId('a-uuid-query-id')
+        }, 150)
     }, [])
     return <App />
 }

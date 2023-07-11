@@ -80,7 +80,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
     }),
 
-    selectors(({ props }) => ({
+    selectors(() => ({
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -186,10 +186,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
+
+        // hack for experiments to remove displaying baseline from the funnel viz
+        disableFunnelBreakdownBaseline: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
+        ],
         flattenedBreakdowns: [
-            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter],
-            (steps, funnelsFilter): FlattenedFunnelStepByBreakdown[] => {
-                const disableBaseline = !!props.cachedInsight?.disable_baseline
+            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.disableFunnelBreakdownBaseline],
+            (steps, funnelsFilter, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
@@ -399,13 +404,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.conversionMetrics, s.skewWarningHidden],
             (conversionMetrics, skewWarningHidden): boolean => {
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
-            },
-        ],
-
-        canOpenPersonModal: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): boolean => {
-                return !funnelsFilter?.funnel_aggregate_by_hogql
             },
         ],
     })),

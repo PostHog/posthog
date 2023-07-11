@@ -131,13 +131,11 @@ export const FEATURE_FLAGS = {
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    SAMPLING: 'sampling', // owner: @yakkomajuri
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
-    HOGQL: 'hogql', // owner: #team-product-analytics
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
@@ -147,7 +145,6 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
-    NEW_EMPTY_STATES: 'new-empty-states', // experiment, owner: @raquelmsmith
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
@@ -155,6 +152,8 @@ export const FEATURE_FLAGS = {
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER: 'session-recording-show-console-logs-filter', // owner: #team-monitoring
+    ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
+    REFRESH_BUTTON_ON_INSIGHT: 'refresh-button-on-insight', // owner: @thmsobrmlr
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

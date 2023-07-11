@@ -21,10 +21,15 @@ import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
+import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
-import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
+import {
+    startAsyncHandlerConsumer,
+    startAsyncOnEventHandlerConsumer,
+    startAsyncWebhooksHandlerConsumer,
+} from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
@@ -82,7 +87,9 @@ export async function startPluginsServer(
     //    listening.
     let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
+    let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -127,7 +134,9 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
+            analyticsEventsIngestionHistoricalConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
+            webhooksHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
@@ -277,6 +286,21 @@ export async function startPluginsServer(
             healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
         }
 
+        if (capabilities.ingestionHistorical) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue, isHealthy: isAnalyticsEventsIngestionHistoricalHealthy } =
+                await startAnalyticsEventsIngestionHistoricalConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            analyticsEventsIngestionHistoricalConsumer = queue
+            healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
+        }
+
         if (capabilities.ingestionOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
@@ -288,12 +312,13 @@ export async function startPluginsServer(
             })
         }
 
+        // TODO: remove once onevent and webhooks split is fully out
         if (capabilities.processAsyncHandlers) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startOnEventHandlerConsumer({
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startAsyncHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
             })
@@ -301,6 +326,42 @@ export async function startPluginsServer(
             onEventHandlerConsumer = onEventQueue
 
             healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
+        if (capabilities.processAsyncOnEventHandlers) {
+            if (capabilities.processAsyncHandlers) {
+                throw Error('async and onEvent together are not allowed - would export twice')
+            }
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } =
+                await startAsyncOnEventHandlerConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            onEventHandlerConsumer = onEventQueue
+
+            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
+        if (capabilities.processAsyncWebhooksHandlers) {
+            if (capabilities.processAsyncHandlers) {
+                throw Error('async and webhooks together are not allowed - would send twice')
+            }
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: webhooksQueue, isHealthy: isWebhooksIngestionHealthy } =
+                await startAsyncWebhooksHandlerConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            webhooksHandlerConsumer = webhooksQueue
+
+            healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
 
         // If we have
@@ -318,7 +379,7 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncHandlers
+                ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
                     ? {
                           'reload-action': async (message) =>
                               await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),

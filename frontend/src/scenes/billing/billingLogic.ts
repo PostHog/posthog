@@ -34,6 +34,16 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
     }
 
     data.free_trial_until = data.free_trial_until ? dayjs(data.free_trial_until) : undefined
+    data.amount_off_expires_at = data.amount_off_expires_at ? dayjs(data.amount_off_expires_at) : undefined
+    // If expiration is in the middle of the current period, we let it expire at the end of the period
+    if (
+        data.amount_off_expires_at &&
+        data.billing_period &&
+        data.amount_off_expires_at.isBefore(data.billing_period.current_period_end) &&
+        data.amount_off_expires_at.isAfter(data.billing_period.current_period_start)
+    ) {
+        data.amount_off_expires_at = data.billing_period.current_period_end
+    }
 
     return data as BillingV2Type
 }

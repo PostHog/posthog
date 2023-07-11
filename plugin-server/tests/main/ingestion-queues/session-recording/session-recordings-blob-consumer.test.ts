@@ -22,7 +22,7 @@ async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
     await hub.redisPool.release(redisClient)
 }
 
-const mockCommitSync = jest.fn()
+const mockCommit = jest.fn()
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -34,7 +34,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                 stop: jest.fn(),
                 consumer: {
                     on: jest.fn(),
-                    commitSync: mockCommitSync,
+                    commit: mockCommit,
                 },
             })
         ),
@@ -55,17 +55,22 @@ describe('ingester', () => {
     let closeHub: () => Promise<void>
 
     beforeAll(() => {
+        jest.useFakeTimers({
+            // magic is for evil wizards
+            // setInterval in blob consumer doesn't fire
+            // if legacyFakeTimers is false
+            // 🤷
+            legacyFakeTimers: true,
+        })
         mkdirSync(path.join(config.SESSION_RECORDING_LOCAL_DIRECTORY, 'session-buffer-files'), { recursive: true })
     })
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        jest.useFakeTimers()
     })
 
     afterEach(async () => {
         jest.runOnlyPendingTimers()
-        jest.useRealTimers()
         await deleteKeysWithPrefix(hub, keyPrefix)
         await ingester.stop()
         await closeHub()
@@ -73,6 +78,7 @@ describe('ingester', () => {
 
     afterAll(() => {
         rmSync(config.SESSION_RECORDING_LOCAL_DIRECTORY, { recursive: true, force: true })
+        jest.useRealTimers()
     })
 
     // these tests assume that a flush won't run while they run
@@ -154,8 +160,8 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid1'))
             await ingester.sessions.get('1-sid1')?.flush('buffer_age')
 
-            expect(mockCommitSync).toHaveBeenCalledTimes(1)
-            expect(mockCommitSync).toHaveBeenCalledWith({
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenCalledWith({
                 ...metadata,
                 offset: 3,
             })
@@ -169,10 +175,10 @@ describe('ingester', () => {
             await ingester.sessions.get('1-sid2')?.flush('buffer_age')
 
             // No offsets are below the blocking one
-            expect(mockCommitSync).not.toHaveBeenCalled()
+            expect(mockCommit).not.toHaveBeenCalled()
             await ingester.sessions.get('1-sid1')?.flush('buffer_age')
             // We can only commit up to 2 because we don't track the other removed offsets - no biggy as this is super edge casey
-            expect(mockCommitSync).toHaveBeenLastCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 2,
             })
@@ -186,11 +192,11 @@ describe('ingester', () => {
             await ingester.sessions.get('1-sid2')?.flush('buffer_age')
 
             // No offsets are below the blocking one
-            expect(mockCommitSync).not.toHaveBeenCalled()
+            expect(mockCommit).not.toHaveBeenCalled()
             await ingester.consume(addMessage('sid2')) // 5
             await ingester.sessions.get('1-sid1')?.flush('buffer_age')
 
-            expect(mockCommitSync).toHaveBeenLastCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 5, // Same as the blocking session and more than the highest commitable for sid1 (1)
             })
@@ -203,7 +209,7 @@ describe('ingester', () => {
 
             await ingester.sessions.get('1-sid2')?.flush('buffer_age')
 
-            expect(mockCommitSync).toHaveBeenLastCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 4,
             })

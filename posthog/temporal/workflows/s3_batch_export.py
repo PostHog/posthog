@@ -17,7 +17,10 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
+)
 from posthog.temporal.workflows.clickhouse import get_client
 
 if TYPE_CHECKING:
@@ -103,6 +106,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         # when it reaches 50MB in size.
         parts: List[CompletedPartTypeDef] = []
         part_number = 1
+
         results_iterator = get_results_iterator(
             client=client,
             team_id=inputs.team_id,
@@ -110,18 +114,44 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             interval_end=inputs.data_interval_end,
         )
 
+        result = None
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
                     result = await results_iterator.__anext__()
                 except StopAsyncIteration:
                     break
+                except json.JSONDecodeError:
+                    activity.logger.info(
+                        "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
+                    )
+                    # This is raised by aiochclient as we try to decode an error message from ClickHouse.
+                    # So far, this error message only indicated that we were too slow consuming rows.
+                    # So, we can resume from the last result.
+                    if result is None:
+                        # We failed right at the beginning
+                        new_interval_start = None
+                    else:
+                        new_interval_start = result.get("_timestamp", None)
+
+                    if not isinstance(new_interval_start, str):
+                        new_interval_start = inputs.data_interval_start
+
+                    results_iterator = get_results_iterator(
+                        client=client,
+                        team_id=inputs.team_id,
+                        interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
+                        interval_end=inputs.data_interval_end,
+                    )
+                    continue
 
                 if not result:
                     break
 
                 # Write the results to a local file
-                local_results_file.write(json.dumps(result).encode("utf-8"))
+                local_results_file.write(
+                    json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
+                )
                 local_results_file.write("\n".encode("utf-8"))
 
                 # Write results to S3 when the file reaches 50MB and reset the

@@ -1,3 +1,4 @@
+import { LemonTagType } from '@posthog/lemon-ui'
 import { Logic, LogicWrapper } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -76,8 +77,7 @@ export interface BasicListItem {
     /** Whether the name is a placeholder (e.g. an insight derived name), in which case it'll be italicized. */
     isNamePlaceholder?: boolean
     /**
-     * URL within the app.
-     * In rare cases this can be explicitly null (e.g. the "Load more" item). Such items are italicized.
+     * URL within the app. In specific cases this can be null - such items are italicized.
      */
     url: string | null
     /** An optional marker to highlight item state. */
@@ -89,6 +89,11 @@ export interface BasicListItem {
          * @default 'muted'
          */
         status?: 'muted' | 'success' | 'warning' | 'danger' | 'completion'
+    }
+    /** An optional tag shown as a suffix of the name. */
+    tag?: {
+        status: LemonTagType
+        text: string
     }
     /** If search is on, this should be present to convey why this item is included in results. */
     searchMatch?: SearchMatch | null

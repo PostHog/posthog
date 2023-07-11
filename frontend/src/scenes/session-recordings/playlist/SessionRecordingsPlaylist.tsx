@@ -58,6 +58,8 @@ export function RecordingsLists({
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
         listingVersion,
+        sessionRecordingsAPIErrored,
+        pinnedRecordingsAPIErrored,
     } = useValues(logic)
     const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
         useActions(logic)
@@ -103,6 +105,11 @@ export function RecordingsLists({
                             </>
                         }
                         activeRecordingId={activeSessionRecording?.id}
+                        empty={
+                            pinnedRecordingsAPIErrored ? (
+                                <LemonBanner type="error">Error while trying to load pinned recordings.</LemonBanner>
+                            ) : undefined
+                        }
                     />
                 ) : null}
 
@@ -200,24 +207,28 @@ export function RecordingsLists({
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
                     empty={
-                        <div className={'flex flex-col items-center space-y-2'}>
-                            <span>No matching recordings found</span>
-                            {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
-                                <>
-                                    <LemonButton
-                                        type={'secondary'}
-                                        data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
-                                        onClick={() => {
-                                            setFilters({
-                                                date_from: '-21d',
-                                            })
-                                        }}
-                                    >
-                                        Search over the last 21 days
-                                    </LemonButton>
-                                </>
-                            )}
-                        </div>
+                        sessionRecordingsAPIErrored ? (
+                            <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                        ) : (
+                            <div className={'flex flex-col items-center space-y-2'}>
+                                <span>No matching recordings found</span>
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                    <>
+                                        <LemonButton
+                                            type={'secondary'}
+                                            data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
+                                            onClick={() => {
+                                                setFilters({
+                                                    date_from: '-21d',
+                                                })
+                                            }}
+                                        >
+                                            Search over the last 21 days
+                                        </LemonButton>
+                                    </>
+                                )}
+                            </div>
+                        )
                     }
                     activeRecordingId={activeSessionRecording?.id}
                     onScrollToEnd={() => maybeLoadSessionRecordings('older')}
@@ -276,12 +287,14 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState } = useValues(logic)
+    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
+        useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowProductIntroduction =
+        !sessionRecordingsResponseLoading &&
         !user?.has_seen_product_intro_for?.[ProductKey.SESSION_REPLAY] &&
         !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
 
@@ -334,42 +347,38 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                     }
                 />
             )}
-            {!shouldShowEmptyState && (
-                <div
-                    ref={playlistRef}
-                    data-attr="session-recordings-playlist"
-                    className={clsx('SessionRecordingsPlaylist', {
-                        'SessionRecordingsPlaylist--wide': size !== 'small',
-                    })}
-                >
-                    <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
-                        <RecordingsLists {...props} />
-                    </div>
-                    <div className="SessionRecordingsPlaylist__right-column">
-                        {activeSessionRecording?.id ? (
-                            <SessionRecordingPlayer
-                                playerKey="playlist"
-                                playlistShortId={playlistShortId}
-                                sessionRecordingId={activeSessionRecording?.id}
-                                matching={activeSessionRecording?.matching_events}
-                                recordingStartTime={
-                                    activeSessionRecording ? activeSessionRecording.start_time : undefined
-                                }
-                                nextSessionRecording={nextSessionRecording}
-                            />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
-                        )}
-                    </div>
+            <div
+                ref={playlistRef}
+                data-attr="session-recordings-playlist"
+                className={clsx('SessionRecordingsPlaylist', {
+                    'SessionRecordingsPlaylist--wide': size !== 'small',
+                })}
+            >
+                <div className={clsx('SessionRecordingsPlaylist__left-column space-y-4')}>
+                    <RecordingsLists {...props} />
                 </div>
-            )}
+                <div className="SessionRecordingsPlaylist__right-column">
+                    {activeSessionRecording?.id ? (
+                        <SessionRecordingPlayer
+                            playerKey="playlist"
+                            playlistShortId={playlistShortId}
+                            sessionRecordingId={activeSessionRecording?.id}
+                            matching={activeSessionRecording?.matching_events}
+                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
+                            nextSessionRecording={nextSessionRecording}
+                        />
+                    ) : (
+                        <div className="mt-20">
+                            <EmptyMessage
+                                title="No recording selected"
+                                description="Please select a recording from the list on the left"
+                                buttonText="Learn more about recordings"
+                                buttonTo="https://posthog.com/docs/user-guides/recordings"
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
         </>
     )
 }

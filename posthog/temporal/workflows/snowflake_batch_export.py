@@ -1,15 +1,16 @@
 import datetime as dt
 import json
+import tempfile
 from dataclasses import dataclass
 from string import Template
-import tempfile
 
-from django.conf import settings
 import snowflake.connector
+from django.conf import settings
+from snowflake.connector.cursor import SnowflakeCursor
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import SnowflakeBatchExportInputs
 
+from posthog.batch_exports.service import SnowflakeBatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -17,9 +18,11 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.batch_exports import get_results_iterator, get_rows_count
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
+)
 from posthog.temporal.workflows.clickhouse import get_client
-
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -31,6 +34,24 @@ SELECT_QUERY_TEMPLATE = Template(
         AND team_id = {team_id}
     """
 )
+
+
+class SnowflakeFileNotUploadedError(Exception):
+    """Raised when a PUT Snowflake query fails to upload a file."""
+
+    def __init__(self, table_name: str, status: str, message: str):
+        super().__init__(
+            f"Snowflake upload for table '{table_name}' expected status 'UPLOADED' but got '{status}': {message}"
+        )
+
+
+class SnowflakeFileNotLoadedError(Exception):
+    """Raised when a COPY INTO Snowflake query fails to copy a file to a table."""
+
+    def __init__(self, table_name: str, status: str, errors_seen: int, first_error: str):
+        super().__init__(
+            f"Snowflake load for table '{table_name}' expected status 'LOADED' but got '{status}' with {errors_seen} errors: {first_error}"
+        )
 
 
 @dataclass
@@ -51,6 +72,33 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+
+
+def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
+    """Executes a PUT query using the provided cursor to the provided table_name.
+
+    Args:
+        cursor: A Snowflake cursor to execute the PUT query.
+        file_name: The name of the file to PUT.
+        table_name: The name of the table where to PUT the file.
+
+    Raises:
+        TypeError: If we don't get a tuple back from Snowflake (should never happen).
+        SnowflakeFileNotUploadedError: If the upload status is not 'UPLOADED'.
+    """
+    cursor.execute(
+        f"""
+        PUT file://{file_name} @%"{table_name}"
+        """
+    )
+    result = cursor.fetchone()
+    if not isinstance(result, tuple):
+        # Mostly to appease mypy, as this query should always return a tuple.
+        raise TypeError(f"Expected tuple from Snowflake PUT query but got: '{result.__class__.__name__}'")
+
+    status, message = result[6:8]
+    if status != "UPLOADED":
+        raise SnowflakeFileNotUploadedError(table_name, status, message)
 
 
 @activity.defn
@@ -132,20 +180,47 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
             )
-
-            local_results_file = tempfile.NamedTemporaryFile()
+            result = None
+            local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
             try:
                 while True:
                     try:
                         result = await results_iterator.__anext__()
+
                     except StopAsyncIteration:
                         break
+
+                    except json.JSONDecodeError:
+                        activity.logger.info(
+                            "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
+                        )
+                        # This is raised by aiochclient as we try to decode an error message from ClickHouse.
+                        # So far, this error message only indicated that we were too slow consuming rows.
+                        # So, we can resume from the last result.
+                        if result is None:
+                            # We failed right at the beginning
+                            new_interval_start = None
+                        else:
+                            new_interval_start = result.get("_timestamp", None)
+
+                        if not isinstance(new_interval_start, str):
+                            new_interval_start = inputs.data_interval_start
+
+                        results_iterator = get_results_iterator(
+                            client=client,
+                            team_id=inputs.team_id,
+                            interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
+                            interval_end=inputs.data_interval_end,
+                        )
+                        continue
 
                     if not result:
                         break
 
                     # Write the results to a local file
-                    local_results_file.write(json.dumps(result).encode("utf-8"))
+                    local_results_file.write(
+                        json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
+                    )
                     local_results_file.write("\n".encode("utf-8"))
 
                     # Write results to Snowflake when the file reaches 50MB and
@@ -158,27 +233,18 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
                         # Flush the file to make sure everything is written
                         local_results_file.flush()
-                        cursor.execute(
-                            f"""
-                            PUT file://{local_results_file.name} @%"{inputs.table_name}"
-                            """
-                        )
+                        put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
                         # Delete the temporary file and create a new one
                         local_results_file.close()
-                        local_results_file = tempfile.NamedTemporaryFile()
+                        local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
 
                 # Flush the file to make sure everything is written
                 local_results_file.flush()
-                cursor.execute(
-                    f"""
-                    PUT file://{local_results_file.name} @%"{inputs.table_name}"
-                    """
-                )
+                put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
                 # We don't need the file anymore, close (and delete) it.
                 local_results_file.close()
-
                 cursor.execute(
                     f"""
                     COPY INTO "{inputs.table_name}"
@@ -187,6 +253,24 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     PURGE = TRUE
                     """
                 )
+                results = cursor.fetchall()
+
+                for result in results:
+                    if not isinstance(result, tuple):
+                        # Mostly to appease mypy, as this query should always return a tuple.
+                        raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
+
+                    file_name, status = result[0:2]
+
+                    if status != "LOADED":
+                        errors_seen, first_error = result[5:7]
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            status or "NO STATUS",
+                            errors_seen or 0,
+                            first_error or "NO ERROR MESSAGE",
+                        )
+
             finally:
                 local_results_file.close()
         finally:
@@ -268,6 +352,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
+            # Note: This shallows the exception type, but the message should be enough.
+            # If not, swap to repr(e)
+            update_inputs.latest_error = str(e)
             raise
 
         finally:

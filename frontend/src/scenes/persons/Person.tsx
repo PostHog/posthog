@@ -1,6 +1,5 @@
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
-import { EventsTable } from 'scenes/events'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
@@ -29,8 +28,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
@@ -116,8 +113,6 @@ export function Person(): JSX.Element | null {
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
@@ -189,28 +184,19 @@ export function Person(): JSX.Element | null {
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    {featureDataExploration ? (
-                        <Query
-                            query={{
-                                kind: NodeKind.DataTableNode,
-                                full: true,
-                                hiddenColumns: ['person'],
-                                source: {
-                                    kind: NodeKind.EventsQuery,
-                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    personId: person.id,
-                                    after: '-24h',
-                                },
-                            }}
-                        />
-                    ) : (
-                        <EventsTable
-                            pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                            fixedFilters={{ person_id: person.id }}
-                            showPersonColumn={false}
-                            sceneUrl={url}
-                        />
-                    )}
+                    <Query
+                        query={{
+                            kind: NodeKind.DataTableNode,
+                            full: true,
+                            hiddenColumns: ['person'],
+                            source: {
+                                kind: NodeKind.EventsQuery,
+                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                personId: person.id,
+                                after: '-24h',
+                            },
+                        }}
+                    />
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="person-session-recordings-tab">Recordings</span>}

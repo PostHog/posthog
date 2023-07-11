@@ -675,6 +675,7 @@ export interface SessionPlayerData {
     durationMs: number
     start?: Dayjs
     end?: Dayjs
+    fullyLoaded: boolean
 }
 
 export enum SessionRecordingUsageType {
@@ -1196,6 +1197,7 @@ export interface BillingV2Type {
     available_plans?: BillingV2PlanType[]
     discount_percent?: number
     discount_amount_usd?: string
+    amount_off_expires_at?: Dayjs
 }
 
 export interface BillingV2PlanType {
@@ -1550,6 +1552,7 @@ export enum PathType {
     PageView = '$pageview',
     Screen = '$screen',
     CustomEvent = 'custom_event',
+    HogQL = 'hogql',
 }
 
 export enum FunnelPathType {
@@ -1682,6 +1685,7 @@ export interface FunnelsFilterType extends FilterType {
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
+    paths_hogql_expression?: string
     include_event_types?: PathType[]
     start_point?: string
     end_point?: string
@@ -2017,8 +2021,6 @@ export interface InsightLogicProps {
     cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
-    /** Temporary hack to disable data exploration to enable result fetching. */
-    disableDataExploration?: boolean
 }
 
 export interface SetInsightOptions {
@@ -2056,16 +2058,19 @@ export enum SurveyType {
 }
 
 export interface SurveyAppearance {
-    background_color?: string
-    button_color?: string
-    text_color?: string
+    backgroundColor?: string
+    submitButtonColor?: string
+    textColor?: string
+    submitButtonText?: string
+    descriptionTextColor?: string
 }
 
 export interface SurveyQuestion {
     type: SurveyQuestionType
     question: string
+    description?: string | null
     required?: boolean
-    link?: string | null
+    link: string | null
     choices?: string[] | null
 }
 
@@ -2225,6 +2230,7 @@ export interface PreflightStatus {
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
+    openai_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -2296,8 +2302,6 @@ export interface EventDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
-    query_usage_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
@@ -2331,8 +2335,6 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null // TODO: Deprecated, replace or remove
-    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -2384,14 +2386,14 @@ export interface Experiment {
     name: string
     description?: string
     feature_flag_key: string
-    // ID of feature flag
-    feature_flag?: number
+    feature_flag?: FeatureFlagBasicType
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
+        custom_exposure_filter?: FilterType
     }
     start_date?: string | null
     end_date?: string | null
@@ -2429,12 +2431,14 @@ export interface _TrendsExperimentResults extends BaseExperimentResults {
     insight: TrendResult[]
     filters: TrendsFilterType
     variants: TrendExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface _FunnelExperimentResults extends BaseExperimentResults {
     insight: FunnelStep[][]
     filters: FunnelsFilterType
     variants: FunnelExperimentVariant[]
+    last_refresh?: string | null
 }
 
 export interface TrendsExperimentResults {
@@ -2491,7 +2495,8 @@ export interface KeyMapping {
     label: string
     description?: string | JSX.Element
     examples?: string[]
-    hide?: boolean
+    /** System properties are hidden in properties table by default. */
+    system?: boolean
 }
 
 export interface TileParams {
@@ -2839,6 +2844,7 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
+    expires_after?: Dayjs
 }
 
 export enum FeatureFlagReleaseType {

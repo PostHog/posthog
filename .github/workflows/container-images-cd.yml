@@ -13,6 +13,7 @@ on:
     push:
         branches:
             - master
+    workflow_dispatch:
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
@@ -64,7 +65,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   project: x19jffd9zf # posthog
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
@@ -119,7 +120,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
@@ -152,6 +153,6 @@ jobs:
                   # to avoid checksum mismatch on multiple platforms.
                   message: |
                       {
-                        "image_tag": "latest",
+                        "image_tag": "master",
                         "context": ${{ toJson(github) }}
                       }
