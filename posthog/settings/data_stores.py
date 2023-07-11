@@ -230,6 +230,9 @@ KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
 )
 
 # A list of tokens for which events should be sent to the historical topic
+# TODO: possibly remove this and replace with something that provides the
+# separation of concerns between realtime and historical ingestion but without
+# needing to have a deploy.
 TOKENS_HISTORICAL_DATA = os.getenv("TOKENS_HISTORICAL_DATA", "").split(",")
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
