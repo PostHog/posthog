@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import json
 import tempfile
@@ -124,6 +125,17 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
         result = None
         last_uploaded_part_timestamp = None
+
+        async def worker_shutdown_handler():
+            """Handle the Worker shutting down by heart-beating our latest status."""
+            await activity.wait_for_worker_shutdown()
+            activity.logger.warn(
+                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}"
+            )
+            activity.heartbeat(last_uploaded_part_timestamp, upload_id)
+
+        asyncio.create_task(worker_shutdown_handler())
+
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
