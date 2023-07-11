@@ -86,6 +86,7 @@ export async function startPluginsServer(
     //    listening.
     let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
@@ -132,6 +133,7 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
+            analyticsEventsIngestionHistoricalConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
             webhooksHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
@@ -294,7 +296,7 @@ export async function startPluginsServer(
                     piscina: piscina,
                 })
 
-            analyticsEventsIngestionConsumer = queue
+            analyticsEventsIngestionHistoricalConsumer = queue
             healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
         }
 
