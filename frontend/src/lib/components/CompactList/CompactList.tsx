@@ -22,7 +22,7 @@ export function CompactList({
     renderRow,
 }: CompactListProps): JSX.Element {
     return (
-        <div className="compact-list border" style={{ zoom: 2 }}>
+        <div className="compact-list border">
             <div className="compact-list-header">
                 <h3>{title}</h3>
                 {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
