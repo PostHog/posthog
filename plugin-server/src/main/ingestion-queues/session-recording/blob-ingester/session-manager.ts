@@ -33,18 +33,10 @@ export const counterS3WriteErrored = new Counter({
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3FilesBytesWritten = new Gauge({
-    name: 'recording_s3_bytes_written',
-    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
-    labelNames: ['team'],
-})
-
 export const gaugeS3LinesWritten = new Gauge({
     name: 'recording_s3_lines_written',
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
-
-const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -52,7 +44,6 @@ type SessionBuffer = {
     oldestKafkaTimestamp: number | null
     newestKafkaTimestamp: number | null
     count: number
-    size: number
     file: string
     offsets: number[]
     eventsRange: {
@@ -145,14 +136,14 @@ export class SessionManager {
             return
         }
 
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-
-        if (gzippedCapacity > 1) {
+        // loosely estimated value, we don't want to flush too often based on size
+        // but tracking the size closely was expensive when looking at time spent in CPU flamegraphs
+        // when flushing based on time we see a mean of 500ish lines per file
+        // although peaks much higher than that
+        if (this.buffer.count > this.serverConfig.SESSION_RECORDING_MAX_LINES_PER_FILE) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                gzippedCapacity,
-                gzipSizeKb,
+                lines: this.buffer.count,
+                threshold: this.serverConfig.SESSION_RECORDING_MAX_LINES_PER_FILE,
                 ...this.logContext(),
             })
             // return the promise and let the caller decide whether to await
@@ -255,7 +246,6 @@ export class SessionManager {
             fileStream.close()
 
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             gaugeS3LinesWritten.set(this.flushBuffer.count)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
@@ -290,7 +280,6 @@ export class SessionManager {
                 id,
                 createdAt: now(),
                 count: 0,
-                size: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
                 file: path.join(
@@ -331,7 +320,6 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
-            this.buffer.size += Buffer.byteLength(content)
             this.buffer.offsets.push(message.metadata.offset)
             // It is important that we sort the offsets as the parent expects these to be sorted
             this.buffer.offsets.sort((a, b) => a - b)

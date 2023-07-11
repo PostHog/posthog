@@ -131,9 +131,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
-        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
-            ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
-            : 1024 * 50, // ~50MB after compression in prod
+        SESSION_RECORDING_MAX_LINES_PER_FILE: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
+            ? 100 // NOTE: low value in dev or test, so that while testing we flush pretty frequently
+            : 4000, // in production when flushing based on time we primarily see roughly 500 lines per file
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
         SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
