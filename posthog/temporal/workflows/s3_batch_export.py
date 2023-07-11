@@ -106,6 +106,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         # when it reaches 50MB in size.
         parts: List[CompletedPartTypeDef] = []
         part_number = 1
+
         results_iterator = get_results_iterator(
             client=client,
             team_id=inputs.team_id,
