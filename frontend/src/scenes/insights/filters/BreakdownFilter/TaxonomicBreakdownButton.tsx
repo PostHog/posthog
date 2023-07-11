@@ -10,7 +10,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
-export function TaxonomicBreakdownButton(): JSX.Element {
+interface TaxonomicBreakdownButtonProps {
+    value?: string
+}
+
+export function TaxonomicBreakdownButton({ value }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -33,6 +37,7 @@ export function TaxonomicBreakdownButton(): JSX.Element {
             overlay={
                 <TaxonomicFilter
                     groupType={taxonomicBreakdownType}
+                    value={value}
                     onChange={(taxonomicGroup, value) => {
                         if (value) {
                             addBreakdown(value, taxonomicGroup)
@@ -48,7 +53,7 @@ export function TaxonomicBreakdownButton(): JSX.Element {
         >
             <LemonButton
                 type={'secondary'}
-                icon={<IconPlusMini color="var(--primary)" />}
+                icon={value ? undefined : <IconPlusMini color="var(--primary)" />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 className="taxonomic-breakdown-filter tag-button"
@@ -56,9 +61,10 @@ export function TaxonomicBreakdownButton(): JSX.Element {
             >
                 <PropertyKeyInfo
                     value={
-                        taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
+                        value ??
+                        (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                             ? 'Add cohort'
-                            : 'Add breakdown'
+                            : 'Add breakdown')
                     }
                 />
             </LemonButton>

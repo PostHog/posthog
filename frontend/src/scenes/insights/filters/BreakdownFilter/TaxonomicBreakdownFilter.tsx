@@ -65,6 +65,16 @@ export function TaxonomicBreakdownFilterComponent({
               />
           ))
 
+    if (tags.length === 1 && breakdownFilter?.breakdown_type !== 'cohort' && breakdownFilter?.breakdown !== undefined) {
+        return (
+            <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
+                <div className="flex flex-wrap gap-2 items-center">
+                    <TaxonomicBreakdownButton value={String(breakdownFilter?.breakdown)} />
+                </div>
+            </BindLogic>
+        )
+    }
+
     return (
         <BindLogic logic={taxonomicBreakdownFilterLogic} props={logicProps}>
             <div className="flex flex-wrap gap-2 items-center">
