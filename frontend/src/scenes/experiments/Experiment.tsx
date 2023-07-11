@@ -351,10 +351,8 @@ export function Experiment(): JSX.Element {
                                         </div>
                                         <div className="text-muted mb-4">
                                             Experiments use feature flags to target users. By default, 100% of
-                                            participants will be targeted.
-                                            <br />
-                                            For any advanced options like changing the rollout percentage, and targeting
-                                            by groups, you can{' '}
+                                            participants will be targeted. For any advanced options like changing the
+                                            rollout percentage, and targeting by groups, you can{' '}
                                             {experimentId === 'new' ? (
                                                 'change settings on the feature flag after saving this experiment.'
                                             ) : (
