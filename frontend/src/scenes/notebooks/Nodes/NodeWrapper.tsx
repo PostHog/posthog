@@ -42,7 +42,7 @@ export function NodeWrapper({
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
-    const isInSharedView = viewMode === NotebookMode.Share
+    const isInSharedView = viewMode === NotebookMode.SharedView
 
     // If resizeable is true then the node attr "height" is required
     const height = isInSharedView ? '10rem' : node.attrs.height
