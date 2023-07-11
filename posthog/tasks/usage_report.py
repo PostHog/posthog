@@ -516,7 +516,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
-@app.task(ignore_result=True, retries=3)
+@app.task(ignore_result=True, retries=6)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
@@ -678,6 +678,7 @@ def send_all_org_usage_reports(
 
     org_reports: Dict[str, OrgReport] = {}
 
+    print("Generating reports for teams...")  # noqa T201
     for team in teams:
         team_report = UsageReportCounters(
             event_count_lifetime=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_lifetime"]),
@@ -769,6 +770,7 @@ def send_all_org_usage_reports(
 
     all_reports = []
 
+    print("Sending usage reports to PostHog and Billing...")  # noqa T201
     for org_report in org_reports.values():
         org_id = org_report.organization_id
 
