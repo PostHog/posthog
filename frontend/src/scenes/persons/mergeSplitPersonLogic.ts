@@ -18,7 +18,11 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
     key: (props) => props.person.id ?? 'new',
     path: (key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key],
     connect: () => ({
-        actions: [personsLogic({ syncWithUrl: true }), ['setPerson', 'setSplitMergeModalShown']],
+        actions: [
+            personsLogic({ syncWithUrl: true }),
+            ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
+        ],
+        values: [personsLogic({ syncWithUrl: true }), ['persons']],
     }),
     actions: {
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),
@@ -34,6 +38,9 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
         ],
     }),
     listeners: ({ actions, values }) => ({
+        setListFilters: () => {
+            actions.loadPersons()
+        },
         cancel: () => {
             if (!values.executedLoading) {
                 actions.setSplitMergeModalShown(false)
@@ -63,5 +70,8 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
                 },
             },
         ],
+    }),
+    events: ({ actions }) => ({
+        afterMount: [actions.loadPersons],
     }),
 })

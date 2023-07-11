@@ -22,7 +22,10 @@ class PostHogConfig(AppConfig):
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
 
-        if settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
+        if settings.E2E_TESTING:
+            posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+            posthoganalytics.personal_api_key = None
+        elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
             posthoganalytics.disabled = True
         elif settings.DEBUG:
             # log development server launch to posthog

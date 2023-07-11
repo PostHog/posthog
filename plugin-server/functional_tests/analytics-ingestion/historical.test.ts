@@ -8,6 +8,8 @@ beforeAll(async () => {
     organizationId = await createOrganization()
 })
 
+const HISTORICAL_TOPIC = 'events_plugin_ingestion_historical'
+
 test.concurrent(`event ingestion: can ingest into the historical topic`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
@@ -26,6 +28,7 @@ test.concurrent(`event ingestion: can ingest into the historical topic`, async (
                 prop: 'value',
             },
         },
+        topic: HISTORICAL_TOPIC,
     })
 
     const firstEventUuid = new UUIDT().toString()
@@ -38,7 +41,7 @@ test.concurrent(`event ingestion: can ingest into the historical topic`, async (
             name: 'haha',
             $group_0: 'posthog',
         },
-        topic: 'events_plugin_ingestion_historical',
+        topic: HISTORICAL_TOPIC,
     })
 
     await waitForExpect(async () => {
@@ -67,6 +70,7 @@ test.concurrent(`event ingestion: can ingest into the historical topic`, async (
                 prop: 'updated value',
             },
         },
+        topic: HISTORICAL_TOPIC,
     })
 
     const secondEventUuid = new UUIDT().toString()
