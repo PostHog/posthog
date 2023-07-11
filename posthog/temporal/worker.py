@@ -20,7 +20,7 @@ async def start_worker(host, port, namespace, task_queue, server_root_ca_cert=No
     )
 
     # catch the TERM signal, and stop the worker gracefully
-    # https://docs.temporal.io/docs/python/worker/#graceful-shutdown
+    # https://github.com/temporalio/sdk-python#worker-shutdown
     async def signal_handler(sig, frame):
         await worker.shutdown()
         sys.exit(0)
