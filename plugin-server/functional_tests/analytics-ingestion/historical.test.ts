@@ -10,7 +10,6 @@ beforeAll(async () => {
 
 const HISTORICAL_TOPIC = 'events_plugin_ingestion_historical'
 
-// NOTE: Ben set this to skip as it was failing all the time and is apparently not used yet
 test(`event ingestion: can ingest into the historical topic`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
