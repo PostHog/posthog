@@ -16,6 +16,9 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
+    console.log('checking Cypress env', Cypress.env)
+    console.log('checking process env', process.env)
+
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_TITLE', Cypress.currentTest.title)
     Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_FULL_TITLE', Cypress.currentTest.titlePath.join(' > '))
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)

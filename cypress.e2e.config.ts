@@ -93,6 +93,10 @@ export default defineConfig({
                 },
             })
 
+            config.env = {
+                ...process.env, // add all process env var here
+                ...config.env, // plus any command line overrides
+            }
             return config
         },
         baseUrl: 'http://localhost:8000',
