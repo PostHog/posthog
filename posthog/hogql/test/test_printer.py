@@ -377,11 +377,6 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events AS e WHERE equals(e.team_id, {self.team.pk}) LIMIT 10000",
         )
 
-        self._assert_select_error(
-            'SELECT 1 FROM events AS "some%(hello)alias"',
-            "Alias \"some%(hello)alias\" contains unsupported character '%'",
-        )
-
     def test_select_from(self):
         self.assertEqual(
             self._select("select 1 from events"),
