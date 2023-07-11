@@ -23,12 +23,12 @@ class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": None},
-        {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": None},
-        {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": None},
-        {"name": "entered_free_trial", "volume_30_day": 7, "query_usage_30_day": None},
-        {"name": "watched_movie", "volume_30_day": 8, "query_usage_30_day": None},
-        {"name": "$pageview", "volume_30_day": 9, "query_usage_30_day": None},
+        {"name": "installed_app", "volume_30_day": 1},
+        {"name": "rated_app", "volume_30_day": 2},
+        {"name": "purchase", "volume_30_day": 3},
+        {"name": "entered_free_trial", "volume_30_day": 7},
+        {"name": "watched_movie", "volume_30_day": 8},
+        {"name": "$pageview", "volume_30_day": 9},
     ]
 
     @classmethod
@@ -50,7 +50,7 @@ class TestEventDefinitionAPI(APIBaseTest):
                     )
                 )
 
-        # To ensure `volume_30_day` and `query_usage_30_day` are returned non
+        # To ensure `volume_30_day` is returned non
         # None, we need to call this task to have them calculated.
         calculate_event_property_usage_for_team(cls.demo_team.pk)
 
@@ -65,7 +65,6 @@ class TestEventDefinitionAPI(APIBaseTest):
                 (_i for _i in response.json()["results"] if _i["name"] == item["name"]), {}
             )
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
-            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
                 response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item
             )

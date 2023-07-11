@@ -36,7 +36,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "id",
             "name",
             "volume_30_day",
-            "query_usage_30_day",
             "created_at",
             "last_seen_at",
             "last_updated_at",
@@ -76,7 +75,7 @@ class EventDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
 
     search_fields = ["name"]
-    ordering_fields = ["volume_30_day", "query_usage_30_day", "name"]
+    ordering_fields = ["volume_30_day", "name"]
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
