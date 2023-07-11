@@ -102,7 +102,6 @@ class TestS3Table(BaseTest):
             dialect="clickhouse",
         )
 
-        self.maxDiff = None
         self.assertEqual(
             clickhouse,
             f"WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_1)s)) SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
