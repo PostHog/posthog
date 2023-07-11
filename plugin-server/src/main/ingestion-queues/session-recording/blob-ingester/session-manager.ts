@@ -1,8 +1,8 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, readFile, unlink } from 'fs/promises'
+import { createReadStream, createWriteStream, WriteStream } from 'fs'
+import { readFile, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
@@ -33,18 +33,10 @@ export const counterS3WriteErrored = new Counter({
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3FilesBytesWritten = new Gauge({
-    name: 'recording_s3_bytes_written',
-    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
-    labelNames: ['team'],
-})
-
 export const gaugeS3LinesWritten = new Gauge({
     name: 'recording_s3_lines_written',
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
-
-const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -52,9 +44,12 @@ type SessionBuffer = {
     oldestKafkaTimestamp: number | null
     newestKafkaTimestamp: number | null
     count: number
-    size: number
     file: string
-    offsets: number[]
+    fileStream: WriteStream
+    offsets: {
+        lowest: number
+        highest: number
+    }
     eventsRange: {
         firstTimestamp: number
         lastTimestamp: number
@@ -127,37 +122,16 @@ export class SessionManager {
         }
     }
 
-    public async add(message: IncomingRecordingMessage): Promise<void> {
+    public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
         }
 
-        await this.addToBuffer(message)
-        await this.flushIfBufferExceedsCapacity()
+        this.addToBuffer(message)
     }
 
     public get isEmpty(): boolean {
         return this.buffer.count === 0
-    }
-
-    public async flushIfBufferExceedsCapacity(): Promise<void> {
-        if (this.destroying) {
-            return
-        }
-
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-
-        if (gzippedCapacity > 1) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                gzippedCapacity,
-                gzipSizeKb,
-                ...this.logContext(),
-            })
-            // return the promise and let the caller decide whether to await
-            return this.flush('buffer_size')
-        }
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
@@ -223,6 +197,7 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
+        this.flushBuffer.fileStream.end()
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -255,7 +230,6 @@ export class SessionManager {
             fileStream.close()
 
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
             gaugeS3LinesWritten.set(this.flushBuffer.count)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
@@ -278,7 +252,7 @@ export class SessionManager {
             const { file, offsets } = this.flushBuffer
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
-            this.onFinish(offsets)
+            this.onFinish([offsets.lowest, offsets.highest])
             await this.deleteFile(file, 'on s3 flush')
         }
     }
@@ -286,23 +260,24 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const file = path.join(
+                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            )
             const buffer: SessionBuffer = {
                 id,
                 createdAt: now(),
                 count: 0,
-                size: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
-                file: path.join(
-                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
-                ),
-                offsets: [],
+                file,
+                fileStream: createWriteStream(file, 'utf-8'),
+                offsets: {
+                    lowest: Infinity,
+                    highest: -Infinity,
+                },
                 eventsRange: null,
             }
-
-            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-            writeFileSync(buffer.file, '', 'utf-8')
 
             return buffer
         } catch (error) {
@@ -314,7 +289,7 @@ export class SessionManager {
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
-    private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
+    private addToBuffer(message: IncomingRecordingMessage): void {
         try {
             this.buffer.oldestKafkaTimestamp = Math.min(
                 this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
@@ -331,17 +306,15 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
-            this.buffer.size += Buffer.byteLength(content)
-            this.buffer.offsets.push(message.metadata.offset)
-            // It is important that we sort the offsets as the parent expects these to be sorted
-            this.buffer.offsets.sort((a, b) => a - b)
+            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
                 void this.realtimeManager.addMessage(message)
             }
 
-            await appendFile(this.buffer.file, content, 'utf-8')
+            this.buffer.fileStream.write(content)
         } catch (error) {
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -405,6 +378,9 @@ export class SessionManager {
             this.inProgressUpload = null
         }
 
+        this.flushBuffer?.fileStream.end()
+        this.buffer.fileStream.end()
+
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
             .map((x) =>
@@ -417,9 +393,9 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.offsets.length === 0) {
+        if (this.buffer.count === 0) {
             return null
         }
-        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
+        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
     }
 }

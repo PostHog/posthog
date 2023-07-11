@@ -74,6 +74,14 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     }),
             },
         ],
+        loadPlaylistsFailed: [
+            false,
+            {
+                loadPlaylists: () => false,
+                loadPlaylistsSuccess: () => false,
+                loadPlaylistsFailure: () => true,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         playlists: {

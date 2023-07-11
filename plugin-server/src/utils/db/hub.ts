@@ -164,7 +164,7 @@ export async function createHub(
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
-    const actionManager = new ActionManager(db, capabilities)
+    const actionManager = new ActionManager(postgres, capabilities)
     await actionManager.prepare()
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
@@ -220,7 +220,7 @@ export async function createHub(
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
 
-    hub.hookCannon = new HookCommander(db, teamManager, organizationManager, statsd)
+    hub.hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
     const closeHub = async () => {

@@ -37,10 +37,6 @@ export const workerTasks: Record<string, TaskRunner> = {
         const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
         return await runner.runAppsOnEventPipeline(args.event)
     },
-    runWebhooksHandlersEventPipeline: async (hub, args: { event: PostIngestionEvent }) => {
-        const runner = new EventPipelineRunner(hub, convertToProcessedPluginEvent(args.event))
-        return await runner.runWebhooksEventPipeline(args.event)
-    },
     reloadPlugins: async (hub) => {
         await setupPlugins(hub)
     },
