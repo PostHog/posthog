@@ -75,6 +75,7 @@ export enum KafkaSaslMechanism {
 export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
+    ingestion_historical = 'ingestion-historical',
     plugins_async = 'async',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
@@ -271,6 +272,7 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     ingestion?: boolean
     ingestionOverflow?: boolean
+    ingestionHistorical?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
