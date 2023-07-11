@@ -96,8 +96,16 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
         )
-        multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
-        upload_id = multipart_response["UploadId"]
+        details = activity.info().heartbeat_details
+
+        if len(details) == 2:
+            interval_start, upload_id = details
+            activity.logger.info(f"Received details from previous activity. Export will resume from {interval_start}")
+
+        else:
+            multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
+            upload_id = multipart_response["UploadId"]
+            interval_start = inputs.data_interval_start
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
@@ -110,11 +118,12 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         results_iterator = get_results_iterator(
             client=client,
             team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
+            interval_start=interval_start,
             interval_end=inputs.data_interval_end,
         )
 
         result = None
+        last_uploaded_part_timestamp = None
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
@@ -122,9 +131,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 except StopAsyncIteration:
                     break
                 except json.JSONDecodeError:
-                    activity.logger.info(
-                        "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
-                    )
                     # This is raised by aiochclient as we try to decode an error message from ClickHouse.
                     # So far, this error message only indicated that we were too slow consuming rows.
                     # So, we can resume from the last result.
@@ -136,6 +142,10 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
 
                     if not isinstance(new_interval_start, str):
                         new_interval_start = inputs.data_interval_start
+
+                    activity.logger.warn(
+                        f"Failed to decode a JSON value while iterating, potentially due to a ClickHouse error. Resuming from {new_interval_start}"
+                    )
 
                     results_iterator = get_results_iterator(
                         client=client,
@@ -170,6 +180,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         UploadId=upload_id,
                         Body=local_results_file,
                     )
+                    last_uploaded_part_timestamp = result["_timestamp"]
+                    activity.heartbeat(last_uploaded_part_timestamp, upload_id)
 
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
@@ -189,6 +201,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                 UploadId=upload_id,
                 Body=local_results_file,
             )
+            activity.heartbeat(last_uploaded_part_timestamp, upload_id)
 
             # Record the ETag for the last part
             parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
