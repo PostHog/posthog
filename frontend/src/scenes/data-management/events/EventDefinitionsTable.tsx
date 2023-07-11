@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { combineUrl } from 'kea-router'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { TZLabel } from 'lib/components/TZLabel'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -59,6 +60,15 @@ export function EventDefinitionsTable(): JSX.Element {
             className: 'definition-column-name',
             render: function Render(_, definition: EventDefinition) {
                 return <EventDefinitionHeader definition={definition} hideIcon asLink />
+            },
+            sorter: true,
+        },
+        {
+            title: 'Last seen',
+            key: 'last_seen_at',
+            className: 'definition-column-last_seen_at',
+            render: function Render(_, definition: EventDefinition) {
+                return definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : null
             },
             sorter: true,
         },
