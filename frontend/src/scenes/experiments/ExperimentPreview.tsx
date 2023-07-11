@@ -3,7 +3,13 @@ import { useValues, useActions } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
-import { ActionFilter as ActionFilterType, AnyPropertyFilter, InsightType, MultivariateFlagVariant } from '~/types'
+import {
+    ActionFilter as ActionFilterType,
+    AnyPropertyFilter,
+    FilterType,
+    InsightType,
+    MultivariateFlagVariant,
+} from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -12,7 +18,7 @@ import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { TZLabel } from 'lib/components/TZLabel'
-import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { urls } from 'scenes/urls'
 
@@ -41,14 +47,20 @@ export function ExperimentPreview({
         aggregationLabel,
         experiment,
         isExperimentGoalModalOpen,
+        isExperimentExposureModalOpen,
         experimentLoading,
+        experimentCountPerUserMath,
     } = useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
         openExperimentGoalModal,
         closeExperimentGoalModal,
         updateExperimentGoal,
+        openExperimentExposureModal,
+        closeExperimentExposureModal,
+        updateExperimentExposure,
         setNewExperimentInsight,
+        setExperimentExposureInsight,
     } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
@@ -270,41 +282,57 @@ export function ExperimentPreview({
                             <div className="card-secondary mb-2">
                                 {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                             </div>
-                            {(
-                                [
-                                    ...(experiment?.filters?.events || []),
-                                    ...(experiment?.filters?.actions || []),
-                                ] as ActionFilterType[]
-                            )
-                                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                                .map((event: ActionFilterType, idx: number) => (
-                                    <Col key={idx} className="mb-2">
-                                        <Row style={{ marginBottom: 4 }}>
-                                            <div className="preview-conversion-goal-num">
-                                                {experimentInsightType === InsightType.FUNNELS
-                                                    ? (event.order || 0) + 1
-                                                    : idx + 1}
-                                            </div>
-                                            <b>
-                                                <InsightLabel
-                                                    action={event}
-                                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
-                                                    hideIcon
-                                                    showEventName
-                                                />
-                                            </b>
-                                        </Row>
-                                        {event.properties?.map((prop: AnyPropertyFilter) => (
-                                            <PropertyFilterButton key={prop.key} item={prop} />
-                                        ))}
-                                    </Col>
-                                ))}
+                            <MetricDisplay filters={experiment.filters} />
                             {experiment?.start_date && (
-                                <div className="mb-2 mt-4">
-                                    <LemonButton type="secondary" onClick={openExperimentGoalModal}>
-                                        Change experiment goal
-                                    </LemonButton>
-                                </div>
+                                <>
+                                    <div className="mb-2 mt-4">
+                                        <LemonButton type="secondary" onClick={openExperimentGoalModal}>
+                                            Change experiment goal
+                                        </LemonButton>
+                                    </div>
+                                    {experimentInsightType === InsightType.TRENDS && !experimentCountPerUserMath && (
+                                        <>
+                                            <div className="card-secondary mb-2 mt-4">
+                                                Exposure metric
+                                                <Tooltip
+                                                    title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in exposure calculations.`}
+                                                >
+                                                    <IconInfo className="ml-1 text-muted text-sm" />
+                                                </Tooltip>
+                                            </div>
+                                            {experiment.parameters?.custom_exposure_filter ? (
+                                                <MetricDisplay filters={experiment.parameters.custom_exposure_filter} />
+                                            ) : (
+                                                <span className="description">
+                                                    Default via $feature_flag_called events
+                                                </span>
+                                            )}
+                                            <div className="mb-2 mt-2">
+                                                <span className="flex">
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="small"
+                                                        onClick={openExperimentExposureModal}
+                                                        className="mr-2"
+                                                    >
+                                                        Change exposure metric
+                                                    </LemonButton>
+                                                    {experiment.parameters?.custom_exposure_filter && (
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            size="small"
+                                                            status="danger"
+                                                            className="mr-2"
+                                                            onClick={() => updateExperimentExposure(null)}
+                                                        >
+                                                            Reset exposure
+                                                        </LemonButton>
+                                                    )}
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+                                </>
                             )}
                         </Col>
                     </Row>
@@ -360,6 +388,82 @@ export function ExperimentPreview({
                     </Field>
                 </Form>
             </LemonModal>
+            <LemonModal
+                isOpen={isExperimentExposureModalOpen}
+                onClose={closeExperimentExposureModal}
+                width={1000}
+                title={'Change experiment exposure'}
+                footer={
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            form="edit-experiment-exposure-form"
+                            type="secondary"
+                            onClick={closeExperimentExposureModal}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            form="edit-experiment-exposure-form"
+                            onClick={() => {
+                                if (experiment.parameters.custom_exposure_filter) {
+                                    updateExperimentExposure(experiment.parameters.custom_exposure_filter)
+                                }
+                            }}
+                            type="primary"
+                            loading={experimentLoading}
+                            data-attr="create-annotation-submit"
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <Form
+                    logic={experimentLogic}
+                    props={{ experimentId }}
+                    formKey="experiment"
+                    id="edit-experiment-exposure-form"
+                    className="space-y-4"
+                >
+                    <Field name="filters">
+                        <MetricSelector
+                            dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
+                            setPreviewInsight={setExperimentExposureInsight}
+                        />
+                    </Field>
+                </Form>
+            </LemonModal>
         </Row>
+    )
+}
+
+export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
+    const experimentInsightType = filters?.insight || InsightType.TRENDS
+
+    return (
+        <>
+            {([...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[])
+                .sort((a, b) => (a.order || 0) - (b.order || 0))
+                .map((event: ActionFilterType, idx: number) => (
+                    <Col key={idx} className="mb-2">
+                        <Row style={{ marginBottom: 4 }}>
+                            <div className="preview-conversion-goal-num">
+                                {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
+                            </div>
+                            <b>
+                                <InsightLabel
+                                    action={event}
+                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
+                                    hideIcon
+                                    showEventName
+                                />
+                            </b>
+                        </Row>
+                        {event.properties?.map((prop: AnyPropertyFilter) => (
+                            <PropertyFilterButton key={prop.key} item={prop} />
+                        ))}
+                    </Col>
+                ))}
+        </>
     )
 }
