@@ -83,7 +83,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
     # Send all instance usage to the Billing service
-    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
+    sender.add_periodic_task(crontab(hour=1, minute=0), send_org_usage_reports.s(), name="send instance usage report")
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
