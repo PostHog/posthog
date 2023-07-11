@@ -18,7 +18,7 @@ class EventDefinition(UUIDModel):
     )  # Volume of events in the last 30 rolling days (computed asynchronously)
 
     # DEPRECATED
-    # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
+    # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously every other blue moon)
     query_usage_30_day: models.IntegerField = models.IntegerField(default=None, null=True)
 
     class Meta:
