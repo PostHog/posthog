@@ -11,7 +11,7 @@ beforeAll(async () => {
 const HISTORICAL_TOPIC = 'events_plugin_ingestion_historical'
 
 // NOTE: Ben set this to skip as it was failing all the time and is apparently not used yet
-test.skip(`event ingestion: can ingest into the historical topic`, async () => {
+test(`event ingestion: can ingest into the historical topic`, async () => {
     const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
@@ -84,6 +84,7 @@ test.skip(`event ingestion: can ingest into the historical topic`, async () => {
             name: 'haha',
             $group_0: 'posthog',
         },
+        topic: HISTORICAL_TOPIC,
     })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(teamId, secondEventUuid)
