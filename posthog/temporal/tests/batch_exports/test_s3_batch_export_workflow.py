@@ -1,3 +1,4 @@
+import datetime as dt
 import functools
 import json
 from random import randint
@@ -439,6 +440,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
@@ -566,6 +568,7 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
                         id=workflow_id,
                         task_queue=settings.TEMPORAL_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=10),
                     )
 
     assert mocked_iterator.call_count == 2  # An extra call for the error
@@ -705,6 +708,7 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
                         id=workflow_id,
                         task_queue=settings.TEMPORAL_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=dt.timedelta(seconds=10),
                     )
 
     assert mocked_iterator.call_count == 6  # 5 failures so 5 extra calls
