@@ -4,6 +4,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.test.base import BaseTest
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
+from posthog.hogql.errors import HogQLException
 
 
 class TestS3Table(BaseTest):
@@ -134,3 +135,13 @@ class TestS3Table(BaseTest):
             clickhouse,
             f"WITH `random as (SELECT * FROM events), SELECT * FROM events --` AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_1)s)) SELECT `random as (SELECT * FROM events), SELECT * FROM events --`.High, `random as (SELECT * FROM events), SELECT * FROM events --`.Low FROM `random as (SELECT * FROM events), SELECT * FROM events --` AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
+
+    def test_s3_table_select_table_name_bad_character(self):
+        self._init_database()
+
+        escaped_table = create_aapl_stock_s3_table(name="some%(asd)sname")
+        self.database.add_warehouse_tables(**{"some%(asd)sname": escaped_table})
+
+        with self.assertRaises(HogQLException) as context:
+            self._select(query='SELECT * FROM "some%(asd)sname" LIMIT 10', dialect="clickhouse")
+            self.assertTrue("Alias \"some%(asd)sname\" contains unsupported character '%'" in str(context.exception))
