@@ -53,7 +53,7 @@ class Command(BaseCommand):
 
     @staticmethod
     def add_property_definition(team: Team, property: str) -> None:
-        PropertyDefinition.objects.create(team=team, name=property, query_usage_30_day=10)
+        PropertyDefinition.objects.create(team=team, name=property)
         EventProperty.objects.create(team=team, event="$pageview", property=property)
         EventProperty.objects.create(team=team, event="$autocapture", property=property)
 

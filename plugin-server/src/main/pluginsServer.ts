@@ -21,6 +21,7 @@ import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
+import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
@@ -85,6 +86,7 @@ export async function startPluginsServer(
     //    listening.
     let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
 
@@ -131,6 +133,7 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
+            analyticsEventsIngestionHistoricalConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
             webhooksHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
@@ -280,6 +283,21 @@ export async function startPluginsServer(
 
             analyticsEventsIngestionConsumer = queue
             healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
+        }
+
+        if (capabilities.ingestionHistorical) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue, isHealthy: isAnalyticsEventsIngestionHistoricalHealthy } =
+                await startAnalyticsEventsIngestionHistoricalConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            analyticsEventsIngestionHistoricalConsumer = queue
+            healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
         }
 
         if (capabilities.ingestionOverflow) {

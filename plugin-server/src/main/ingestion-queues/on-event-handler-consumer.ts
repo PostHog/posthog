@@ -1,3 +1,4 @@
+import { Consumer } from 'kafkajs'
 import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
@@ -37,7 +38,7 @@ export const startAsyncHandlerConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    const isHealthy = makeHealthCheck(queue)
+    const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
     return { queue, isHealthy: () => isHealthy() }
 }
@@ -68,7 +69,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    const isHealthy = makeHealthCheck(queue)
+    const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
     return { queue, isHealthy: () => isHealthy() }
 }
@@ -99,7 +100,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    const isHealthy = makeHealthCheck(queue)
+    const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
     return { queue, isHealthy: () => isHealthy() }
 }
@@ -135,11 +136,10 @@ export const buildWebhooksIngestionConsumer = ({ hub, piscina }: { hub: Hub; pis
     )
 }
 
-export function makeHealthCheck(queue: KafkaJSIngestionConsumer) {
-    const sessionTimeout = queue.sessionTimeout
-    const { HEARTBEAT } = queue.consumer.events
+export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
+    const { HEARTBEAT } = consumer.events
     let lastHeartbeat: number = Date.now()
-    queue.consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+    consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
 
     const isHealthy = async () => {
         // Consumer has heartbeat within the session timeout, so it is healthy.
@@ -152,7 +152,7 @@ export function makeHealthCheck(queue: KafkaJSIngestionConsumer) {
         // Consumer has not heartbeat, but maybe it's because the group is
         // currently rebalancing.
         try {
-            const { state } = await queue.consumer.describeGroup()
+            const { state } = await consumer.describeGroup()
 
             status.info('ℹ️', 'Consumer group state', { state })
 
