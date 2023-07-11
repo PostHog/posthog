@@ -12,7 +12,6 @@ from posthog.models.person.sql import (
     PERSONS_DISTINCT_ID_TABLE_SQL,
 )
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.version_requirement import ServiceVersionRequirement
 
 ONE_DAY = 60 * 60 * 24
 
@@ -33,10 +32,6 @@ class Migration(AsyncMigrationDefinition):
 
     posthog_min_version = "1.29.0"
     posthog_max_version = "1.30.0"
-
-    service_version_requirements = [
-        ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0,<21.7.0")
-    ]
 
     operations = [
         AsyncMigrationOperationSQL(

@@ -5,7 +5,6 @@ import structlog
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.version_requirement import ServiceVersionRequirement
 from datetime import datetime
 from posthog.cloud_utils import is_cloud
 
@@ -24,8 +23,6 @@ class Migration(AsyncMigrationDefinition):
         "NEWEST_PARTITION_TO_KEEP": ("202308", "ID of the newest partition to keep", str),
         "OPTIMIZE_TABLE": (False, "Optimize sharded_events table after moving partitions?", bool),
     }
-
-    service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
 
     def is_required(self) -> bool:
         return is_cloud()

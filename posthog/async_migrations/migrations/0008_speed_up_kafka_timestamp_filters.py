@@ -6,7 +6,6 @@ from django.conf import settings
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
-from posthog.version_requirement import ServiceVersionRequirement
 
 logger = structlog.get_logger(__name__)
 
@@ -28,8 +27,6 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0007_persons_and_groups_on_events_backfill"
     posthog_min_version = "1.42.0"
     posthog_max_version = "1.45.99"
-
-    service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
 
     def is_required(self):
         return "kafka_timestamp_minmax" not in self.get_table_definition()

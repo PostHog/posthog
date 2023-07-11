@@ -15,7 +15,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AnalyticsDBMS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
 EVENTS_TABLE = "events"
@@ -68,8 +67,6 @@ class Migration(AsyncMigrationDefinition):
 
     posthog_min_version = "1.33.0"
     posthog_max_version = "1.33.9"
-
-    service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=21.6.0")]
 
     @cached_property
     def operations(self):

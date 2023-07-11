@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import structlog
 from semantic_version.base import SimpleSpec
@@ -22,7 +22,6 @@ from posthog.async_migrations.utils import (
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
-from posthog.version_requirement import ServiceVersionRequirement
 
 """
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
@@ -88,11 +87,6 @@ def start_async_migration(
     if not migration_definition.is_required():
         complete_migration(migration_instance, email=False)
         return True
-
-    ok, error = check_service_version_requirements(migration_definition.service_version_requirements)
-    if not ok:
-        process_error(migration_instance, error, status=MigrationStatus.FailedAtStartup)
-        return False
 
     ok, error = is_migration_dependency_fulfilled(migration_instance.name)
     if not ok:
@@ -275,17 +269,3 @@ def is_migration_dependency_fulfilled(migration_name: str) -> Tuple[bool, str]:
     )
     error = f"Could not trigger migration because it depends on {dependency}" if not dependency_ok else ""
     return dependency_ok, error
-
-
-def check_service_version_requirements(
-    service_version_requirements: List[ServiceVersionRequirement],
-) -> Tuple[bool, str]:
-    for service_version_requirement in service_version_requirements:
-        in_range, version = service_version_requirement.is_service_in_accepted_version()
-        if not in_range:
-            return (
-                False,
-                f"Service {service_version_requirement.service} is in version {version}. Expected range: {str(service_version_requirement.supported_version)}.",
-            )
-
-    return True, ""

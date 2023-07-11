@@ -40,24 +40,7 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
-    # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
-    # so we only disable on versions below that.
-    # This is calculated once per deploy
-    if clickhouse_at_least_228():
-        return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
-    else:
-        return {"optimize_move_to_prewhere": 0}
-
-
-@lru_cache(maxsize=1)
-def clickhouse_at_least_228() -> bool:
-    from posthog.version_requirement import ServiceVersionRequirement
-
-    is_ch_version_228_or_above, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=22.8.0"
-    ).is_service_in_accepted_version()
-
-    return is_ch_version_228_or_above
+    return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
 
 
 def validated_client_query_id() -> Optional[str]:

@@ -25,7 +25,6 @@ from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
 
-from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
@@ -181,7 +180,6 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
 
     if realm != "cloud":
         metadata.helm = get_helm_info_env()
-        metadata.clickhouse_version = str(version_requirement.get_clickhouse_version())
 
         metadata.users_who_logged_in = [
             {"id": user.id, "distinct_id": user.distinct_id}

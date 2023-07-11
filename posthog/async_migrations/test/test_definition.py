@@ -9,7 +9,6 @@ from posthog.async_migrations.setup import (
 )
 from posthog.models.async_migration import AsyncMigration
 from posthog.test.base import BaseTest
-from posthog.version_requirement import ServiceVersionRequirement
 
 pytestmark = pytest.mark.async_migrations
 
@@ -28,7 +27,6 @@ class TestAsyncMigrationDefinition(BaseTest):
         self.assertEqual(example_migration.posthog_max_version, "1.30.0")
         self.assertEqual(example_migration.operations[-1].fn, example_fn)
         self.assertEqual(example_migration.operations[-1].rollback_fn, example_rollback_fn)
-        self.assertTrue(isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement))
 
     def test_get_migration_instance_and_parameters(self):
         setup_async_migrations(ignore_posthog_version=True)

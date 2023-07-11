@@ -12,7 +12,6 @@ from typing import (
 from posthog.constants import AnalyticsDBMS
 from posthog.models.utils import sane_repr
 from posthog.settings import ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
-from posthog.version_requirement import ServiceVersionRequirement
 
 if TYPE_CHECKING:
     from posthog.models.async_migration import AsyncMigration
@@ -82,9 +81,6 @@ class AsyncMigrationDefinition:
 
     # use this to add information about why this migration is needed to self-hosted users
     description = ""
-
-    # list of versions accepted for the services the migration relies on e.g. ClickHouse, Postgres
-    service_version_requirements: List[ServiceVersionRequirement] = []
 
     # list of operations the migration will perform _in order_
     operations: List[AsyncMigrationOperation] = []
