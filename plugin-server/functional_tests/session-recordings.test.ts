@@ -37,7 +37,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await Promise.all([await dlqConsumer.disconnect()])
+    await dlqConsumer.disconnect()
 })
 
 test.concurrent(
