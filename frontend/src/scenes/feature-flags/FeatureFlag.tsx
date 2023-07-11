@@ -642,6 +642,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
+    excludeTitle?: boolean
 }
 
 function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
@@ -994,7 +995,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     )
 }
 
-function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JSX.Element {
+export function FeatureFlagReleaseConditions({
+    readOnly,
+    isSuper,
+    excludeTitle,
+}: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -1356,17 +1361,23 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
 
     return (
         <>
-            <div className="feature-flag-form-row">
+            <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        excludeTitle ? null : (
+                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        )
                     ) : (
                         <>
-                            <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb-4">
-                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
-                                condition sets are rolled out independently of each other.
-                            </div>
+                            {!excludeTitle && (
+                                <>
+                                    <h3 className="l3">Release conditions</h3>
+                                    <div className="text-muted mb-4">
+                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
+                                        that condition sets are rolled out independently of each other.
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -1410,7 +1421,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                 )}
             </Row>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set
                 </LemonButton>
             )}
