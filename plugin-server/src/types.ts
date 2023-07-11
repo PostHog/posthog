@@ -75,6 +75,7 @@ export enum KafkaSaslMechanism {
 export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
+    ingestion_historical = 'ingestion-historical',
     plugins_async = 'async',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
@@ -212,7 +213,6 @@ export interface PluginsServerConfig {
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
-    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
 
@@ -271,6 +271,7 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     ingestion?: boolean
     ingestionOverflow?: boolean
+    ingestionHistorical?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
