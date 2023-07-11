@@ -96,7 +96,7 @@ def print_prepared_ast(
 class JoinExprResponse:
     printed_sql: str
     where: Optional[ast.Expr] = None
-    ctes: Optional[List[str]] = None
+    cte: Optional[str] = None
 
 
 class _Printer(Visitor):
@@ -167,7 +167,8 @@ class _Printer(Visitor):
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
-            ctes.extend(visited_join.ctes or [])
+            if visited_join.cte:
+                ctes.append(visited_join.cte)
 
             # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
@@ -244,7 +245,7 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
-        ctes = []
+        cte = None
 
         if node.join_type is not None:
             join_strings.append(node.join_type)
@@ -264,9 +265,10 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
+
                 # Always put S3 Tables in a CTE so joins can work when queried
                 if isinstance(table_type.table, S3Table):
-                    ctes.append(f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})")
+                    cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
 
                     # The table is captured in a CTE so just print the table name in the final select
                     sql = table_type.table.to_printed_hogql()
@@ -308,7 +310,7 @@ class _Printer(Visitor):
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
-        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, ctes=ctes if ctes else None)
+        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, cte=cte)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
