@@ -406,6 +406,9 @@ export class SessionManager {
             this.inProgressUpload = null
         }
 
+        this.flushBuffer?.fileStream.end()
+        this.buffer.fileStream.end()
+
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
             .map((x) =>
