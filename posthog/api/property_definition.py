@@ -233,7 +233,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -296,7 +296,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "id",
             "name",
             "is_numerical",
-            "query_usage_30_day",
             "property_type",
             "tags",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided

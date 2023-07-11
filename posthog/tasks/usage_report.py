@@ -516,7 +516,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
-@app.task(ignore_result=True, retries=3)
+@app.task(ignore_result=True, retries=6)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
@@ -678,6 +678,8 @@ def send_all_org_usage_reports(
 
     org_reports: Dict[str, OrgReport] = {}
 
+    print("Generating reports for teams...")  # noqa T201
+    time_now = datetime.now()
     for team in teams:
         team_report = UsageReportCounters(
             event_count_lifetime=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_lifetime"]),
@@ -766,9 +768,13 @@ def send_all_org_usage_reports(
                         field.name,
                         getattr(org_report, field.name) + getattr(team_report, field.name),
                     )
+    time_since = datetime.now() - time_now
+    print(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
 
     all_reports = []
 
+    print("Sending usage reports to PostHog and Billing...")  # noqa T201
+    time_now = datetime.now()
     for org_report in org_reports.values():
         org_id = org_report.organization_id
 
@@ -793,4 +799,6 @@ def send_all_org_usage_reports(
         # Then capture the events to Billing
         if has_non_zero_usage(full_report):
             send_report_to_billing_service.delay(org_id, full_report_dict)
+    time_since = datetime.now() - time_now
+    print(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     return all_reports

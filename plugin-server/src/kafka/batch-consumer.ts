@@ -221,7 +221,24 @@ export const startBatchConsumer = async ({
 
     const join = async (timeout?: number) => {
         if (timeout) {
-            await Promise.race([mainLoop, new Promise((resolve) => setTimeout(() => resolve(null), timeout))])
+            // If we have a timeout set we want to wait for the main loop to finish
+            // but also want to ensure that we don't wait forever. We do this by
+            // creating a promise that will resolve after the timeout, and then
+            // waiting for either the main loop to finish or the timeout to occur.
+            // We need to make sure that if the main loop finishes before the
+            // timeout, we don't leave the timeout around to resolve later thus
+            // keeping file descriptors open, so make sure to call clearTimeout
+            // on the timer handle.
+            await new Promise((resolve) => {
+                const timerHandle = setTimeout(() => {
+                    resolve(null)
+                }, timeout)
+
+                mainLoop.finally(() => {
+                    resolve(null)
+                    clearTimeout(timerHandle)
+                })
+            })
         } else {
             await mainLoop
         }
