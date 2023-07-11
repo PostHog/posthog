@@ -282,9 +282,9 @@ describe('session-manager', () => {
         ])
     })
 
-    it('tracks the offsets', async () => {
-        const addEvent = async (offset: number) =>
-            await sessionManager.add(
+    it('tracks the offsets', () => {
+        const addEvent = (offset: number) =>
+            sessionManager.add(
                 createIncomingRecordingMessage({
                     metadata: {
                         offset,
@@ -292,21 +292,21 @@ describe('session-manager', () => {
                 })
             )
 
-        await addEvent(4)
+        addEvent(4)
 
         expect(sessionManager.buffer.offsets).toEqual({
             highest: 4,
             lowest: 4,
         })
 
-        await addEvent(10)
+        addEvent(10)
 
         expect(sessionManager.buffer.offsets).toEqual({
             highest: 10,
             lowest: 4,
         })
 
-        await addEvent(2)
+        addEvent(2)
 
         expect(sessionManager.buffer.offsets).toEqual({
             highest: 10,
