@@ -46,7 +46,10 @@ type SessionBuffer = {
     count: number
     file: string
     fileStream: WriteStream
-    offsets: number[]
+    offsets: {
+        lowest: number
+        highest: number
+    }
     eventsRange: {
         firstTimestamp: number
         lastTimestamp: number
@@ -249,7 +252,7 @@ export class SessionManager {
             const { file, offsets } = this.flushBuffer
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
-            this.onFinish(offsets)
+            this.onFinish([offsets.lowest, offsets.highest])
             await this.deleteFile(file, 'on s3 flush')
         }
     }
@@ -269,7 +272,10 @@ export class SessionManager {
                 newestKafkaTimestamp: null,
                 file,
                 fileStream: createWriteStream(file, 'utf-8'),
-                offsets: [],
+                offsets: {
+                    lowest: Infinity,
+                    highest: -Infinity,
+                },
                 eventsRange: null,
             }
 
@@ -300,9 +306,8 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
-            this.buffer.offsets.push(message.metadata.offset)
-            // It is important that we sort the offsets as the parent expects these to be sorted
-            this.buffer.offsets.sort((a, b) => a - b)
+            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
@@ -388,9 +393,9 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.offsets.length === 0) {
+        if (this.buffer.count === 0) {
             return null
         }
-        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
+        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
     }
 }
