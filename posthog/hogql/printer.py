@@ -793,6 +793,8 @@ class _Printer(Visitor):
         return None
 
     def _print_identifier(self, name: str) -> str:
+        if "%" in name:
+            raise HogQLException(f"Invalid identifier {name}. Identifiers cannot contain the '%' character.")
         if self.dialect == "clickhouse":
             return escape_clickhouse_identifier(name)
         return escape_hogql_identifier(name)
