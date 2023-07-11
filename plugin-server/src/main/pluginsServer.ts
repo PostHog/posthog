@@ -436,14 +436,13 @@ export async function startPluginsServer(
         if (capabilities.sessionRecordingBlobIngestion) {
             const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
             const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, blobServerConfig)
             const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
             const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
+            const ingester = new SessionRecordingBlobIngester(blobServerConfig, postgres, s3, redisPool)
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {

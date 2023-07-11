@@ -10,6 +10,7 @@ import {
     TopicPartition,
 } from 'node-rdkafka-acosom'
 import path from 'path'
+import { Pool } from 'pg'
 import { Gauge } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
@@ -19,7 +20,7 @@ import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { status } from '../../../utils/status'
-import { fetchTeamTokensWithRecordings, TeamManager } from '../../../worker/ingestion/team-manager'
+import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
@@ -86,8 +87,8 @@ export class SessionRecordingBlobIngester {
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
 
     constructor(
-        private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
+        private postgres: Pool,
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
@@ -103,7 +104,7 @@ export class SessionRecordingBlobIngester {
                   serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
               )
 
-        this.teamsRefresher = new BackgroundRefresher(() => fetchTeamTokensWithRecordings(this.teamManager.postgres))
+        this.teamsRefresher = new BackgroundRefresher(() => fetchTeamTokensWithRecordings(this.postgres))
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
