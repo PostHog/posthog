@@ -85,7 +85,7 @@ describe('session-manager', () => {
         Settings.now = () => new Date().valueOf()
     })
 
-    it('adds a message', async () => {
+    it('adds a message', () => {
         const timestamp = now() - 10000
         const event = createIncomingRecordingMessage({
             metadata: {
