@@ -23,6 +23,7 @@
         window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
         window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
         window.IMPERSONATED_SESSION = {{impersonated_session | yesno:"true,false"}};
+        window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
     </script>
 {% endif %}
 {% if sentry_dsn %}
