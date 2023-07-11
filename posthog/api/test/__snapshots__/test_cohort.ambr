@@ -1,6 +1,6 @@
 # name: TestCohort.test_async_deletion_of_cohort
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -10,7 +10,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.1
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -23,7 +23,7 @@
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 1 day
                        AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_2_level_level_0_level_1_level_0_0
+                       AND event = '$pageview') > 0 AS performed_event_condition_1_level_level_0_level_1_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -49,7 +49,7 @@
            HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
        AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''))))
-             OR ((performed_event_condition_2_level_level_0_level_1_level_0_0)))) ) as person
+             OR ((performed_event_condition_1_level_level_0_level_1_level_0_0)))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -77,7 +77,7 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 2
-         AND cohort_id = '2'
+         AND cohort_id = '1'
          AND version < '2')
   '
 ---
@@ -114,7 +114,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.2
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -124,7 +124,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.3
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
@@ -134,7 +134,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.4
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -144,7 +144,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.5
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   INSERT INTO cohortpeople
   SELECT id,
          2 as cohort_id,
@@ -178,7 +178,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.6
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
@@ -188,7 +188,7 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.7
   '
-  /* user_id:2 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
+  /* user_id:102 celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
@@ -203,7 +203,7 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 2
-         AND cohort_id = '2'
+         AND cohort_id = '1'
          AND version < '2')
   '
 ---
@@ -213,7 +213,7 @@
   ALTER TABLE cohortpeople
   DELETE
   WHERE (team_id = 2
-         AND cohort_id = '2'
+         AND cohort_id = '1'
          AND version < '2')
   '
 ---
