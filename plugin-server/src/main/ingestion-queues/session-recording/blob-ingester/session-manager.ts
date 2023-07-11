@@ -1,8 +1,8 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, readFile, unlink } from 'fs/promises'
+import { createReadStream, createWriteStream, WriteStream } from 'fs'
+import { readFile, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
@@ -45,6 +45,7 @@ type SessionBuffer = {
     newestKafkaTimestamp: number | null
     count: number
     file: string
+    fileStream: WriteStream
     offsets: number[]
     eventsRange: {
         firstTimestamp: number
@@ -118,12 +119,12 @@ export class SessionManager {
         }
     }
 
-    public async add(message: IncomingRecordingMessage): Promise<void> {
+    public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
         }
 
-        await this.addToBuffer(message)
+        this.addToBuffer(message)
     }
 
     public get isEmpty(): boolean {
@@ -193,6 +194,7 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
+        this.flushBuffer.fileStream.end()
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -255,22 +257,21 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const file = path.join(
+                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            )
             const buffer: SessionBuffer = {
                 id,
                 createdAt: now(),
                 count: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
-                file: path.join(
-                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
-                ),
+                file,
+                fileStream: createWriteStream(file, 'utf-8'),
                 offsets: [],
                 eventsRange: null,
             }
-
-            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-            writeFileSync(buffer.file, '', 'utf-8')
 
             return buffer
         } catch (error) {
@@ -282,7 +283,7 @@ export class SessionManager {
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
-    private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
+    private addToBuffer(message: IncomingRecordingMessage): void {
         try {
             this.buffer.oldestKafkaTimestamp = Math.min(
                 this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
@@ -308,7 +309,7 @@ export class SessionManager {
                 void this.realtimeManager.addMessage(message)
             }
 
-            await appendFile(this.buffer.file, content, 'utf-8')
+            this.buffer.fileStream.write(content)
         } catch (error) {
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -371,6 +372,9 @@ export class SessionManager {
             await this.inProgressUpload.abort()
             this.inProgressUpload = null
         }
+
+        this.flushBuffer?.fileStream.end()
+        this.buffer.fileStream.end()
 
         const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
             .filter((x): x is string => x !== undefined)
