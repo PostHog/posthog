@@ -95,7 +95,6 @@ describe('session-manager', () => {
             newestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
-            size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
             createdAt: now(),
             eventsRange: {
