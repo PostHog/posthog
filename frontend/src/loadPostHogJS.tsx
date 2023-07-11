@@ -37,6 +37,7 @@ export function loadPostHogJS(): void {
                         posthog.opt_in_capturing()
                     }
                 },
+                uuid_version: 'v7',
             })
         )
 
