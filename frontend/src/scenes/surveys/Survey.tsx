@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyQuestion, Survey, SurveyQuestionType } from '~/types'
+import { SurveyQuestion, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
@@ -85,6 +85,16 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <Field name="description" label="Description (optional)">
                         <LemonTextArea data-attr="survey-description" />
                     </Field>
+                    <Field name="type" label="Mode" className="w-max">
+                        <LemonSelect
+                            data-attr="survey-type"
+                            options={[
+                                { label: 'Popover', value: SurveyType.Popover },
+                                { label: 'API', value: SurveyType.API },
+                            ]}
+                        />
+                    </Field>
+                    <LemonDivider />
                     {survey.questions.map((question: SurveyQuestion, index: number) => (
                         <Group name={`questions.${index}`} key={index}>
                             <Field name="type" label="Type" className="w-max">
@@ -194,22 +204,24 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </PureField>
                 </div>
                 <LemonDivider vertical />
-                <div className="flex flex-col flex-1 items-center">
-                    <Field name="appearance" label="">
-                        {({ value, onChange }) => (
-                            <SurveyAppearance
-                                type={survey.questions[0].type}
-                                question={survey.questions[0].question}
-                                description={survey.questions[0].description}
-                                onAppearanceChange={(appearance) => {
-                                    onChange(appearance)
-                                }}
-                                link={survey.questions[0].link}
-                                appearance={value || defaultSurveyAppearance}
-                            />
-                        )}
-                    </Field>
-                </div>
+                {survey.type !== SurveyType.API && (
+                    <div className="flex flex-col flex-1 items-center">
+                        <Field name="appearance" label="">
+                            {({ value, onChange }) => (
+                                <SurveyAppearance
+                                    type={survey.questions[0].type}
+                                    question={survey.questions[0].question}
+                                    description={survey.questions[0].description}
+                                    onAppearanceChange={(appearance) => {
+                                        onChange(appearance)
+                                    }}
+                                    link={survey.questions[0].link}
+                                    appearance={value || defaultSurveyAppearance}
+                                />
+                            )}
+                        </Field>
+                    </div>
+                )}
             </div>
             <LemonDivider />
             <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
