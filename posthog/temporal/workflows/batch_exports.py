@@ -1,10 +1,8 @@
 import json
+from datetime import datetime
 from string import Template
 
 from aiochclient import ChClient
-
-from datetime import datetime
-
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -51,6 +49,7 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
             fields="""
                     uuid,
                     timestamp,
+                    _timestamp,
                     created_at,
                     event,
                     properties,
