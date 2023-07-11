@@ -144,7 +144,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="Url contains:">
+                                    <PureField label="URL contains:">
                                         <LemonInput
                                             value={value?.url}
                                             onChange={(urlVal) => onChange({ ...value, url: urlVal })}
@@ -256,7 +256,7 @@ export function SurveyReleaseSummary({
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>Url contains:</span>{' '}
+                        <span>URL contains:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>
                 </div>
