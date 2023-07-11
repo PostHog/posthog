@@ -2,7 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { appendFile, readFile, unlink } from 'fs/promises'
+import { readFile, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
@@ -55,10 +55,7 @@ type SessionBuffer = {
     size: number
     file: string
     fileStream: WriteStream
-    offsets: {
-        lowest: number
-        highest: number
-    }
+    offsets: number[]
     eventsRange: {
         firstTimestamp: number
         lastTimestamp: number
@@ -136,7 +133,7 @@ export class SessionManager {
             return
         }
 
-        await this.addToBuffer(message)
+        this.addToBuffer(message)
         await this.flushIfBufferExceedsCapacity()
     }
 
@@ -283,7 +280,7 @@ export class SessionManager {
             const { file, offsets } = this.flushBuffer
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
-            this.onFinish([offsets.lowest, offsets.highest])
+            this.onFinish(offsets)
             await this.deleteFile(file, 'on s3 flush')
         }
     }
@@ -304,10 +301,7 @@ export class SessionManager {
                 newestKafkaTimestamp: null,
                 file,
                 fileStream: createWriteStream(file, 'utf-8'),
-                offsets: {
-                    lowest: 0,
-                    highest: 0,
-                },
+                offsets: [],
                 eventsRange: null,
             }
 
@@ -321,7 +315,7 @@ export class SessionManager {
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
-    private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
+    private addToBuffer(message: IncomingRecordingMessage): void {
         try {
             this.buffer.oldestKafkaTimestamp = Math.min(
                 this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
@@ -339,8 +333,9 @@ export class SessionManager {
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
-            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
-            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
+            this.buffer.offsets.push(message.metadata.offset)
+            // It is important that we sort the offsets as the parent expects these to be sorted
+            this.buffer.offsets.sort((a, b) => a - b)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
@@ -348,7 +343,6 @@ export class SessionManager {
             }
 
             this.buffer.fileStream.write(content)
-            await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -424,9 +418,9 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.size === 0) {
+        if (this.buffer.offsets.length === 0) {
             return null
         }
-        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
+        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
     }
 }
