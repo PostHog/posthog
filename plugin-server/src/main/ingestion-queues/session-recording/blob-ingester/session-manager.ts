@@ -1,7 +1,7 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, writeFileSync } from 'fs'
+import { createReadStream, createWriteStream, WriteStream } from 'fs'
 import { appendFile, readFile, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
@@ -54,7 +54,11 @@ type SessionBuffer = {
     count: number
     size: number
     file: string
-    offsets: number[]
+    fileStream: WriteStream
+    offsets: {
+        lowest: number
+        highest: number
+    }
     eventsRange: {
         firstTimestamp: number
         lastTimestamp: number
@@ -223,6 +227,7 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
+        this.flushBuffer.fileStream.end()
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -278,7 +283,7 @@ export class SessionManager {
             const { file, offsets } = this.flushBuffer
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
-            this.onFinish(offsets)
+            this.onFinish([offsets.lowest, offsets.highest])
             await this.deleteFile(file, 'on s3 flush')
         }
     }
@@ -286,6 +291,10 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const file = path.join(
+                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            )
             const buffer: SessionBuffer = {
                 id,
                 createdAt: now(),
@@ -293,16 +302,14 @@ export class SessionManager {
                 size: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
-                file: path.join(
-                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
-                ),
-                offsets: [],
+                file,
+                fileStream: createWriteStream(file, 'utf-8'),
+                offsets: {
+                    lowest: 0,
+                    highest: 0,
+                },
                 eventsRange: null,
             }
-
-            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-            writeFileSync(buffer.file, '', 'utf-8')
 
             return buffer
         } catch (error) {
@@ -332,15 +339,15 @@ export class SessionManager {
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.size += Buffer.byteLength(content)
-            this.buffer.offsets.push(message.metadata.offset)
-            // It is important that we sort the offsets as the parent expects these to be sorted
-            this.buffer.offsets.sort((a, b) => a - b)
+            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
                 void this.realtimeManager.addMessage(message)
             }
 
+            this.buffer.fileStream.write(content)
             await appendFile(this.buffer.file, content, 'utf-8')
         } catch (error) {
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
@@ -417,9 +424,9 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.offsets.length === 0) {
+        if (this.buffer.size === 0) {
             return null
         }
-        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
+        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
     }
 }
