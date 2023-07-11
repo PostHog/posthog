@@ -2,6 +2,7 @@ import glob
 import os
 import pathlib
 from unittest import TestCase
+import pytest
 
 
 class TestLatestMigrations(TestCase):
@@ -21,11 +22,15 @@ class TestLatestMigrations(TestCase):
     def test_ee_migrations_is_in_sync_with_latest(self):
         latest_manifest_migration = self._get_latest_migration_from_manifest("ee")
         latest_migration_file = self._get_newest_migration_file(f"{pathlib.Path().resolve()}/ee/migrations/*")
+        if not latest_migration_file:
+            pytest.skip("ee migrations not found")
         self.assertEqual(latest_manifest_migration, latest_migration_file)
 
     @staticmethod
     def _get_newest_migration_file(path: str) -> str:
         migrations = [file for file in glob.glob(path) if file.endswith(".py") and not file.endswith("__init__.py")]
+        if not migrations:
+            return None
         latest_file = max(sorted(migrations))
         return os.path.basename(latest_file).replace(".py", "")
 
