@@ -99,6 +99,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         )
         details = activity.info().heartbeat_details
 
+        parts: List[CompletedPartTypeDef] = []
+
         if len(details) == 2:
             interval_start, upload_id, parts, part_number = details
             activity.logger.info(f"Received details from previous activity. Export will resume from {interval_start}")
@@ -107,7 +109,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
             multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
             upload_id = multipart_response["UploadId"]
             interval_start = inputs.data_interval_start
-            parts: List[CompletedPartTypeDef] = []
             part_number = 1
 
         # Iterate through chunks of results from ClickHouse and push them to S3
