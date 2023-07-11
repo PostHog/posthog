@@ -11,7 +11,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter.1
@@ -27,7 +28,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter.2
@@ -43,7 +45,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -59,7 +62,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -75,7 +79,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -91,7 +96,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_events_query_all_time_date
@@ -103,7 +109,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -115,7 +122,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -127,7 +135,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_full_hogql_query
@@ -140,7 +149,8 @@
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60
+                     max_execution_time=60,
+                     allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -153,7 +163,8 @@
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60
+                     max_execution_time=60,
+                     allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter
@@ -169,7 +180,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -185,7 +197,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -201,7 +214,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -217,7 +231,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -233,7 +248,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -249,7 +265,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -265,7 +282,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -281,7 +299,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_person_property_filter
@@ -311,7 +330,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -341,7 +361,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations
@@ -355,7 +376,8 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -370,7 +392,8 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -384,7 +407,8 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -399,7 +423,8 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_event_person
@@ -413,7 +438,8 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions
@@ -428,7 +454,8 @@
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -441,7 +468,8 @@
   ORDER BY tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -455,7 +483,8 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -469,6 +498,7 @@
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60
+                    max_execution_time=60,
+                    allow_experimental_object_type=True
   '
 ---

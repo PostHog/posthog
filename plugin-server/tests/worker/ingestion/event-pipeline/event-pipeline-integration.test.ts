@@ -6,6 +6,7 @@ import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
@@ -22,12 +23,16 @@ describe('Event Pipeline integration test', () => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToIngestionEvent(result.args[0])
-        return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
+        return Promise.all([
+            runner.runAppsOnEventPipeline(postIngestionEvent),
+            processWebhooksStep(runner.hub, postIngestionEvent),
+        ])
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
+        process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
@@ -121,7 +126,7 @@ describe('Event Pipeline integration test', () => {
             team_id: 2,
             distinct_id: 'abc',
             ip: null,
-            site_url: 'https://example.com',
+            site_url: 'not-used-anymore',
             uuid: new UUIDT().toString(),
         }
         await hub.actionManager.reloadAllActions()

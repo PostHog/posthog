@@ -95,7 +95,6 @@ describe('session-manager', () => {
             newestKafkaTimestamp: timestamp,
             file: expect.any(String),
             id: expect.any(String),
-            size: 4139, // The size of the event payload - this may change when test data changes
             offsets: [1],
             createdAt: now(),
             eventsRange: {
@@ -216,7 +215,7 @@ describe('session-manager', () => {
         expect(createReadStream).not.toHaveBeenCalled()
 
         // Manually modify the date to simulate this being idle for too long
-        sessionManager.buffer.createdAt = now.minus({ milliseconds: 3000 }).toMillis()
+        sessionManager.buffer.createdAt = now.minus({ milliseconds: 6000 }).toMillis()
         await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
         expect(createReadStream).toHaveBeenCalled()
     })

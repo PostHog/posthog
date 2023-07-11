@@ -21,6 +21,7 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FieldOrTable,
     DatabaseField,
+    StringArrayDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -175,44 +176,72 @@ SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
 class IntegerType(ConstantType):
     data_type: ConstantDataType = PydanticField("int", const=True)
 
+    def print_type(self) -> str:
+        return "Integer"
+
 
 class FloatType(ConstantType):
     data_type: ConstantDataType = PydanticField("float", const=True)
+
+    def print_type(self) -> str:
+        return "Float"
 
 
 class StringType(ConstantType):
     data_type: ConstantDataType = PydanticField("str", const=True)
 
+    def print_type(self) -> str:
+        return "String"
+
 
 class BooleanType(ConstantType):
     data_type: ConstantDataType = PydanticField("bool", const=True)
+
+    def print_type(self) -> str:
+        return "Boolean"
 
 
 class DateType(ConstantType):
     data_type: ConstantDataType = PydanticField("date", const=True)
 
+    def print_type(self) -> str:
+        return "Date"
+
 
 class DateTimeType(ConstantType):
     data_type: ConstantDataType = PydanticField("datetime", const=True)
 
+    def print_type(self) -> str:
+        return "DateTime"
+
 
 class UUIDType(ConstantType):
     data_type: ConstantDataType = PydanticField("uuid", const=True)
+
+    def print_type(self) -> str:
+        return "UUID"
 
 
 class ArrayType(ConstantType):
     data_type: ConstantDataType = PydanticField("array", const=True)
     item_type: ConstantType
 
+    def print_type(self) -> str:
+        return "Array"
+
 
 class TupleType(ConstantType):
     data_type: ConstantDataType = PydanticField("tuple", const=True)
     item_types: List[ConstantType]
 
+    def print_type(self) -> str:
+        return "Tuple"
+
 
 class CallType(Type):
     name: str
     arg_types: List[ConstantType]
+    param_types: Optional[List[ConstantType]] = None
     return_type: ConstantType
 
     def resolve_constant_type(self) -> ConstantType:
@@ -267,6 +296,8 @@ class FieldType(Type):
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StringArrayDatabaseField):
+            return FieldType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
@@ -405,8 +436,14 @@ class Placeholder(Expr):
 
 class Call(Expr):
     name: str
+    """Function name"""
     args: List[Expr]
-    distinct: Optional[bool] = None
+    params: Optional[List[Expr]] = None
+    """
+    Parameters apply to some aggregate functions, see ClickHouse docs:
+    https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
+    """
+    distinct: bool = False
 
 
 class JoinConstraint(Expr):

@@ -6,18 +6,18 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
     TypedDict,
     Union,
     cast,
-    Literal,
 )
 
-import dateutil
 import requests
 import structlog
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
@@ -38,8 +38,8 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG, CLICKHOUSE_CLUSTER
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day, get_instance_region
+from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
@@ -284,8 +284,14 @@ def capture_event(
     name: str,
     organization_id: str,
     properties: Dict[str, Any],
-    timestamp: Optional[datetime] = None,
+    timestamp: Optional[Union[datetime, str]] = None,
 ) -> None:
+    if timestamp and isinstance(timestamp, str):
+        try:
+            timestamp = parser.isoparse(timestamp)
+        except ValueError:
+            timestamp = None
+
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
@@ -510,7 +516,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
-@app.task(ignore_result=True, retries=3)
+@app.task(ignore_result=True, retries=6)
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
@@ -520,7 +526,7 @@ def send_all_org_usage_reports(
 ) -> List[dict]:  # Dict[str, OrgReport]:
     capture_event_name = capture_event_name or "organization usage report"
 
-    at_date = dateutil.parser.parse(at) if at else None
+    at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
@@ -672,6 +678,8 @@ def send_all_org_usage_reports(
 
     org_reports: Dict[str, OrgReport] = {}
 
+    print("Generating reports for teams...")  # noqa T201
+    time_now = datetime.now()
     for team in teams:
         team_report = UsageReportCounters(
             event_count_lifetime=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_lifetime"]),
@@ -760,9 +768,13 @@ def send_all_org_usage_reports(
                         field.name,
                         getattr(org_report, field.name) + getattr(team_report, field.name),
                     )
+    time_since = datetime.now() - time_now
+    print(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
 
     all_reports = []
 
+    print("Sending usage reports to PostHog and Billing...")  # noqa T201
+    time_now = datetime.now()
     for org_report in org_reports.values():
         org_id = org_report.organization_id
 
@@ -781,9 +793,12 @@ def send_all_org_usage_reports(
 
         # First capture the events to PostHog
         if not skip_capture_event:
-            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
+            at_date_str = at_date.isoformat() if at_date else None
+            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
 
         # Then capture the events to Billing
         if has_non_zero_usage(full_report):
             send_report_to_billing_service.delay(org_id, full_report_dict)
+    time_since = datetime.now() - time_now
+    print(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     return all_reports

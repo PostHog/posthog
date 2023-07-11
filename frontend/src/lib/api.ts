@@ -1,50 +1,49 @@
 import posthog from 'posthog-js'
 import {
     ActionType,
-    RawAnnotationType,
     CohortType,
-    EventDefinitionType,
     DashboardCollaboratorType,
+    DashboardTemplateEditorType,
+    DashboardTemplateListParams,
+    DashboardTemplateType,
     DashboardType,
+    DataWarehouseTable,
+    EarlyAccessFeatureType,
     EventDefinition,
+    EventDefinitionType,
+    EventsListQueryParams,
     EventType,
     ExportedAssetType,
+    FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     InsightModel,
     IntegrationType,
+    MediaUploadResponse,
+    NewEarlyAccessFeatureType,
+    NotebookType,
+    OrganizationResourcePermissionType,
     OrganizationType,
+    PerformanceEvent,
     PersonListParams,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
+    PropertyDefinitionType,
+    RawAnnotationType,
+    RecentPerformancePageView,
+    RoleMemberType,
+    RolesListParams,
+    RoleType,
+    SessionRecordingPlaylistType,
+    SessionRecordingSnapshotResponse,
+    SessionRecordingsResponse,
+    SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
+    Survey,
     TeamType,
     UserType,
-    MediaUploadResponse,
-    SessionRecordingsResponse,
-    SessionRecordingPropertiesType,
-    EventsListQueryParams,
-    SessionRecordingPlaylistType,
-    RoleType,
-    RoleMemberType,
-    OrganizationResourcePermissionType,
-    RolesListParams,
-    FeatureFlagAssociatedRoleType,
-    SessionRecordingType,
-    PerformanceEvent,
-    RecentPerformancePageView,
-    DashboardTemplateType,
-    DashboardTemplateEditorType,
-    EarlyAccessFeatureType,
-    NewEarlyAccessFeatureType,
-    SessionRecordingSnapshotResponse,
-    Survey,
-    NotebookType,
-    DashboardTemplateListParams,
-    PropertyDefinitionType,
-    DataWarehouseTable,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -275,6 +274,9 @@ class ApiRequest {
 
     public cohortsDetail(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
+    }
+    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
     // Recordings
@@ -594,7 +596,7 @@ const api = {
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
-            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
+            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest | null> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
@@ -621,12 +623,17 @@ const api = {
                     // TODO allow someone to load _only_ property definitions?
                     return new ApiRequest().dataManagementActivity()
                 },
+                [ActivityScope.NOTEBOOK]: () => {
+                    // not implemented
+                    return null
+                },
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            return requestForScope[activityLogProps.scope](activityLogProps)
-                .withQueryString(toParams(pagingParameters))
-                .get()
+            const request = requestForScope[activityLogProps.scope](activityLogProps)
+            return request !== null
+                ? request.withQueryString(toParams(pagingParameters)).get()
+                : Promise.resolve({ results: [], count: 0 })
         },
     },
 
@@ -830,6 +837,9 @@ const api = {
                 .cohortsDetail(cohortId)
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
+        },
+        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
+            return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
         async list(): Promise<PaginatedResponse<CohortType>> {
             // TODO: Remove hard limit and paginate cohorts
@@ -1103,10 +1113,6 @@ const api = {
         async list(params: string): Promise<SessionRecordingsResponse> {
             return await new ApiRequest().recordings().withQueryString(params).get()
         },
-        async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
-            return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
-        },
-
         async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },
@@ -1401,7 +1407,13 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal: options?.signal })
+            const sessionId = posthog.get_session_id()
+            response = await fetch(url, {
+                signal: options?.signal,
+                headers: {
+                    'X-POSTHOG-SESSION-ID': sessionId,
+                },
+            })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -1424,6 +1436,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1455,6 +1468,7 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1480,6 +1494,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })
 

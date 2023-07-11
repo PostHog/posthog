@@ -27,7 +27,11 @@ from posthog.kafka_client.client import (
     KafkaProducer,
     sessionRecordingKafkaProducer,
 )
-from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+)
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
@@ -137,7 +141,7 @@ def build_kafka_event_data(
     }
 
 
-def _kafka_topic(event_name: str) -> str:
+def _kafka_topic(event_name: str, data: Dict) -> str:
     # To allow for different quality of service on session recordings
     # and other events, we push to a different topic.
 
@@ -147,11 +151,15 @@ def _kafka_topic(event_name: str) -> str:
         case "$snapshot_items":
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         case _:
+            # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
+            # historical data topic.
+            if data.get("token") in settings.TOKENS_HISTORICAL_DATA:
+                return KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
             return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    kafka_topic = _kafka_topic(event_name)
+    kafka_topic = _kafka_topic(event_name, data)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
@@ -379,6 +387,7 @@ def get_event(request):
                 request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
             )
 
+        # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
         site_url = request.build_absolute_uri("/")[:-1]
         ip = get_ip_address(request)
 

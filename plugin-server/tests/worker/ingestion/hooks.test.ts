@@ -460,7 +460,7 @@ describe('hooks', () => {
         let hook: Hook
 
         beforeEach(() => {
-            hookCommander = new HookCommander({} as any, {} as any, {} as any, {} as any)
+            hookCommander = new HookCommander({} as any, {} as any, {} as any)
             hook = {
                 id: 'id',
                 team_id: 2,

@@ -3,12 +3,12 @@
     "short_name": "PostHog",
     "icons": [
         {
-            "src": "/static/icons/android-chrome-192x192.png?v=2021-04-28",
+            "src": "/static/icons/android-chrome-192x192.png?v=2023-07-07",
             "sizes": "192x192",
             "type": "image/png"
         },
         {
-            "src": "/static/icons/android-chrome-512x512.png?v=2021-04-28",
+            "src": "/static/icons/android-chrome-512x512.png?v=2023-07-07",
             "sizes": "512x512",
             "type": "image/png"
         }

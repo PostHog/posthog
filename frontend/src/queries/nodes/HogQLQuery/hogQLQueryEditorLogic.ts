@@ -1,13 +1,24 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
-
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
-import { editor, MarkerSeverity } from 'monaco-editor'
+// Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
+// auto reload in development. Specifically, on this line:
+// `export const suggestWidgetStatusbarMenu = new MenuId('suggestWidgetStatusBar')`
+// `new MenuId('suggestWidgetStatusBar')` causes the app to crash, because it cannot be called twice in the same
+// JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
+// esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
+// re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
+import type { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
-import { Monaco } from '@monaco-editor/react'
+import type { Monaco } from '@monaco-editor/react'
+import api from 'lib/api'
+import { combineUrl } from 'kea-router'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
+    start: number
+    end: number
 }
 
 export interface HogQLQueryEditorLogicProps {
@@ -31,29 +42,41 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
         setModelMarkers: (markers: ModelMarker[]) => ({ markers }),
+        setPrompt: (prompt: string) => ({ prompt }),
+        setPromptError: (error: string | null) => ({ error }),
+        draftFromPrompt: true,
+        draftFromPromptComplete: true,
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
         modelMarkers: [[] as ModelMarker[], { setModelMarkers: (_, { markers }) => markers }],
+        prompt: ['', { setPrompt: (_, { prompt }) => prompt }],
+        promptError: [
+            null as string | null,
+            { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
+        ],
+        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
     })),
     selectors({
         hasErrors: [
             (s) => [s.modelMarkers],
-            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === MarkerSeverity.Error).length,
+            (modelMarkers) => !!(modelMarkers ?? []).filter((e) => e.severity === 8 /* MarkerSeverity.Error */).length,
         ],
         error: [
             (s) => [s.hasErrors, s.modelMarkers],
             (hasErrors, modelMarkers) => {
-                const firstError = modelMarkers.find((e) => e.severity === MarkerSeverity.Error)
+                const firstError = modelMarkers.find((e) => e.severity === 8 /* MarkerSeverity.Error */)
                 return hasErrors && firstError
                     ? `Error on line ${firstError.startLineNumber}, column ${firstError.startColumn}`
                     : null
             },
         ],
+        aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
     }),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {
             const query = values.queryInput
+            // TODO: Is below line necessary if the only way for queryInput to change is already through setQueryInput?
             actions.setQueryInput(query)
             props.setQuery?.({ ...props.query, query })
         },
@@ -81,8 +104,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 const start = model.getPositionAt(error.start ?? 0)
                 const end = model.getPositionAt(error.end ?? queryInput.length)
                 markers.push({
+                    start: error.start ?? 0,
                     startLineNumber: start.lineNumber,
                     startColumn: start.column,
+                    end: error.end ?? queryInput.length,
                     endLineNumber: end.lineNumber,
                     endColumn: end.column,
                     message: error.message ?? 'Unknown error',
@@ -91,16 +116,37 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 })
             }
             for (const notice of response?.errors ?? []) {
-                noticeToMarker(notice, MarkerSeverity.Error)
+                noticeToMarker(notice, 8 /* MarkerSeverity.Error */)
             }
             for (const notice of response?.warnings ?? []) {
-                noticeToMarker(notice, MarkerSeverity.Warning)
+                noticeToMarker(notice, 4 /* MarkerSeverity.Warning */)
             }
             for (const notice of response?.notices ?? []) {
-                noticeToMarker(notice, MarkerSeverity.Hint)
+                noticeToMarker(notice, 1 /* MarkerSeverity.Hint */)
             }
 
             actions.setModelMarkers(markers)
+        },
+        draftFromPrompt: async () => {
+            if (!values.aiAvailable) {
+                throw new Error(
+                    'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
+                )
+            }
+            try {
+                const result = await api.get(
+                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                        prompt: values.prompt,
+                        current_query: values.queryInput,
+                    }).url
+                )
+                const { sql } = result
+                actions.setQueryInput(sql)
+            } catch (e) {
+                actions.setPromptError((e as { code: string; detail: string }).detail)
+            } finally {
+                actions.draftFromPromptComplete()
+            }
         },
         setModelMarkers: ({ markers }) => {
             const model = props.editor?.getModel()

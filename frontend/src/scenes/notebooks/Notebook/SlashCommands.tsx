@@ -1,24 +1,23 @@
-import { ChainedCommands, Editor, Extension, Range } from '@tiptap/core'
+import { Editor as TTEditor, Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
 
 import { FloatingMenu, ReactRenderer } from '@tiptap/react'
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
 import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { isCurrentNodeEmpty } from './utils'
+import { EditorCommands, EditorRange, isCurrentNodeEmpty } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import Fuse from 'fuse.js'
+import { useValues } from 'kea'
+import { notebookLogic } from './notebookLogic'
 
 type SlashCommandsProps = {
-    editor: Editor
     mode: 'slash' | 'add'
     query?: string
-    range?: Range
+    range?: EditorRange
     decorationNode?: any
 }
 
@@ -30,7 +29,7 @@ type SlashCommandsItem = {
     title: string
     search?: string
     icon?: JSX.Element
-    command: (chain: ChainedCommands) => ChainedCommands
+    command: (chain: EditorCommands) => EditorCommands
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -40,11 +39,11 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
     },
     {
         title: 'H2',
-        command: (chain) => chain.toggleHeading({ level: 1 }),
+        command: (chain) => chain.toggleHeading({ level: 2 }),
     },
     {
         title: 'H3',
-        command: (chain) => chain.toggleHeading({ level: 1 }),
+        command: (chain) => chain.toggleHeading({ level: 3 }),
     },
     {
         title: 'B',
@@ -87,9 +86,10 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
 ]
 
 const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
-    { mode, editor, range = { from: 0, to: 0 }, query },
+    { mode, range = { from: 0, to: 0 }, query },
     ref
 ): JSX.Element | null {
+    const { editor } = useValues(notebookLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
@@ -121,12 +121,14 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
     }, [query])
 
     const onPressEnter = (): void => {
-        const command =
-            selectedIndex === -1
-                ? TEXT_CONTROLS[selectedHorizontalIndex].command
-                : filteredSlashCommands[selectedIndex].command
+        if (!!editor) {
+            const command =
+                selectedIndex === -1
+                    ? TEXT_CONTROLS[selectedHorizontalIndex].command
+                    : filteredSlashCommands[selectedIndex].command
 
-        command(editor.chain().focus().deleteRange(range)).run()
+            command(editor.deleteRange(range)).run()
+        }
     }
     const onPressUp = (): void => {
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
@@ -198,7 +200,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                         status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
-                        onClick={() => item.command(editor.chain().focus().deleteRange(range)).run()}
+                        onClick={() => item.command(editor.deleteRange(range)).run()}
                     >
                         {item.title}
                     </LemonButton>
@@ -214,7 +216,7 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
                     status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
-                    onClick={() => item.command(editor.chain().focus().deleteRange(range)).run()}
+                    onClick={() => item.command(editor.deleteRange(range)).run()}
                 >
                     {item.title}
                 </LemonButton>
@@ -251,9 +253,7 @@ const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     )
 })
 
-export function FloatingSlashCommands(): JSX.Element | null {
-    const { editor } = useValues(notebookLogic)
-
+export function FloatingSlashCommands({ editor }: { editor: TTEditor }): JSX.Element | null {
     const shouldShow = useCallback((): boolean => {
         if (!editor) {
             return false
@@ -276,7 +276,7 @@ export function FloatingSlashCommands(): JSX.Element | null {
                 size="small"
                 icon={<IconPlus />}
                 dropdown={{
-                    overlay: <SlashCommands mode="add" editor={editor} range={undefined} />,
+                    overlay: <SlashCommands mode="add" range={undefined} />,
                     placement: 'right-start',
                     fallbackPlacements: ['left-start'],
                     actionable: true,

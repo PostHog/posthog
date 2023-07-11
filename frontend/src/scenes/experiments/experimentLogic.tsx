@@ -18,30 +18,30 @@ import {
     SignificanceCode,
     CountPerActorMathType,
     ActionFilter as ActionFilterType,
+    TrendExperimentVariant,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
-import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
-import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightVizNode } from '~/queries/schema'
+import { groupsModel } from '~/models/groupsModel'
 
-const DEFAULT_DURATION = 14 // days
+export const DEFAULT_DURATION = 14 // days
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -79,7 +79,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -96,6 +96,10 @@ export const experimentLogic = kea<experimentLogicType>([
             ['setQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['updateQuerySource'],
+            insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+            ['setQuery as setExposureQuery'],
+            insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
+            ['updateQuerySource as updateExposureQuerySource'],
         ],
     })),
     actions({
@@ -106,13 +110,14 @@ export const experimentLogic = kea<experimentLogicType>([
             sampleSize,
         }),
         setNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
+        setExperimentExposureInsight: (filters?: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
-        setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
+        updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         launchExperiment: true,
         endExperiment: true,
@@ -120,9 +125,10 @@ export const experimentLogic = kea<experimentLogicType>([
         archiveExperiment: true,
         resetRunningExperiment: true,
         checkFlagImplementationWarning: true,
-        checkFlagAvailabilityWarning: true,
         openExperimentGoalModal: true,
         closeExperimentGoalModal: true,
+        openExperimentExposureModal: true,
+        closeExperimentExposureModal: true,
     }),
     reducers({
         experiment: [
@@ -130,8 +136,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     if (experiment.filters) {
-                        const newFilters = { ...state.filters, ...experiment.filters }
-                        return { ...state, ...experiment, filters: newFilters }
+                        return { ...state, ...experiment, filters: experiment.filters }
                     }
 
                     // assuming setExperiment isn't called with new filters & parameters at the same time
@@ -202,6 +207,7 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 updateExperimentGoal: () => true,
+                updateExperimentExposure: () => true,
                 loadExperimentResults: () => false,
             },
         ],
@@ -224,12 +230,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFlagImplementationWarning: (_, { warning }) => warning,
             },
         ],
-        flagAvailabilityWarning: [
-            false as boolean,
-            {
-                setFlagAvailabilityWarning: (_, { warning }) => warning,
-            },
-        ],
         exposureAndSampleSize: [
             { exposure: 0, sampleSize: 0 } as { exposure: number; sampleSize: number },
             {
@@ -241,6 +241,21 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openExperimentGoalModal: () => true,
                 closeExperimentGoalModal: () => false,
+            },
+        ],
+        isExperimentExposureModalOpen: [
+            false,
+            {
+                openExperimentExposureModal: () => true,
+                closeExperimentExposureModal: () => false,
+            },
+        ],
+        experimentValuesChangedLocally: [
+            false,
+            {
+                setExperiment: () => true,
+                loadExperiment: () => false,
+                updateExperiment: () => false,
             },
         ],
     }),
@@ -260,6 +275,13 @@ export const experimentLogic = kea<experimentLogicType>([
                                 recommended_sample_size: sampleSize,
                             },
                             ...(!draft && { start_date: dayjs() }),
+                            // backwards compatibility: Remove any global properties set on the experiment.
+                            // These were used to change feature flag targeting, but this is controlled directly
+                            // on the feature flag now.
+                            filters: {
+                                ...values.experiment.filters,
+                                properties: [],
+                            },
                         }
                     )
                     if (response?.id) {
@@ -325,6 +347,25 @@ export const experimentLogic = kea<experimentLogicType>([
         setQuery: ({ query }) => {
             actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
         },
+        setExperimentExposureInsight: async ({ filters }) => {
+            const newInsightFilters = cleanFilters({
+                insight: InsightType.TRENDS,
+                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                ...filters,
+            })
+
+            actions.updateExposureQuerySource(filtersToQueryNode(newInsightFilters))
+        },
+        // // sync form value `filters` with query
+        setExposureQuery: ({ query }) => {
+            actions.setExperiment({
+                parameters: {
+                    custom_exposure_filter: queryNodeToFilter((query as InsightVizNode).source),
+                    feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
+                },
+            })
+        },
         loadExperimentSuccess: async ({ experiment }) => {
             experiment && actions.reportExperimentViewed(experiment)
             if (!experiment?.start_date) {
@@ -358,11 +399,25 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ filters: filtersToUpdate })
             actions.closeExperimentGoalModal()
         },
+        updateExperimentExposure: async ({ filters }) => {
+            actions.updateExperiment({
+                parameters: {
+                    custom_exposure_filter: filters ?? undefined,
+                    feature_flag_variants: values.experiment?.parameters?.feature_flag_variants,
+                },
+            })
+            actions.closeExperimentExposureModal()
+        },
         updateExperimentSecondaryMetrics: async ({ metrics }) => {
             actions.updateExperiment({ secondary_metrics: metrics })
         },
         closeExperimentGoalModal: () => {
-            if (values.experimentChanged) {
+            if (values.experimentValuesChangedLocally) {
+                actions.loadExperiment()
+            }
+        },
+        closeExperimentExposureModal: () => {
+            if (values.experimentValuesChangedLocally) {
                 actions.loadExperiment()
             }
         },
@@ -396,7 +451,6 @@ export const experimentLogic = kea<experimentLogicType>([
             if (experimentEntitiesChanged) {
                 actions.checkFlagImplementationWarning()
             }
-            actions.checkFlagAvailabilityWarning()
         },
         setExperimentValue: async ({ name, value }, breakpoint) => {
             await breakpoint(100)
@@ -412,8 +466,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (experimentEntitiesChanged) {
                     actions.checkFlagImplementationWarning()
                 }
-
-                actions.checkFlagAvailabilityWarning()
             }
         },
         setExperimentValues: async ({ values }, breakpoint) => {
@@ -432,7 +484,6 @@ export const experimentLogic = kea<experimentLogicType>([
             if (experimentEntitiesChanged) {
                 actions.checkFlagImplementationWarning()
             }
-            actions.checkFlagAvailabilityWarning()
         },
         checkFlagImplementationWarning: async (_, breakpoint) => {
             const experiment = values.experiment
@@ -459,23 +510,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
         },
-        checkFlagAvailabilityWarning: async () => {
-            if (values.experiment.filters?.properties) {
-                const targetProperties = convertPropertyGroupToProperties(values.experiment.filters.properties) || []
-
-                if (targetProperties.length > 0) {
-                    const hasNonInstantProperty = !!targetProperties.find(
-                        (property) =>
-                            property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
-                    )
-                    actions.setFlagAvailabilityWarning(hasNonInstantProperty)
-                } else {
-                    actions.setFlagAvailabilityWarning(false)
-                }
-            }
-        },
         openExperimentGoalModal: async () => {
             actions.setNewExperimentInsight(values.experiment?.filters)
+        },
+        openExperimentExposureModal: async () => {
+            actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
     })),
     loaders(({ actions, props, values }) => ({
@@ -509,12 +548,17 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentResults: [
             null as ExperimentResults['result'] | null,
             {
-                loadExperimentResults: async () => {
+                loadExperimentResults: async (refresh?: boolean) => {
                     try {
-                        const response = await api.get(
-                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
+                        const refreshParam = refresh ? '?refresh=true' : ''
+                        const response: ExperimentResults = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results${refreshParam}`
                         )
-                        return { ...response.result, fakeInsightId: Math.random().toString(36).substring(2, 15) }
+                        return {
+                            ...response.result,
+                            fakeInsightId: Math.random().toString(36).substring(2, 15),
+                            last_refresh: response.last_refresh,
+                        }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null
@@ -593,16 +637,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 )[0]?.math
 
                 return mathValue
-            },
-        ],
-        taxonomicGroupTypesForSelection: [
-            (s) => [s.experiment, s.groupsTaxonomicTypes],
-            (newexperiment, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
-                if (newexperiment?.filters?.aggregation_group_type_index != null && groupsTaxonomicTypes.length > 0) {
-                    return [groupsTaxonomicTypes[newexperiment.filters.aggregation_group_type_index]]
-                }
-
-                return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
         minimumDetectableChange: [
@@ -769,6 +803,31 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (experimentCountPerUserMath) {
                         result = variantResults.count / variantResults.data.length
                     }
+
+                    if (result % 1 !== 0) {
+                        // not an integer, so limit to 2 digits post decimal
+                        return result.toFixed(2)
+                    } else {
+                        return result.toString()
+                    }
+                },
+        ],
+        exposureCountDataForVariant: [
+            (s) => [s.experimentResults],
+            (experimentResults) =>
+                (variant: string): string => {
+                    const errorResult = '--'
+                    if (!experimentResults) {
+                        return errorResult
+                    }
+                    const variantResults = (experimentResults.variants as TrendExperimentVariant[]).find(
+                        (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
+                    )
+                    if (!variantResults) {
+                        return errorResult
+                    }
+
+                    const result = variantResults.absolute_exposure
 
                     if (result % 1 !== 0) {
                         // not an integer, so limit to 2 digits post decimal

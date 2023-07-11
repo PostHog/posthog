@@ -6,7 +6,7 @@ import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
 export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
-    const { ip, site_url, team_id, uuid } = event
+    const { ip, team_id, uuid } = event
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         // TODO: make that metric name more generic when transitionning to prometheus
         runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id), type: type })
@@ -21,8 +21,6 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid! // it will throw if it's undefined,
     )
-
-    await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
 
     return preIngestionEvent
 }
