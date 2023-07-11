@@ -133,7 +133,7 @@ class TestPrintString(BaseTest):
 
     def test_escape_clickhouse_string_errors(self):
         # This test is a stopgap. Think long and hard before adding support for printing dicts or objects.
-        # Make sure string escapign happens at the right level, and % is tested through and through.
+        # Make sure string escaping happens at the right level, and % is tested through and through.
         with self.assertRaises(HogQLException) as context:
             escape_clickhouse_string({"a": 1, "b": 2})  # type: ignore
         self.assertTrue("SQLValueEscaper has no method visit_dict" in str(context.exception))
