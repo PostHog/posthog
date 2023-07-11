@@ -193,6 +193,7 @@ class Cohort(models.Model):
 
     def calculate_people_ch(self, pending_version):
         from posthog.models.cohort.util import recalculate_cohortpeople
+        from posthog.tasks.calculate_cohort import clear_stale_cohort
 
         logger.warn("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
         start_time = time.monotonic()
@@ -229,6 +230,8 @@ class Cohort(models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
+
+        clear_stale_cohort.delay(self.pk, pending_version)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
