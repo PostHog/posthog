@@ -16,8 +16,6 @@ import {
 } from 'scenes/data-management/definition/definitionLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
-import { humanFriendlyNumber } from 'lib/utils'
-import { ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/taxonomy'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -204,14 +202,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <DefinitionPopover.Card
                                     title="Last seen"
                                     value={definition.last_seen_at && <TZLabel time={definition.last_seen_at} />}
-                                />
-                                <DefinitionPopover.Card
-                                    title={<ThirtyDayVolumeTitle />}
-                                    value={
-                                        definition.volume_30_day == null
-                                            ? '-'
-                                            : humanFriendlyNumber(definition.volume_30_day)
-                                    }
                                 />
                             </>
                         )}

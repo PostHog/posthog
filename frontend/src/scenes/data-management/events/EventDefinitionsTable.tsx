@@ -10,12 +10,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/data-management/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -47,7 +45,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -74,23 +72,6 @@ export function EventDefinitionsTable(): JSX.Element {
                       render: function Render(_, definition: EventDefinition) {
                           return <ObjectTags tags={definition.tags ?? []} staticOnly />
                       },
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-              ]
-            : []),
-        ...(hasIngestionTaxonomy
-            ? [
-                  {
-                      title: <ThirtyDayVolumeTitle tooltipPlacement="bottom" />,
-                      key: 'volume_30_day',
-                      align: 'right',
-                      render: function Render(_, definition: EventDefinition) {
-                          return definition.volume_30_day ? (
-                              humanFriendlyNumber(definition.volume_30_day)
-                          ) : (
-                              <span className="text-muted">—</span>
-                          )
-                      },
-                      sorter: true,
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),

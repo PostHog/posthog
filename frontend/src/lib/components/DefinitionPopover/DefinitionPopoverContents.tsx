@@ -17,28 +17,12 @@ import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/t
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
-import { TitleWithIcon } from '../TitleWithIcon'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { hide } from '@floating-ui/react'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { TZLabel } from '../TZLabel'
 
-export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
-    <TitleWithIcon
-        icon={
-            <Tooltip
-                title="Estimated event volume in the past 30 days, updated every 24 hours."
-                placement={tooltipPlacement}
-            >
-                <IconInfo />
-            </Tooltip>
-        }
-    >
-        30-day volume
-    </TitleWithIcon>
-)
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
         <div className="h-full w-full overflow-hidden text-ellipsis text-muted">
@@ -53,7 +37,6 @@ function TaxonomyIntroductionSection(): JSX.Element {
             <DefinitionPopover.Grid cols={2}>
                 <DefinitionPopover.Card title="First seen" value={<Lock />} />
                 <DefinitionPopover.Card title="Last seen" value={<Lock />} />
-                <DefinitionPopover.Card title={<ThirtyDayVolumeTitle />} value={<Lock />} />
             </DefinitionPopover.Grid>
             <DefinitionPopover.Section>
                 <Link
@@ -163,12 +146,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         <DefinitionPopover.Card
                             title="Last seen"
                             value={_definition.last_seen_at && <TZLabel time={_definition.last_seen_at} />}
-                        />
-                        <DefinitionPopover.Card
-                            title={<ThirtyDayVolumeTitle />}
-                            value={
-                                _definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)
-                            }
                         />
                     </DefinitionPopover.Grid>
                 ) : (

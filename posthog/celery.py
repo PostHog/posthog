@@ -135,13 +135,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
-    if settings.ASYNC_EVENT_PROPERTY_USAGE:
-        sender.add_periodic_task(
-            get_crontab(settings.EVENT_PROPERTY_USAGE_INTERVAL_CRON),
-            calculate_event_property_usage.s(),
-            name="calculate event property usage",
-        )
-
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
@@ -711,13 +704,6 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
 @app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print(f"Request: {self.request!r}")
-
-
-@app.task(ignore_result=False)
-def calculate_event_property_usage():
-    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
-
-    return calculate_event_property_usage()
 
 
 @app.task(ignore_result=True)

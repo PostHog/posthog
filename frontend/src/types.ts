@@ -2302,7 +2302,6 @@ export interface EventDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
@@ -2336,7 +2335,6 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null // TODO: Deprecated, replace or remove
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
