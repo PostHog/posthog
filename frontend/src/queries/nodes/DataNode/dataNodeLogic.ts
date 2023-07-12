@@ -21,12 +21,13 @@ import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/util
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import equal from 'fast-deep-equal'
+import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export interface DataNodeLogicProps {
     key: string
@@ -49,13 +50,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
+        if (
+            props.query?.kind &&
+            !objectsEqual(props.query, oldProps.query) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) &&
+                    (props.cachedResults['result'] === null || props.cachedResults['result'] === undefined)))
+        ) {
             actions.loadData()
         }
-        if (
-            props.cachedResults &&
-            (!values.response || (oldProps.cachedResults && !equal(props.cachedResults, oldProps.cachedResults)))
-        ) {
+        if (props.cachedResults && !values.response) {
             actions.setResponse(props.cachedResults)
         }
     }),
@@ -79,6 +83,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
+                    if (
+                        isInsightQueryNode(props.query) &&
+                        props.cachedResults &&
+                        props.cachedResults['id'] &&
+                        props.cachedResults['filters'] &&
+                        equal(props.query, filtersToQueryNode(props.cachedResults['filters']))
+                    ) {
+                        const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
+                        const fetchResponse = await api.getResponse(url)
+                        return await getJSONOrThrow(fetchResponse)
+                    }
+
                     if (props.cachedResults && !refresh) {
                         return props.cachedResults
                     }

@@ -44,8 +44,13 @@ import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showRefreshInMenu = !featureFlags[FEATURE_FLAGS.REFRESH_BUTTON_ON_INSIGHT]
+
     // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
@@ -143,37 +148,45 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <div className="flex justify-between items-center gap-2">
                         {!hasDashboardItemId ? (
                             <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => loadData(true)}
-                                                fullWidth
-                                                data-attr="refresh-insight-from-insight-view"
-                                                disabledReason={insightRefreshButtonDisabledReason}
-                                            >
-                                                Refresh
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
+                                {showRefreshInMenu ? (
+                                    <>
+                                        <More
+                                            overlay={
+                                                <>
+                                                    <LemonButton
+                                                        status="stealth"
+                                                        onClick={() => loadData(true)}
+                                                        fullWidth
+                                                        data-attr="refresh-insight-from-insight-view"
+                                                        disabledReason={insightRefreshButtonDisabledReason}
+                                                    >
+                                                        Refresh
+                                                    </LemonButton>
+                                                </>
+                                            }
+                                        />
+                                        <LemonDivider vertical />
+                                    </>
+                                ) : (
+                                    <></>
+                                )}
                             </>
                         ) : (
                             <>
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => loadData(true)}
-                                                fullWidth
-                                                data-attr="refresh-insight-from-insight-view"
-                                                disabledReason={insightRefreshButtonDisabledReason}
-                                            >
-                                                Refresh
-                                            </LemonButton>
+                                            {showRefreshInMenu && (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => loadData(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-insight-from-insight-view"
+                                                    disabledReason={insightRefreshButtonDisabledReason}
+                                                >
+                                                    Refresh
+                                                </LemonButton>
+                                            )}
                                             <LemonButton
                                                 status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
