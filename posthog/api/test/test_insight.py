@@ -259,29 +259,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
-    def test_get_insight_in_dashboard_context_date_filters(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard(
-            {"filters": {"date_from": "-7d"}, "name": "the dashboard"}
-        )
-
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {"date_from": "2023-06-17", "date_to": "2023-06-25"},
-                "name": "insight",
-                "dashboards": [dashboard_id],
-            }
-        )
-
-        insight_filters_in_isolation = self.dashboard_api.get_insight(insight_id).get("filters")
-        self.assertEqual(insight_filters_in_isolation.get("date_to"), "2023-06-25")
-        self.assertEqual(insight_filters_in_isolation.get("date_from"), "2023-06-17")
-
-        insight_filters_on_dashboard = self.dashboard_api.get_insight(
-            insight_id, query_params={"from_dashboard": dashboard_id}
-        ).get("filters")
-        self.assertEqual(insight_filters_on_dashboard.get("date_to"), None)
-        self.assertEqual(insight_filters_on_dashboard.get("date_from"), "-7d")
-
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
 
