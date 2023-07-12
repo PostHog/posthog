@@ -9,12 +9,13 @@ import { Counter } from 'prom-client'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub } from '../utils/db/hub'
+import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { createPostgresPool, createRedisPool, delay } from '../utils/utils'
+import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -87,7 +88,7 @@ export async function startPluginsServer(
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
-    let webhooksHandlerConsumer: KafkaJSIngestionConsumer | undefined
+    let webhooksHandlerConsumer: Consumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -327,17 +328,25 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
+            // If we have a hub, then reuse some of it's attributes, otherwise
+            // we need to create them. We only initialize the ones we need.
+            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
+            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
+            const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
 
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: webhooksQueue, isHealthy: isWebhooksIngestionHealthy } =
+            const { consumer: webhooksConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
-                    hub: hub,
-                    piscina: piscina,
+                    postgres: postgres,
+                    kafka: kafka,
+                    teamManager: teamManager,
+                    organizationManager: organizationManager,
+                    serverConfig: serverConfig,
+                    statsd: statsd,
                 })
 
-            webhooksHandlerConsumer = webhooksQueue
+            webhooksHandlerConsumer = webhooksConsumer
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
@@ -356,26 +365,9 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncWebhooksHandlers
-                    ? {
-                          'reload-action': async (message) => {
-                              const { actionId, teamId } = JSON.parse(message)
-                              await hub?.actionManager.reloadAction(teamId, actionId)
-                          },
-                          'drop-action': (message) => {
-                              const { actionId, teamId } = JSON.parse(message)
-                              hub?.actionManager.dropAction(teamId, actionId)
-                          },
-                      }
-                    : {}),
             })
 
             await pubSub.start()
-
-            // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-            schedule.scheduleJob('*/5 * * * *', async () => {
-                await hub?.actionManager.reloadAllActions()
-            })
 
             startPreflightSchedules(hub)
 

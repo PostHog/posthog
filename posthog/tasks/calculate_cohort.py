@@ -30,7 +30,6 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         update_cohort(cohort)
 
