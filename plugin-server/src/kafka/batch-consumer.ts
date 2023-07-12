@@ -72,11 +72,23 @@ export const startBatchConsumer = async ({
         // We disable auto commit and rather we commit after one batch has
         // completed.
         'enable.auto.commit': false,
+        /**
+         * max.partition.fetch.bytes
+         * The maximum amount of data per-partition the server will return.
+         * Records are fetched in batches by the consumer.
+         * If the first record batch in the first non-empty partition of the fetch is larger than this limit,
+         * the batch will still be returned to ensure that the consumer can make progress.
+         * The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config)
+         * or max.message.bytes (topic config).
+         * https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html#:~:text=max.partition.fetch.bytes,the%20consumer%20can%20make%20progress.
+         */
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
         'fetch.error.backoff.ms': consumerErrorBackoffMs,
         'enable.partition.eof': true,
+        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
+        // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
         'queued.min.messages': 100000, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
         // Use cooperative-sticky rebalancing strategy, which is the
