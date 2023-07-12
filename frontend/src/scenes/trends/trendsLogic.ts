@@ -168,13 +168,13 @@ export const trendsLogic = kea<trendsLogicType>([
         lifecyclesOrder: [
             (s) => [s.filters, s.loadedFilters],
             (inflightFilters, loadedFilters): string[] => {
-                const defaultToggleState = ['new', 'resurrecting', 'returning', 'dormant']
+                const defaultOrderedLifecycles = ['new', 'resurrecting', 'returning', 'dormant']
                 if (isLifecycleFilter(inflightFilters)) {
-                    return inflightFilters.lifecyclesOrder || defaultToggleState
+                    return inflightFilters.lifecyclesOrder || defaultOrderedLifecycles
                 } else if (isLifecycleFilter(loadedFilters)) {
-                    return (loadedFilters as Partial<LifecycleFilterType>).lifecyclesOrder || defaultToggleState
+                    return (loadedFilters as Partial<LifecycleFilterType>).lifecyclesOrder || defaultOrderedLifecycles
                 } else {
-                    return defaultToggleState
+                    return defaultOrderedLifecycles
                 }
             },
         ],

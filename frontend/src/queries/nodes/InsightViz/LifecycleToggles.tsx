@@ -3,6 +3,7 @@ import { LifecycleToggle } from '~/types'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { useState, DragEventHandler } from 'react'
+import './LifecycleToggles.scss'
 
 export type DragAndDropState = {
     draggedFrom: number | null
@@ -93,7 +94,11 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
 
     const onDragOver: DragEventHandler<HTMLDivElement> = (event): void => {
         event.preventDefault()
-        dragAndDrop.draggedTo = Number(event.currentTarget.dataset.position)
+
+        setDragAndDrop({
+            ...dragAndDrop,
+            draggedTo: Number(event.currentTarget.dataset.position),
+        })
     }
 
     const onDrop: DragEventHandler<HTMLDivElement> = (): void => {
@@ -123,7 +128,7 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
     }
 
     return (
-        <div className="flex flex-col -mt-1 uppercase">
+        <div className="flex flex-col -mt-1 uppercase LifecycleToggles">
             {lifecyclesOrder.map((key, i) => (
                 <div
                     key={key}
@@ -132,6 +137,7 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
                     onDragStart={onDragStart}
                     onDragOver={onDragOver}
                     onDrop={onDrop}
+                    className={dragAndDrop && dragAndDrop.draggedTo === i ? 'LifecycleToggles__item--hover' : ''}
                 >
                     <LemonLabel info={lifecycles[key].tooltip}>
                         <IconDragHandle />
