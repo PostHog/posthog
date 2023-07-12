@@ -1,3 +1,5 @@
+import { status } from './status'
+
 // A background refresher will act like a TTL cache but choosing to refresh the value in the background rather than
 // dropping the data or blocking the request.
 export class BackgroundRefresher<T> {
@@ -11,11 +13,16 @@ export class BackgroundRefresher<T> {
         if (this.cachedValuePromise) {
             return this.cachedValuePromise
         }
-
-        this.cachedValuePromise = this.refreshFunction()
-        this.cachedValue = await this.cachedValuePromise
-        this.cachedValuePromise = null
-        this.lastRefreshTime = Date.now()
+        try {
+            this.cachedValuePromise = this.refreshFunction()
+            this.cachedValue = await this.cachedValuePromise
+        } catch (e) {
+            status.error('BackgroundRefresher: Error refreshing background task', e)
+            throw e
+        } finally {
+            this.cachedValuePromise = null
+            this.lastRefreshTime = Date.now()
+        }
 
         return this.cachedValue
     }

@@ -104,7 +104,16 @@ export class SessionRecordingBlobIngester {
                   serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
               )
 
-        this.teamsRefresher = new BackgroundRefresher(() => fetchTeamTokensWithRecordings(this.postgres))
+        this.teamsRefresher = new BackgroundRefresher(async () => {
+            try {
+                status.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
+                return await fetchTeamTokensWithRecordings(this.postgres)
+            } catch (e) {
+                status.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
+                captureException(e)
+                throw e
+            }
+        })
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
