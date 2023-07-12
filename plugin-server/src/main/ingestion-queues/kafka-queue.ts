@@ -181,7 +181,7 @@ export class KafkaJSIngestionConsumer {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    public static buildConsumer(
+    private static buildConsumer(
         kafka: Kafka,
         groupId: string,
         rebalanceTimeout: number | null,

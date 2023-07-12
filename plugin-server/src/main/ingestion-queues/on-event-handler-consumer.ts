@@ -112,7 +112,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     const consumer = kafka.consumer({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
         groupId: `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
-        sessionTimeout: 30000,
+        sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
         readUncommitted: false,
     })
     setupEventHandlers(consumer)
@@ -121,7 +121,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     await actionManager.prepare()
     const actionMatcher = new ActionMatcher(postgres, actionManager, statsd)
     const hookCannon = new HookCommander(postgres, teamManager, organizationManager, statsd)
-    const concurrency = 20
+    const concurrency = serverConfig.TASKS_PER_WORKER || 20
 
     const pubSub = new PubSub(serverConfig, {
         'reload-action': async (message) => {
