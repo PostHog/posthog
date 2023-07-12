@@ -65,9 +65,13 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.10
   '
-  SELECT count()
+  /* celery:posthog.celery.clickhouse_clear_removed_data */
+  SELECT DISTINCT team_id,
+                  cohort_id
   FROM cohortpeople
-  WHERE cohort_id = 2
+  WHERE (team_id = 2
+         AND cohort_id = '1'
+         AND version < '2')
   '
 ---
 # name: TestCohort.test_async_deletion_of_cohort.11
@@ -209,11 +213,8 @@
 ---
 # name: TestCohort.test_async_deletion_of_cohort.9
   '
-  /* celery:posthog.celery.clickhouse_clear_removed_data */
-  ALTER TABLE cohortpeople
-  DELETE
-  WHERE (team_id = 2
-         AND cohort_id = '1'
-         AND version < '2')
+  SELECT count()
+  FROM cohortpeople
+  WHERE cohort_id = 2
   '
 ---
