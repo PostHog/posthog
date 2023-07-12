@@ -13,13 +13,7 @@ export default {
         legend: false,
     },
     parameters: {
-        docs: {
-            inlineStories: false,
-            iframeHeight: 400,
-            source: { state: 'close' },
-        },
         testOptions: {
-            waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas',
             snapshotBrowsers: ['chromium'],
         },
         mockDate: '2023-02-01',
