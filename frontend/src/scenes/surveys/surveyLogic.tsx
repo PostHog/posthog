@@ -269,10 +269,10 @@ export const surveyLogic = kea<surveyLogicType>([
     forms(({ actions, props, values }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
-            errors: ({ name, questions, type }) => ({
+            errors: ({ name, questions }) => ({
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => ({
-                    question: type !== SurveyType.API && !question.question && 'Please enter a question.',
+                    question: !question.question && 'Please enter a question.',
                     ...(question.type === SurveyQuestionType.Link
                         ? { link: !question.link && 'Please enter a url for the link.' }
                         : {}),

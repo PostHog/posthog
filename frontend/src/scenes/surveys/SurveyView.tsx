@@ -16,6 +16,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyQuestionType, SurveyType } from '~/types'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries } = useValues(surveyLogic)
@@ -172,7 +173,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                         </div>
                                         <div className="w-full flex flex-col items-center">
                                             <LemonCollapse
-                                                className="w-full"
+                                                className="w-full mb-2"
                                                 panels={[
                                                     {
                                                         key: '1',
@@ -219,7 +220,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     },
                                                 ]}
                                             />
-                                            {survey.type !== SurveyType.API && (
+                                            {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
                                                     <SurveyAppearance
                                                         type={survey.questions[0].type}
@@ -231,6 +232,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         onAppearanceChange={() => {}}
                                                     />
                                                 </div>
+                                            ) : (
+                                                <SurveyAPIEditor survey={survey} />
                                             )}
                                         </div>
                                     </div>

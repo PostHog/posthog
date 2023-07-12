@@ -15,6 +15,7 @@ import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -78,7 +79,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 max-w-xl">
+                <div className="flex flex-col gap-2 min-w-180">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>
@@ -97,7 +98,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <LemonDivider />
                     {survey.questions.map((question: SurveyQuestion, index: number) => (
                         <Group name={`questions.${index}`} key={index}>
-                            <Field name="type" label="Type" className="w-max">
+                            <Field name="type" label="Type">
                                 <LemonSelect
                                     options={[
                                         { label: 'Open text', value: SurveyQuestionType.Open },
@@ -204,8 +205,8 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </PureField>
                 </div>
                 <LemonDivider vertical />
-                {survey.type !== SurveyType.API && (
-                    <div className="flex flex-col flex-1 items-center">
+                <div className="flex flex-col flex-1 items-center min-w-80">
+                    {survey.type !== SurveyType.API ? (
                         <Field name="appearance" label="">
                             {({ value, onChange }) => (
                                 <SurveyAppearance
@@ -220,8 +221,10 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 />
                             )}
                         </Field>
-                    </div>
-                )}
+                    ) : (
+                        <SurveyAPIEditor survey={survey} />
+                    )}
+                </div>
             </div>
             <LemonDivider />
             <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
