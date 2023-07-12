@@ -1,9 +1,9 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 from difflib import get_close_matches
 from typing import List, Literal, Optional, Union, cast
-
+from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -35,6 +35,7 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
+from posthog.models.utils import UUIDT
 from posthog.utils import PersonOnEventsMode
 
 
@@ -422,13 +423,29 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown CompareOperationOp: {type(node.op).__name__}")
 
     def visit_constant(self, node: ast.Constant):
-        if self.dialect == "clickhouse" and (
-            isinstance(node.value, str) or isinstance(node.value, list) or isinstance(node.value, tuple)
-        ):
-            # inline the string in hogql, but use %(hogql_val_0)s in clickhouse
-            return self.context.add_value(node.value)
-        else:
+        if self.dialect == "hogql":
+            # Inline everything in HogQL
             return self._print_escaped_string(node.value)
+        elif (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, int)
+            or isinstance(node.value, float)
+            or isinstance(node.value, UUID)
+            or isinstance(node.value, UUIDT)
+            or isinstance(node.value, datetime)
+            or isinstance(node.value, date)
+        ):
+            # Inline some permitted types in ClickHouse
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # We don't know if this will be passed on as part of a legacy ClickHouse query or not.
+                # Ban % to be on the safe side. Who knows how it can end up in a UUID or datetime for example.
+                raise HogQLException(f"Invalid character '%' in constant: {value}")
+            return value
+        else:
+            # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            return self.context.add_value(node.value)
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -798,12 +815,12 @@ class _Printer(Visitor):
         return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
-        # Regular identifiers can't start with a number. Print digit strings as-is for unesacped tuple access.
+        # Regular identifiers can't start with a number. Print digit strings as-is for unescaped tuple access.
         if isinstance(name, int) and str(name).isdigit():
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime) -> str:
+    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())

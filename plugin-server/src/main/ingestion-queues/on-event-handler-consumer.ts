@@ -1,6 +1,5 @@
 import { StatsD } from 'hot-shots'
-import { Kafka } from 'kafkajs'
-import { Consumer } from 'kafkajs'
+import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
 import { Pool } from 'pg'
 

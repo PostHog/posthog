@@ -39,10 +39,9 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { EventType, PropertyDefinitionType } from '~/types'
+import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
 
 interface DataTableProps {
     query: DataTableNode
@@ -82,15 +81,9 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, context }
-    const {
-        dataTableRows,
-        columnsInQuery,
-        columnsInResponse,
-        queryWithDefaults,
-        canSort,
-        emptyStateHeading,
-        emptyStateDetail,
-    } = useValues(dataTableLogic(dataTableLogicProps))
+    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
+        dataTableLogic(dataTableLogicProps)
+    )
 
     const {
         showActions,
@@ -443,51 +436,37 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                     <InsightErrorState />
                                 )
                             ) : (
-                                context?.emptyState ?? (
-                                    <InsightEmptyState heading={emptyStateHeading} detail={emptyStateDetail} />
-                                )
+                                <InsightEmptyState
+                                    heading={context?.emptyStateHeading}
+                                    detail={context?.emptyStateDetail}
+                                />
                             )
                         }
                         expandable={
-                            expandable
-                                ? isEventsQuery(query.source) && columnsInResponse?.includes('*')
-                                    ? {
-                                          expandedRowRender: function renderExpand({ result }) {
-                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                                  return (
-                                                      <EventDetails
-                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                          useReactJsonView
-                                                      />
-                                                  )
-                                              }
-                                              if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} useReactJsonView />
-                                              }
-                                          },
-                                          rowExpandable: ({ result }) => !!result,
-                                          noIndent: true,
-                                          expandedRowClassName: ({ result }) => {
-                                              const record = Array.isArray(result) ? result[0] : result
-                                              return record && record['event'] === '$exception'
-                                                  ? 'border border-danger-dark bg-danger-highlight'
-                                                  : null
-                                          },
-                                      }
-                                    : isPersonsNode(query.source) && columnsInQuery?.includes('*')
-                                    ? {
-                                          expandedRowRender: function renderExpand({ result }) {
+                            expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+                                ? {
+                                      expandedRowRender: function renderExpand({ result }) {
+                                          if (isEventsQuery(query.source) && Array.isArray(result)) {
                                               return (
-                                                  <PropertiesTable
-                                                      type={PropertyDefinitionType.Person}
-                                                      properties={(result as any)?.properties}
+                                                  <EventDetails
+                                                      event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                      useReactJsonView
                                                   />
                                               )
-                                          },
-                                          rowExpandable: ({ result }) => !!(result as any)?.properties,
-                                          noIndent: true,
-                                      }
-                                    : undefined
+                                          }
+                                          if (result && !Array.isArray(result)) {
+                                              return <EventDetails event={result as EventType} useReactJsonView />
+                                          }
+                                      },
+                                      rowExpandable: ({ result }) => !!result,
+                                      noIndent: true,
+                                      expandedRowClassName: ({ result }) => {
+                                          const record = Array.isArray(result) ? result[0] : result
+                                          return record && record['event'] === '$exception'
+                                              ? 'border border-danger-dark bg-danger-highlight'
+                                              : null
+                                      },
+                                  }
                                 : undefined
                         }
                         rowClassName={({ result, label }) =>

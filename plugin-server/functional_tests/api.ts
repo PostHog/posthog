@@ -2,7 +2,7 @@ import ClickHouse from '@posthog/clickhouse'
 import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import {
@@ -23,7 +23,7 @@ import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
+export let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let redis: Redis.Redis
 let graphileWorker: WorkerUtils
 
@@ -120,6 +120,7 @@ export const createPluginAttachment = async ({
     fileName,
     key,
     contents,
+    client,
 }: {
     teamId: number
     pluginConfigId: number
@@ -128,8 +129,9 @@ export const createPluginAttachment = async ({
     fileName: string
     key: string
     contents: string
+    client?: PoolClient
 }) => {
-    return await insertRow(postgres, 'posthog_pluginattachment', {
+    return await insertRow(client ?? postgres, 'posthog_pluginattachment', {
         team_id: teamId,
         plugin_config_id: pluginConfigId,
         key: key,
@@ -154,9 +156,10 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>,
+    client?: PoolClient
 ) => {
-    return await insertRow(postgres, 'posthog_pluginconfig', {
+    return await insertRow(client ?? postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
         config: pluginConfig.config ?? {},
         created_at: new Date().toISOString(),

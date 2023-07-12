@@ -22,6 +22,7 @@ import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
+import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
 import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
@@ -86,6 +87,7 @@ export async function startPluginsServer(
     //    listening.
     let analyticsEventsIngestionConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
+    let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
     let webhooksHandlerConsumer: Consumer | undefined
 
@@ -132,6 +134,7 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             analyticsEventsIngestionConsumer?.stop(),
             analyticsEventsIngestionOverflowConsumer?.stop(),
+            analyticsEventsIngestionHistoricalConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
             webhooksHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
@@ -283,6 +286,21 @@ export async function startPluginsServer(
             healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
         }
 
+        if (capabilities.ingestionHistorical) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue, isHealthy: isAnalyticsEventsIngestionHistoricalHealthy } =
+                await startAnalyticsEventsIngestionHistoricalConsumer({
+                    hub: hub,
+                    piscina: piscina,
+                })
+
+            analyticsEventsIngestionHistoricalConsumer = queue
+            healthChecks['analytics-ingestion-historical'] = isAnalyticsEventsIngestionHistoricalHealthy
+        }
+
         if (capabilities.ingestionOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
@@ -415,14 +433,13 @@ export async function startPluginsServer(
         if (capabilities.sessionRecordingBlobIngestion) {
             const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
             const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, blobServerConfig)
             const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
             const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(teamManager, blobServerConfig, s3, redisPool)
+            const ingester = new SessionRecordingBlobIngester(blobServerConfig, postgres, s3, redisPool)
             await ingester.start()
             const batchConsumer = ingester.batchConsumer
             if (batchConsumer) {

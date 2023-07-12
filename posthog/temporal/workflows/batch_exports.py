@@ -1,10 +1,8 @@
 import json
+from datetime import datetime
 from string import Template
 
 from aiochclient import ChClient
-
-from datetime import datetime
-
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -19,6 +17,7 @@ SELECT_QUERY_TEMPLATE = Template(
         AND _timestamp >= toDateTime({data_interval_start}, 'UTC')
         AND _timestamp < toDateTime({data_interval_end}, 'UTC')
         AND team_id = {team_id}
+    $order_by
     """
 )
 
@@ -28,7 +27,7 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
     row = await client.fetchrow(
-        SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
+        SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count", order_by=""),
         params={
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
@@ -51,6 +50,7 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
             fields="""
                     uuid,
                     timestamp,
+                    _timestamp,
                     created_at,
                     event,
                     properties,
@@ -60,7 +60,8 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
                     person_properties,
                     -- Autocapture fields
                     elements_chain
-                """
+            """,
+            order_by="ORDER BY _timestamp",
         ),
         json=True,
         params={

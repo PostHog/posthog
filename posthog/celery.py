@@ -83,7 +83,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
     # Send all instance usage to the Billing service
-    sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
+    sender.add_periodic_task(crontab(hour=1, minute=0), send_org_usage_reports.s(), name="send instance usage report")
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
@@ -134,15 +134,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(60, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
-
-    if settings.ASYNC_EVENT_PROPERTY_USAGE:
-        sender.add_periodic_task(
-            get_crontab(settings.EVENT_PROPERTY_USAGE_INTERVAL_CRON),
-            calculate_event_property_usage.s(),
-            name="calculate event property usage",
-        )
-
-        sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
@@ -713,47 +704,6 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
 @app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print(f"Request: {self.request!r}")
-
-
-@app.task(ignore_result=False)
-def calculate_event_property_usage():
-    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage
-
-    return calculate_event_property_usage()
-
-
-@app.task(ignore_result=True)
-def count_teams_with_no_property_query_count():
-    import structlog
-    from statshog.defaults.django import statsd
-
-    logger = structlog.get_logger(__name__)
-
-    with connection.cursor() as cursor:
-        try:
-            cursor.execute(
-                """
-                WITH team_has_recent_dashboards AS (
-                    SELECT distinct team_id FROM posthog_dashboarditem WHERE created_at > NOW() - INTERVAL '30 days'
-                )
-                SELECT count(*) AS team_count FROM
-                    (
-                    SELECT team_id, sum(query_usage_30_day) AS total
-                    FROM posthog_propertydefinition
-                    WHERE team_id IN (SELECT team_id FROM team_has_recent_dashboards)
-                    GROUP BY team_id
-                    ) as counted
-                WHERE counted.total = 0
-                """
-            )
-
-            count = cursor.fetchone()
-            statsd.gauge(
-                f"calculate_event_property_usage.teams_with_no_property_query_count",
-                count[0],
-            )
-        except Exception as exc:
-            logger.error("calculate_event_property_usage.count_teams_failed", exc=exc, exc_info=True)
 
 
 @app.task(ignore_result=True)
