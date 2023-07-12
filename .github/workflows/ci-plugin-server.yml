@@ -85,6 +85,7 @@ jobs:
     tests:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
+        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
 
         strategy:
