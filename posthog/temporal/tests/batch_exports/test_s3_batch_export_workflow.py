@@ -41,6 +41,7 @@ EventValues = TypedDict(
         "event": str,
         "_timestamp": str,
         "timestamp": str,
+        "inserted_at": str,
         "created_at": str,
         "distinct_id": str,
         "person_id": str,
@@ -65,8 +66,8 @@ async def insert_events(client: ChClient, events: list[EventValues]):
             team_id,
             properties,
             elements_chain,
-
             distinct_id,
+            inserted_at,
             created_at,
             person_properties
         )
@@ -83,6 +84,7 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
                 event["elements_chain"],
                 event["distinct_id"],
+                event["inserted_at"],
                 event["created_at"],
                 json.dumps(event["person_properties"])
                 if isinstance(event["person_properties"], dict)
@@ -201,6 +203,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
             "event": "test",
             "_timestamp": "2023-04-20 14:30:00",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
@@ -223,6 +226,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
                 "event": "test",
                 "_timestamp": "2023-04-20 14:29:00",
                 "timestamp": "2023-04-20 14:29:00.000000",
+                "inserted_at": "2023-04-20 14:30:00.000000",
                 "created_at": "2023-04-20 14:29:00.000000",
                 "distinct_id": str(uuid4()),
                 "person_id": str(uuid4()),
@@ -252,6 +256,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
                 "event": "test",
                 "timestamp": "2023-04-20 13:30:00",
                 "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": "2023-04-20 13:30:00.000000",
                 "created_at": "2023-04-20 13:30:00.000000",
                 "person_id": str(uuid4()),
                 "distinct_id": str(uuid4()),
@@ -265,6 +270,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
                 "event": "test",
                 "timestamp": "2023-04-20 15:30:00",
                 "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": "2023-04-20 13:30:00.000000",
                 "created_at": "2023-04-20 13:30:00.000000",
                 "person_id": str(uuid4()),
                 "distinct_id": str(uuid4()),
@@ -278,6 +284,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
                 "event": "test",
                 "timestamp": "2023-04-20 14:30:00",
                 "_timestamp": "2023-04-20 14:30:00",
+                "inserted_at": "2023-04-20 14:30:00.000000",
                 "created_at": "2023-04-20 14:30:00.000000",
                 "person_id": str(uuid4()),
                 "distinct_id": str(uuid4()),
@@ -310,33 +317,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
             await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    # Check that the data was written to S3.
-    # List the objects in the bucket with the prefix.
-    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
-
-    # Check that there is only one object.
-    assert len(objects.get("Contents", [])) == 1
-
-    # Get the object.
-    key = objects["Contents"][0].get("Key")
-    assert key
-    object = s3_client.get_object(Bucket=bucket_name, Key=key)
-    data = object["Body"].read()
-
-    # Check that the data is correct.
-    json_data = [json.loads(line) for line in data.decode("utf-8").split("\n") if line]
-    # Pull out the fields we inserted only
-
-    json_data.sort(key=lambda x: x["timestamp"])
-
-    # Remove team_id, _timestamp from events
-    expected_events = [{k: v for k, v in event.items() if k not in ["team_id", "_timestamp"]} for event in events]
-    expected_events.sort(key=lambda x: x["timestamp"])
-
-    # First check one event, the first one, so that we can get a nice diff if
-    # the included data is different.
-    assert json_data[0] == expected_events[0]
-    assert json_data == expected_events
+    assert_events_in_s3(s3_client, bucket_name, prefix, events)
 
 
 @pytest.mark.django_db
@@ -388,6 +369,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "event": "test",
             "timestamp": "2023-04-25 13:30:00.000000",
             "created_at": "2023-04-25 13:30:00.000000",
+            "inserted_at": "2023-04-25 13:30:00.000000",
             "_timestamp": "2023-04-25 13:30:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -401,6 +383,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "event": "test",
             "timestamp": "2023-04-25 14:29:00.000000",
             "created_at": "2023-04-25 14:29:00.000000",
+            "inserted_at": "2023-04-25 14:29:00.000000",
             "_timestamp": "2023-04-25 14:29:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -501,6 +484,7 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
             "event": "test",
             "timestamp": "2023-04-25 13:30:00.000000",
             "created_at": "2023-04-25 13:30:00.000000",
+            "inserted_at": "2023-04-25 13:30:00.000000",
             "_timestamp": "2023-04-25 13:30:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -513,6 +497,7 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
             "uuid": str(uuid4()),
             "event": "test",
             "timestamp": "2023-04-25 14:29:00.000000",
+            "inserted_at": "2023-04-25 14:29:00.000000",
             "created_at": "2023-04-25 14:29:00.000000",
             "_timestamp": "2023-04-25 14:29:00",
             "person_id": str(uuid4()),
@@ -649,6 +634,7 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
             "uuid": str(uuid4()),
             "event": str(i),
             "timestamp": f"2023-04-25 13:3{i}:00.000000",
+            "inserted_at": f"2023-04-25 13:3{i}:00.000000",
             "created_at": f"2023-04-25 13:3{i}:00.000000",
             "_timestamp": f"2023-04-25 13:3{i}:00",
             "person_id": str(uuid4()),
@@ -722,31 +708,31 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
             ),
             mock.call(
                 client=mock.ANY,
-                interval_start="2023-04-25 13:30:00",
+                interval_start="2023-04-25 13:30:00.000000",
                 interval_end="2023-04-25T14:30:00",
                 team_id=team.pk,
             ),
             mock.call(
                 client=mock.ANY,
-                interval_start="2023-04-25 13:32:00",
+                interval_start="2023-04-25 13:32:00.000000",
                 interval_end="2023-04-25T14:30:00",
                 team_id=team.pk,
             ),
             mock.call(
                 client=mock.ANY,
-                interval_start="2023-04-25 13:34:00",
+                interval_start="2023-04-25 13:34:00.000000",
                 interval_end="2023-04-25T14:30:00",
                 team_id=team.pk,
             ),
             mock.call(
                 client=mock.ANY,
-                interval_start="2023-04-25 13:36:00",
+                interval_start="2023-04-25 13:36:00.000000",
                 interval_end="2023-04-25T14:30:00",
                 team_id=team.pk,
             ),
             mock.call(
                 client=mock.ANY,
-                interval_start="2023-04-25 13:38:00",
+                interval_start="2023-04-25 13:38:00.000000",
                 interval_end="2023-04-25T14:30:00",
                 team_id=team.pk,
             ),
