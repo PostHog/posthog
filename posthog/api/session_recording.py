@@ -440,9 +440,11 @@ def list_recordings(
             # check separately here to help mypy see that SessionRecordingListFromReplaySummary
             # is its own thing even though it is still stuck with inheritance until we can collapse
             # the number of listing mechanisms
-            (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
-                filter=filter, team=team
-            ).run()
+            lister = SessionRecordingListFromReplaySummary(filter=filter, team=team)
+            (ch_session_recordings, more_recordings_available) = lister.run()
+
+            if not ch_session_recordings:
+                lister.has_custom_events()
         else:
             session_recording_list_instance: Type[SessionRecordingList] = (
                 SessionRecordingListV2 if can_use_v2 else SessionRecordingList

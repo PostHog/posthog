@@ -3,6 +3,7 @@ import datetime
 from typing import Any, Dict, List, Tuple, Union, Literal
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models import Team, EventProperty
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
@@ -20,12 +21,23 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
     def __init__(
         self,
+        team: Team,
         **kwargs,
     ):
         super().__init__(
+            team=team,
             **kwargs,
         )
+        self.team = team
         self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+    def has_custom_events(self) -> bool:
+        event_filters = self.build_event_filters
+        event_names = event_filters["event_names"]
+        if not event_names:
+            return False
+
+        EventProperty.objects.filter(team=self.team, property="$session_id", event__in=event_names).exists()
 
     _persons_lookup_cte = """
     distinct_ids_for_person as (
