@@ -1,6 +1,6 @@
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, StringMatching } from '~/types'
-import { ActionStepForm, BoxColor } from '~/toolbar/types'
+import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
@@ -343,7 +343,7 @@ export function clearSessionToolbarToken(): void {
     window.localStorage?.removeItem('_postHogEditorParams')
 }
 
-export function getRectForElement(element: HTMLElement): Partial<DOMRect> {
+export function getRectForElement(element: HTMLElement): ElementRect {
     const elements = [elementToAreaRect(element)]
 
     let loopElement = element
@@ -381,13 +381,13 @@ export const getZoomLevel = (el: HTMLElement): number[] => {
     zooms.reverse()
     return zooms
 }
-export const getRect = (el: HTMLElement): Partial<DOMRect> => {
+export const getRect = (el: HTMLElement): ElementRect => {
     if (!el) {
         return { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
     }
     const rect = el?.getBoundingClientRect()
     const zooms = getZoomLevel(el)
-    const rectWithZoom: Partial<DOMRect> = {
+    const rectWithZoom: ElementRect = {
         bottom: zooms.reduce((a, b) => a * b, rect.bottom),
         height: zooms.reduce((a, b) => a * b, rect.height),
         left: zooms.reduce((a, b) => a * b, rect.left),
@@ -400,8 +400,8 @@ export const getRect = (el: HTMLElement): Partial<DOMRect> => {
     return rectWithZoom
 }
 
-function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: Partial<DOMRect>; area: number } {
-    const rect = getRect(element) //.getBoundingClientRect()
+function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: ElementRect; area: number } {
+    const rect = getRect(element)
     return {
         element,
         rect,
