@@ -10,15 +10,17 @@ import {
     TopicPartition,
 } from 'node-rdkafka-acosom'
 import path from 'path'
+import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
-import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, Team } from '../../../types'
+import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
+import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { status } from '../../../utils/status'
-import { TeamManager } from '../../../worker/ingestion/team-manager'
+import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
@@ -94,10 +96,11 @@ export class SessionRecordingBlobIngester {
     flushInterval: NodeJS.Timer | null = null
     // the time at the most recent message of a particular partition
     partitionNow: Record<number, number | null> = {}
+    teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
 
     constructor(
-        private teamManager: TeamManager,
         private serverConfig: PluginsServerConfig,
+        private postgres: Pool,
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
@@ -112,6 +115,17 @@ export class SessionRecordingBlobIngester {
                   this.redisPool,
                   serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
               )
+
+        this.teamsRefresher = new BackgroundRefresher(async () => {
+            try {
+                status.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
+                return await fetchTeamTokensWithRecordings(this.postgres)
+            } catch (e) {
+                status.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
+                captureException(e)
+                throw e
+            }
+        })
     }
 
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
@@ -222,33 +236,29 @@ export class SessionRecordingBlobIngester {
             return statusWarn('no_token')
         }
 
-        let team: Team | null = null
+        let teamId: TeamId | null = null
+        const token = messagePayload.token
 
         const teamSpan = span?.startChild({
             op: 'fetchTeam',
         })
-        if (messagePayload.team_id != null) {
-            team = await this.teamManager.fetchTeam(messagePayload.team_id)
-        } else if (messagePayload.token) {
-            team = await this.teamManager.getTeamByToken(messagePayload.token)
+        if (token) {
+            teamId = await this.teamsRefresher.get().then((teams) => teams[token] || null)
         }
         teamSpan?.finish()
 
-        if (team == null) {
-            return statusWarn('team_not_found', {
-                teamId: messagePayload.team_id,
-                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
-            })
-        }
-
-        if (!team.session_recording_opt_in) {
+        if (teamId == null) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
-                    drop_cause: 'disabled',
+                    drop_cause: 'team_missing_or_disabled',
                 })
                 .inc()
-            return
+
+            return statusWarn('team_missing_or_disabled', {
+                teamId: messagePayload.team_id,
+                payloadTeamSource: messagePayload.team_id ? 'team' : messagePayload.token ? 'token' : 'unknown',
+            })
         }
 
         const recordingMessage: IncomingRecordingMessage = {
@@ -259,7 +269,7 @@ export class SessionRecordingBlobIngester {
                 timestamp: message.timestamp,
             },
 
-            team_id: team.id,
+            team_id: teamId,
             distinct_id: event.distinct_id,
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
@@ -307,6 +317,8 @@ export class SessionRecordingBlobIngester {
             throw e
         }
         await this.realtimeManager.subscribe()
+        // Load teams into memory
+        await this.teamsRefresher.refresh()
 
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
         this.producer = await createKafkaProducer(connectionConfig)
