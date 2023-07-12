@@ -1111,6 +1111,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_null_equality(self):
         expected = [
+            # left op right (result 0=False 1=True)
             ("null", "=", "2", 0),
             ("2", "=", "null", 0),
             ("3", "=", "4", 0),
