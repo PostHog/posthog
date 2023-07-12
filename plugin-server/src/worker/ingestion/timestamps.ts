@@ -4,18 +4,18 @@ import { DateTime, Duration } from 'luxon'
 
 import { status } from '../../utils/status'
 
-type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
+type IngestionWarningCallback = (type: string, details: Record<string, any>) => Promise<void>
 
 const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
 
-export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
+export async function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): Promise<DateTime> {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
 
     let sentAt: DateTime | null = null
     if (data['sent_at']) {
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
         if (!sentAt.isValid) {
-            callback?.('ignored_invalid_timestamp', {
+            await callback?.('ignored_invalid_timestamp', {
                 field: 'sent_at',
                 value: data['sent_at'],
                 reason: sentAt.invalidExplanation || 'unknown error',
@@ -24,9 +24,9 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
         }
     }
 
-    const parsedTs = handleTimestamp(data, now, sentAt, data.team_id, callback)
+    const parsedTs = await handleTimestamp(data, now, sentAt, data.team_id, callback)
     if (!parsedTs.isValid) {
-        callback?.('ignored_invalid_timestamp', {
+        await callback?.('ignored_invalid_timestamp', {
             field: 'timestamp',
             value: data['timestamp'] ?? '',
             reason: parsedTs.invalidExplanation || 'unknown error',
@@ -37,13 +37,13 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
     return parsedTs
 }
 
-function handleTimestamp(
+async function handleTimestamp(
     data: PluginEvent,
     now: DateTime,
     sentAt: DateTime | null,
     teamId: number,
     callback?: IngestionWarningCallback
-): DateTime {
+): Promise<DateTime> {
     let parsedTs: DateTime = now
     let timestamp: DateTime = now
 
@@ -92,7 +92,7 @@ function handleTimestamp(
     // but publish an integration warning to help diagnose such issues.
     // We will also 'fix' the date to be now()
     if (nowDiff > FutureEventHoursCutoffMillis) {
-        callback?.('event_timestamp_in_future', {
+        await callback?.('event_timestamp_in_future', {
             timestamp: data['timestamp'] ?? '',
             sentAt: data['sent_at'] ?? '',
             offset: data['offset'] ?? '',
