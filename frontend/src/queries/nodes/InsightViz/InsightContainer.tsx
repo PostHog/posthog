@@ -51,6 +51,7 @@ export function InsightContainer({
     disableTable,
     disableCorrelationTable,
     disableLastComputation,
+    disableLastComputationRefresh,
     disableLegendButton,
     insightMode,
     context,
@@ -59,6 +60,7 @@ export function InsightContainer({
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
+    disableLastComputationRefresh?: boolean
     disableLegendButton?: boolean
     insightMode?: ItemMode
     context?: QueryContext
@@ -213,7 +215,9 @@ export function InsightContainer({
                         {/*Don't add more than two columns in this row.*/}
                         {(!disableLastComputation || !!samplingFactor) && (
                             <div className="flex items-center">
-                                {!disableLastComputation && <ComputationTimeWithRefresh />}
+                                {!disableLastComputation && (
+                                    <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />
+                                )}
                                 {!!samplingFactor ? (
                                     <span className="text-muted-alt">
                                         {!disableLastComputation && <span className="mx-1">•</span>}
