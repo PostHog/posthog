@@ -331,6 +331,7 @@ export interface InsightVizNode extends Node {
     showTable?: boolean
     showCorrelationTable?: boolean
     showLastComputation?: boolean
+    showLastComputationRefresh?: boolean
     showLegendButton?: boolean
 }
 

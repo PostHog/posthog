@@ -96,7 +96,7 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(db: PoolClient | Pool, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 

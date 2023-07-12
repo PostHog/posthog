@@ -1197,6 +1197,7 @@ export interface BillingV2Type {
     available_plans?: BillingV2PlanType[]
     discount_percent?: number
     discount_amount_usd?: string
+    amount_off_expires_at?: Dayjs
 }
 
 export interface BillingV2PlanType {
@@ -2301,8 +2302,6 @@ export interface EventDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null
-    query_usage_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
@@ -2336,8 +2335,6 @@ export interface PropertyDefinition {
     name: string
     description?: string
     tags?: string[]
-    volume_30_day?: number | null // TODO: Deprecated, replace or remove
-    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -2396,6 +2393,8 @@ export interface Experiment {
         recommended_running_time?: number
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
+        custom_exposure_filter?: FilterType
+        aggregation_group_type_index?: number
     }
     start_date?: string | null
     end_date?: string | null

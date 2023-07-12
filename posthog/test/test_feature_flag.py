@@ -7,7 +7,6 @@ from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 import pytest
-from posthog.database_healthcheck import postgres_healthcheck
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
@@ -2821,12 +2820,12 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
+@patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
-        postgres_healthcheck.set_connection(True)
         return super().setUp()
 
-    def test_hash_key_overrides_with_race_conditions(self):
+    def test_hash_key_overrides_with_race_conditions(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
         team = Team.objects.create(organization=org)
@@ -2884,7 +2883,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
 
                 # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
 
-    def test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging(self):
+    def test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging(self, *args):
         def insert_fail(execute, sql, *args, **kwargs):
             if "statement_timeout" in sql:
                 return execute(sql, *args, **kwargs)
@@ -2956,7 +2955,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
-    def test_hash_key_overrides_with_simulated_race_conditions_on_person_merging(self):
+    def test_hash_key_overrides_with_simulated_race_conditions_on_person_merging(self, *args):
         class InsertFailOnce:
             def __init__(self):
                 self.has_failed = False
@@ -3035,7 +3034,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
-    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self):
+    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
         team = Team.objects.create(organization=org)
