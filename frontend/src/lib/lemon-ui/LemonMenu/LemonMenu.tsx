@@ -69,6 +69,7 @@ export interface LemonMenuProps
             | 'maxContentWidth'
             | 'visible'
             | 'onVisibilityChange'
+            | 'closeOnClickInside'
             | 'closeParentPopoverOnClickInside'
             | 'className'
         >,
@@ -233,7 +234,10 @@ interface LemonMenuItemButtonProps {
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
-        ({ item: { label, items, keyboardShortcut, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
+        (
+            { item: { label, items, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
+            ref
+        ): JSX.Element => {
             const Label = typeof label === 'function' ? label : null
             const button = Label ? (
                 <Label key="x" />
@@ -263,7 +267,8 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     tooltipPlacement={tooltipPlacement}
                     placement="right-start"
                     actionable
-                    closeParentPopoverOnClickInside
+                    closeOnClickInside={custom ? false : true}
+                    closeParentPopoverOnClickInside={custom ? false : true}
                 >
                     {button}
                 </LemonMenu>
