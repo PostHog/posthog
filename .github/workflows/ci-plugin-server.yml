@@ -54,6 +54,7 @@ jobs:
     code-quality:
         name: Code quality
         needs: changes
+        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
         defaults:
             run:
@@ -172,6 +173,7 @@ jobs:
     functional-tests:
         name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
         needs: changes
+        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
 
         strategy:
@@ -273,6 +275,7 @@ jobs:
     recording-ingestion-load-test:
         name: Recording ingestion load test
         needs: changes
+        if: needs.changes.outputs.plugin-server == 'true'
         # This test runs a load test on the ingestion pipeline, using
         # synthetic recordings data. It is not meant to produce directly
         # comparable results, but rather to give a rough idea of how
