@@ -22,8 +22,8 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
         sync_execute(
             f"""
-            ALTER TABLE cohortpeople
-            DELETE WHERE {" OR ".join(conditions)}
+            DELETE FROM cohortpeople
+            WHERE {" OR ".join(conditions)}
             """,
             args,
         )

@@ -231,7 +231,7 @@ class Cohort(models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-        clear_stale_cohort.delay(self.pk, pending_version)
+        clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """

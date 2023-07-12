@@ -41,9 +41,9 @@ def update_cohort(cohort: Cohort) -> None:
 
 
 @shared_task(ignore_result=True)
-def clear_stale_cohort(cohort_id: int, current_version: int) -> None:
+def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    clear_stale_cohortpeople(cohort, current_version)
+    clear_stale_cohortpeople(cohort, before_version)
 
 
 @shared_task(ignore_result=True, max_retries=2)
