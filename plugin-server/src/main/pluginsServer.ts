@@ -312,9 +312,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            if (capabilities.processAsyncHandlers) {
-                throw Error('async and onEvent together are not allowed - would export twice')
-            }
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
@@ -331,10 +328,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            if (capabilities.processAsyncHandlers) {
-                throw Error('async and webhooks together are not allowed - would send twice')
-            }
-
             // If we have a hub, then reuse some of it's attributes, otherwise
             // we need to create them. We only initialize the ones we need.
             const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
