@@ -2,7 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { readFile, unlink } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
@@ -104,24 +104,6 @@ export class SessionManager {
         }
     }
 
-    private async deleteFile(file: string, context: string) {
-        try {
-            await unlink(file)
-        } catch (err) {
-            if (err && err.code === 'ENOENT') {
-                // could not delete file because it doesn't exist, so what?!
-                return
-            }
-            status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
-                err,
-                file,
-                context,
-            })
-            captureException(err)
-            throw err
-        }
-    }
-
     public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
@@ -197,7 +179,7 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
-        this.flushBuffer.fileStream.end()
+        const { offsets, fileStream, file } = this.flushBuffer
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -214,20 +196,25 @@ export class SessionManager {
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
-            const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
+            await new Promise<void>((resolve) => {
+                // We need to safely end the file before reading from it
+                fileStream.end(async () => {
+                    const fileStream = createReadStream(file).pipe(zlib.createGzip())
 
-            this.inProgressUpload = new Upload({
-                client: this.s3Client,
-                params: {
-                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                    Key: dataKey,
-                    Body: fileStream,
-                },
+                    this.inProgressUpload = new Upload({
+                        client: this.s3Client,
+                        params: {
+                            Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                            Key: dataKey,
+                            Body: fileStream,
+                        },
+                    })
+
+                    await this.inProgressUpload.done()
+                    fileStream.close()
+                    resolve()
+                })
             })
-
-            await this.inProgressUpload.done()
-
-            fileStream.close()
 
             counterS3FilesWritten.labels(reason).inc(1)
             gaugeS3LinesWritten.set(this.flushBuffer.count)
@@ -249,11 +236,10 @@ export class SessionManager {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
             this.realtime = false
-            const { file, offsets } = this.flushBuffer
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             this.flushBuffer = undefined
             this.onFinish([offsets.lowest, offsets.highest])
-            await this.deleteFile(file, 'on s3 flush')
+            fileStream.destroy()
         }
     }
 
@@ -378,18 +364,8 @@ export class SessionManager {
             this.inProgressUpload = null
         }
 
-        this.flushBuffer?.fileStream.end()
-        this.buffer.fileStream.end()
-
-        const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
-            .filter((x): x is string => x !== undefined)
-            .map((x) =>
-                this.deleteFile(x, 'on destroy').catch((error) => {
-                    captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
-                    throw error
-                })
-            )
-        await Promise.allSettled(filePromises)
+        this.flushBuffer?.fileStream.destroy()
+        this.buffer.fileStream.destroy()
     }
 
     public getLowestOffset(): number | null {

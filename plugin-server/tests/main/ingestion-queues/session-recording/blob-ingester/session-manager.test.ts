@@ -1,6 +1,5 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { createReadStream, createWriteStream } from 'fs'
-import { unlink } from 'fs/promises'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
@@ -22,6 +21,7 @@ jest.mock('fs', () => {
                 write: jest.fn(),
                 pipe: () => ({ close: jest.fn() }),
                 end: jest.fn(),
+                destroy: jest.fn(),
             }
         }),
     }
@@ -234,9 +234,7 @@ describe('session-manager', () => {
         const event = createIncomingRecordingMessage()
         sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
-        const file = sessionManager.buffer.file
-        expect(unlink).not.toHaveBeenCalled()
-
+        const fileStream = sessionManager.buffer.fileStream
         const afterResumeFlushPromise = sessionManager.flush('buffer_size')
 
         expect(sessionManager.buffer.count).toEqual(0)
@@ -246,7 +244,7 @@ describe('session-manager', () => {
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(mockFinish).toBeCalledTimes(1)
-        expect(unlink).toHaveBeenCalledWith(file)
+        expect(fileStream.destroy).toBeCalledTimes(1)
     })
 
     it('flushes messages and whilst collecting new ones', async () => {
