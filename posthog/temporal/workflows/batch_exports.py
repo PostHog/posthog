@@ -6,7 +6,7 @@ from aiochclient import ChClient
 
 SELECT_QUERY_TEMPLATE = Template(
     """
-    SELECT $fields
+    SELECT DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid)) $fields
     FROM events
     WHERE
         -- These 'timestamp' checks are a heuristic to exploit the sort key.
