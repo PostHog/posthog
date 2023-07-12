@@ -436,6 +436,8 @@ def render_template(
     # `get_all_flags` call above.
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
+    context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
     html = template.render(context, request=request)
     return HttpResponse(html)
 
