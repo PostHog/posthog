@@ -4,8 +4,10 @@
 #
 #    pip-compile requirements.in
 #
-aiochclient[aiohttp]==2.4.0
+aiochclient[aiohttp-speedups]==2.4.0
     # via -r requirements.in
+aiodns==3.0.0
+    # via aiochclient
 aiohttp==3.8.4
     # via
     #   aiochclient
@@ -53,6 +55,8 @@ botocore==1.29.66
     #   s3transfer
 botocore-stubs==1.29.130
     # via boto3-stubs
+cchardet==2.1.7
+    # via aiochclient
 celery==4.4.7
     # via
     #   -r requirements.in
@@ -68,6 +72,7 @@ certifi==2019.11.28
 cffi==1.14.5
     # via
     #   cryptography
+    #   pycares
     #   snowflake-connector-python
 chardet==5.1.0
     # via prance
@@ -76,6 +81,8 @@ charset-normalizer==2.1.0
     #   aiohttp
     #   requests
     #   snowflake-connector-python
+ciso8601==2.3.0
+    # via aiochclient
 clickhouse-driver==0.2.4
     # via
     #   -r requirements.in
@@ -285,6 +292,8 @@ psycopg2-binary==2.8.6
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
+pycares==4.3.0
+    # via aiodns
 pycparser==2.20
     # via cffi
 pycryptodomex==3.18.0
