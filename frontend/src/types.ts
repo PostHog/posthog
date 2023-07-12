@@ -2055,6 +2055,7 @@ export enum SurveyType {
     Button = 'button',
     FullScreen = 'full_screen',
     Email = 'email',
+    API = 'api',
 }
 
 export interface SurveyAppearance {
