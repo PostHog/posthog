@@ -8,8 +8,6 @@ from posthog.hogql.errors import HogQLException
 
 
 class TestS3Table(BaseTest):
-    maxDiff = None
-
     def _init_database(self):
         self.database = create_hogql_database(self.team.pk)
         self.database.aapl_stock = create_aapl_stock_s3_table()

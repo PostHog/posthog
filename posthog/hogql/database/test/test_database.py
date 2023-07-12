@@ -44,5 +44,5 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"WITH whatever AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0)s, %(hogql_val_3)s, %(hogql_val_4)s, %(hogql_val_1)s, %(hogql_val_2)s)) SELECT whatever.id FROM whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+            f"WITH whatever AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_S3Table_url_0)s, %(hogql_val_S3Table_key_3)s, %(hogql_val_S3Table_secret_4)s, %(hogql_val_1)s, %(hogql_val_2)s)) SELECT whatever.id FROM whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
         )
