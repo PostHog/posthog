@@ -1010,6 +1010,7 @@ export function Experiment(): JSX.Element {
                                         showTable: true,
                                         showLegendButton: false,
                                         showLastComputation: true,
+                                        showLastComputationRefresh: false,
                                     }}
                                     context={{
                                         insightProps: {

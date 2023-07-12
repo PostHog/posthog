@@ -830,7 +830,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     const variantResults = (experimentResults.variants as TrendExperimentVariant[]).find(
                         (variantTrend: TrendExperimentVariant) => variantTrend.key === variant
                     )
-                    if (!variantResults) {
+                    if (!variantResults || !variantResults.absolute_exposure) {
                         return errorResult
                     }
 

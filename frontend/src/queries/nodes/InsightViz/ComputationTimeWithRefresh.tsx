@@ -1,18 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { Link } from '@posthog/lemon-ui'
 
-export function ComputationTimeWithRefresh(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showRefreshOnInsight = !!featureFlags[FEATURE_FLAGS.REFRESH_BUTTON_ON_INSIGHT]
+export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
+    const showRefreshOnInsight = !disableRefresh
 
     const { lastRefresh } = useValues(dataNodeLogic)
 
