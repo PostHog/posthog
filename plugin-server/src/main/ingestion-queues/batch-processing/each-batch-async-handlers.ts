@@ -2,7 +2,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { Hub, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { convertToIngestionEvent } from '../../../utils/event'
+import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { groupIntoBatches } from '../../../utils/utils'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -33,6 +33,13 @@ export async function eachMessageWebhooksHandlers(
 ): Promise<void> {
     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
     const event = convertToIngestionEvent(clickHouseEvent)
+
+    // TODO: previously onEvent and Webhooks were executed in the same process,
+    // and onEvent would call convertToProcessedPluginEvent, which ends up
+    // mutating the `event` that is passed in. To ensure that we have the same
+    // behaviour we run this here, but we should probably refactor this to
+    // ensure that we don't mutate the event.
+    convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
         event: event,

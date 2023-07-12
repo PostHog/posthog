@@ -141,7 +141,6 @@ export class ActionMatcher {
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        console.error(teamActions)
         if (!elements) {
             const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
             elements = rawElements ? extractElements(rawElements) : []
