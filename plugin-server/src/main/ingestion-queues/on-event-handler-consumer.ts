@@ -93,12 +93,12 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     const pubSub = new PubSub(serverConfig, {
         'reload-action': async (message) => {
-            const payload = JSON.parse(message)
-            await actionManager.reloadAction(payload.team_id, payload.action_id)
+            const { actionId, teamId } = JSON.parse(message)
+            await actionManager.reloadAction(teamId, actionId)
         },
         'drop-action': (message) => {
-            const payload = JSON.parse(message)
-            actionManager.dropAction(payload.team_id, payload.action_id)
+            const { actionId, teamId } = JSON.parse(message)
+            actionManager.dropAction(teamId, actionId)
         },
     })
 
