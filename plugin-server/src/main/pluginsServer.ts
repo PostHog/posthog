@@ -26,6 +26,7 @@ import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queue
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
 import {
+    startAsyncHandlerConsumer,
     startAsyncOnEventHandlerConsumer,
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
@@ -310,6 +311,21 @@ export async function startPluginsServer(
             })
         }
 
+        // TODO: remove once onevent and webhooks split is fully out
+        if (capabilities.processAsyncHandlers) {
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            serverInstance = serverInstance ? serverInstance : { hub }
+
+            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startAsyncHandlerConsumer({
+                hub: hub,
+                piscina: piscina,
+            })
+
+            onEventHandlerConsumer = onEventQueue
+
+            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
+        }
         if (capabilities.processAsyncOnEventHandlers) {
             if (capabilities.processAsyncHandlers) {
                 throw Error('async and onEvent together are not allowed - would export twice')
@@ -328,7 +344,6 @@ export async function startPluginsServer(
 
             healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
         }
-
         if (capabilities.processAsyncWebhooksHandlers) {
             if (capabilities.processAsyncHandlers) {
                 throw Error('async and webhooks together are not allowed - would send twice')
@@ -348,6 +363,7 @@ export async function startPluginsServer(
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
 
+        // If we have
         if (hub && serverInstance) {
             pubSub = new PubSub(hub, {
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
