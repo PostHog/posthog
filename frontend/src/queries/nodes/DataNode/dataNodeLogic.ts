@@ -85,7 +85,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
                     if (props.doNotLoad) {
-                        return
+                        return props.cachedResults
                     }
                     if (
                         isInsightQueryNode(props.query) &&
