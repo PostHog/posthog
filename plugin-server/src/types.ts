@@ -76,7 +76,6 @@ export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
-    plugins_async = 'async',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     plugins_exports = 'exports', // TODO: remove once onevent and webhooks split is out

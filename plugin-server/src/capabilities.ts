@@ -16,7 +16,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionHistorical: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
-                processAsyncHandlers: true,
+                processAsyncOnEventHandlers: true,
+                processAsyncWebhooksHandlers: true,
                 sessionRecordingIngestion: true,
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
@@ -56,14 +57,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.recordings_blob_ingestion:
             return {
                 sessionRecordingBlobIngestion: true,
-                ...sharedCapabilities,
-            }
-
-        case PluginServerMode.plugins_async:
-            return {
-                processPluginJobs: true,
-                processAsyncHandlers: true,
-                pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.plugins_exports:
