@@ -84,11 +84,11 @@ describe('ingester', () => {
     // these tests assume that a flush won't run while they run
     beforeEach(async () => {
         ingester = new SessionRecordingBlobIngester(
-            hub.teamManager,
             {
                 ...defaultConfig,
                 SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: keyPrefix,
             },
+            hub.postgres,
             hub.objectStorage,
             hub.redisPool
         )
