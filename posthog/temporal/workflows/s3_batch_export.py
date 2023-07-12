@@ -56,14 +56,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     be a very big date range and time consuming, better to split into multiple
     runs, timing out after say 30 seconds or something and upload multiple
     files.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -151,7 +143,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         # We failed right at the beginning
                         new_interval_start = None
                     else:
-                        new_interval_start = result.get("_timestamp", None)
+                        new_interval_start = result.get("inserted_at", None)
 
                     if not isinstance(new_interval_start, str):
                         new_interval_start = inputs.data_interval_start
@@ -172,9 +164,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     break
 
                 # Write the results to a local file
-                local_results_file.write(
-                    json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
-                )
+                local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
 
                 # Write results to S3 when the file reaches 50MB and reset the
@@ -193,7 +183,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         UploadId=upload_id,
                         Body=local_results_file,
                     )
-                    last_uploaded_part_timestamp = result["_timestamp"]
+                    last_uploaded_part_timestamp = result["inserted_at"]
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
                     part_number += 1

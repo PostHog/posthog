@@ -103,18 +103,9 @@ def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_n
 
 @activity.defn
 async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
-    """
-    Activity streams data from ClickHouse to Snowflake.
+    """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -201,7 +192,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                             # We failed right at the beginning
                             new_interval_start = None
                         else:
-                            new_interval_start = result.get("_timestamp", None)
+                            new_interval_start = result.get("inserted_at", None)
 
                         if not isinstance(new_interval_start, str):
                             new_interval_start = inputs.data_interval_start
@@ -218,9 +209,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         break
 
                     # Write the results to a local file
-                    local_results_file.write(
-                        json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
-                    )
+                    local_results_file.write(json.dumps(result).encode("utf-8"))
                     local_results_file.write("\n".encode("utf-8"))
 
                     # Write results to Snowflake when the file reaches 50MB and
