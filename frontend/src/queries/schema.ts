@@ -421,6 +421,8 @@ export interface StickinessQuery extends InsightsQueryBase {
 export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
+    /** Lifecycles order in how they display */
+    lifecyclesOrder?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
 export interface LifecycleQuery extends InsightsQueryBase {

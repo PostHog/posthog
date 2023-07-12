@@ -97,8 +97,8 @@ export const trendsLogic = kea<trendsLogicType>([
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         indexedResults: [
-            (s) => [s.filters, s.results, s.toggledLifecycles],
-            (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
+            (s) => [s.filters, s.results, s.toggledLifecycles, s.lifecyclesOrder],
+            (filters, _results, toggledLifecycles, lifecyclesOrder): IndexedTrendResult[] => {
                 let results = _results || []
                 results = results.map((result, index) => ({ ...result, seriesIndex: index }))
                 if (
@@ -108,7 +108,12 @@ export const trendsLogic = kea<trendsLogicType>([
                 ) {
                     results.sort((a, b) => b.aggregated_value - a.aggregated_value)
                 } else if (isLifecycleFilter(filters)) {
-                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
+                    results = results
+                        .filter((result) => toggledLifecycles.includes(String(result.status)))
+                        .sort(
+                            (a, b) =>
+                                lifecyclesOrder.indexOf(String(b.status)) - lifecyclesOrder.indexOf(String(a.status))
+                        )
                 }
                 return results.map((result, index) => ({ ...result, id: index } as IndexedTrendResult))
             },
@@ -155,6 +160,19 @@ export const trendsLogic = kea<trendsLogicType>([
                     return inflightFilters.toggledLifecycles || defaultToggleState
                 } else if (isLifecycleFilter(loadedFilters)) {
                     return (loadedFilters as Partial<LifecycleFilterType>).toggledLifecycles || defaultToggleState
+                } else {
+                    return defaultToggleState
+                }
+            },
+        ],
+        lifecyclesOrder: [
+            (s) => [s.filters, s.loadedFilters],
+            (inflightFilters, loadedFilters): string[] => {
+                const defaultToggleState = ['new', 'resurrecting', 'returning', 'dormant']
+                if (isLifecycleFilter(inflightFilters)) {
+                    return inflightFilters.lifecyclesOrder || defaultToggleState
+                } else if (isLifecycleFilter(loadedFilters)) {
+                    return (loadedFilters as Partial<LifecycleFilterType>).lifecyclesOrder || defaultToggleState
                 } else {
                     return defaultToggleState
                 }

@@ -514,6 +514,7 @@ describe('filtersToQueryNode', () => {
                 insight: InsightType.LIFECYCLE,
                 shown_as: ShownAsValue.LIFECYCLE,
                 toggledLifecycles: ['new', 'dormant'],
+                lifecyclesOrder: ['new', 'dormant', 'resurrecting', 'returning'],
             }
 
             const result = filtersToQueryNode(filters)
@@ -523,6 +524,7 @@ describe('filtersToQueryNode', () => {
                 lifecycleFilter: {
                     shown_as: ShownAsValue.LIFECYCLE,
                     toggledLifecycles: ['new', 'dormant'],
+                    lifecyclesOrder: ['new', 'dormant', 'resurrecting', 'returning'],
                 },
             }
             expect(result).toEqual(query)
