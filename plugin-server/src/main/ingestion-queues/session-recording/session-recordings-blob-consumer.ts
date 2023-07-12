@@ -96,6 +96,7 @@ export class SessionRecordingBlobIngester {
     flushInterval: NodeJS.Timer | null = null
     // the time at the most recent message of a particular partition
     partitionNow: Record<number, number | null> = {}
+    partitionLastKnownCommit: Record<number, number | null> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
 
     constructor(
@@ -509,23 +510,27 @@ export class SessionRecordingBlobIngester {
         }
 
         const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
+
+        // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
         const commitableOffsets = potentiallyBlockingOffset
             ? offsets.filter((offset) => offset < potentiallyBlockingOffset)
             : offsets
 
-        if (commitableOffsets.length === 0) {
-            // If there are no offsets to commit then we're done
-            status.info('🚫', `blob_ingester_consumer.commitOffsets - no offset to commit`, {
+        // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
+        const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
+
+        // Check that we haven't already commited a higher offset
+        if (this.partitionLastKnownCommit[partition] || 0 >= highestOffsetToCommit) {
+            status.warn('🚫', `blob_ingester_consumer.commitOffsets - offset already committed`, {
                 partition,
-                blockingSession: potentiallyBlockingSession?.sessionId,
-                lowestInflightOffset: potentiallyBlockingOffset,
-                lowestOffsetToRemove: offsets[0],
+                offsetToCommit: highestOffsetToCommit,
+                lastKnownCommit: this.partitionLastKnownCommit[partition],
             })
+
             return
         }
 
-        // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
-        const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
+        this.partitionLastKnownCommit[partition] = highestOffsetToCommit
 
         status.info('💾', `blob_ingester_consumer.commitOffsets - attempting to commit offset`, {
             partition,
