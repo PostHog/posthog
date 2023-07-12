@@ -102,6 +102,7 @@ jobs:
                   event_type: posthog_cloud_build
                   message: |
                       {
+                        "image_tag_amd64": "${{ steps.build-amd64.outputs.digest }}",
                         "image_tag": "${{ steps.build-arm64.outputs.digest }}",
                         "context": ${{ toJson(github) }}
                       }
