@@ -116,13 +116,13 @@ jobs:
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed != ''
-              uses: peter-evans/repository-dispatch@v1
+              uses: mvasigh/dispatch-action@main
               with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-                  repository: PostHog/charts
-                  event-type: ingestion_deploy
-                  client-payload: |
+                  token: ${{ steps.deployer.outputs.token }}
+                  repo: charts
+                  owner: PostHog
+                  event_type: ingestion_deploy
+                  message: |
                       {
-                        "image_tag": "${{ steps.build-arm64.outputs.digest }}"
+                        "image_tag": "${{ steps.build-arm64.outputs.digest }}",
                       }
-
