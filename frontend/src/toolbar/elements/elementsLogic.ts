@@ -345,7 +345,6 @@ export const elementsLogic = kea<elementsLogicType>({
                     window.getComputedStyle(document.body).position === 'relative'
                         ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
                         : 0
-                console.log({ relativePositionCompensation })
                 if (relativePositionCompensation !== values.relativePositionCompensation) {
                     actions.setRelativePositionCompensation(relativePositionCompensation)
                 }
