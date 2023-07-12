@@ -2,7 +2,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { Hub, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { convertToIngestionEvent } from '../../../utils/event'
+import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { groupIntoBatches } from '../../../utils/utils'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -10,37 +10,6 @@ import { silentFailuresAsyncHandlers } from '../../../worker/ingestion/event-pip
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
-
-// TODO: remove once we've migrated
-export async function eachMessageAsyncHandlers(message: KafkaMessage, queue: KafkaJSIngestionConsumer): Promise<void> {
-    const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
-    const event = convertToIngestionEvent(clickHouseEvent)
-
-    await Promise.all([
-        runInstrumentedFunction({
-            event: event,
-            func: () => queue.workerMethods.runAppsOnEventPipeline(event),
-            statsKey: `kafka_queue.process_async_handlers_on_event`,
-            timeoutMessage: 'After 30 seconds still running runAppsOnEventPipeline',
-            teamId: event.teamId,
-        }),
-        runInstrumentedFunction({
-            event: event,
-            func: () => runWebhooks(queue.pluginsServer, event),
-            statsKey: `kafka_queue.process_async_handlers_webhooks`,
-            timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
-            teamId: event.teamId,
-        }),
-    ])
-}
-
-// TODO: remove once we've migrated
-export async function eachBatchAsyncHandlers(
-    payload: EachBatchPayload,
-    queue: KafkaJSIngestionConsumer
-): Promise<void> {
-    await eachBatch(payload, queue, eachMessageAsyncHandlers, groupIntoBatches, 'async_handlers')
-}
 
 export async function eachMessageAppsOnEventHandlers(
     message: KafkaMessage,
@@ -64,6 +33,13 @@ export async function eachMessageWebhooksHandlers(
 ): Promise<void> {
     const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
     const event = convertToIngestionEvent(clickHouseEvent)
+
+    // TODO: previously onEvent and Webhooks were executed in the same process,
+    // and onEvent would call convertToProcessedPluginEvent, which ends up
+    // mutating the `event` that is passed in. To ensure that we have the same
+    // behaviour we run this here, but we should probably refactor this to
+    // ensure that we don't mutate the event.
+    convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
         event: event,
