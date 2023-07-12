@@ -18,6 +18,8 @@ export interface LemonMenuItemBase
         'icon' | 'sideIcon' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
     > {
     label: string | JSX.Element
+    /** True if the item is a custom element. */
+    custom?: boolean
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: (LemonMenuItemLeaf | false | null)[]
@@ -48,6 +50,8 @@ export interface LemonMenuItemCustom {
     active?: never
     items?: never
     keyboardShortcut?: never
+    /** True if the item is a custom element. */
+    custom?: boolean
 }
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
