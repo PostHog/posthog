@@ -10,7 +10,7 @@ import {
     TopicPartition,
 } from 'node-rdkafka-acosom'
 import path from 'path'
-import { Gauge } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
@@ -73,6 +73,18 @@ const gaugeOffsetCommitFailed = new Gauge({
     labelNames: ['partition'],
 })
 
+const histogramKafkaBatchSize = new Histogram({
+    name: 'recording_blob_ingestion_kafka_batch_size',
+    help: 'The size of the batches we are receiving from Kafka',
+    buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, Infinity],
+})
+
+const counterKafkaMessageReceived = new Counter({
+    name: 'recording_blob_ingestion_kafka_message_received',
+    help: 'The number of messages we have received from Kafka',
+    labelNames: ['partition'],
+})
+
 export class SessionRecordingBlobIngester {
     sessions: Map<string, SessionManager> = new Map()
     private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
@@ -111,6 +123,8 @@ export class SessionRecordingBlobIngester {
         const key = `${team_id}-${session_id}`
 
         const { partition, topic, offset, timestamp } = event.metadata
+
+        counterKafkaMessageReceived.inc({ partition })
 
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
@@ -261,6 +275,8 @@ export class SessionRecordingBlobIngester {
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
         const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
+
+        histogramKafkaBatchSize.observe(messages.length)
 
         await Promise.all(
             messages.map(async (message) => {
