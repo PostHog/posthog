@@ -68,7 +68,7 @@ export class ActionManager {
     }
 
     public dropAction(teamId: Team['id'], actionId: Action['id']): void {
-        if (!this.capabilities.processAsyncHandlers && !this.capabilities.processAsyncWebhooksHandlers) {
+        if (!this.capabilities.processAsyncWebhooksHandlers) {
             return
         }
 
