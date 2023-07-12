@@ -1,5 +1,5 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Hub, PostIngestionEvent } from '../../../types'
+import { PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
 import { ActionMatcher } from '../action-matcher'
