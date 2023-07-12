@@ -31,6 +31,7 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs,
     eachBatch,
     autoCommit = true,
+    queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -44,6 +45,7 @@ export const startBatchConsumer = async ({
     batchingTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
+    queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -91,7 +93,7 @@ export const startBatchConsumer = async ({
         'enable.partition.eof': true,
         // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
         // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
-        'queued.min.messages': 100000, // 100000 is the default
+        'queued.min.messages': queuedMinMessages, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
         // Use cooperative-sticky rebalancing strategy, which is the
         // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
