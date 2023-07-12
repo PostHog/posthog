@@ -535,14 +535,14 @@ export class SessionRecordingBlobIngester {
         void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
-            this.batchConsumer?.consumer.commit({
+            this.batchConsumer?.consumer.commitSync({
                 topic,
                 partition,
                 // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
                 // for some reason you commit the next offset you expect to read and not the one you actually have
                 offset: highestOffsetToCommit + 1,
             })
-            gaugeOffsetCommitted.inc({ partition })
+            gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
         } catch (e) {
             gaugeOffsetCommitFailed.inc({ partition })
             captureException(e, {
