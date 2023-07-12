@@ -335,7 +335,7 @@ export class SessionRecordingBlobIngester {
             consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
             consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             // our messages are very big, so we don't want to buffer too many
-            queuedMinMessages: this.serverConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE * 3,
+            queuedMinMessages: this.serverConfig.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
             consumerMaxWaitMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             fetchBatchSize: this.serverConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
