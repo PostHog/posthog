@@ -311,9 +311,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            if (capabilities.processAsyncHandlers) {
-                throw Error('async and onEvent together are not allowed - would export twice')
-            }
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
@@ -330,9 +327,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
-            if (capabilities.processAsyncHandlers) {
-                throw Error('async and webhooks together are not allowed - would send twice')
-            }
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
@@ -362,12 +356,16 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
+                ...(capabilities.processAsyncWebhooksHandlers
                     ? {
-                          'reload-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                          'drop-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                          'reload-action': async (message) => {
+                              const { actionId, teamId } = JSON.parse(message)
+                              await hub?.actionManager.reloadAction(teamId, actionId)
+                          },
+                          'drop-action': (message) => {
+                              const { actionId, teamId } = JSON.parse(message)
+                              hub?.actionManager.dropAction(teamId, actionId)
+                          },
                       }
                     : {}),
             })
@@ -376,7 +374,7 @@ export async function startPluginsServer(
 
             // every 5 minutes all ActionManager caches are reloaded for eventual consistency
             schedule.scheduleJob('*/5 * * * *', async () => {
-                await piscina?.broadcastTask({ task: 'reloadAllActions' })
+                await hub?.actionManager.reloadAllActions()
             })
 
             startPreflightSchedules(hub)

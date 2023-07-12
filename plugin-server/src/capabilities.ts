@@ -59,11 +59,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.plugins_exports:
-            return {
-                processAsyncHandlers: true,
-                ...sharedCapabilities,
-            }
         case PluginServerMode.async_onevent:
             return {
                 processAsyncOnEventHandlers: true,
