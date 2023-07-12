@@ -46,7 +46,7 @@ async def get_client():
                 password=settings.CLICKHOUSE_PASSWORD,
                 database=settings.CLICKHOUSE_DATABASE,
                 # TODO: make this a setting.
-                max_execution_time=1200,
+                max_execution_time=0,
             )
             yield client
             await client.close()
