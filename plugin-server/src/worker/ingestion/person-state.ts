@@ -267,7 +267,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: mergeIntoDistinctId })
-            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: mergeIntoDistinctId,
                 otherDistinctId: otherPersonDistinctId,
                 eventUuid: this.event.uuid,
@@ -276,7 +276,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             this.statsd?.increment('illegal_distinct_ids.total', { distinctId: otherPersonDistinctId })
-            captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
+            await captureIngestionWarning(this.db, teamId, 'cannot_merge_with_illegal_distinct_id', {
                 illegalDistinctId: otherPersonDistinctId,
                 otherDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,
@@ -362,7 +362,7 @@ export class PersonState {
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
             // TODO: add event UUID to the ingestion warning
-            captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
+            await captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
                 sourcePersonDistinctId: otherPersonDistinctId,
                 targetPersonDistinctId: mergeIntoDistinctId,
                 eventUuid: this.event.uuid,

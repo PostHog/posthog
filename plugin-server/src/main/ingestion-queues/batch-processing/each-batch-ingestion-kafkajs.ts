@@ -91,7 +91,7 @@ export async function eachBatchLegacyIngestion(
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && WarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
-                        captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
+                        await captureIngestionWarning(queue.pluginsServer.db, team.id, 'ingestion_capacity_overflow', {
                             overflowDistinctId: distinct_id,
                         })
                     }

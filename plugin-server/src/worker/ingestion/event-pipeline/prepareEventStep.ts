@@ -11,7 +11,7 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
         // TODO: make that metric name more generic when transitionning to prometheus
         runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id), type: type })
 
-        captureIngestionWarning(runner.hub.db, team_id, type, details)
+        await captureIngestionWarning(runner.hub.db, team_id, type, details)
     }
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
