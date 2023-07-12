@@ -124,5 +124,5 @@ jobs:
                   event_type: ingestion_deploy
                   message: |
                       {
-                        "image_tag": "${{ steps.build-arm64.outputs.digest }}",
+                        "image_tag": "${{ steps.build-arm64.outputs.digest }}"
                       }
