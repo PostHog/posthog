@@ -26,7 +26,6 @@ import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queue
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer, KafkaJSIngestionConsumer } from './ingestion-queues/kafka-queue'
 import {
-    startAsyncHandlerConsumer,
     startAsyncOnEventHandlerConsumer,
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
@@ -311,25 +310,7 @@ export async function startPluginsServer(
             })
         }
 
-        // TODO: remove once onevent and webhooks split is fully out
-        if (capabilities.processAsyncHandlers) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
-
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            const { queue: onEventQueue, isHealthy: isOnEventsIngestionHealthy } = await startAsyncHandlerConsumer({
-                hub: hub,
-                piscina: piscina,
-            })
-
-            onEventHandlerConsumer = onEventQueue
-
-            healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
-        }
         if (capabilities.processAsyncOnEventHandlers) {
-            if (capabilities.processAsyncHandlers) {
-                throw Error('async and onEvent together are not allowed - would export twice')
-            }
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
@@ -344,10 +325,8 @@ export async function startPluginsServer(
 
             healthChecks['on-event-ingestion'] = isOnEventsIngestionHealthy
         }
+
         if (capabilities.processAsyncWebhooksHandlers) {
-            if (capabilities.processAsyncHandlers) {
-                throw Error('async and webhooks together are not allowed - would send twice')
-            }
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
@@ -363,7 +342,6 @@ export async function startPluginsServer(
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
 
-        // If we have
         if (hub && serverInstance) {
             pubSub = new PubSub(hub, {
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
@@ -378,12 +356,16 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
-                ...(capabilities.processAsyncHandlers || capabilities.processAsyncWebhooksHandlers
+                ...(capabilities.processAsyncWebhooksHandlers
                     ? {
-                          'reload-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                          'drop-action': async (message) =>
-                              await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                          'reload-action': async (message) => {
+                              const { actionId, teamId } = JSON.parse(message)
+                              await hub?.actionManager.reloadAction(teamId, actionId)
+                          },
+                          'drop-action': (message) => {
+                              const { actionId, teamId } = JSON.parse(message)
+                              hub?.actionManager.dropAction(teamId, actionId)
+                          },
                       }
                     : {}),
             })
@@ -392,7 +374,7 @@ export async function startPluginsServer(
 
             // every 5 minutes all ActionManager caches are reloaded for eventual consistency
             schedule.scheduleJob('*/5 * * * *', async () => {
-                await piscina?.broadcastTask({ task: 'reloadAllActions' })
+                await hub?.actionManager.reloadAllActions()
             })
 
             startPreflightSchedules(hub)

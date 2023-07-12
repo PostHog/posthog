@@ -81,7 +81,7 @@ describe('capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     {
                         ingestion: true,
-                        processAsyncHandlers: true,
+                        processAsyncOnEventHandlers: true,
                         processPluginJobs: true,
                         pluginScheduledTasks: true,
                     },
@@ -140,20 +140,23 @@ describe('capabilities', () => {
             })
         })
 
-        describe('processAsyncHandlers', () => {
+        describe('processAsyncOnEventHandlers', () => {
             it.each(['onEvent', 'onSnapshot', 'exportEvents'])(
-                'returns true if plugin has %s and the server has processAsyncHandlers capability',
+                'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
                 (method) => {
                     const shouldSetupPlugin = shouldSetupPluginInServer(
-                        { processAsyncHandlers: true },
+                        { processAsyncOnEventHandlers: true },
                         { methods: [method] }
                     )
                     expect(shouldSetupPlugin).toEqual(true)
                 }
             )
 
-            it('returns false if plugin has none of onEvent, onSnapshot, or exportEvents and the server has only processAsyncHandlers capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer({ processAsyncHandlers: true }, { methods: [] })
+            it('returns false if plugin has none of onEvent, onSnapshot, or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { processAsyncOnEventHandlers: true },
+                    { methods: [] }
+                )
                 expect(shouldSetupPlugin).toEqual(false)
             })
 
