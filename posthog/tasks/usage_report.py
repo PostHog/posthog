@@ -514,7 +514,7 @@ def convert_team_usage_rows_to_dict(rows: List[Union[dict, Tuple[int, int]]]) ->
             team_id_map[row["team_id"]] = row["total"]
         else:
             # Others are just a tuple with team_id and total
-            team_id_map[row[0]] = row[1]
+            team_id_map[int(row[0])] = row[1]
 
     return team_id_map
 
