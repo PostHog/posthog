@@ -1,6 +1,7 @@
 .LifecycleToggles {
     .LifecycleToggles__item--hover {
         border: 1px solid var(--border);
+        border-radius: var(--radius);
         padding: 0 0.75rem;
 
         * {
