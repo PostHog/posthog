@@ -1,7 +1,8 @@
 import datetime as dt
 import functools
+import io
 import json
-from random import randint
+import random
 from typing import Literal, TypedDict
 from unittest import mock
 from uuid import uuid4
@@ -27,6 +28,7 @@ from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
+    S3MultiPartUpload,
     insert_into_s3_activity,
 )
 
@@ -180,7 +182,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
-    team_id = randint(1, 1000000)
+    team_id = random.randint(1, 1000000)
 
     client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,

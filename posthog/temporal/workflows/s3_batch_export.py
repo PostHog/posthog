@@ -1,9 +1,9 @@
 import asyncio
 import datetime as dt
+import io
 import json
-import tempfile
+import typing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List
 
 import boto3
 from django.conf import settings
@@ -19,13 +19,145 @@ from posthog.temporal.workflows.base import (
     update_export_run_status,
 )
 from posthog.temporal.workflows.batch_exports import (
+    BatchExportTemporaryFile,
     get_results_iterator,
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
 
-if TYPE_CHECKING:
-    from mypy_boto3_s3.type_defs import CompletedPartTypeDef
+
+class UploadAlreadyInProgressError(Exception):
+    def __init__(self, upload_id):
+        super().__init__(f"This upload is already in progress with ID: {upload_id}. Instantiate a new object.")
+
+
+class NoUploadInProgressError(Exception):
+    def __init__(self):
+        super().__init__("No multi-part upload is in progress. Call 'create' to start one.")
+
+
+class S3MultiPartUploadState(typing.NamedTuple):
+    upload_id: str
+    parts: list[dict[str, str | int]]
+
+
+class S3MultiPartUpload:
+    """Manage an S3MultiPartUpload."""
+
+    def __init__(self, s3_client, bucket_name, key):
+        self.s3_client = s3_client
+        self.bucket_name = bucket_name
+        self.key = key
+        self.upload_id = None
+        self.parts = []
+
+    def to_state(self) -> S3MultiPartUploadState:
+        if self.is_upload_in_progress() is False or self.upload_id is None:
+            raise NoUploadInProgressError()
+
+        return S3MultiPartUploadState(self.upload_id, self.parts)
+
+    @property
+    def part_number(self):
+        return len(self.parts)
+
+    def is_upload_in_progress(self) -> bool:
+        if self.upload_id is None:
+            return False
+        return True
+
+    def create(self) -> str:
+        if self.is_upload_in_progress() is True:
+            raise UploadAlreadyInProgressError(self.upload_id)
+
+        multipart_response = self.s3_client.create_multipart_upload(Bucket=self.bucket_name, Key=self.key)
+        self.upload_id = multipart_response["UploadId"]
+
+        return self.upload_id
+
+    def continue_from_state(self, state: S3MultiPartUploadState):
+        self.upload_id = state.upload_id
+        self.parts = state.parts
+
+        return self.upload_id
+
+    def complete(self) -> str:
+        if self.is_upload_in_progress() is False:
+            raise NoUploadInProgressError()
+
+        response = self.s3_client.complete_multipart_upload(
+            Bucket=self.bucket_name,
+            Key=self.key,
+            UploadId=self.upload_id,
+            MultipartUpload={"Parts": self.parts},
+        )
+
+        self.upload_id = None
+        self.parts = []
+
+        return response["Location"]
+
+    def abort(self):
+        if self.is_upload_in_progress() is False:
+            raise NoUploadInProgressError()
+
+        self.s3_client.abort_multipart_upload(
+            Bucket=self.bucket_name,
+            Key=self.key,
+            UploadId=self.upload_id,
+        )
+
+    def upload_part(self, body: bytes | typing.BinaryIO):
+        next_part_number = self.part_number + 1
+
+        if isinstance(body, io.IOBase):
+            body.seek(0)
+
+        response = self.s3_client.upload_part(
+            Bucket=self.bucket_name,
+            Key=self.key,
+            PartNumber=next_part_number,
+            UploadId=self.upload_id,
+            Body=body,
+        )
+
+        self.parts.append({"PartNumber": next_part_number, "ETag": response["ETag"]})
+
+    def __enter__(self):
+        if not self.is_upload_in_progress():
+            self.create()
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        if exc_value is None:
+            # Succesfully completed the upload
+            self.complete()
+            return True
+
+        if exc_type == asyncio.CancelledError:
+            # Ensure we clean-up the cancelled upload.
+            self.abort()
+
+        return False
+
+
+class HeartbeatDetails(typing.NamedTuple):
+    """This tuple allows us to enforce a schema on the Heartbeat details.
+
+    Attributes:
+        last_uploaded_part_timestamp: The timestamp of the last part we managed to upload.
+        upload_state: State to continue a S3MultiPartUpload when activity execution resumes.
+    """
+
+    last_uploaded_part_timestamp: str
+    upload_state: S3MultiPartUploadState
+
+    @classmethod
+    def from_activity_details(cls, details):
+        last_uploaded_part_timestamp = details[0]
+        upload_state = S3MultiPartUploadState(*details[1])
+        return HeartbeatDetails(last_uploaded_part_timestamp, upload_state)
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:
@@ -74,8 +206,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
     files.
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
-    records_completed = 0
-    bytes_completed = 0
 
     async with get_client() as client:
         if not await client.is_alive():
@@ -95,7 +225,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
                 inputs.data_interval_end,
                 count,
             )
-            return (records_completed, bytes_completed)
+            return (0, 0)
 
         activity.logger.info("BatchExporting %s rows to S3", count)
 
@@ -109,26 +239,34 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
         )
+        s3_upload = S3MultiPartUpload(s3_client, inputs.bucket_name, key)
+
         details = activity.info().heartbeat_details
-
-        parts: List[CompletedPartTypeDef] = []
-
-        if len(details) == 4:
-            interval_start, upload_id, parts, part_number = details
-            activity.logger.info(f"Received details from previous activity. Export will resume from {interval_start}")
-
-        else:
-            multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
-            upload_id = multipart_response["UploadId"]
+        try:
+            interval_start, upload_state = HeartbeatDetails.from_activity_details(details)
+        except IndexError:
+            # This is the error we expect when no details as the sequence will be empty.
             interval_start = inputs.data_interval_start
-            part_number = 1
+            activity.logger.info(
+                f"Did not receive details from previous activity Excecution. Export will start from the beginning: {interval_start}"
+            )
+        except Exception as e:
+            # We still start from the beginning, but we make a point to log unexpected errors.
+            # Ideally, any new exceptions should be added to the previous block after the first time and we will never land here.
+            interval_start = inputs.data_interval_start
+            activity.logger.warning(
+                f"Did not receive details from previous activity Excecution due to an unexpected error. Export will start from the beginning: {interval_start}",
+                exc_info=e,
+            )
+        else:
+            activity.logger.info(f"Received details from previous activity. Export will resume from: {interval_start}")
+            s3_upload.continue_from_state(upload_state)
 
         # Iterate through chunks of results from ClickHouse and push them to S3
         # as a multipart upload. The intention here is to keep memory usage low,
         # even if the entire results set is large. We receive results from
         # ClickHouse, write them to a local file, and then upload the file to S3
         # when it reaches 50MB in size.
-
         results_iterator = get_results_iterator(
             client=client,
             team_id=inputs.team_id,
@@ -136,8 +274,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
             interval_end=inputs.data_interval_end,
         )
 
-        result = None
         last_uploaded_part_timestamp = None
+        with BatchExportTemporaryFile() as local_results_file:
+            with s3_upload as s3_upload:
 
         async def worker_shutdown_handler():
             """Handle the Worker shutting down by heart-beating our latest status."""
@@ -169,33 +308,25 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
                         new_interval_start = inputs.data_interval_start
 
                     activity.logger.warn(
-                        f"Failed to decode a JSON value while iterating, potentially due to a ClickHouse error. Resuming from {new_interval_start}"
+                        f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}"
                     )
+                    activity.heartbeat(last_uploaded_part_timestamp, s3_upload.to_state())
 
-                    results_iterator = get_results_iterator(
-                        client=client,
-                        team_id=inputs.team_id,
-                        interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
-                        interval_end=inputs.data_interval_end,
-                    )
-                    continue
+                asyncio.create_task(worker_shutdown_handler())
 
-                if not result:
-                    break
+                async for result, latest_timestamp in results_iterator:
+                    if not result:
+                        continue
 
                 # Write the results to a local file
                 local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
                 records_completed += 1
 
-                # Write results to S3 when the file reaches 50MB and reset the
-                # file, or if there is nothing else to write.
-                if (
-                    local_results_file.tell()
-                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
-                ):
-                    activity.logger.info("Uploading part %s", part_number)
-                    bytes_completed += local_results_file.tell()
+                    # Write results to S3 when the file reaches 50MB and reset the
+                    # file, or if there is nothing else to write.
+                    if local_results_file.bytes_since_last_reset > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES:
+                        activity.logger.info("Uploading part %s", s3_upload.part_number + 1)
 
                     local_results_file.seek(0)
                     response = s3_client.upload_part(
@@ -210,37 +341,13 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> tuple[int, int]:
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
                     part_number += 1
 
-                    activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
+                        local_results_file.reset()
 
-                    # Reset the file
-                    local_results_file.seek(0)
-                    local_results_file.truncate()
+                # Upload the last part
+                s3_upload.upload_part(local_results_file)
+                activity.heartbeat(last_uploaded_part_timestamp, tuple(s3_upload.to_state()))
 
-            bytes_completed += local_results_file.tell()
-
-            # Upload the last part
-            local_results_file.seek(0)
-            response = s3_client.upload_part(
-                Bucket=inputs.bucket_name,
-                Key=key,
-                PartNumber=part_number,
-                UploadId=upload_id,
-                Body=local_results_file,
-            )
-            activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
-
-            # Record the ETag for the last part
-            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
-
-        # Complete the multipart upload
-        s3_client.complete_multipart_upload(
-            Bucket=inputs.bucket_name,
-            Key=key,
-            UploadId=upload_id,
-            MultipartUpload={"Parts": parts},
-        )
-
-        return (records_completed, bytes_completed)
+        return (local_results_file.records_total, local_results_file.bytes_total)
 
 
 @workflow.defn(name="s3-export")
