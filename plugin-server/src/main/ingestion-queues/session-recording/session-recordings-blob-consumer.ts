@@ -525,6 +525,7 @@ export class SessionRecordingBlobIngester {
                 partition,
                 offsetToCommit: highestOffsetToCommit,
                 lastKnownCommit: this.partitionLastKnownCommit[partition],
+                sessionId,
             })
 
             return
