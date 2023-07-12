@@ -1,7 +1,8 @@
 import datetime as dt
 import functools
+import io
 import json
-from random import randint
+import random
 from typing import Literal, TypedDict
 from unittest import mock
 from uuid import uuid4
@@ -27,6 +28,7 @@ from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
+    S3MultiPartUpload,
     insert_into_s3_activity,
 )
 
@@ -179,7 +181,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
 
     # Generate a random team id integer. There's still a chance of a collision,
     # but it's very small.
-    team_id = randint(1, 1000000)
+    team_id = random.randint(1, 1000000)
 
     client = ChClient(
         url=settings.CLICKHOUSE_HTTP_URL,
@@ -746,3 +748,26 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
 
     duplicate_events = [event for event in events if not should_fail(event)]
     assert_events_in_s3(s3_client, bucket_name, prefix, events + duplicate_events)
+
+
+def test_s3_multi_part_upload(s3_client, bucket_name):
+    """Test the S3MultiPartUpload can upload a couple of 5MB parts."""
+    key = "path/to/my_test_file.txt"
+    n_parts = 2
+
+    with S3MultiPartUpload(s3_client, bucket_name, key) as s3_upload:
+        for _ in range(n_parts):
+            part = io.BytesIO()
+            part.seek((5 * 1024**2) - 1)  # 5MB - 1
+            part.write(b"\0")  # Write the missing 1
+            part.seek(0)  # Now part weighs 5MB
+
+            assert part.getbuffer().nbytes == 5 * 1024**2  # Don't believe me?
+
+            s3_upload.upload_part(part)
+
+    s3_object = s3_client.get_object(Bucket=bucket_name, Key=key)
+    result = s3_object["Body"].read()
+
+    assert len(result) == (5 * 1024**2) * n_parts
+    assert result == b"\0" * ((5 * 1024**2) * n_parts)
