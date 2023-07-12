@@ -180,20 +180,47 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 interval_start=inputs.data_interval_start,
                 interval_end=inputs.data_interval_end,
             )
-
+            result = None
             local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
             try:
                 while True:
                     try:
                         result = await results_iterator.__anext__()
+
                     except StopAsyncIteration:
                         break
+
+                    except json.JSONDecodeError:
+                        activity.logger.info(
+                            "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
+                        )
+                        # This is raised by aiochclient as we try to decode an error message from ClickHouse.
+                        # So far, this error message only indicated that we were too slow consuming rows.
+                        # So, we can resume from the last result.
+                        if result is None:
+                            # We failed right at the beginning
+                            new_interval_start = None
+                        else:
+                            new_interval_start = result.get("_timestamp", None)
+
+                        if not isinstance(new_interval_start, str):
+                            new_interval_start = inputs.data_interval_start
+
+                        results_iterator = get_results_iterator(
+                            client=client,
+                            team_id=inputs.team_id,
+                            interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
+                            interval_end=inputs.data_interval_end,
+                        )
+                        continue
 
                     if not result:
                         break
 
                     # Write the results to a local file
-                    local_results_file.write(json.dumps(result).encode("utf-8"))
+                    local_results_file.write(
+                        json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
+                    )
                     local_results_file.write("\n".encode("utf-8"))
 
                     # Write results to Snowflake when the file reaches 50MB and
@@ -308,8 +335,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 insert_into_snowflake_activity,
                 insert_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(hours=1),
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     non_retryable_error_types=[

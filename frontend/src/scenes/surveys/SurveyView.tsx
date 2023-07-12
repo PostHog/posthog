@@ -9,7 +9,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState, useEffect } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { defaultSurveyAppearance, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
@@ -123,15 +122,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     <span>{survey.questions[0].link}</span>
                                                 </>
                                             )}
-
-                                            <span className="card-secondary mt-4">Linked feature flag</span>
-                                            {survey.linked_flag ? (
-                                                <Link to={urls.featureFlag(survey.linked_flag.id)}>
-                                                    {survey.linked_flag.key}
-                                                </Link>
-                                            ) : (
-                                                <span>None</span>
-                                            )}
                                             <div className="flex flex-row gap-8">
                                                 {survey.start_date && (
                                                     <div className="flex flex-col">
@@ -147,11 +137,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 )}
                                             </div>
                                             <LemonDivider />
-                                            <span className="card-secondary">Release summary</span>
                                             <SurveyReleaseSummary
                                                 id={id}
                                                 survey={survey}
-                                                targetingFlagFilters={survey.targeting_flag?.filters}
+                                                hasTargetingFlag={!!survey.targeting_flag}
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">

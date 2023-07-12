@@ -2393,6 +2393,7 @@ export interface Experiment {
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
+        aggregation_group_type_index?: number
     }
     start_date?: string | null
     end_date?: string | null

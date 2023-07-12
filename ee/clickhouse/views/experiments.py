@@ -163,8 +163,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
             raise ValidationError("Filters are required to create an Experiment")
 
         variants = []
+        aggregation_group_type_index = None
         if validated_data["parameters"]:
             variants = validated_data["parameters"].get("feature_flag_variants", [])
+            aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -186,6 +188,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         filters = {
             "groups": [{"properties": properties, "rollout_percentage": None}],
             "multivariate": {"variants": variants or default_variants},
+            "aggregation_group_type_index": aggregation_group_type_index,
         }
 
         feature_flag_serializer = FeatureFlagSerializer(
