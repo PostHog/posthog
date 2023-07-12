@@ -207,6 +207,7 @@ export interface PluginsServerConfig {
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
     SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
+    SESSION_RECORDING_KAFKA_BATCH_SIZE: number
     POSTHOG_SESSION_RECORDING_REDIS_HOST: string | undefined
     POSTHOG_SESSION_RECORDING_REDIS_PORT: number | undefined
 }
