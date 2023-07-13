@@ -4,27 +4,24 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
     // Make sure this is synced to SurveyAPISerializer
-    const {
-        appearance,
-        archived,
-        linked_flag,
-        targeting_flag,
-        targeting_flag_filters,
-        created_at,
-        created_by,
-        linked_flag_id,
-        ...apiSurvey
-    } = survey
-    const apiSurveyWithFlagKeys = {
-        ...apiSurvey,
-        ...(linked_flag ? { linked_flag: linked_flag.key } : {}),
-        ...(targeting_flag ? { targeting_flag: targeting_flag.key } : {}),
+    const apiSurvey = {
+        id: survey.id,
+        name: survey.name,
+        description: survey.description,
+        type: survey.type,
+        linked_flag_key: survey.linked_flag ? survey.linked_flag.key : null,
+        targeting_flag_key: survey.targeting_flag ? survey.targeting_flag.key : null,
+        questions: survey.questions,
+        conditions: survey.conditions,
+        start_date: survey.start_date,
+        end_date: survey.end_date,
     }
+
     return (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>
             <CodeSnippet wrap language={Language.JSON}>
-                {JSON.stringify(apiSurveyWithFlagKeys, null, 2)}
+                {JSON.stringify(apiSurvey, null, 2)}
             </CodeSnippet>
         </div>
     )
