@@ -281,7 +281,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 updatedInsight.filters = queryNodeToFilter(values.query.source)
                 updatedInsight.query = undefined
 
-                actions.setInsight(updatedInsight, {})
+                // actions.setInsight(updatedInsight, {})
             }
         },
     })),

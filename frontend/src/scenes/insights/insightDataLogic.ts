@@ -40,6 +40,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             [
+                'response as insightData',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
@@ -52,7 +53,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData'],
+            ['loadData', 'setResponse as setInsightDataResponse'],
         ],
         logic: [insightDataTimingLogic(props)],
     })),
@@ -130,11 +131,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
+        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
             } else if (query) {
                 actions.setQuery(query)
+            }
+
+            if (result) {
+                actions.setInsightDataResponse({ ...values.insightData, result })
             }
         },
         loadInsightSuccess: ({ insight }) => {
