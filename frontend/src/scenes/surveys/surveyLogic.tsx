@@ -68,7 +68,7 @@ const NEW_SURVEY: NewSurvey = {
     conditions: null,
     archived: false,
     appearance: defaultSurveyAppearance,
-    created_at: null,
+    created_at: '',
     created_by: null,
 }
 

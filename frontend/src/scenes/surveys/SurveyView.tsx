@@ -132,7 +132,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 content: (
                                     <div className="flex flex-row">
                                         <div className="flex flex-col w-full">
-                                            <span className="card-secondary mt-4">Presentation mode</span>
+                                            <span className="card-secondary mt-4">Display mode</span>
                                             <span>
                                                 {survey.type === SurveyType.API
                                                     ? survey.type.toUpperCase()
