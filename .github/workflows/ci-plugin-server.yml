@@ -55,6 +55,8 @@ jobs:
         name: Code quality
         needs: changes
         runs-on: ubuntu-latest
+        if: needs.changes.outputs.plugin-server == 'true'
+
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -86,6 +88,7 @@ jobs:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
         runs-on: ubuntu-latest
+        if: needs.changes.outputs.plugin-server == 'true'
 
         strategy:
             fail-fast: false
@@ -172,6 +175,7 @@ jobs:
         name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
         needs: changes
         runs-on: ubuntu-latest
+        if: needs.changes.outputs.plugin-server == 'true'
 
         strategy:
             fail-fast: false
@@ -278,6 +282,7 @@ jobs:
         # ingestion performance changes over time.
 
         runs-on: ubuntu-latest
+        if: needs.changes.outputs.plugin-server == 'true'
 
         env:
             DEBUG: 'true'
