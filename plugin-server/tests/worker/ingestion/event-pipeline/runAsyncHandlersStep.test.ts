@@ -50,7 +50,7 @@ describe('runAsyncHandlersStep()', () => {
     })
 
     it('does action matching and fires webhooks', async () => {
-        await processWebhooksStep(runner.hub, ingestionEvent)
+        await processWebhooksStep(ingestionEvent, runner.hub.actionMatcher, runner.hub.hookCannon)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
         expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, ['action1', 'action2'])

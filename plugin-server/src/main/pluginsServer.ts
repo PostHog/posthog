@@ -51,7 +51,7 @@ export type ServerInstance = {
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
-    capabilities: PluginServerCapabilities | undefined
+    capabilities?: PluginServerCapabilities
 ): Promise<Partial<ServerInstance>> {
     const timer = new Date()
 

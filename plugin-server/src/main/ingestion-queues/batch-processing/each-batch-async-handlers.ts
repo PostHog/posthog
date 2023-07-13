@@ -64,11 +64,19 @@ export async function eachBatchAppsOnEventHandlers(
 
 export async function eachBatchWebhooksHandlers(
     payload: EachBatchPayload,
-    eachMessage: (message: KafkaMessage) => Promise<void>,
+    actionMatcher: ActionMatcher,
+    hookCannon: HookCommander,
     statsd: StatsD | undefined,
     concurrency: number
 ): Promise<void> {
-    await eachBatchWebhooks(payload, statsd, eachMessage, groupIntoBatches, concurrency, 'async_handlers_webhooks')
+    await eachBatchWebhooks(
+        payload,
+        statsd,
+        (message) => eachMessageWebhooksHandlers(message, actionMatcher, hookCannon, statsd),
+        groupIntoBatches,
+        concurrency,
+        'async_handlers_webhooks'
+    )
 }
 
 async function runWebhooks(

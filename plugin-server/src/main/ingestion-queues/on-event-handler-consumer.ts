@@ -13,11 +13,7 @@ import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import Piscina from '../../worker/piscina'
-import {
-    eachBatchAppsOnEventHandlers,
-    eachBatchWebhooksHandlers,
-    eachMessageWebhooksHandlers,
-} from './batch-processing/each-batch-async-handlers'
+import { eachBatchAppsOnEventHandlers, eachBatchWebhooksHandlers } from './batch-processing/each-batch-async-handlers'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
 
 export const startAsyncOnEventHandlerConsumer = async ({
@@ -111,13 +107,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) =>
-            eachBatchWebhooksHandlers(
-                payload,
-                (message) => eachMessageWebhooksHandlers(message, actionMatcher, hookCannon, statsd),
-                statsd,
-                concurrency
-            ),
+        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, statsd, concurrency),
     })
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
