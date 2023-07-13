@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonCollapse, LemonCheckbox, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useValues, useActions } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -18,6 +18,7 @@ import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries, showSurveyAppWarning } =
@@ -182,54 +183,45 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">
-                                            <LemonCollapse
-                                                className="w-full mb-2"
-                                                panels={[
-                                                    {
-                                                        key: '1',
-                                                        header: 'Survey setup help',
-                                                        content: (
-                                                            <div>
-                                                                <div className="flex flex-col">
-                                                                    <span className="font-medium mb-2">
-                                                                        Option 1: Enable the surveys app (recommended)
-                                                                    </span>
-                                                                    <div className="flex gap-2 items-start">
-                                                                        <LemonCheckbox /> Add the following option to
-                                                                        your PostHog instance:
-                                                                    </div>
-                                                                    <CodeSnippet language={Language.JavaScript} wrap>
-                                                                        {OPT_IN_SNIPPET}
-                                                                    </CodeSnippet>
-                                                                    <div className="flex items-center gap-1">
-                                                                        <LemonCheckbox />{' '}
-                                                                        <LemonButton
-                                                                            onClick={() =>
-                                                                                surveyPlugin?.id &&
-                                                                                editPlugin(surveyPlugin.id)
-                                                                            }
-                                                                        >
-                                                                            Enable and save the surveys app
-                                                                        </LemonButton>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex flex-col mt-3">
-                                                                    <span className="font-medium">
-                                                                        Option 2: Create your own custom survey UI with
-                                                                        our headless API
-                                                                    </span>
-                                                                    <Link
-                                                                        to="https://posthog.com/docs/surveys/manual"
-                                                                        target="_blank"
-                                                                    >
-                                                                        See documentation
-                                                                    </Link>
-                                                                </div>
+                                            <div className="border rounded p-4 w-full">
+                                                {survey.type !== SurveyType.API ? (
+                                                    showSurveyAppWarning && (
+                                                        <div className="flex flex-col">
+                                                            <div className="flex gap-2 items-start">
+                                                                1. Add the following option to your PostHog instance:
                                                             </div>
-                                                        ),
-                                                    },
-                                                ]}
-                                            />
+                                                            <CodeSnippet language={Language.JavaScript} wrap>
+                                                                {OPT_IN_SNIPPET}
+                                                            </CodeSnippet>
+                                                            <div className="flex items-center">
+                                                                2.{' '}
+                                                                <LemonButton
+                                                                    onClick={() =>
+                                                                        surveyPlugin?.id && editPlugin(surveyPlugin.id)
+                                                                    }
+                                                                >
+                                                                    Enable and save the surveys app
+                                                                </LemonButton>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                ) : (
+                                                    <span className="font-medium">
+                                                        See the documentation below on API survey setup.
+                                                    </span>
+                                                )}
+                                                <div>
+                                                    Need more information?{' '}
+                                                    <a
+                                                        data-attr="survey-doc-link"
+                                                        target="_blank"
+                                                        rel="noopener"
+                                                        href="https://posthog.com/docs/surveys/manual"
+                                                    >
+                                                        Check the docs <IconOpenInNew />
+                                                    </a>
+                                                </div>
+                                            </div>
                                             {survey.type !== SurveyType.API ? (
                                                 <div className="mt-6">
                                                     <SurveyAppearance
@@ -243,7 +235,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     />
                                                 </div>
                                             ) : (
-                                                <SurveyAPIEditor survey={survey} />
+                                                <div className="mt-2">
+                                                    <SurveyAPIEditor survey={survey} />
+                                                </div>
                                             )}
                                         </div>
                                     </div>
