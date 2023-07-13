@@ -1,9 +1,9 @@
 import { captureException } from '@sentry/node'
+import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 import { Counter } from 'prom-client'
 
-import { uuid } from '../../../../../../frontend/src/lib/utils'
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
@@ -169,7 +169,7 @@ export class RealtimeManager extends EventEmitter {
                  *  and let it expire
                  */
                 const pipeline = client.pipeline()
-                const newKey = `expired-${key}-${uuid()}`
+                const newKey = `expired-${key}-${randomUUID()}`
                 pipeline.rename(`${key}`, newKey)
                 // renaming shouldn't affect the existing TTL
                 // but, we set one anyway to be sure
