@@ -32,6 +32,8 @@ class TestInsightModel(BaseTest):
         )
 
         assert filters_with_no_dashboard["date_from"] == "-30d"
+        assert filters_with_dashboard_with_no_date_from["date_to"] is None  # can be ignored if None
+        del filters_with_dashboard_with_no_date_from["date_to"]
         assert filters_with_no_dashboard == filters_with_dashboard_with_no_date_from
 
     def test_dashboard_with_date_from_filters_does_override_date_from(self) -> None:
@@ -42,6 +44,16 @@ class TestInsightModel(BaseTest):
         )
 
         assert filters_with_dashboard_with_different_date_from["date_from"] == "-14d"
+
+    def test_dashboard_with_date_from_filters_does_override_date_to(self) -> None:
+        insight = Insight.objects.create(team=self.team, filters={"date_from": "2023-06-17", "date_to": "2023-06-25"})
+
+        filters_with_dashboard_with_different_date_from = insight.dashboard_filters(
+            dashboard=(Dashboard.objects.create(team=self.team, filters={"date_from": "-14d"}))
+        )
+
+        assert filters_with_dashboard_with_different_date_from["date_from"] == "-14d"
+        assert filters_with_dashboard_with_different_date_from["date_to"] is None
 
     def test_dashboard_with_same_date_from_filters_generates_expected_date_from(self) -> None:
         insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})

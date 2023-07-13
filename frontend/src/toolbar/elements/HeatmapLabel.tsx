@@ -1,4 +1,5 @@
 import { inBounds } from '~/toolbar/utils'
+import { ElementRect } from '~/toolbar/types'
 
 const heatmapLabelStyle = {
     lineHeight: '14px',
@@ -12,7 +13,7 @@ const heatmapLabelStyle = {
 }
 
 interface HeatmapLabelProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
-    rect?: DOMRect
+    rect?: ElementRect
     align?: 'left' | 'right'
 }
 

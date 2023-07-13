@@ -23,11 +23,8 @@ import { ObjectStorage } from './main/services/object_storage'
 import { DB } from './utils/db/db'
 import { KafkaProducerWrapper } from './utils/db/kafka-producer-wrapper'
 import { UUID } from './utils/utils'
-import { ActionManager } from './worker/ingestion/action-manager'
-import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
 import { EventPipelineResult } from './worker/ingestion/event-pipeline/runner'
-import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -76,10 +73,8 @@ export enum PluginServerMode {
     ingestion = 'ingestion',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
-    plugins_async = 'async',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    plugins_exports = 'exports', // TODO: remove once onevent and webhooks split is out
     jobs = 'jobs',
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
@@ -245,9 +240,6 @@ export interface Hub extends PluginsServerConfig {
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     promiseManager: PromiseManager
-    actionManager: ActionManager
-    actionMatcher: ActionMatcher
-    hookCannon: HookCommander
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
     // geoip database, setup in workers
@@ -267,7 +259,6 @@ export interface PluginServerCapabilities {
     ingestionHistorical?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
-    processAsyncHandlers?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingIngestion?: boolean

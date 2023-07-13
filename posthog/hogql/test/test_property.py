@@ -396,9 +396,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            self._parse_expr(
-                f"person_id IN (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk})"
-            ),
+            self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
 
     def test_cohort_filter_dynamic(self):
@@ -407,7 +405,5 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
-            self._parse_expr(
-                f"person_id IN (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort.pk} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-            ),
+            self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
