@@ -390,7 +390,6 @@ export class SessionManager {
                 ...this.logContext(),
                 error,
             })
-            captureException(error, { tags: this.logContext() })
         })
     }
 }
