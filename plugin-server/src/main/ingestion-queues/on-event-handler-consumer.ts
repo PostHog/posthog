@@ -112,7 +112,21 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
 
-    return { consumer, isHealthy }
+    return {
+        stop: async () => {
+            try {
+                await consumer.stop()
+            } catch (e) {
+                status.error('🚨', 'Error stopping consumer', e)
+            }
+            try {
+                await consumer.disconnect()
+            } catch (e) {
+                status.error('🚨', 'Error disconnecting consumer', e)
+            }
+        },
+        isHealthy,
+    }
 }
 
 export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
