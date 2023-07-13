@@ -86,7 +86,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     <Field name="description" label="Description (optional)">
                         <LemonTextArea data-attr="survey-description" />
                     </Field>
-                    <Field name="type" label="Mode" className="w-max">
+                    <Field name="type" label="Display mode" className="w-max">
                         <LemonSelect
                             data-attr="survey-type"
                             options={[

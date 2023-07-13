@@ -143,8 +143,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 content: (
                                     <div className="flex flex-row">
                                         <div className="flex flex-col w-full">
-                                            <span className="card-secondary mt-4">Mode</span>
-                                            <span>{capitalizeFirstLetter(survey.type)}</span>
+                                            <span className="card-secondary mt-4">Display mode</span>
+                                            <span>
+                                                {survey.type === SurveyType.API
+                                                    ? survey.type.toUpperCase()
+                                                    : capitalizeFirstLetter(survey.type)}
+                                            </span>
                                             {survey.questions[0].question && (
                                                 <>
                                                     <span className="card-secondary mt-4">Type</span>
