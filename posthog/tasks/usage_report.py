@@ -509,7 +509,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
 def convert_team_usage_rows_to_dict(rows: List[Union[dict, Tuple[int, int]]]) -> Dict[int, int]:
     team_id_map = {}
     for row in rows:
-        if "team_id" in row:
+        if isinstance(row, dict) and "team_id" in row:
             # Some queries return a dict with team_id and total
             team_id_map[row["team_id"]] = row["total"]
         else:
