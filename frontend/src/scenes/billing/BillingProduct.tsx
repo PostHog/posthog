@@ -10,6 +10,7 @@ import {
     IconPlus,
     IconArticle,
     IconCheckCircleOutline,
+    IconInfo,
 } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -478,14 +479,22 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && (
                         <div className="pl-16 pb-8">
                             {product.tiered && tableTierData ? (
-                                <LemonTable
-                                    borderedRows={false}
-                                    size="xs"
-                                    uppercaseHeader={false}
-                                    display="stealth"
-                                    columns={tableColumns}
-                                    dataSource={tableTierData}
-                                />
+                                <>
+                                    <LemonTable
+                                        borderedRows={false}
+                                        size="xs"
+                                        uppercaseHeader={false}
+                                        display="stealth"
+                                        columns={tableColumns}
+                                        dataSource={tableTierData}
+                                    />
+                                    {product.type === 'feature_flags' && (
+                                        <p className="mt-4 ml-0 text-sm text-muted italic">
+                                            <IconInfo className="mr-1" />
+                                            Using local evaluation? Here's <Link>how we calculate usage</Link>.
+                                        </p>
+                                    )}
+                                </>
                             ) : (
                                 <LemonTable
                                     borderedRows={false}
