@@ -110,7 +110,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         <LemonBanner type="error">
                             Surveys requires the{' '}
                             <a onClick={() => surveyPlugin?.id && editPlugin(surveyPlugin.id)}>survey app</a> to be
-                            enabled. Enable and save it, and make sure you have the "opt_in_site_apps" setting in your
+                            enabled. You also need to make sure you have the "opt_in_site_apps" setting in your
                             PostHog initialization code.
                         </LemonBanner>
                     )}
