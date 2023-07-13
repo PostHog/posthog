@@ -20,6 +20,11 @@ describe('dlq handling', () => {
     let dlqConsumer: Consumer
 
     beforeAll(async () => {
+        // Make sure the dlq topic exists before starting the consumer
+        const admin = kafka.admin()
+        await admin.createTopics({ topics: [{ topic: 'jobs_dlq' }] })
+        await admin.disconnect()
+
         dlq = []
         dlqConsumer = kafka.consumer({ groupId: 'jobs-consumer-test' })
         await dlqConsumer.subscribe({ topic: 'jobs_dlq', fromBeginning: true })

@@ -51,7 +51,6 @@ describe('capabilities', () => {
                 export function processEvent (event, meta) { event.properties={"x": 1}; return event }
                 export function randomFunction (event, meta) { return event}
                 export function onEvent (event, meta) { return event }
-                export function onSnapshot (event, meta) { return event }
                 export function getSettings (meta) { return { handlesLargeBatches: true } }
                 export function runEveryHour(meta) {console.log('1')}
 
@@ -62,7 +61,7 @@ describe('capabilities', () => {
             expect(capabilities).toEqual({
                 jobs: ['x'],
                 scheduled_tasks: ['runEveryHour'],
-                methods: ['onEvent', 'onSnapshot', 'processEvent', 'getSettings'],
+                methods: ['onEvent', 'processEvent', 'getSettings'],
             })
         })
     })
@@ -101,7 +100,7 @@ describe('capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     { ingestion: true },
                     {
-                        methods: ['onEvent', 'onSnapshot', 'exportEvents'],
+                        methods: ['onEvent', 'exportEvents'],
                         scheduled_tasks: ['runEveryMinute'],
                         jobs: ['someJob'],
                     }
@@ -141,7 +140,7 @@ describe('capabilities', () => {
         })
 
         describe('processAsyncOnEventHandlers', () => {
-            it.each(['onEvent', 'onSnapshot', 'exportEvents'])(
+            it.each(['onEvent', 'exportEvents'])(
                 'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
                 (method) => {
                     const shouldSetupPlugin = shouldSetupPluginInServer(
@@ -152,7 +151,7 @@ describe('capabilities', () => {
                 }
             )
 
-            it('returns false if plugin has none of onEvent, onSnapshot, or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
+            it('returns false if plugin has none of onEvent or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     { processAsyncOnEventHandlers: true },
                     { methods: [] }
@@ -160,7 +159,7 @@ describe('capabilities', () => {
                 expect(shouldSetupPlugin).toEqual(false)
             })
 
-            it.each(['onEvent', 'onSnapshot', 'exportEvents'])(
+            it.each(['onEvent', 'exportEvents'])(
                 'returns true if plugin has %s and the server has processAsyncOnEventHandlers capability',
                 (method) => {
                     const shouldSetupPlugin = shouldSetupPluginInServer(
@@ -171,7 +170,7 @@ describe('capabilities', () => {
                 }
             )
 
-            it('returns false if plugin has none of onEvent, onSnapshot, or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
+            it('returns false if plugin has none of onEvent or exportEvents and the server has only processAsyncOnEventHandlers capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     { processAsyncOnEventHandlers: true },
                     { methods: [] }

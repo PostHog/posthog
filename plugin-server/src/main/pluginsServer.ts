@@ -51,7 +51,7 @@ export type ServerInstance = {
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
-    capabilities: PluginServerCapabilities | undefined
+    capabilities?: PluginServerCapabilities
 ): Promise<Partial<ServerInstance>> {
     const timer = new Date()
 
@@ -88,7 +88,7 @@ export async function startPluginsServer(
     let analyticsEventsIngestionOverflowConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let analyticsEventsIngestionHistoricalConsumer: KafkaJSIngestionConsumer | IngestionConsumer | undefined
     let onEventHandlerConsumer: KafkaJSIngestionConsumer | undefined
-    let webhooksHandlerConsumer: Consumer | undefined
+    let stopWebhooksHandlerConsumer: () => Promise<void> | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -135,7 +135,7 @@ export async function startPluginsServer(
             analyticsEventsIngestionOverflowConsumer?.stop(),
             analyticsEventsIngestionHistoricalConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
-            webhooksHandlerConsumer?.stop(),
+            stopWebhooksHandlerConsumer?.(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             stopSessionRecordingEventsConsumer?.(),
@@ -336,7 +336,7 @@ export async function startPluginsServer(
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
 
-            const { consumer: webhooksConsumer, isHealthy: isWebhooksIngestionHealthy } =
+            const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
                     postgres: postgres,
                     kafka: kafka,
@@ -346,7 +346,7 @@ export async function startPluginsServer(
                     statsd: statsd,
                 })
 
-            webhooksHandlerConsumer = webhooksConsumer
+            stopWebhooksHandlerConsumer = webhooksStopConsumer
 
             healthChecks['webhooks-ingestion'] = isWebhooksIngestionHealthy
         }
