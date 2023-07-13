@@ -38,6 +38,8 @@ export interface NewSurvey
         | 'targeting_flag'
         | 'archived'
         | 'appearance'
+        | 'created_at'
+        | 'created_by'
     > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
@@ -66,6 +68,8 @@ const NEW_SURVEY: NewSurvey = {
     conditions: null,
     archived: false,
     appearance: defaultSurveyAppearance,
+    created_at: null,
+    created_by: null,
 }
 
 export const surveyEventName = 'survey sent'

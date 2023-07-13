@@ -2043,7 +2043,7 @@ export interface Survey {
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
     questions: SurveyQuestion[]
-    created_at: string
+    created_at: string | null
     created_by: UserBasicType | null
     start_date: string | null
     end_date: string | null
