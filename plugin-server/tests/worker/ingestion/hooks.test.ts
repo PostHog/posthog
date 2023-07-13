@@ -397,7 +397,7 @@ describe('hooks', () => {
     describe('getFormattedMessage', () => {
         const event = {
             distinctId: '2',
-            properties: { $browser: 'Chrome', page_title: 'Pricing' },
+            properties: { $browser: 'Chrome', page_title: 'Pricing', 'with space': 'yes sir' },
         } as unknown as PostIngestionEvent
         const team = { person_display_name_properties: null } as Team
 
@@ -406,7 +406,7 @@ describe('hooks', () => {
                 id: 1,
                 name: 'action1',
                 slack_message_format:
-                    '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit]',
+                    '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
@@ -416,8 +416,10 @@ describe('hooks', () => {
                 'https://localhost:8000',
                 WebhookType.Slack
             )
-            expect(text).toBe('2 from Chrome on Pricing page with undefined')
-            expect(markdown).toBe('<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined')
+            expect(text).toBe('2 from Chrome on Pricing page with undefined, yes sir')
+            expect(markdown).toBe(
+                '<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined, yes sir'
+            )
         })
 
         test('default format', () => {

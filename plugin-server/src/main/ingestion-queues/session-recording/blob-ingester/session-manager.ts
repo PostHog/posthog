@@ -2,7 +2,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { readFile, unlink } from 'fs/promises'
+import { readFile, stat, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Gauge } from 'prom-client'
@@ -113,7 +113,7 @@ export class SessionManager {
     }
 
     public get isEmpty(): boolean {
-        return this.buffer.count === 0
+        return !this.buffer.count && !this.flushBuffer?.count
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
@@ -196,23 +196,27 @@ export class SessionManager {
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
-            await new Promise<void>((resolve) => {
+            await new Promise<void>((resolve, reject) => {
                 // We need to safely end the file before reading from it
                 fileStream.end(async () => {
-                    const fileStream = createReadStream(file).pipe(zlib.createGzip())
+                    try {
+                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
 
-                    this.inProgressUpload = new Upload({
-                        client: this.s3Client,
-                        params: {
-                            Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                            Key: dataKey,
-                            Body: fileStream,
-                        },
-                    })
+                        this.inProgressUpload = new Upload({
+                            client: this.s3Client,
+                            params: {
+                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                                Key: dataKey,
+                                Body: fileStream,
+                            },
+                        })
 
-                    await this.inProgressUpload.done()
-                    fileStream.close()
-                    resolve()
+                        await this.inProgressUpload.done()
+                        fileStream.close()
+                        resolve()
+                    } catch (error) {
+                        reject(error)
+                    }
                 })
             })
 
@@ -384,13 +388,17 @@ export class SessionManager {
     }
 
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
-        buffer.fileStream.destroy()
-        await unlink(buffer.file).catch((error) => {
-            status.error('🧨', 'blob_ingester_session_manager failed to unlink buffer file', {
-                ...this.logContext(),
-                error,
+        await new Promise<void>((resolve) => {
+            buffer.fileStream.close(async () => {
+                try {
+                    await stat(buffer.file)
+                    await unlink(buffer.file)
+                } catch (error) {
+                    // Indicates the file was already deleted (i.e. if there was never any data in the buffer)
+                }
+
+                resolve()
             })
-            captureException(error, { tags: this.logContext() })
         })
     }
 }
