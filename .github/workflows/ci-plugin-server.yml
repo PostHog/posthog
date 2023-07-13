@@ -54,7 +54,6 @@ jobs:
     code-quality:
         name: Code quality
         needs: changes
-        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
         defaults:
             run:
@@ -87,7 +86,6 @@ jobs:
         name: Plugin Server Tests (${{matrix.shard}})
         needs: changes
         runs-on: ubuntu-latest
-        if: needs.changes.outputs.plugin-server == 'true'
 
         strategy:
             fail-fast: false
@@ -123,14 +121,16 @@ jobs:
               with:
                   custom_cache_key_element: v1-
 
-            - uses: syphar/restore-pip-download-cache@v1 && steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
 
             - name: Install SAML (python3-saml) dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Install python dependencies && steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
@@ -171,7 +171,6 @@ jobs:
     functional-tests:
         name: Functional tests (POE=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}},RDK=${{matrix.KAFKA_CONSUMPTION_USE_RDKAFKA}})
         needs: changes
-        if: needs.changes.outputs.plugin-server == 'true'
         runs-on: ubuntu-latest
 
         strategy:
@@ -273,7 +272,6 @@ jobs:
     recording-ingestion-load-test:
         name: Recording ingestion load test
         needs: changes
-        if: needs.changes.outputs.plugin-server == 'true'
         # This test runs a load test on the ingestion pipeline, using
         # synthetic recordings data. It is not meant to produce directly
         # comparable results, but rather to give a rough idea of how
