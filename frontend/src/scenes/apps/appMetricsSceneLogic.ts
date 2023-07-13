@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 import { urls } from 'scenes/urls'
-import { AvailableFeature, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
@@ -11,7 +11,6 @@ import { toParams } from 'lib/utils'
 import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
 import { dayjs } from 'lib/dayjs'
-import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 
 export interface AppMetricsLogicProps {
@@ -202,11 +201,6 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             ],
         ],
 
-        shouldShowAppMetrics: [
-            () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.APP_METRICS),
-        ],
-
         defaultTab: [
             (s) => [s.pluginConfig],
             () => INITIAL_TABS.filter((tab) => values.showTab(tab))[0] ?? AppMetricsTab.History,
@@ -237,8 +231,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
         ],
 
         showTab: [
-            (s) => [s.shouldShowAppMetrics],
-            (shouldShowAppMetrics) =>
+            () => [],
+            () =>
                 (tab: AppMetricsTab): boolean => {
                     if (
                         values.pluginConfigLoading ||
@@ -252,10 +246,6 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
 
                     if (tab === AppMetricsTab.History) {
                         return true
-                    }
-
-                    if (!shouldShowAppMetrics) {
-                        return false
                     }
 
                     if (tab === AppMetricsTab.HistoricalExports) {
