@@ -417,7 +417,9 @@ describe('hooks', () => {
                 WebhookType.Slack
             )
             expect(text).toBe('2 from Chrome on Pricing page with undefined, yes sir')
-            expect(markdown).toBe('<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined')
+            expect(markdown).toBe(
+                '<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined, yes sir'
+            )
         })
 
         test('default format', () => {
