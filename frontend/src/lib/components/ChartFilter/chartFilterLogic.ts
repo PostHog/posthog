@@ -64,9 +64,9 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
 
                     actions.updateBreakdown({
                         breakdown: '$geoip_country_code',
-                        breakdown_type:
-                            (['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : null) ||
-                            'event',
+                        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '')
+                            ? 'person'
+                            : 'event',
                     })
                 }
             }
