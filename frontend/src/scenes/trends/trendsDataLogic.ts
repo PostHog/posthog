@@ -12,7 +12,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     path((key) => ['scenes', 'trends', 'trendsDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightData', 'display', 'lifecycleFilter']],
+        values: [insightVizDataLogic(props), ['insightData', 'display', 'lifecycleFilter', 'series']],
     })),
 
     selectors({
@@ -43,6 +43,17 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
                 }
                 return indexedResults.map((result, index) => ({ ...result, id: index }))
+            },
+        ],
+
+        labelGroupType: [
+            (s) => [s.series],
+            (series): 'people' | 'none' | number => {
+                // Find the commonly shared aggregation group index if there is one.
+                const firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
+                return series.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
+                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
+                    : 'none' // mixed group types
             },
         ],
     }),
