@@ -263,6 +263,19 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public propertyDefinitionSeenTogether(
+        eventNames: string[],
+        propertyDefinitionName: PropertyDefinition['name'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
+
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent('seen_together')
+            .withQueryString(queryParams)
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -752,6 +765,15 @@ const api = {
             propertyDefinitionId: PropertyDefinition['id']
         }): Promise<PropertyDefinition> {
             return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
+        },
+        async seenTogether({
+            eventNames,
+            propertyDefinitionName,
+        }: {
+            eventNames: string[]
+            propertyDefinitionName: PropertyDefinition['name']
+        }): Promise<Record<string, boolean>> {
+            return new ApiRequest().propertyDefinitionSeenTogether(eventNames, propertyDefinitionName).get()
         },
         async update({
             propertyDefinitionId,
