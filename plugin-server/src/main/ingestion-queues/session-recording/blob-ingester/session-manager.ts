@@ -212,9 +212,8 @@ export class SessionManager {
                         })
 
                         await this.inProgressUpload.done()
-                        fileStream.close(() => {
-                            resolve()
-                        })
+                        fileStream.close()
+                        resolve()
                     } catch (error) {
                         reject(error)
                     }
