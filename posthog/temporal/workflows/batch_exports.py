@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from string import Template
 
-from aiochclient import ChClient
+from posthog.temporal.workflows.clickhouse import ClickHouseFormat, FormattableChClient
 
 SELECT_QUERY_TEMPLATE = Template(
     """
@@ -22,7 +22,7 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 
-async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_rows_count(client: FormattableChClient, team_id: int, interval_start: str, interval_end: str):
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -41,7 +41,7 @@ async def get_rows_count(client: ChClient, team_id: int, interval_start: str, in
     return row["count"]
 
 
-async def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_results_iterator(client: FormattableChClient, team_id: int, interval_start: str, interval_end: str):
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 

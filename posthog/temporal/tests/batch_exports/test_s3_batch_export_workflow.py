@@ -24,10 +24,10 @@ from posthog.batch_exports.service import acreate_batch_export, afetch_batch_exp
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.batch_exports import get_results_iterator
 from posthog.temporal.workflows.s3_batch_export import (
+    S3BatchExportActivities,
     S3BatchExportInputs,
     S3BatchExportWorkflow,
     S3InsertInputs,
-    insert_into_s3_activity,
 )
 
 TEST_ROOT_BUCKET = "test-batch-exports"
@@ -308,7 +308,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
         BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
     ):  # 5MB, the minimum for Multipart uploads
         with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
-            await activity_environment.run(insert_into_s3_activity, insert_inputs)
+            await activity_environment.run(S3BatchExportActivities().insert_into_s3_activity, insert_inputs)
 
     # Check that the data was written to S3.
     # List the objects in the bucket with the prefix.
@@ -430,7 +430,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
-            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            activities=[create_export_run, S3BatchExportActivities().insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
@@ -554,7 +554,7 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
-            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            activities=[create_export_run, S3BatchExportActivities().insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
@@ -694,7 +694,7 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
-            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            activities=[create_export_run, S3BatchExportActivities().insert_into_s3_activity, update_export_run_status],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):

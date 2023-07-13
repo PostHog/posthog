@@ -1,9 +1,10 @@
 import asyncio
 import datetime as dt
+import io
 import json
 import tempfile
+import typing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List
 
 import boto3
 from django.conf import settings
@@ -22,10 +23,16 @@ from posthog.temporal.workflows.batch_exports import (
     get_results_iterator,
     get_rows_count,
 )
-from posthog.temporal.workflows.clickhouse import get_client
+from posthog.temporal.workflows.clickhouse import ClickHouseActivities
 
-if TYPE_CHECKING:
-    from mypy_boto3_s3.type_defs import CompletedPartTypeDef
+
+@dataclass
+class QueryRowCountInputs:
+    """Inputs for querying row counts."""
+
+    team_id: int
+    data_interval_start: str
+    data_interval_end: str
 
 
 @dataclass
@@ -46,185 +53,206 @@ class S3InsertInputs:
     aws_secret_access_key: str | None = None
 
 
-@activity.defn
-async def insert_into_s3_activity(inputs: S3InsertInputs):
-    """
-    Activity streams data from ClickHouse to S3. It currently only creates a
-    single file per run, and uploads as a multipart upload.
-
-    TODO: this implementation currently tries to export as one run, but it could
-    be a very big date range and time consuming, better to split into multiple
-    runs, timing out after say 30 seconds or something and upload multiple
-    files.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
-    """
-    activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
-
-    async with get_client() as client:
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
+class S3BatchExportActivities(ClickHouseActivities):
+    @activity.defn
+    async def query_row_counts_activity(self, inputs: QueryRowCountInputs):
+        activity.logger.info(
+            "Querying rows to batch export in %s - %s", inputs.data_interval_start, inputs.data_interval_end
         )
 
-        if count == 0:
-            activity.logger.info(
-                "Nothing to export in batch %s - %s. Exiting.",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
-                count,
+        async with self.get_client() as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
+
+            count = await get_rows_count(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=inputs.data_interval_start,
+                interval_end=inputs.data_interval_end,
             )
-            return
+        return count
 
-        activity.logger.info("BatchExporting %s rows to S3", count)
+    @activity.defn
+    async def insert_into_s3_activity(self, inputs: S3InsertInputs):
+        """
+        Activity streams data from ClickHouse to S3. It currently only creates a
+        single file per run, and uploads as a multipart upload.
 
-        # Create a multipart upload to S3
-        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
-        s3_client = boto3.client(
-            "s3",
-            region_name=inputs.region,
-            aws_access_key_id=inputs.aws_access_key_id,
-            aws_secret_access_key=inputs.aws_secret_access_key,
-        )
-        details = activity.info().heartbeat_details
+        TODO: this implementation currently tries to export as one run, but it could
+        be a very big date range and time consuming, better to split into multiple
+        runs, timing out after say 30 seconds or something and upload multiple
+        files.
 
-        parts: List[CompletedPartTypeDef] = []
+        TODO: at the moment this doesn't do anything about catching data that might
+        be late being ingested into the specified time range. To work around this,
+        as a little bit of a hack we should export data only up to an hour ago with
+        the assumption that that will give it enough time to settle. I is a little
+        tricky with the existing setup to properly partition the data into data we
+        have or haven't processed yet. We have `_timestamp` in the events table, but
+        this is the time
+        """
+        activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-        if len(details) == 4:
-            interval_start, upload_id, parts, part_number = details
-            activity.logger.info(f"Received details from previous activity. Export will resume from {interval_start}")
+        async with self.get_client() as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        else:
-            multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
-            upload_id = multipart_response["UploadId"]
-            interval_start = inputs.data_interval_start
-            part_number = 1
-
-        # Iterate through chunks of results from ClickHouse and push them to S3
-        # as a multipart upload. The intention here is to keep memory usage low,
-        # even if the entire results set is large. We receive results from
-        # ClickHouse, write them to a local file, and then upload the file to S3
-        # when it reaches 50MB in size.
-
-        results_iterator = get_results_iterator(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=interval_start,
-            interval_end=inputs.data_interval_end,
-        )
-
-        result = None
-        last_uploaded_part_timestamp = None
-
-        async def worker_shutdown_handler():
-            """Handle the Worker shutting down by heart-beating our latest status."""
-            await activity.wait_for_worker_shutdown()
-            activity.logger.warn(
-                f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}"
+            count = await get_rows_count(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=inputs.data_interval_start,
+                interval_end=inputs.data_interval_end,
             )
-            activity.heartbeat(last_uploaded_part_timestamp, upload_id)
 
-        asyncio.create_task(worker_shutdown_handler())
-
-        with tempfile.NamedTemporaryFile() as local_results_file:
-            while True:
-                try:
-                    result = await results_iterator.__anext__()
-                except StopAsyncIteration:
-                    break
-                except json.JSONDecodeError:
-                    # This is raised by aiochclient as we try to decode an error message from ClickHouse.
-                    # So far, this error message only indicated that we were too slow consuming rows.
-                    # So, we can resume from the last result.
-                    if result is None:
-                        # We failed right at the beginning
-                        new_interval_start = None
-                    else:
-                        new_interval_start = result.get("_timestamp", None)
-
-                    if not isinstance(new_interval_start, str):
-                        new_interval_start = inputs.data_interval_start
-
-                    activity.logger.warn(
-                        f"Failed to decode a JSON value while iterating, potentially due to a ClickHouse error. Resuming from {new_interval_start}"
-                    )
-
-                    results_iterator = get_results_iterator(
-                        client=client,
-                        team_id=inputs.team_id,
-                        interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
-                        interval_end=inputs.data_interval_end,
-                    )
-                    continue
-
-                if not result:
-                    break
-
-                # Write the results to a local file
-                local_results_file.write(
-                    json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
+            if count == 0:
+                activity.logger.info(
+                    "Nothing to export in batch %s - %s. Exiting.",
+                    inputs.data_interval_start,
+                    inputs.data_interval_end,
+                    count,
                 )
-                local_results_file.write("\n".encode("utf-8"))
+                return
 
-                # Write results to S3 when the file reaches 50MB and reset the
-                # file, or if there is nothing else to write.
-                if (
-                    local_results_file.tell()
-                    and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
-                ):
-                    activity.logger.info("Uploading part %s", part_number)
+            activity.logger.info("BatchExporting %s rows to S3", count)
 
-                    local_results_file.seek(0)
-                    response = s3_client.upload_part(
-                        Bucket=inputs.bucket_name,
-                        Key=key,
-                        PartNumber=part_number,
-                        UploadId=upload_id,
-                        Body=local_results_file,
+            # Create a multipart upload to S3
+            key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+            s3_client = boto3.client(
+                "s3",
+                region_name=inputs.region,
+                aws_access_key_id=inputs.aws_access_key_id,
+                aws_secret_access_key=inputs.aws_secret_access_key,
+            )
+            details = activity.info().heartbeat_details
+
+            parts: List[CompletedPartTypeDef] = []
+
+            if len(details) == 4:
+                interval_start, upload_id, parts, part_number = details
+                activity.logger.info(
+                    f"Received details from previous activity. Export will resume from {interval_start}"
+                )
+
+            else:
+                multipart_response = s3_client.create_multipart_upload(Bucket=inputs.bucket_name, Key=key)
+                upload_id = multipart_response["UploadId"]
+                interval_start = inputs.data_interval_start
+                part_number = 1
+
+            # Iterate through chunks of results from ClickHouse and push them to S3
+            # as a multipart upload. The intention here is to keep memory usage low,
+            # even if the entire results set is large. We receive results from
+            # ClickHouse, write them to a local file, and then upload the file to S3
+            # when it reaches 50MB in size.
+
+            results_iterator = get_results_iterator(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=interval_start,
+                interval_end=inputs.data_interval_end,
+            )
+
+            result = None
+            last_uploaded_part_timestamp = None
+
+            async def worker_shutdown_handler():
+                """Handle the Worker shutting down by heart-beating our latest status."""
+                await activity.wait_for_worker_shutdown()
+                activity.logger.warn(
+                    f"Worker shutting down! Reporting back latest exported part {last_uploaded_part_timestamp}"
+                )
+                activity.heartbeat(last_uploaded_part_timestamp, upload_id)
+
+            asyncio.create_task(worker_shutdown_handler())
+
+            with tempfile.NamedTemporaryFile() as local_results_file:
+                while True:
+                    try:
+                        result = await results_iterator.__anext__()
+                    except StopAsyncIteration:
+                        break
+                    except json.JSONDecodeError:
+                        # This is raised by aiochclient as we try to decode an error message from ClickHouse.
+                        # So far, this error message only indicated that we were too slow consuming rows.
+                        # So, we can resume from the last result.
+                        if result is None:
+                            # We failed right at the beginning
+                            new_interval_start = None
+                        else:
+                            new_interval_start = result.get("_timestamp", None)
+
+                        if not isinstance(new_interval_start, str):
+                            new_interval_start = inputs.data_interval_start
+
+                        activity.logger.warn(
+                            f"Failed to decode a JSON value while iterating, potentially due to a ClickHouse error. Resuming from {new_interval_start}"
+                        )
+
+                        results_iterator = get_results_iterator(
+                            client=client,
+                            team_id=inputs.team_id,
+                            interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
+                            interval_end=inputs.data_interval_end,
+                        )
+                        continue
+
+                    if not result:
+                        break
+
+                    # Write the results to a local file
+                    local_results_file.write(
+                        json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
                     )
-                    last_uploaded_part_timestamp = result["_timestamp"]
-                    # Record the ETag for the part
-                    parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
-                    part_number += 1
+                    local_results_file.write("\n".encode("utf-8"))
 
-                    activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
+                    # Write results to S3 when the file reaches 50MB and reset the
+                    # file, or if there is nothing else to write.
+                    if (
+                        local_results_file.tell()
+                        and local_results_file.tell() > settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES
+                    ):
+                        activity.logger.info("Uploading part %s", part_number)
 
-                    # Reset the file
-                    local_results_file.seek(0)
-                    local_results_file.truncate()
+                        local_results_file.seek(0)
+                        response = s3_client.upload_part(
+                            Bucket=inputs.bucket_name,
+                            Key=key,
+                            PartNumber=part_number,
+                            UploadId=upload_id,
+                            Body=local_results_file,
+                        )
+                        last_uploaded_part_timestamp = result["_timestamp"]
+                        # Record the ETag for the part
+                        parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+                        part_number += 1
 
-            # Upload the last part
-            local_results_file.seek(0)
-            response = s3_client.upload_part(
+                        activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
+
+                        # Reset the file
+                        local_results_file.seek(0)
+                        local_results_file.truncate()
+
+                # Upload the last part
+                local_results_file.seek(0)
+                response = s3_client.upload_part(
+                    Bucket=inputs.bucket_name,
+                    Key=key,
+                    PartNumber=part_number,
+                    UploadId=upload_id,
+                    Body=local_results_file,
+                )
+                activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
+
+                # Record the ETag for the last part
+                parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+
+            # Complete the multipart upload
+            s3_client.complete_multipart_upload(
                 Bucket=inputs.bucket_name,
                 Key=key,
-                PartNumber=part_number,
                 UploadId=upload_id,
-                Body=local_results_file,
+                MultipartUpload={"Parts": parts},
             )
-            activity.heartbeat(last_uploaded_part_timestamp, upload_id, parts, part_number)
-
-            # Record the ETag for the last part
-            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
-
-        # Complete the multipart upload
-        s3_client.complete_multipart_upload(
-            Bucket=inputs.bucket_name,
-            Key=key,
-            UploadId=upload_id,
-            MultipartUpload={"Parts": parts},
-        )
 
 
 @workflow.defn(name="s3-export")
@@ -278,9 +306,11 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
         )
+        s3_activities = S3BatchExportActivities()
+
         try:
             await workflow.execute_activity(
-                insert_into_s3_activity,
+                s3_activities.insert_into_s3_activity,
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
