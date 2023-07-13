@@ -127,6 +127,8 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
+        SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
+        SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
