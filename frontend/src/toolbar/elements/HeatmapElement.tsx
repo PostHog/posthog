@@ -1,5 +1,7 @@
+import { ElementRect } from '~/toolbar/types'
+
 interface HeatmapElementProps {
-    rect?: DOMRect
+    rect?: ElementRect
     style: Record<string, any>
     onClick: (event: React.MouseEvent) => void
     onMouseOver: (event: React.MouseEvent) => void

@@ -28,9 +28,8 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run plugin server checks
-        # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend }}
+            plugin-server: ${{ steps.filter.outputs.plugin-server }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout

@@ -503,7 +503,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
                 self.assertEqual(
                     response.clickhouse,
-                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING greater(sum(cohortpeople.sign), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                 )
                 self.assertEqual(response.results, [("$pageview", 2)])
 
@@ -522,7 +522,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     f"SELECT events.event, count(*) FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, "
                     f"(SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), "
                     f"equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, "
-                    f"cohortpeople.version HAVING greater(sum(cohortpeople.sign), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                    f"cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                 )
                 self.assertEqual(response.results, [("$pageview", 2)])
 
@@ -556,7 +556,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
                 self.assertEqual(
                     response.clickhouse,
-                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
+                    f"SELECT events.event, count() FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id FROM person_distinct_id2 WHERE equals(person_distinct_id2.team_id, {self.team.pk}) GROUP BY person_distinct_id2.distinct_id HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE and(equals(events.team_id, {self.team.pk}), ifNull(in(events__pdi.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk})))), 0)) GROUP BY events.event LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=True",
                 )
 
             with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
@@ -1111,38 +1111,101 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_null_equality(self):
         expected = [
-            ("null", "!=", "2", 1),
-            ("2", "!=", "null", 1),
-            ("3", "!=", "4", 1),
-            ("3", "!=", "3", 0),
-            ("null", "!=", "null", 0),
+            # left op right (result 0=False 1=True)
             ("null", "=", "2", 0),
             ("2", "=", "null", 0),
             ("3", "=", "4", 0),
             ("3", "=", "3", 1),
             ("null", "=", "null", 1),
+            ("null", "!=", "2", 1),
+            ("2", "!=", "null", 1),
+            ("3", "!=", "4", 1),
+            ("3", "!=", "3", 0),
+            ("null", "!=", "null", 0),
+            ("null", "<", "2", 0),
+            ("2", "<", "null", 0),
+            ("3", "<", "4", 1),
+            ("3", "<", "3", 0),
+            ("null", "<", "null", 0),
+            ("null", "<=", "2", 0),
+            ("2", "<=", "null", 0),
+            ("3", "<=", "4", 1),
+            ("3", "<=", "3", 1),
+            ("3", "<=", "2", 0),
+            ("null", "<=", "null", 0),
+            ("null", ">", "2", 0),
+            ("2", ">", "null", 0),
+            ("4", ">", "3", 1),
+            ("3", ">", "3", 0),
+            ("null", ">", "null", 0),
+            ("null", ">=", "2", 0),
+            ("2", ">=", "null", 0),
+            ("4", ">=", "3", 1),
+            ("3", ">=", "3", 1),
+            ("2", ">=", "3", 0),
+            ("null", ">=", "null", 0),
+            ("null", "like", "'2'", 0),
+            ("'2'", "like", "null", 0),
+            ("'3'", "like", "'4'", 0),
+            ("'3'", "like", "'3'", 1),
+            ("null", "like", "null", 1),
+            ("null", "not like", "'2'", 1),
+            ("'2'", "not like", "null", 1),
+            ("'3'", "not like", "'4'", 1),
+            ("'3'", "not like", "'3'", 0),
+            ("null", "not like", "null", 0),
+            ("null", "ilike", "'2'", 0),
+            ("'2'", "ilike", "null", 0),
+            ("'3'", "ilike", "'4'", 0),
+            ("'3'", "ilike", "'3'", 1),
+            ("null", "ilike", "null", 1),
+            ("null", "not ilike", "'2'", 1),
+            ("'2'", "not ilike", "null", 1),
+            ("'3'", "not ilike", "'4'", 1),
+            ("'3'", "not ilike", "'3'", 0),
+            ("null", "not ilike", "null", 0),
+            ("null", "=~", "'2'", 0),
+            ("'2'", "=~", "null", 0),
+            ("'3'", "=~", "'4'", 0),
+            ("'3'", "=~", "'3'", 1),
+            ("null", "=~", "null", 1),
+            ("null", "!~", "'2'", 1),
+            ("'2'", "!~", "null", 1),
+            ("'3'", "!~", "'4'", 1),
+            ("'3'", "!~", "'3'", 0),
+            ("null", "!~", "null", 0),
+            ("null", "=~*", "'2'", 0),
+            ("'2'", "=~*", "null", 0),
+            ("'3'", "=~*", "'4'", 0),
+            ("'3'", "=~*", "'3'", 1),
+            ("null", "=~*", "null", 1),
+            ("null", "!~*", "'2'", 1),
+            ("'2'", "!~*", "null", 1),
+            ("'3'", "!~*", "'4'", 1),
+            ("'3'", "!~*", "'3'", 0),
+            ("null", "!~*", "null", 0),
         ]
 
         for (a, op, b, res) in expected:
             # works when selecting directly
             query = f"select {a} {op} {b}"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
             # works when selecting via a subquery
             query = f"select a {op} b from (select {a} as a, {b} as b)"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
             # works when selecting via a subquery
             query = f"select {a} {op} b from (select {b} as b)"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
             # works when selecting via a subquery
             query = f"select a {op} {b} from (select {a} as a)"
             response = execute_hogql_query(query, team=self.team)
-            self.assertEqual(response.results, [(res,)], query)
+            self.assertEqual(response.results, [(res,)], [query, response.clickhouse])
 
     def test_regex_functions(self):
         query = """
