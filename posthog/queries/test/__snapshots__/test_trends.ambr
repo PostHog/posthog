@@ -20,6 +20,16 @@
 ---
 # name: TestTrends.test_action_filtering_with_cohort.2
   '
+  /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
+  SELECT count()
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < 2
+  '
+---
+# name: TestTrends.test_action_filtering_with_cohort.3
+  '
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -90,6 +100,16 @@
   '
 ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
+  '
+  /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
+  SELECT count()
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < 2
+  '
+---
+# name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
   '
   
   SELECT groupArray(day_start) as date,

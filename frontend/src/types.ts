@@ -2055,6 +2055,7 @@ export enum SurveyType {
     Button = 'button',
     FullScreen = 'full_screen',
     Email = 'email',
+    API = 'api',
 }
 
 export interface SurveyAppearance {
@@ -2228,7 +2229,6 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
-    is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string

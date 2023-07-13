@@ -73,11 +73,6 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
 )
 
-PERFORMANCE_EVENTS_DROPPED_COUNTER = Counter(
-    "capture_events_dropped_performance_events",
-    "We no longer send performance events legitimately, let's drop them and count how many we drop.",
-    labelnames=["token"],
-)
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     "capture_partition_key_capacity_exceeded_total",
@@ -251,10 +246,8 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
-def drop_performance_events(token: str, events: List[Any]) -> List[Any]:
+def drop_performance_events(events: List[Any]) -> List[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
-    dropped_event_count = len(events) - len(cleaned_list)
-    PERFORMANCE_EVENTS_DROPPED_COUNTER.labels(token=token).inc(dropped_event_count)
     return cleaned_list
 
 
@@ -362,7 +355,7 @@ def get_event(request):
             events = [data]
 
         try:
-            events = drop_performance_events(token, events)
+            events = drop_performance_events(events)
         except Exception as e:
             capture_exception(e)
 
