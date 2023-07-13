@@ -45,7 +45,7 @@ export function getDefaultEvent(): Entity {
 /** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
 const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const series: LocalFilter | undefined = toLocalFilters(filters)[0]
-    cleanedParams['breakdown_type'] = ['dau', 'weekly_active', 'monthly_active'].includes(series.math || '')
+    cleanedParams['breakdown_type'] = ['dau', 'weekly_active', 'monthly_active'].includes(series?.math || '')
         ? 'person'
         : 'event'
 }
