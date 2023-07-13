@@ -160,10 +160,10 @@ export class SessionRecordingBlobIngester {
                     drop_cause: 'high_water_mark',
                 })
                 .inc()
-            this.commitOffsets(topic, partition, session_id, [offset])
+
+            highWaterMarkSpan?.finish()
             return
         }
-        highWaterMarkSpan?.finish()
 
         if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
