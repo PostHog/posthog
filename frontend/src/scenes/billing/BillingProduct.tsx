@@ -491,7 +491,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {product.type === 'feature_flags' && (
                                         <p className="mt-4 ml-0 text-sm text-muted italic">
                                             <IconInfo className="mr-1" />
-                                            Using local evaluation? Here's <Link>how we calculate usage</Link>.
+                                            Using local evaluation? Here's{' '}
+                                            <Link className="italic">how we calculate usage</Link>.
                                         </p>
                                     )}
                                 </>
