@@ -1,31 +1,26 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import { mergeAttributes, Node } from '@tiptap/core'
 import { NotebookNodeType } from '~/types'
-
-const Component = (props: NodeViewProps): JSX.Element => {
-    return (
-        <NodeViewWrapper>
-            <ul data-type={props.node.type.name}>
-                <NodeViewContent />
-            </ul>
-        </NodeViewWrapper>
-    )
-}
 
 export const NotebookNodeTimestampList = Node.create({
     name: NotebookNodeType.TimestampList,
-    group: 'block',
-    content: `${NotebookNodeType.TimestampItem}+`,
+    group: 'block list',
+
+    addOptions() {
+        return {
+            itemTypeName: NotebookNodeType.TimestampItem,
+            HTMLAttributes: {},
+        }
+    },
+
+    content() {
+        return `${this.options.itemTypeName}+`
+    },
 
     parseHTML() {
-        return [{ tag: `ul[data-type="${this.name}"]` }]
+        return [{ tag: `ul[data-type="${this.name}"]`, priority: 51 }]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['ul', mergeAttributes(HTMLAttributes, { 'data-type': this.name })]
-    },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
+        return ['ul', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { 'data-type': this.name }), 0]
     },
 })

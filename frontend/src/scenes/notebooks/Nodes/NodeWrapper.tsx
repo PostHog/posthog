@@ -92,6 +92,8 @@ export function NodeWrapper({
                                     'font-semibold': selected,
                                 }
                             )}
+                            contentEditable={false}
+                            draggable={true}
                             data-drag-handle
                         >
                             <div className="shrink-0">

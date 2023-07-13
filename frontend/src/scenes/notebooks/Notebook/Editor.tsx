@@ -143,7 +143,6 @@ export function Editor({
             })
         },
         onUpdate: onUpdate,
-        onDestroy: () => {},
     })
 
     return (

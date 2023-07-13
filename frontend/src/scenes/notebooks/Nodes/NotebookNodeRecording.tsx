@@ -27,10 +27,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             heightEstimate={HEIGHT}
         >
-            <div style={{ height: HEIGHT }}>
-                <SessionRecordingPlayer {...recordingLogicProps} />
+            <div className="space-y-2">
+                <div style={{ height: HEIGHT }} contentEditable={false}>
+                    <SessionRecordingPlayer {...recordingLogicProps} />
+                </div>
+                <NodeViewContent />
             </div>
-            <NodeViewContent />
         </NodeWrapper>
     )
 }
@@ -40,7 +42,8 @@ export const NotebookNodeRecording = Node.create({
     group: 'block',
     atom: true,
     draggable: true,
-    content: 'inline*',
+    content: NotebookNodeType.TimestampList,
+    isolating: true,
 
     addAttributes() {
         return {

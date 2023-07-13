@@ -1,5 +1,12 @@
-import { mergeAttributes, Node, NodeViewProps, wrappingInputRule } from '@tiptap/pm/commands'
-import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
+import {
+    Node,
+    NodeViewContent,
+    NodeViewProps,
+    NodeViewWrapper,
+    ReactNodeViewRenderer,
+    mergeAttributes,
+    wrappingInputRule,
+} from '@tiptap/react'
 import { dayjs } from 'lib/dayjs'
 import { useValues } from 'kea'
 import {
@@ -47,21 +54,21 @@ function formatTimestamp(timestamp: number | undefined): string {
 
 export const NotebookNodeTimestampItem = Node.create({
     name: NotebookNodeType.TimestampItem,
-    defining: true,
     content: 'paragraph+',
+    defining: true,
 
     addAttributes() {
         return {
-            timestamp: { default: null },
+            timestamp: { default: null, keepOnSplit: false },
         }
     },
 
     parseHTML() {
-        return [{ tag: `li[data-type="${this.name}"]` }]
+        return [{ tag: `li[data-type="${this.name}"]`, priority: 51 }]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['li', mergeAttributes(HTMLAttributes, { 'data-type': this.name })]
+        return ['li', mergeAttributes(HTMLAttributes, { 'data-type': this.name }), 0]
     },
 
     addKeyboardShortcuts() {

@@ -45,6 +45,10 @@
             list-style: initial;
         }
 
+        ul li[data-type='phTimestampItem'] p {
+            margin-bottom: 0;
+        }
+
         > pre {
             background-color: rgba(0, 0, 0, 0.05);
             border-radius: var(--radius);
