@@ -30,7 +30,11 @@ export function FunnelStepsPicker(): JSX.Element | null {
                           label: `Step ${stepIndex + 1}`,
                           labelInMenu: (
                               <>
-                                  <span>Step ${stepIndex + 1} – </span>
+                                  <span>
+                                      {`Step ${stepIndex + 1}`}
+                                      {filterSteps[stepIndex].name ? ' -' : ''}
+                                      &nbsp;
+                                  </span>
                                   <EntityFilterInfo filter={filterSteps[stepIndex] as EntityFilter} />
                               </>
                           ),
