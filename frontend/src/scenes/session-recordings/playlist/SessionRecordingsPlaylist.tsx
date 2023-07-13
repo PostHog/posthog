@@ -194,6 +194,7 @@ export function RecordingsLists({
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
                                 usesListingV3={listingVersion === '3'}
+                                filtersHaveChanged={totalFiltersCount > 0}
                             />
                         ) : null
                     }
