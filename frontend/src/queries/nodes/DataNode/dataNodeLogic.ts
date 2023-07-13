@@ -32,9 +32,10 @@ import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
-    /* Cached Results are provided when shared or exported,
-    the data node logic becomes read only implicitly */
+    /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
+    /** Disabled data fetching and only allow cached results. */
+    doNotLoad?: boolean
 }
 
 const AUTOLOAD_INTERVAL = 30000
@@ -83,6 +84,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
+                    if (props.doNotLoad) {
+                        return props.cachedResults
+                    }
                     if (
                         isInsightQueryNode(props.query) &&
                         props.cachedResults &&

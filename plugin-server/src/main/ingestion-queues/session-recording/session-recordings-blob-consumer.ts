@@ -78,7 +78,7 @@ const gaugeOffsetCommitFailed = new Gauge({
 const histogramKafkaBatchSize = new Histogram({
     name: 'recording_blob_ingestion_kafka_batch_size',
     help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, Infinity],
+    buckets: [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, Infinity],
 })
 
 const counterKafkaMessageReceived = new Counter({
@@ -88,7 +88,7 @@ const counterKafkaMessageReceived = new Counter({
 })
 
 export class SessionRecordingBlobIngester {
-    sessions: Map<string, SessionManager> = new Map()
+    sessions: Record<string, SessionManager> = {}
     private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
     realtimeManager: RealtimeManager
     batchConsumer?: BatchConsumer
@@ -161,12 +161,12 @@ export class SessionRecordingBlobIngester {
                     drop_cause: 'high_water_mark',
                 })
                 .inc()
-            this.commitOffsets(topic, partition, session_id, [offset])
+
+            highWaterMarkSpan?.finish()
             return
         }
-        highWaterMarkSpan?.finish()
 
-        if (!this.sessions.has(key)) {
+        if (!this.sessions[key]) {
             const { partition, topic } = event.metadata
 
             const sessionManager = new SessionManager(
@@ -188,7 +188,7 @@ export class SessionRecordingBlobIngester {
                 }
             )
 
-            this.sessions.set(key, sessionManager)
+            this.sessions[key] = sessionManager
             status.info('📦', 'Blob ingestion consumer started session manager', {
                 key,
                 partition,
@@ -197,7 +197,7 @@ export class SessionRecordingBlobIngester {
             })
         }
 
-        this.sessions.get(key)?.add(event)
+        this.sessions[key]?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -371,7 +371,7 @@ export class SessionRecordingBlobIngester {
                     return
                 }
 
-                const sessionsToDrop = [...this.sessions.entries()].filter(([_, sessionManager]) =>
+                const sessionsToDrop = Object.entries(this.sessions).filter(([_, sessionManager]) =>
                     revokedPartitions.includes(sessionManager.partition)
                 )
 
@@ -416,7 +416,7 @@ export class SessionRecordingBlobIngester {
         this.flushInterval = setInterval(() => {
             status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
 
-            for (const [key, sessionManager] of this.sessions) {
+            for (const [key, sessionManager] of Object.entries(this.sessions)) {
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const referenceTime = this.partitionNow[sessionManager.partition]
                 if (!referenceTime) {
@@ -444,16 +444,13 @@ export class SessionRecordingBlobIngester {
 
                 // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
                 if (sessionManager.isEmpty) {
-                    this.sessions.delete(key)
+                    void this.destroySessions([[key, sessionManager]])
                 }
             }
 
-            gaugeSessionsHandled.set(this.sessions.size)
+            gaugeSessionsHandled.set(Object.keys(this.sessions).length)
             gaugeRealtimeSessions.set(
-                Array.from(this.sessions.values()).reduce(
-                    (acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0),
-                    0
-                )
+                Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0), 0)
             )
 
             status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
@@ -476,9 +473,9 @@ export class SessionRecordingBlobIngester {
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point
-        await this.destroySessions([...this.sessions.entries()])
+        await this.destroySessions(Object.entries(this.sessions))
 
-        this.sessions = new Map()
+        this.sessions = {}
 
         gaugeRealtimeSessions.set(0)
     }
@@ -487,7 +484,7 @@ export class SessionRecordingBlobIngester {
         const destroyPromises: Promise<void>[] = []
 
         sessionsToDestroy.forEach(([key, sessionManager]) => {
-            this.sessions.delete(key)
+            delete this.sessions[key]
             destroyPromises.push(sessionManager.destroy())
         })
 
@@ -500,7 +497,7 @@ export class SessionRecordingBlobIngester {
     private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
         let potentiallyBlockingSession: SessionManager | undefined
 
-        for (const [_, sessionManager] of this.sessions) {
+        for (const sessionManager of Object.values(this.sessions)) {
             if (sessionManager.partition === partition && sessionManager.topic === topic) {
                 const lowestOffset = sessionManager.getLowestOffset()
                 if (lowestOffset && lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)) {
