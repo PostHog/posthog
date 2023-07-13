@@ -4,7 +4,7 @@ import {
     processOnEventStep,
     processWebhooksStep,
 } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
+import { runOnEvent } from '../../../../src/worker/plugins/run'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -60,6 +60,5 @@ describe('runAsyncHandlersStep()', () => {
         await processOnEventStep(runner, ingestionEvent)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-        expect(runOnSnapshot).not.toHaveBeenCalled()
     })
 })
