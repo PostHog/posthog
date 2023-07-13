@@ -20,8 +20,8 @@ jest.mock('fs', () => {
             return {
                 write: jest.fn(),
                 pipe: () => ({ close: jest.fn() }),
-                end: jest.fn(),
-                destroy: jest.fn(),
+                end: jest.fn((cb) => cb?.()),
+                destroy: jest.fn((cb) => cb?.()),
             }
         }),
     }
@@ -48,6 +48,7 @@ jest.mock('fs/promises', () => {
 })
 
 describe('session-manager', () => {
+    jest.setTimeout(1000)
     let sessionManager: SessionManager
     const mockFinish = jest.fn()
     const mockS3Client: any = {
