@@ -35,7 +35,7 @@ export function posthogNodePasteRule(options: {
     find: string
     type: NodeType
     getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any>
-    getDeafultContent: (attrs: Record<string, any>) => JSONContent['content']
+    getDeafultContent?: (attrs: Record<string, any>) => JSONContent['content']
 }): PasteRule {
     return nodePasteRule({
         find: createUrlRegex(options.find),
@@ -45,7 +45,11 @@ export function posthogNodePasteRule(options: {
             posthog.capture('notebook node pasted', { node_type: options.type.name })
             return attrs
         },
-        getDeafultContent: (attrs) => options.getDeafultContent(attrs),
+        getDeafultContent: (attrs) => {
+            if (options.getDeafultContent) {
+                return options.getDeafultContent(attrs)
+            }
+        },
     })
 }
 
