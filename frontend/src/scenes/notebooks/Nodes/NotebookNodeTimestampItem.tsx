@@ -37,7 +37,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper>
             <li data-type={props.node.type.name} className="flex space-x-2">
-                <span>{formatTimestamp(timestamp || currentTimestamp)}</span>
+                <span className="text-muted">{formatTimestamp(timestamp || currentTimestamp)}</span>
                 <NodeViewContent />
             </li>
         </NodeViewWrapper>

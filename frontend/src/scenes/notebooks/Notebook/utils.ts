@@ -25,11 +25,12 @@ export interface NotebookEditor {
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
 export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     const selection = editor.state.selection
+    const isRootDepth = selection.$anchor.depth === 1
     const { $anchor, empty } = selection
     const isEmptyTextBlock =
         $anchor.parent.isTextblock && !$anchor.parent.type.spec.code && !textContent($anchor.parent)
 
-    if (empty && isEmptyTextBlock) {
+    if (isRootDepth && empty && isEmptyTextBlock) {
         return true
     }
 
