@@ -1,6 +1,7 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from dateutil.rrule import rrule, DAILY
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
@@ -6782,6 +6783,34 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             res = self._get_trend_people(filter, entity)
 
             self.assertEqual(res[0]["distinct_ids"], ["person1"])
+
+    def test_trends_breakdown_weekly_actives_by_week(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["first"])
+        _create_person(team_id=self.team.pk, distinct_ids=["second"])
+        _create_person(team_id=self.team.pk, distinct_ids=["third"])
+        start_date = date(2023, 4, 9)
+        end_date = date(2023, 7, 23)
+        for i, dt in enumerate(rrule(DAILY, dtstart=start_date, until=end_date)):
+            _create_event(
+                event="$pageview",
+                distinct_id=["first", "second", "third"][i % 3],
+                team=self.team,
+                properties={"$browser": "Chrome"},
+                timestamp=dt.strftime("%Y-%m-%dT12:00:00Z"),
+            )
+
+        with freeze_time(end_date.strftime("%Y-%m-%dT12:00:00Z")):
+            filters = {
+                "breakdown": "$browser",
+                "date_from": "-90d",
+                "display": "ActionsLineGraph",
+                "events": [{"id": "$pageview", "type": "events", "math": "weekly_active"}],
+                "insight": "TRENDS",
+                "interval": "week",
+            }
+            result = Trends().run(Filter(data=filters), self.team)
+
+        self.assertEqual(len(result[0]["data"]), 14)
 
 
 class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
