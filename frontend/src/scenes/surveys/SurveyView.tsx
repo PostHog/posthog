@@ -17,9 +17,11 @@ import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
 import { SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries } = useValues(surveyLogic)
+    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries, showSurveyAppWarning } =
+        useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey } = useActions(surveyLogic)
@@ -103,6 +105,14 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
+                    {showSurveyAppWarning && (
+                        <LemonBanner type="error">
+                            Surveys requires the{' '}
+                            <a onClick={() => surveyPlugin?.id && editPlugin(surveyPlugin.id)}>survey app</a> to be
+                            enabled. Enable and save it, and make sure you have the "opt_in_site_apps" setting in your
+                            PostHog initialization code.
+                        </LemonBanner>
+                    )}
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
