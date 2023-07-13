@@ -38,15 +38,12 @@ class HogQLContext:
     # Notices returned with the metadata query
     notices: List[HogQLNotice] = field(default_factory=list)
 
-    def _add_value(self, value: Any) -> str:
+    def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
         self.values[key] = value
-        return key
-
-    def add_value(self, value: Any) -> str:
-        key = self._add_value(value)
         return f"%({key})s"
 
     def add_sensitive_value(self, value: Any) -> str:
-        key = self._add_value(value)
-        return f"%(sensitive_{key})s"
+        key = f"hogql_val_{len(self.values)}_sensitive"
+        self.values[key] = value
+        return f"%({key})s"
