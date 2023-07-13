@@ -397,7 +397,7 @@ describe('hooks', () => {
     describe('getFormattedMessage', () => {
         const event = {
             distinctId: '2',
-            properties: { $browser: 'Chrome', page_title: 'Pricing' },
+            properties: { $browser: 'Chrome', page_title: 'Pricing', 'with space': 'yes sir' },
         } as unknown as PostIngestionEvent
         const team = { person_display_name_properties: null } as Team
 
