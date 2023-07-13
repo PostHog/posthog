@@ -37,7 +37,11 @@ export const isCurrentNodeEmpty = (editor: TTEditor): boolean => {
     return false
 }
 
-export const textContent = (node: any): string => {
+export const hasContent = (node: any): boolean => {
+    return !!textContent(node)
+}
+
+const textContent = (node: any): string => {
     return getText(node, {
         blockSeparator: ' ',
         textSerializers: {

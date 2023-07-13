@@ -12,8 +12,6 @@ import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
-import { LemonButton } from '@posthog/lemon-ui'
-import { NotebookNodeType } from '~/types'
 
 export type NotebookProps = {
     shortId: string
@@ -62,31 +60,6 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
     return (
         <BindLogic logic={notebookLogic} props={{ shortId }}>
-            <LemonButton
-                onClick={() => {
-                    editor?.setContent([
-                        {
-                            type: 'ph-recording',
-                            attrs: {
-                                id: '1894ad0c17d11ba930-0f0f8f5e6e66cd-1b525634-1fa400-1894ad0c17d11ba930',
-                            },
-                            content: [
-                                {
-                                    type: NotebookNodeType.TimestampList,
-                                    content: [
-                                        {
-                                            type: NotebookNodeType.TimestampItem,
-                                            content: [{ type: 'paragraph' }],
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    ])
-                }}
-            >
-                Reset content
-            </LemonButton>
             <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
                 {notebook.is_template && (
                     <LemonBanner

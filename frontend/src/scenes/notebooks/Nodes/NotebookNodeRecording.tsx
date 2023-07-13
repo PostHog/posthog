@@ -77,6 +77,20 @@ export const NotebookNodeRecording = Node.create({
                 getAttributes: (match) => {
                     return { id: match[1] }
                 },
+                getDeafultContent: (attrs) => {
+                    return [
+                        {
+                            type: NotebookNodeType.TimestampList,
+                            content: [
+                                {
+                                    type: NotebookNodeType.TimestampItem,
+                                    attrs: { sessionRecordingId: attrs.id },
+                                    content: [{ type: 'paragraph' }],
+                                },
+                            ],
+                        },
+                    ]
+                },
             }),
         ]
     },

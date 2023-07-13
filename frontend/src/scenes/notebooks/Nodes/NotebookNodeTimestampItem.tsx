@@ -5,7 +5,6 @@ import {
     NodeViewWrapper,
     ReactNodeViewRenderer,
     mergeAttributes,
-    wrappingInputRule,
 } from '@tiptap/react'
 import { dayjs } from 'lib/dayjs'
 import { useValues } from 'kea'
@@ -14,42 +13,46 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { NotebookNodeType } from '~/types'
+import { hasContent } from '../Notebook/utils'
+import clsx from 'clsx'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const timestamp = props.node.attrs.timestamp
+    const playbackTime = props.node.attrs.playbackTime
+    const sessionRecordingId = props.node.attrs.sessionRecordingId
 
-    const id = 'TODO: get recording id from parent node'
     const recordingLogicProps: SessionRecordingPlayerLogicProps = {
-        sessionRecordingId: id,
-        playerKey: `notebook-${id}`,
+        sessionRecordingId,
+        playerKey: `notebook-${sessionRecordingId}`,
     }
 
-    const { currentTimestamp } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
+    const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
 
-    // const resetTimestamp = (): void => {
-    //     props.updateAttributes({ timestamp: null })
-    // }
+    const isEmpty = !hasContent(props.node)
 
-    // const setTimestamp = (): void => {
-    //     props.updateAttributes({ timestamp: currentTimestamp })
-    // }
+    if (!isEmpty && !playbackTime) {
+        setTimeout(() => {
+            props.updateAttributes({ playbackTime: currentPlayerTime })
+        }, 100)
+    } else if (isEmpty && playbackTime) {
+        setTimeout(() => {
+            props.updateAttributes({ playbackTime: null })
+        }, 100)
+    }
 
     return (
         <NodeViewWrapper>
-            <li data-type={props.node.type.name} className="flex space-x-2">
-                <span className="text-muted">{formatTimestamp(timestamp || currentTimestamp)}</span>
+            <li data-type={props.node.type.name} className={clsx('flex space-x-2', isEmpty && 'empty')}>
+                <span className="text-muted" contentEditable={false}>
+                    {formatTimestamp(playbackTime || currentPlayerTime)}
+                </span>
                 <NodeViewContent />
             </li>
         </NodeViewWrapper>
     )
 }
 
-function formatTimestamp(timestamp: number | undefined): string {
-    return dayjs
-        .duration(timestamp || 0, 'milliseconds')
-        .format('HH:mm:ss')
-        .replace(/^00:/, '')
-        .trim()
+function formatTimestamp(time: number): string {
+    return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
 }
 
 export const NotebookNodeTimestampItem = Node.create({
@@ -59,7 +62,8 @@ export const NotebookNodeTimestampItem = Node.create({
 
     addAttributes() {
         return {
-            timestamp: { default: null, keepOnSplit: false },
+            playbackTime: { default: null, keepOnSplit: false },
+            sessionRecordingId: { default: null, keepOnSplit: true, isRequired: true },
         }
     },
 
@@ -73,20 +77,17 @@ export const NotebookNodeTimestampItem = Node.create({
 
     addKeyboardShortcuts() {
         return {
-            Enter: () => this.editor.commands.splitListItem(this.name),
+            Enter: ({ editor }) => {
+                if (hasContent(editor.view.state.selection.$head.parent)) {
+                    return this.editor.commands.splitListItem(this.name)
+                } else {
+                    return false
+                }
+            },
         }
     },
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
-    },
-
-    addInputRules() {
-        return [
-            wrappingInputRule({
-                find: /^\s*(\[([( |x])?\])\s$/,
-                type: this.type,
-            }),
-        ]
     },
 })

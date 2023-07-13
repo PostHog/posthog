@@ -1,6 +1,7 @@
-import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, nodePasteRule } from '@tiptap/core'
+import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, PasteRuleFinder } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
+import { JSONContent } from '../Notebook/utils'
 
 export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (value: T) => void] {
     let value = props.node.attrs[key]
@@ -33,7 +34,8 @@ export function reportNotebookNodeCreation(nodeType: string): void {
 export function posthogNodePasteRule(options: {
     find: string
     type: NodeType
-    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any>
+    getDeafultContent: (attrs: Record<string, any>) => JSONContent['content']
 }): PasteRule {
     return nodePasteRule({
         find: createUrlRegex(options.find),
@@ -43,13 +45,14 @@ export function posthogNodePasteRule(options: {
             posthog.capture('notebook node pasted', { node_type: options.type.name })
             return attrs
         },
+        getDeafultContent: (attrs) => options.getDeafultContent(attrs),
     })
 }
 
 export function externalLinkPasteRule(options: {
     find: string
     type: NodeType
-    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any>
 }): PasteRule {
     return nodePasteRule({
         find: createUrlRegex(options.find, '(https?|mailto)://'),
@@ -57,6 +60,38 @@ export function externalLinkPasteRule(options: {
         getAttributes: (match) => {
             const attrs = options.getAttributes(match)
             return attrs
+        },
+    })
+}
+
+export function nodePasteRule(config: {
+    find: PasteRuleFinder
+    type: NodeType
+    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any>
+    getDeafultContent?: (attrs: Record<string, any>) => JSONContent['content']
+}): PasteRule {
+    return new PasteRule({
+        find: config.find,
+        handler({ match, chain, range }) {
+            const attributes = config.getAttributes(match)
+
+            if (attributes === null) {
+                return null
+            }
+
+            const node = { type: config.type.name, attrs: attributes } as JSONContent
+
+            if (config.getDeafultContent) {
+                const content = config.getDeafultContent(attributes)
+
+                if (content) {
+                    node.content = content
+                }
+            }
+
+            if (match.input) {
+                chain().deleteRange(range).insertContentAt(range.from, node)
+            }
         },
     })
 }

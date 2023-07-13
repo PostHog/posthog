@@ -136,6 +136,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <DraggableToNotebook
                 href={urls.replaySingle(logicProps.sessionRecordingId)}
+                properties={{ id: logicProps.sessionRecordingId }}
                 className="h-full w-full"
                 noOverflow
             >

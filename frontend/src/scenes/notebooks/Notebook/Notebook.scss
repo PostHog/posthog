@@ -49,6 +49,14 @@
             margin-bottom: 0;
         }
 
+        ul li[data-type='phTimestampItem'].empty::after {
+            color: #adb5bd;
+            content: 'Add a comment...';
+            float: left;
+            height: 0;
+            pointer-events: none;
+        }
+
         > pre {
             background-color: rgba(0, 0, 0, 0.05);
             border-radius: var(--radius);
@@ -82,6 +90,27 @@
     // antd makes it invisible otherwise
     span::selection {
         color: var(--primary);
+    }
+
+    [contenteditable='false']::selection {
+        color: inherit;
+        background: transparent;
+    }
+
+    [contenteditable='false'] {
+        span::selection {
+            color: inherit;
+            background: transparent;
+        }
+    }
+
+    .NotebookNode--selected {
+        // overriding ::selection is necessary here because
+        // antd makes it invisible otherwise
+        span::selection,
+        p::selection {
+            color: inherit;
+        }
     }
 }
 
