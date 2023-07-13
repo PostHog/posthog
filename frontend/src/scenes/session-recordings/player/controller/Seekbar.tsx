@@ -1,55 +1,16 @@
 import './Seekbar.scss'
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
-import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
+import { seekbarLogic } from './seekbarLogic'
 import { RecordingSegment } from '~/types'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
-import { InspectorListItemEvent, playerInspectorLogic } from './inspector/playerInspectorLogic'
-
-function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number }): JSX.Element {
-    const [percentage, setPercentage] = useState<number>(0)
-    const ref = useRef<HTMLDivElement>(null)
-    const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
-    const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
-
-    useEffect(() => {
-        const handleMouseMove = (e: MouseEvent): void => {
-            const rect = ref.current?.getBoundingClientRect()
-
-            if (!rect) {
-                return
-            }
-            const relativeX = e.clientX - rect.x
-            const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
-
-            if (newPercentage !== percentage) {
-                setPercentage(newPercentage)
-            }
-        }
-
-        window.addEventListener('mousemove', handleMouseMove)
-        return () => window.removeEventListener('mousemove', handleMouseMove)
-    }, [])
-
-    return (
-        <div className="PlayerSeekBarInspector" ref={ref}>
-            <div
-                className="PlayerSeekBarInspector__tooltip"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    transform: `translateX(${percentage * 100}%)`,
-                }}
-            >
-                <div className="PlayerSeekBarInspector__tooltip__content">{content}</div>
-            </div>
-        </div>
-    )
-}
+import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
+import { InspectorListItemEvent, playerInspectorLogic } from '../inspector/playerInspectorLogic'
+import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 
 function PlayerSeekbarTick(props: {
     item: InspectorListItemEvent
@@ -190,7 +151,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.durationMs} />
+                    <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} />
                 </div>
 
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />

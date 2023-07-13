@@ -82,7 +82,7 @@
         }
     }
 
-    .PlayerSeekBarInspector {
+    .PlayerSeekBarPreview {
         position: absolute;
         z-index: 6;
         bottom: 100%;
@@ -91,10 +91,10 @@
         pointer-events: none;
         transition: opacity 150ms ease-in-out;
 
-        .PlayerSeekBarInspector__tooltip {
+        .PlayerSeekBarPreview__tooltip {
             width: 100%;
 
-            .PlayerSeekBarInspector__tooltip__content {
+            .PlayerSeekBarPreview__tooltip__content {
                 display: inline-block;
                 border-radius: var(--radius);
                 padding: 0.25rem 0.4rem;
@@ -111,7 +111,7 @@
 
     .PlayerSeekbar__slider:hover,
     &--scrubbing {
-        .PlayerSeekBarInspector {
+        .PlayerSeekBarPreview {
             opacity: 1;
         }
     }
