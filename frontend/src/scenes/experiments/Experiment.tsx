@@ -107,7 +107,7 @@ export function Experiment(): JSX.Element {
     const [showWarning, setShowWarning] = useState(true)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, doNotLoad: true })
+    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
     const { insightProps } = useValues(logic)
 
     // insightDataLogic
@@ -1022,7 +1022,6 @@ export function Experiment(): JSX.Element {
                                                 disable_baseline: true,
                                                 last_refresh: experimentResults.last_refresh,
                                             },
-                                            doNotLoad: true,
                                         },
                                     }}
                                     readOnly
