@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import aiohttp
 import pytest
+import pytest_asyncio
 from django.conf import settings
 
 from posthog.temporal.workflows.batch_exports import (
@@ -32,9 +33,9 @@ EventValues = TypedDict(
 )
 
 
-async def insert_events(client: ClickHouseClient, events: list[EventValues]):
+async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
     """Insert some events into the sharded_events table."""
-    await client.execute_query(
+    await ch_client.execute_query(
         f"""
         INSERT INTO `sharded_events` (
             uuid,
@@ -73,9 +74,28 @@ async def insert_events(client: ClickHouseClient, events: list[EventValues]):
     )
 
 
+@pytest_asyncio.fixture
+async def client():
+    async with aiohttp.ClientSession() as session:
+        client = ClickHouseClient(
+            session=session,
+            url=settings.CLICKHOUSE_HTTP_URL,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+        )
+        count = int(await client.read_query("SELECT count(*) FROM `sharded_events`"))
+
+        yield client
+
+        new_count = int(await client.read_query("SELECT count(*) FROM `sharded_events`"))
+        if new_count > count:
+            await client.execute_query("TRUNCATE TABLE `sharded_events`")
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_rows_count():
+async def test_get_rows_count(client):
     """Test the count of rows returned by get_rows_count."""
     team_id = randint(1, 1000000)
 
@@ -97,27 +117,19 @@ async def test_get_rows_count():
         # multipart upload, and the minimum part chunk size is 5MB.
         for i in range(10000)
     ]
-    async with aiohttp.ClientSession() as session:
-        client = ClickHouseClient(
-            session=session,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-        await insert_events(
-            client=client,
-            events=events,
-        )
+    await insert_events(
+        ch_client=client,
+        events=events,
+    )
 
-        row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    row_count = await get_rows_count(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
 
     assert row_count == 10000
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_results_iterator():
+async def test_get_results_iterator(client):
     """Test the rows returned by get_results_iterator."""
     team_id = randint(1, 1000000)
 
@@ -135,23 +147,15 @@ async def test_get_results_iterator():
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
             "elements_chain": "this that and the other",
         }
-        for i in range(10000)
+        for i in range(20000)
     ]
-    async with aiohttp.ClientSession() as session:
-        client = ClickHouseClient(
-            session=session,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-        await insert_events(
-            client=client,
-            events=events,
-        )
+    await insert_events(
+        ch_client=client,
+        events=events,
+    )
 
-        aiter = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
-        rows = [row async for row in aiter]
+    aiter = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    rows = [row async for row in aiter]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
     all_result = sorted(rows, key=operator.itemgetter("event"))

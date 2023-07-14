@@ -45,24 +45,24 @@ async def get_results_iterator(client, team_id: int, interval_start: str, interv
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="""
-                    uuid,
+                    toString(uuid) as uuid,
                     timestamp,
                     inserted_at,
                     created_at,
                     event,
                     properties,
                     -- Point in time identity fields
-                    distinct_id,
-                    person_id,
+                    toString(distinct_id) as distinct_id,
+                    toString(person_id) as person_id,
                     person_properties,
                     -- Autocapture fields
                     elements_chain
             """,
         order_by="ORDER BY _timestamp",
-        format="FORMAT JSONEachRow",
+        format="FORMAT ArrowStream",
     )
 
-    async for row in client.stream_query_as_jsonl(
+    async for batch in client.stream_query_as_arrow(
         query,
         query_parameters={
             "team_id": team_id,
@@ -73,10 +73,19 @@ async def get_results_iterator(client, team_id: int, interval_start: str, interv
         # Make sure to parse `properties` and
         # `person_properties` are parsed as JSON to `dict`s. In ClickHouse they
         # are stored as `String`s.
-        properties = row.get("properties")
-        person_properties = row.get("person_properties")
-        yield {
-            **row,
-            "properties": json.loads(properties) if properties else None,
-            "person_properties": json.loads(person_properties) if person_properties else None,
-        }
+        for row in batch.to_pylist():
+            properties = row.get("properties")
+            person_properties = row.get("person_properties")
+
+            yield {
+                "uuid": row.get("uuid").decode(),
+                "distinct_id": row.get("distinct_id").decode(),
+                "person_id": row.get("person_id").decode(),
+                "event": row.get("event").decode(),
+                "_timestamp": datetime.fromtimestamp(row.get("_timestamp")).strftime("%Y-%m-%d %H:%M:%S"),
+                "created_at": row.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "timestamp": row.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "properties": json.loads(properties) if properties else None,
+                "person_properties": json.loads(person_properties) if person_properties else None,
+                "elements_chain": row.get("elements_chain").decode(),
+            }
