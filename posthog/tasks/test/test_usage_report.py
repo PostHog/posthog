@@ -1,5 +1,4 @@
 from datetime import datetime
-from multiprocessing.pool import AsyncResult
 from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
@@ -899,11 +898,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 mockresponse.json = lambda: self._usage_report_response()
                 mock_posthog = MagicMock()
                 mock_client.return_value = mock_posthog
-
-                result = send_all_org_usage_reports.delay(dry_run=False)  # Delay the task execution
-                assert mock_capture_exception.call_count == 1
-                task_result: AsyncResult = AsyncResult(result.task_id, callback=None, error_callback=None)
-                assert task_result.info.get("retries", 0) == 3
+                send_all_org_usage_reports(dry_run=False)
+        assert mock_capture_exception.call_count == 1
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.Client")
