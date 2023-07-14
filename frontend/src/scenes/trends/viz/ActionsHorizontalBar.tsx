@@ -8,7 +8,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -23,8 +22,11 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
-    const { indexedResults, labelGroupType } = useValues(trendsDataLogic(insightProps))
+    // TODO: replace hidden legend keys
+    const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
+    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -76,10 +78,12 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
             labels={data[0].labels}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
-            filters={insight.filters}
+            trendsFilter={trendsFilter}
+            formula={formula}
+            showValueOnSeries={showValueOnSeries}
             inCardView={inCardView}
             onClick={
-                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters.formula)
+                !showPersonsModal || trendsFilter?.formula
                     ? undefined
                     : (point) => {
                           const { index, points, crossDataset } = point

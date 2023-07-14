@@ -21,7 +21,7 @@ import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType, TrendsFilterType } from '~/types'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -33,25 +33,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-
-export interface LineGraphProps {
-    datasets: GraphDataset[]
-    hiddenLegendKeys?: Record<string | number, boolean | undefined>
-    labels: string[]
-    type: GraphType
-    isInProgress?: boolean
-    onClick?: (payload: GraphPointPayload) => void
-    ['data-attr']: string
-    inSharedMode?: boolean
-    showPersonsModal?: boolean
-    tooltip?: TooltipConfig
-    isCompare?: boolean
-    inCardView?: boolean
-    isArea?: boolean
-    incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
-    labelGroupType: number | 'people' | 'none'
-    filters?: Partial<TrendsFilterType>
-}
+import { TrendsFilter } from '~/queries/schema'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -139,14 +121,6 @@ export function onChartClick(
     })
 }
 
-export const LineGraph = (props: LineGraphProps): JSX.Element => {
-    return (
-        <ErrorBoundary>
-            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
-        </ErrorBoundary>
-    )
-}
-
 export function onChartHover(
     event: ChartEvent,
     chart: Chart,
@@ -217,6 +191,35 @@ function createPinstripePattern(color: string): CanvasPattern {
     return pattern
 }
 
+export interface LineGraphProps {
+    datasets: GraphDataset[]
+    hiddenLegendKeys?: Record<string | number, boolean | undefined>
+    labels: string[]
+    type: GraphType
+    isInProgress?: boolean
+    onClick?: (payload: GraphPointPayload) => void
+    ['data-attr']: string
+    inSharedMode?: boolean
+    showPersonsModal?: boolean
+    tooltip?: TooltipConfig
+    isCompare?: boolean
+    inCardView?: boolean
+    isArea?: boolean
+    incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
+    labelGroupType: number | 'people' | 'none'
+    trendsFilter?: TrendsFilter | null
+    formula?: string | null
+    showValueOnSeries?: boolean | null
+}
+
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    return (
+        <ErrorBoundary>
+            {props.type === GraphType.Pie ? <PieChart {...props} /> : <LineGraph_ {...props} />}
+        </ErrorBoundary>
+    )
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -232,7 +235,9 @@ export function LineGraph_({
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
-    filters,
+    trendsFilter,
+    formula,
+    showValueOnSeries,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -248,6 +253,7 @@ export function LineGraph_({
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors(isDarkModeOn)
+    // TODO: remove reliance on insight
     const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
@@ -374,11 +380,9 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
-                        return filters?.show_values_on_series === true && typeof datum === 'number' && datum !== 0
-                            ? 'auto'
-                            : false
+                        return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
-                    formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                    formatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
                     borderWidth: 2,
                     borderRadius: 4,
                     borderColor: 'white',
@@ -429,7 +433,7 @@ export function LineGraph_({
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
                                         return (
                                             <div className="datum-label-column">
-                                                {!filters?.formula && (
+                                                {!formula && (
                                                     <SeriesLetter
                                                         className="mr-2"
                                                         hasBreakdown={hasBreakdown}
@@ -443,9 +447,9 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string => formatAggregationAxisValue(filters, value))
+                                        ((value: number): string => formatAggregationAxisValue(trendsFilter, value))
                                     }
-                                    entitiesAsColumnsOverride={filters?.formula ? false : undefined}
+                                    entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
@@ -528,7 +532,7 @@ export function LineGraph_({
                         precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatAggregationAxisValue(filters, value)
+                            return formatAggregationAxisValue(trendsFilter, value)
                         },
                     },
                 },
@@ -554,7 +558,7 @@ export function LineGraph_({
                         precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatAggregationAxisValue(filters, value)
+                            return formatAggregationAxisValue(trendsFilter, value)
                         },
                     },
                     grid: {
@@ -571,7 +575,7 @@ export function LineGraph_({
                         ...tickOptions,
                         precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(filters, value)
+                            return formatAggregationAxisValue(trendsFilter, value)
                         },
                     },
                 },

@@ -21,7 +21,7 @@ import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColum
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -45,11 +45,12 @@ export function InsightsTable({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
-    const { insightProps, isInDashboardContext, insight, isSingleSeries } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
-    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    // TODO: replace filters etc. with data exploration variant
+    const { insightProps, isInDashboardContext, insight, isSingleSeries, hiddenLegendKeys } = useValues(insightLogic)
+    const { toggleVisibility } = useActions(insightLogic)
+    const { indexedResults, isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } =
+        useValues(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -67,8 +68,8 @@ export function InsightsTable({
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { indexedResults, hiddenLegendKeys, resultsLoading } = useValues(trendsLogic(insightProps))
-    const { toggleVisibility } = useActions(trendsLogic(insightProps))
+    // TODO: resultsLoading
+    const { resultsLoading } = useValues(trendsLogic(insightProps))
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []

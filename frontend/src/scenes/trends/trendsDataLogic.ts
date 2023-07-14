@@ -5,6 +5,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { dayjs } from 'lib/dayjs'
 
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
@@ -12,7 +13,26 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     path((key) => ['scenes', 'trends', 'trendsDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightData', 'display', 'lifecycleFilter', 'series']],
+        values: [
+            insightVizDataLogic(props),
+            [
+                'insightData',
+                'series',
+                'formula',
+                'display',
+                'compare',
+                'interval',
+                'breakdown',
+                'shownAs',
+                'showValueOnSeries',
+                'isNonTimeSeriesDisplay',
+                'trendsFilter',
+                'lifecycleFilter',
+                'isTrends',
+                'isLifecycle',
+                'isStickiness',
+            ],
+        ],
     })),
 
     selectors({
@@ -51,9 +71,27 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (series): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
                 const firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
-                return series.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
+                return series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
                     ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
                     : 'none' // mixed group types
+            },
+        ],
+
+        incompletenessOffsetFromEnd: [
+            (s) => [s.results, s.interval],
+            (results, interval) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (results[0]?.days === undefined) {
+                    return 0
+                }
+                const startDate = dayjs().startOf(interval ?? 'd')
+                const startIndex = results[0].days.findIndex((day: string) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - results[0].days.length
+                } else {
+                    return 0
+                }
             },
         ],
     }),

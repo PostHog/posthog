@@ -37,6 +37,8 @@ import {
     getFormula,
     getInterval,
     getSeries,
+    getShownAs,
+    getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -129,6 +131,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
+        shownAs: [(s) => [s.querySource], (q) => (q ? getShownAs(q) : null)],
+        showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

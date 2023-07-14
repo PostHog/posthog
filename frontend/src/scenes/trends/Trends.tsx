@@ -8,7 +8,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
-import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { trendsDataLogic } from './trendsDataLogic'
 
 interface Props {
     view: InsightType
@@ -17,9 +17,9 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps } = useValues(insightLogic)
-    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
+    const { loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
-    const display = isTrendsFilter(_filters) || isStickinessFilter(_filters) ? _filters.display : null
+    const { display, series, breakdown } = useValues(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -58,7 +58,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
 
     return (
         <>
-            {(_filters.actions || _filters.events) && (
+            {series && (
                 <div
                     className={
                         display !== ChartDisplayType.ActionsTable &&
@@ -71,7 +71,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     {renderViz()}
                 </div>
             )}
-            {_filters.breakdown && loadMoreBreakdownUrl && (
+            {breakdown && loadMoreBreakdownUrl && (
                 <div className="my-4 flex flex-col items-center">
                     <div className="text-muted mb-2">
                         For readability, <b>not all breakdown values are displayed</b>. Click below to load them.

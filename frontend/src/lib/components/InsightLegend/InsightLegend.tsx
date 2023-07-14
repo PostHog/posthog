@@ -1,10 +1,10 @@
 import './InsightLegend.scss'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import clsx from 'clsx'
 import { InsightLegendRow } from './InsightLegendRow'
-import { shouldShowLegend, shouldHighlightThisRow } from './utils'
+import { shouldShowLegend, shouldHighlightThisRow, DISPLAY_TYPES_WITHOUT_LEGEND } from './utils'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -13,12 +13,12 @@ export interface InsightLegendProps {
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
-    const { insightProps, filters, highlightedSeries, isSingleSeries } = useValues(insightLogic)
-    const logic = trendsLogic(insightProps)
-    const { indexedResults, hiddenLegendKeys } = useValues(logic)
-    const { toggleVisibility } = useActions(logic)
+    // TODO: replace isSingleSeries etc. with data exploration variant
+    const { insightProps, highlightedSeries, isSingleSeries, hiddenLegendKeys } = useValues(insightLogic)
+    const { toggleVisibility } = useActions(insightLogic)
+    const { indexedResults, compare, display, trendsFilter } = useValues(trendsDataLogic(insightProps))
 
-    return shouldShowLegend(filters) ? (
+    return DISPLAY_TYPES_WITHOUT_LEGEND.includes(display) ? (
         <div
             className={clsx('InsightLegendMenu', 'flex overflow-auto border rounded', {
                 'InsightLegendMenu--horizontal': horizontal,
@@ -37,7 +37,9 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
                             hasMultipleSeries={!isSingleSeries}
                             highlighted={shouldHighlightThisRow(hiddenLegendKeys, index, highlightedSeries)}
                             toggleVisibility={toggleVisibility}
-                            filters={filters}
+                            compare={compare}
+                            display={display}
+                            trendsFilter={trendsFilter}
                         />
                     ))}
             </div>
