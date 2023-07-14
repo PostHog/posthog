@@ -521,11 +521,12 @@ export class SessionRecordingBlobIngester {
         const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
 
         // Check that we haven't already commited a higher offset
-        if (this.partitionLastKnownCommit[partition] || 0 >= highestOffsetToCommit) {
+        const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
+        if (lastKnownCommit >= highestOffsetToCommit) {
             status.warn('🚫', `blob_ingester_consumer.commitOffsets - offset already committed`, {
                 partition,
                 offsetToCommit: highestOffsetToCommit,
-                lastKnownCommit: this.partitionLastKnownCommit[partition],
+                lastKnownCommit,
                 sessionId,
             })
 
