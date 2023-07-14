@@ -43,7 +43,7 @@ import {
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
-import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
+import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -175,7 +175,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         hasLegend: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
+                (isTrends || isStickiness) && !!display && !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
