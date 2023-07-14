@@ -18,7 +18,7 @@
             margin-bottom: 0.2rem;
         }
 
-        &.ProseMirror-focused {
+        > &.ProseMirror-focused {
             outline: none;
         }
 
@@ -58,6 +58,25 @@
             background-color: rgba(0, 0, 0, 0.05);
             border-radius: var(--radius);
             padding: 0.2rem;
+        }
+
+        .node-phBacklink {
+            padding: 2px 4px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background-color: var(--white);
+
+            &:hover {
+                background-color: var(--side);
+            }
+
+            & a svg {
+                vertical-align: bottom;
+            }
+
+            & a .label {
+                color: var(--black);
+            }
         }
     }
 

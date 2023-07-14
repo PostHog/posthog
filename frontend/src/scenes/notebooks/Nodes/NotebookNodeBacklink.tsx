@@ -5,6 +5,9 @@ import { Link } from '@posthog/lemon-ui'
 import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
+import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -17,21 +20,24 @@ const ICON_MAP = {
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const { shortId } = useValues(notebookLogic)
+    const { notebookLinkClicked } = useActions(notebookSidebarLogic)
+
     const type: TaxonomicFilterGroupType = props.node.attrs.type
-    const href: string = redirectOnSelectItems(props.node.attrs.id, type)
+    const href: string | undefined = backlinkHref(props.node.attrs.id, type)
     const title: string = props.node.attrs.title
 
     return (
         <NodeViewWrapper as="span">
-            <Link to={href}>
+            <Link to={href} onClick={() => notebookLinkClicked(shortId)} target={undefined} className="space-x-1">
                 <span>{ICON_MAP[type]}</span>
-                <span>{title}</span>
+                <span className="label">{title}</span>
             </Link>
         </NodeViewWrapper>
     )
 }
 
-function redirectOnSelectItems(id: string, type: TaxonomicFilterGroupType): string {
+function backlinkHref(id: string, type: TaxonomicFilterGroupType): string | undefined {
     if (type === TaxonomicFilterGroupType.Events) {
         return urls.eventDefinition(id)
     } else if (type === TaxonomicFilterGroupType.Cohorts) {
@@ -47,7 +53,6 @@ function redirectOnSelectItems(id: string, type: TaxonomicFilterGroupType): stri
     } else if (type === TaxonomicFilterGroupType.Dashboards) {
         return urls.dashboard(id)
     }
-    return ''
 }
 
 export const NotebookNodeBacklink = Node.create({

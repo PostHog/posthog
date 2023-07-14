@@ -2985,7 +2985,7 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
     Link = 'ph-link',
-    Backlink = 'ph-backlink',
+    Backlink = 'phBacklink',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
