@@ -101,6 +101,7 @@ export function Seekbar(): JSX.Element {
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
     const { sessionPlayerData } = useValues(sessionRecordingDataLogic(logicProps))
 
+    const areaRef = useRef<HTMLDivElement | null>(null)
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
 
@@ -114,7 +115,7 @@ export function Seekbar(): JSX.Element {
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
-        <div className="flex items-center h-8" data-attr="rrweb-controller">
+        <div ref={areaRef} className="PlayerSeekbarWrapper flex items-center h-8" data-attr="rrweb-controller">
             <Timestamp />
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
                 <div
@@ -151,7 +152,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} />
+                    <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} parentRef={areaRef} />
                 </div>
 
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />

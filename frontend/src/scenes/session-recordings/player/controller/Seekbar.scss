@@ -97,19 +97,19 @@
             .PlayerSeekBarPreview__tooltip__content {
                 display: inline-block;
                 border-radius: var(--radius);
-                padding: 0.25rem 0.4rem;
+                padding: 0.1rem;
                 font-size: 0.8rem;
                 font-weight: 600;
                 color: #fff;
                 background-color: var(--muted-dark);
 
                 transform: translateX(-50%);
-                margin-bottom: 0.25rem;
+                margin-bottom: 0.5rem;
             }
         }
     }
 
-    .PlayerSeekbar__slider:hover,
+    &:hover,
     &--scrubbing {
         .PlayerSeekBarPreview {
             opacity: 1;
