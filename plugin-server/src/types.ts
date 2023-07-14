@@ -201,6 +201,7 @@ export interface PluginsServerConfig {
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
+    SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: number
     SESSION_RECORDING_REMOTE_FOLDER: string
     SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: string
 

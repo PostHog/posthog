@@ -22,6 +22,7 @@ import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
@@ -51,7 +52,7 @@ const gaugeSessionsRevoked = new Gauge({
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-export const gaugeRealtimeSessions = new Gauge({
+const gaugeRealtimeSessions = new Gauge({
     name: 'recording_realtime_sessions',
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
 })
@@ -131,7 +132,7 @@ export class SessionRecordingBlobIngester {
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        gaugeSessionsRevoked.set(0)
+        gaugeSessionsRevoked.reset()
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
@@ -346,6 +347,7 @@ export class SessionRecordingBlobIngester {
                 return await this.handleEachBatch(messages)
             },
         })
+        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             /**
@@ -382,8 +384,11 @@ export class SessionRecordingBlobIngester {
                 await this.destroySessions(sessionsToDrop)
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
+                gaugeSessionsHandled.remove()
                 revokedPartitions.forEach((partition) => {
-                    gaugeLagMilliseconds.remove({ partition: partition.toString() })
+                    gaugeLagMilliseconds.remove({ partition })
+                    gaugeOffsetCommitted.remove({ partition })
+                    gaugeOffsetCommitFailed.remove({ partition })
                 })
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
@@ -481,7 +486,7 @@ export class SessionRecordingBlobIngester {
 
         this.sessions = {}
 
-        gaugeRealtimeSessions.set(0)
+        gaugeRealtimeSessions.reset()
     }
 
     async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
@@ -521,11 +526,12 @@ export class SessionRecordingBlobIngester {
         const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
 
         // Check that we haven't already commited a higher offset
-        if (this.partitionLastKnownCommit[partition] || 0 >= highestOffsetToCommit) {
+        const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
+        if (lastKnownCommit >= highestOffsetToCommit) {
             status.warn('🚫', `blob_ingester_consumer.commitOffsets - offset already committed`, {
                 partition,
                 offsetToCommit: highestOffsetToCommit,
-                lastKnownCommit: this.partitionLastKnownCommit[partition],
+                lastKnownCommit,
                 sessionId,
             })
 

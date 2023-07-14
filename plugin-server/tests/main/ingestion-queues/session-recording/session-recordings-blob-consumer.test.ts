@@ -161,9 +161,36 @@ describe('ingester', () => {
             await ingester.sessions['1-sid1']?.flush('buffer_age')
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 3,
+            })
+        })
+
+        it('should commit higher values but not lower', async () => {
+            await ingester.consume(addMessage('sid1'))
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith({
+                ...metadata,
+                offset: 2,
+            })
+
+            const olderOffsetSomehow = addMessage('sid1')
+            olderOffsetSomehow.metadata.offset = 1
+
+            await ingester.consume(olderOffsetSomehow)
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+
+            await ingester.consume(addMessage('sid1'))
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+
+            expect(mockCommit).toHaveBeenCalledTimes(2)
+            expect(mockCommit).toHaveBeenLastCalledWith({
+                ...metadata,
+                offset: 4,
             })
         })
 
