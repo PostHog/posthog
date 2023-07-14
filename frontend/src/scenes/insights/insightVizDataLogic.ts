@@ -172,6 +172,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
         ],
 
+        isSingleSeries: [
+            (s) => [s.isTrends, s.formula, s.series, s.breakdown],
+            (isTrends, formula, series, breakdown): boolean => {
+                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdown?.breakdown
+            },
+        ],
+
         hasLegend: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>

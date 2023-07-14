@@ -22,7 +22,6 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    // TODO: replace hidden legend keys
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
         trendsDataLogic(insightProps)

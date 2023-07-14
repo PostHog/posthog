@@ -13,10 +13,11 @@ export interface InsightLegendProps {
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
-    // TODO: replace isSingleSeries etc. with data exploration variant
-    const { insightProps, highlightedSeries, isSingleSeries, hiddenLegendKeys } = useValues(insightLogic)
+    const { insightProps, highlightedSeries, hiddenLegendKeys } = useValues(insightLogic)
     const { toggleVisibility } = useActions(insightLogic)
-    const { indexedResults, compare, display, trendsFilter, hasLegend } = useValues(trendsDataLogic(insightProps))
+    const { indexedResults, compare, display, trendsFilter, hasLegend, isSingleSeries } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     return hasLegend ? (
         <div

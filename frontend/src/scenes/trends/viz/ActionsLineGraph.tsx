@@ -15,7 +15,6 @@ export function ActionsLineGraph({
     showPersonsModal = true,
     context,
 }: ChartParams): JSX.Element | null {
-    // TODO: replace hidden legend keys
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const {
         indexedResults,

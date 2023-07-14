@@ -23,7 +23,6 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    // TODO: replace hiddenLegendKeys
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
         trendsDataLogic(insightProps)

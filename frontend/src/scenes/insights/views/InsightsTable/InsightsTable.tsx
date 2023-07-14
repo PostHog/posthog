@@ -46,11 +46,20 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    // TODO: replace filters etc. with data exploration variant
-    const { insightProps, isInDashboardContext, insight, isSingleSeries, hiddenLegendKeys } = useValues(insightLogic)
+    // TODO: replace insight etc. with data exploration variant
+    const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
     const { toggleVisibility } = useActions(insightLogic)
-    const { indexedResults, isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } =
-        useValues(trendsDataLogic(insightProps))
+    const {
+        indexedResults,
+        isNonTimeSeriesDisplay,
+        compare,
+        isTrends,
+        display,
+        interval,
+        breakdown,
+        trendsFilter,
+        isSingleSeries,
+    } = useValues(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
