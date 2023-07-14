@@ -1429,11 +1429,11 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            const sessionId = posthog.get_session_id()
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
-                    'X-POSTHOG-SESSION-ID': sessionId,
+                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
                 },
             })
         } catch (e) {
@@ -1458,7 +1458,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1490,7 +1491,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1516,6 +1518,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
                 // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })
