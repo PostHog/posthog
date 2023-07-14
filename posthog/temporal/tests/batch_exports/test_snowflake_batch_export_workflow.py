@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import pytest
 import responses
-from aiochclient import ChClient
 from django.conf import settings
 from django.test import override_settings
 from requests.models import PreparedRequest
@@ -21,6 +20,7 @@ from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
 from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
+from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
@@ -41,9 +41,9 @@ class EventValues(TypedDict):
     properties: dict
 
 
-async def insert_events(client: ChClient, events: list[EventValues]):
+async def insert_events(client: ClickHouseClient, events: list[EventValues]):
     """Insert some events into the sharded_events table."""
-    await client.execute(
+    await client.execute_query(
         f"""
         INSERT INTO `sharded_events` (
             uuid,
@@ -70,7 +70,6 @@ async def insert_events(client: ChClient, events: list[EventValues]):
             )
             for event in events
         ],
-        json=False,
     )
 
 
@@ -234,7 +233,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
     It should update the batch export run status to completed, as well as updating the record
     count.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -495,7 +494,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
         interval=batch_export_data["interval"],
     )
 
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -590,7 +589,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
         interval=batch_export_data["interval"],
     )
 
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
