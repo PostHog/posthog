@@ -1,23 +1,30 @@
+import collections.abc
+import contextlib
 import datetime as dt
 import json
-import math
 import tempfile
 import typing
 import uuid
-from contextlib import asynccontextmanager
 
 import aiohttp
 import pyarrow as pa
 from django.conf import settings
 
 
-def encode_query_data(data):
+def encode_clickhouse_data(data: typing.Any) -> bytes:
+    """Encode data for ClickHouse.
+
+    Depending on the type of data the encoding is different.
+
+    Returns:
+        The encoded bytes.
+    """
     match data:
         case None:
             return b"NULL"
 
         case uuid.UUID():
-            return str(data).encode("utf-8")
+            return f"'{data}'".encode("utf-8")
 
         case int():
             return b"%d" % data
@@ -28,18 +35,16 @@ def encode_query_data(data):
                 timezone_arg = f", '{data:%Z}'"
 
             if data.microsecond == 0:
-                return f"toDateTime('{data:%Y-%m-%d %H:%M:%S.%f}'{timezone_arg})".encode("utf-8")
-            return f"toDateTime64('{data:%Y-%m-%d %H:%M:%S.%f}', {int(math.log10(data.microsecond))}{timezone_arg})".encode(
-                "utf-8"
-            )
+                return f"toDateTime('{data:%Y-%m-%d %H:%M:%S}'{timezone_arg})".encode("utf-8")
+            return f"toDateTime64('{data:%Y-%m-%d %H:%M:%S.%f}', 6{timezone_arg})".encode("utf-8")
 
         case list():
-            encoded_data = [encode_query_data(value) for value in data]
+            encoded_data = [encode_clickhouse_data(value) for value in data]
             result = b"[" + b",".join(encoded_data) + b"]"
             return result
 
         case tuple():
-            encoded_data = [encode_query_data(value) for value in data]
+            encoded_data = [encode_clickhouse_data(value) for value in data]
             result = b"(" + b",".join(encoded_data) + b")"
             return result
 
@@ -53,24 +58,37 @@ def encode_query_data(data):
 
 
 class ClickHouseError(Exception):
+    """Base Exception representing anything going wrong with ClickHouse."""
+
     def __init__(self, query, error_message):
         self.query = query
         super().__init__(error_message)
 
 
 class ClickHouseClient:
+    """An asynchronous client to access ClickHouse via HTTP.
+
+    Attributes:
+        session: The underlying aiohttp.ClientSession used for HTTP communication.
+        url: The URL of the ClickHouse cluster.
+        headers: Headers sent to ClickHouse in an HTTP request. Includes authentication details.
+        params: Parameters passed as query arguments in the HTTP request. Common ones include the
+            ClickHouse database and the 'max_execution_time'.
+    """
+
     def __init__(
         self,
-        session: aiohttp.ClientSession = None,
-        url="http://localhost:8123",
-        user="default",
-        password="",
-        database="default",
+        session: aiohttp.ClientSession | None = None,
+        url: str = "http://localhost:8123",
+        user: str = "default",
+        password: str = "",
+        database: str = "default",
         **kwargs,
     ):
-        self.session = session
-        if not self.session:
+        if session is None:
             self.session = aiohttp.ClientSession()
+        else:
+            self.session = session
 
         self.url = url
         self.headers = {}
@@ -87,6 +105,7 @@ class ClickHouseClient:
 
     @classmethod
     def from_posthog_settings(cls, session, settings, **kwargs):
+        """Initialize a ClickHouseClient from PostHog settings."""
         return cls(
             session=session,
             url=settings.CLICKHOUSE_URL,
@@ -97,6 +116,11 @@ class ClickHouseClient:
         )
 
     async def is_alive(self) -> bool:
+        """Check if the connection is alive by sending a SELECT 1 query.
+
+        Returns:
+            A boolean indicating whether the connection is alive.
+        """
         try:
             await self.session.get(
                 url=self.url, params={**self.params, "query": "SELECT 1"}, headers=self.headers, raise_for_status=True
@@ -105,28 +129,58 @@ class ClickHouseClient:
             return False
         return True
 
-    def prepare_query(self, query, query_parameters):
+    def prepare_query(self, query: str, query_parameters: None | dict[str, typing.Any] = None) -> str:
+        """Prepare the query being sent by encoding and formatting it with the provided parameters.
+
+        Returns:
+            The formatted query.
+        """
         if query_parameters:
-            format_parameters = {k: encode_query_data(v).decode("utf-8") for k, v in query_parameters.items()}
+            format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
         else:
             format_parameters = {}
         query = query.format(**format_parameters)
         return query
 
-    def prepare_request_data(self, data):
+    def prepare_request_data(self, data: collections.abc.Sequence[typing.Any]) -> bytes | None:
+        """Prepare the request data sent by encoding it.
+
+        Returns:
+            The request data to be passed as the body of the request.
+        """
         if len(data) > 0:
-            request_data = b",".join(encode_query_data(value) for value in data)
+            request_data = b",".join(encode_clickhouse_data(value) for value in data)
         else:
             request_data = None
         return request_data
 
     async def check_response(self, response, query) -> None:
+        """Check the HTTP response received from ClickHouse.
+
+        Raises:
+            ClickHouseError: If the status code is not 200.
+        """
         if response.status != 200:
             error_message = await response.text()
             raise ClickHouseError(query, error_message)
 
-    @asynccontextmanager
-    async def post_query(self, query, *data, query_parameters, query_id):
+    @contextlib.asynccontextmanager
+    async def post_query(
+        self, query, *data, query_parameters, query_id
+    ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
+        """POST a query to the ClickHouse HTTP interface.
+
+        The context manager protocol is used to control when to release the response.
+
+        Arguments:
+            query: The query to POST.
+            *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
+            query_parameters: Parameters to be formatted in the query.
+            query_id: A query ID to pass to ClickHouse.
+
+        Returns:
+            The response received from the ClickHouse HTTP interface.
+        """
         params = {**self.params}
         if query_id is not None:
             params["query_id"] = query_id
@@ -144,16 +198,30 @@ class ClickHouseClient:
             yield response
 
     async def execute_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> None:
+        """Execute the given query in ClickHouse.
+
+        This method doesn't return any response.
+        """
         async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id):
             return None
 
     async def read_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> bytes:
+        """Execute the given query in ClickHouse and read the response in full.
+
+        As the entire payload will be read at once, use this method when expecting a small payload, like
+        when running a 'count(*)' query.
+        """
         async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
     async def stream_query_as_jsonl(
         self, query, *data, query_parameters=None, query_id: str | None = None, line_separator=b"\n"
     ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
+        """Execute the given query in ClickHouse and stream back the response as one JSON per line.
+
+        This method makes sense when running with FORMAT JSONEachRow, although we currently do not enforce this.
+        """
+
         buffer = b""
         async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             async for chunk in response.content.iter_any():
@@ -173,6 +241,12 @@ class ClickHouseClient:
         query_parameters=None,
         query_id: str | None = None,
     ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
+        """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
+
+        This method makes sense when running with FORMAT ArrowStreaming, although we currently do not enforce this.
+        As pyarrow doesn't support async/await buffers, we have to write the output to a local temporary file first.
+        """
+
         with tempfile.SpooledTemporaryFile() as temp_file:
             async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
                 async for chunk in response.content.iter_any():
@@ -184,14 +258,16 @@ class ClickHouseClient:
                     yield batch
 
     async def __aenter__(self):
+        """Enter method part of the AsyncContextManager protocol."""
         return self
 
     async def __aexit__(self, exc_type, exc_value, tb):
+        """Exit method part of the AsyncContextManager protocol."""
         await self.session.close()
 
 
-@asynccontextmanager
-async def get_client():
+@contextlib.asynccontextmanager
+async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an
     async context manager.
@@ -222,7 +298,7 @@ async def get_client():
     #    elif ssl_context.verify_mode is ssl.CERT_REQUIRED:
     #        ssl_context.load_default_certs(ssl.Purpose.SERVER_AUTH)
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=None, sock_read=None)
-    with aiohttp.TCPConnector(verify_ssl=False) as connector:
+    with aiohttp.TCPConnector(ssl=False) as connector:
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with ClickHouseClient(
                 session,
