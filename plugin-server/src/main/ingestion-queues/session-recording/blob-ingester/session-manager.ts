@@ -5,7 +5,7 @@ import { createReadStream, createWriteStream, WriteStream } from 'fs'
 import { readFile, stat, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
@@ -16,20 +16,33 @@ import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage, now } from './utils'
 
-export const counterS3FilesWritten = new Counter({
+const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
     labelNames: ['flushReason'],
 })
 
-export const counterS3WriteErrored = new Counter({
+const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3LinesWritten = new Gauge({
-    name: 'recording_s3_lines_written',
-    help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
+const histogramS3LinesWritten = new Histogram({
+    name: 'recording_s3_lines_written_histogram',
+    help: 'The number of lines in a file we send to s3',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+})
+
+const histogramSessionAgeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_age_seconds',
+    help: 'The age of current sessions in seconds',
+    buckets: [0, 60, 60 * 2, 60 * 5, 60 * 8, 60 * 10, 60 * 12, 60 * 15, 60 * 20, Infinity],
+})
+
+const histogramSessionSize = new Histogram({
+    name: 'recording_blob_ingestion_session_lines',
+    help: 'The size of sessions in numbers of lines',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
 })
 
 // The buffer is a list of messages grouped
@@ -141,10 +154,14 @@ export class SessionManager {
         logContext['bufferAgeIsOverThreshold'] = bufferAgeIsOverThreshold
         logContext['sessionAgeIsOverThreshold'] = sessionAgeIsOverThreshold
 
+        histogramSessionAgeSeconds.observe(bufferAgeInMemory / 1000)
+        histogramSessionSize.observe(this.buffer.count)
+
         if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
+
             // return the promise and let the caller decide whether to await
             return this.flush(bufferAgeIsOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
@@ -212,7 +229,7 @@ export class SessionManager {
             })
 
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3LinesWritten.set(this.flushBuffer.count)
+            histogramS3LinesWritten.observe(this.flushBuffer.count)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
