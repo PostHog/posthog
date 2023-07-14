@@ -24,6 +24,7 @@ import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-ma
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
+import { DiskSpaceAwareThreshold } from './blob-ingester/disk-aware-threshold'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
 import {
@@ -98,6 +99,7 @@ export class SessionRecordingBlobIngester {
     partitionNow: Record<number, number | null> = {}
     partitionLastKnownCommit: Record<number, number | null> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
+    diskSpaceAwareLimits!: DiskSpaceAwareThreshold
 
     constructor(
         private serverConfig: PluginsServerConfig,
@@ -105,6 +107,8 @@ export class SessionRecordingBlobIngester {
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
+        this.diskSpaceAwareLimits = new DiskSpaceAwareThreshold(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY)
+
         this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
 
         this.sessionOffsetHighWaterMark = this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING
@@ -173,6 +177,7 @@ export class SessionRecordingBlobIngester {
                 this.serverConfig,
                 this.objectStorage.s3,
                 this.realtimeManager,
+                this.diskSpaceAwareLimits,
                 team_id,
                 session_id,
                 partition,

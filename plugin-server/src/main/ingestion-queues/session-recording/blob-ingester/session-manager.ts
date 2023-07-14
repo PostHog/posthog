@@ -12,6 +12,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
+import { DiskSpaceAwareThreshold } from './disk-aware-threshold'
 import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage, now } from './utils'
@@ -63,6 +64,7 @@ export class SessionManager {
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
         public readonly realtimeManager: RealtimeManager,
+        public readonly diskSpaceAwareThreshold: DiskSpaceAwareThreshold,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -105,16 +107,19 @@ export class SessionManager {
         return !this.buffer.count && !this.flushBuffer?.count
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, configThresholdMillis: number): Promise<void> {
         if (this.destroying) {
             return
         }
+
+        const thresholdMillis = this.diskSpaceAwareThreshold.adjustThreshold(configThresholdMillis)
 
         const logContext: Record<string, any> = {
             ...this.logContext(),
             referenceTime: referenceNow,
             referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
-            flushThresholdMillis,
+            configThresholdMillis: configThresholdMillis,
+            flushThresholdMillis: thresholdMillis,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -129,12 +134,11 @@ export class SessionManager {
         const bufferAgeInMemory = now() - this.buffer.createdAt
         const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
 
-        const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
+        const bufferAgeIsOverThreshold = bufferAgeFromReference >= thresholdMillis
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
         const sessionAgeIsOverThreshold =
-            bufferAgeInMemory >=
-            flushThresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+            bufferAgeInMemory >= thresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
         logContext['bufferAgeInMemory'] = bufferAgeInMemory
         logContext['bufferAgeFromReference'] = bufferAgeFromReference

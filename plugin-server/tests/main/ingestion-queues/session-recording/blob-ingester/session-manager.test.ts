@@ -3,6 +3,7 @@ import { createReadStream, createWriteStream } from 'fs'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
+import { DiskSpaceAwareThreshold } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/disk-aware-threshold'
 import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
 import { now } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createIncomingRecordingMessage } from '../fixtures'
@@ -72,6 +73,11 @@ describe('session-manager', () => {
             defaultConfig,
             mockS3Client,
             mockRealtimeManager,
+            {
+                adjustThreshold(currentThresholdMillis: number): number {
+                    return currentThresholdMillis
+                },
+            } as DiskSpaceAwareThreshold,
             1,
             'session_id_1',
             1,

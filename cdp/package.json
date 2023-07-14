@@ -23,7 +23,7 @@
         "@types/koa-bodyparser": "^4.3.10",
         "@types/koa-pino-logger": "^3.0.1",
         "@types/koa-router": "^7.4.4",
-        "@types/node": "^18.15.11",
+        "@types/node": "^18.16.1",
         "@types/pg": "^8.6.6",
         "jest": "^29.5.0",
         "nodemon": "^2.0.22",
