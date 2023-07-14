@@ -1,7 +1,6 @@
 import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
-import { Counter } from 'prom-client'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
@@ -9,12 +8,6 @@ import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
-
-export const counterRealtimeSnapshotSubscriptionFinished = new Counter({
-    name: 'realtime_snapshots_subscription_finished_counter',
-    help: 'Indicates that this consumer finished providing realtime snapshots for a session',
-    labelNames: ['team_id'],
-})
 
 const Keys = {
     snapshots(teamId: number, suffix: string): string {
@@ -50,8 +43,6 @@ export class RealtimeManager extends EventEmitter {
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
-            status.info('🔌', 'RealtimeManager unsubscribed from realtime snapshots', { teamId, sessionId })
-            counterRealtimeSnapshotSubscriptionFinished.inc({ team_id: teamId.toString() })
         }
     }
 
