@@ -21,7 +21,7 @@ import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -242,11 +242,13 @@ export function LineGraph_({
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
-    const { createTooltipData } = useValues(lineGraphLogic)
-    const { insight, insightProps } = useValues(insightLogic)
-    const { timezone } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    const { insightProps, insight } = useValues(insightLogic)
+    const { timezone, isTrends } = useValues(insightVizDataLogic(insightProps))
+
+    const { createTooltipData } = useValues(lineGraphLogic)
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
@@ -255,8 +257,6 @@ export function LineGraph_({
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     const colors = getGraphColors(isDarkModeOn)
-    // TODO: remove reliance on insight
-    const insightType = insight.filters?.insight
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
     if (isPie) {
@@ -265,7 +265,7 @@ export function LineGraph_({
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
-    const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal
+    const showAnnotations = isTrends && !isHorizontal
     const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
