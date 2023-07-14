@@ -885,7 +885,11 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
     def test_send_usage_cloud_exception(
-        self, mock_post: MagicMock, mock_client: MagicMock, mock_sync_execute, mock_capture_exception
+        self,
+        mock_post: MagicMock,
+        mock_client: MagicMock,
+        mock_sync_execute: MagicMock,
+        mock_capture_exception: MagicMock,
     ) -> None:
         with pytest.raises(Exception):
             with self.is_cloud(True):
@@ -898,8 +902,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 
                 result = send_all_org_usage_reports.delay(dry_run=False)  # Delay the task execution
                 assert mock_capture_exception.call_count == 1
-                task_result = AsyncResult(result.task_id)
-                assert task_result.retries == 3
+                task_result: AsyncResult = AsyncResult(result.task_id, callback=None, error_callback=None)
+                assert task_result.info.get("retries", 0) == 3
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.Client")
