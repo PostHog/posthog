@@ -3,8 +3,13 @@ import { BindLogic } from 'kea'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightsTable } from './InsightsTable'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+
 import { BaseMathType, InsightLogicProps } from '~/types'
+
+import { InsightsTable } from './InsightsTable'
 
 export default {
     title: 'Insights/InsightsTable',
@@ -19,18 +24,26 @@ const Template: ComponentStory<typeof InsightsTable> = (props, { parameters }) =
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const insight = require('../../__mocks__/trendsLineBreakdown.json')
 
-    const insightProps = {
-        dashboardItemId,
-        cachedInsight: {
+    const insightProps = { dashboardItemId, doNotLoad: true } as InsightLogicProps
+    const filters = { ...insight.filters, ...parameters.mergeFilters }
+    const query = filtersToQueryNode(filters)
+
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: {
             ...insight,
             short_id: dashboardItemId,
-            filters: { ...insight.filters, ...parameters.mergeFilters },
+            filters,
         },
-    } as InsightLogicProps
+        doNotLoad: insightProps.doNotLoad,
+    }
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <InsightsTable {...props} />
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <InsightsTable {...props} />
+            </BindLogic>
         </BindLogic>
     )
 }
