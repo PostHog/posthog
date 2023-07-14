@@ -876,7 +876,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 "organization usage report",
                 {**all_reports[0], "scope": "user"},
                 groups={"instance": "http://localhost:8000", "organization": str(self.organization.id)},
-                mestamp=None,
+                timestamp=None,
             )
 
     @freeze_time("2021-10-10T23:01:00Z")
