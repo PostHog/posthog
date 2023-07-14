@@ -1,11 +1,13 @@
 import datetime as dt
 import json
 import math
+import tempfile
 import typing
 import uuid
 from contextlib import asynccontextmanager
 
 import aiohttp
+import pyarrow as pa
 from django.conf import settings
 
 
@@ -149,32 +151,43 @@ class ClickHouseClient:
         async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
-    async def stream_query(
-        self, query, *data, query_parameters=None, query_id: str | None = None
-    ) -> typing.AsyncGenerator[bytes, None]:
-        async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-            async for chunk in response.content.iter_any():
-                yield chunk
-
     async def stream_query_as_jsonl(
         self, query, *data, query_parameters=None, query_id: str | None = None, line_separator=b"\n"
     ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
         buffer = b""
-        async for chunk in self.stream_query(query, *data, query_parameters=query_parameters, query_id=query_id):
-            lines = chunk.split(line_separator)
+        async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            async for chunk in response.content.iter_any():
+                lines = chunk.split(line_separator)
 
-            yield json.loads(buffer + lines[0])
+                yield json.loads(buffer + lines[0])
 
-            buffer = lines.pop(-1)
+                buffer = lines.pop(-1)
 
-            for line in lines[1:]:
-                yield json.loads(line)
+                for line in lines[1:]:
+                    yield json.loads(line)
+
+    async def stream_query_as_arrow(
+        self,
+        query,
+        *data,
+        query_parameters=None,
+        query_id: str | None = None,
+    ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
+        with tempfile.SpooledTemporaryFile() as temp_file:
+            async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+                async for chunk in response.content.iter_any():
+                    temp_file.write(chunk)
+
+            temp_file.seek(0)
+            with pa.ipc.open_stream(temp_file) as reader:
+                for batch in reader:
+                    yield batch
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_value, tb):
-        self.session.close()
+        await self.session.close()
 
 
 @asynccontextmanager

@@ -245,7 +245,9 @@ multidict==6.0.2
 mypy-boto3-s3==1.26.127
     # via boto3-stubs
 numpy==1.23.3
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   pyarrow
 oauthlib==3.1.0
     # via
     #   requests-oauthlib
@@ -283,6 +285,8 @@ psycopg2-binary==2.8.6
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
+pyarrow==12.0.1
+    # via -r requirements.in
 pycparser==2.20
     # via cffi
 pycryptodomex==3.18.0
