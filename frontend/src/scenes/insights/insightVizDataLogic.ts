@@ -193,6 +193,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return insightDataError?.queryId || null
             },
         ],
+
+        timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
     listeners(({ actions, values }) => ({

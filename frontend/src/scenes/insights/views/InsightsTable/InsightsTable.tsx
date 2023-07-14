@@ -45,7 +45,6 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    // TODO: replace insight etc. with data exploration variant
     const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
     const { toggleVisibility } = useActions(insightLogic)
     const {

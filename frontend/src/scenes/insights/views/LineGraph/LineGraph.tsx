@@ -34,6 +34,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -242,7 +243,8 @@ export function LineGraph_({
     let datasets = _datasets
 
     const { createTooltipData } = useValues(lineGraphLogic)
-    const { insight, timezone } = useValues(insightLogic)
+    const { insight, insightProps } = useValues(insightLogic)
+    const { timezone } = useValues(insightVizDataLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
