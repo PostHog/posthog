@@ -1,4 +1,4 @@
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
 import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
@@ -24,9 +24,6 @@ export const notebookLogic = kea<notebookLogicType>([
     connect({
         values: [notebooksListLogic, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [notebooksListLogic, ['receiveNotebookUpdate']],
-    }),
-    defaults({
-        localContent: null as JSONContent | null,
     }),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
