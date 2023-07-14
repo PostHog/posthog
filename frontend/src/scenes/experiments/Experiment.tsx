@@ -107,7 +107,7 @@ export function Experiment(): JSX.Element {
     const [showWarning, setShowWarning] = useState(true)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, doNotLoad: true })
+    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
     const { insightProps } = useValues(logic)
 
     // insightDataLogic
