@@ -83,7 +83,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['setQuery'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData', 'loadDataSuccess', 'loadDataFailure'],
+            ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
     })),
 

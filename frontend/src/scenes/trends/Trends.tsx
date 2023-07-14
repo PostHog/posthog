@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
-import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,9 +16,11 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps } = useValues(insightLogic)
-    const { loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
-    const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
-    const { display, series, breakdown } = useValues(trendsDataLogic(insightProps))
+
+    const { display, series, breakdown, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
+        trendsDataLogic(insightProps)
+    )
+    const { loadMoreBreakdownValues } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
