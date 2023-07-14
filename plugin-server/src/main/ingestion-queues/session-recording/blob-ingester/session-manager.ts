@@ -32,6 +32,8 @@ export const gaugeS3LinesWritten = new Gauge({
     help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
 })
 
+const IN_MEMORY_AGE_MULTIPLIER = 1.2
+
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
@@ -132,7 +134,7 @@ export class SessionManager {
         const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
-        const sessionAgeIsOverThreshold = bufferAgeInMemory >= flushThresholdMillis * 2
+        const sessionAgeIsOverThreshold = bufferAgeInMemory >= flushThresholdMillis * IN_MEMORY_AGE_MULTIPLIER
 
         logContext['bufferAgeInMemory'] = bufferAgeInMemory
         logContext['bufferAgeFromReference'] = bufferAgeFromReference
