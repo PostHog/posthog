@@ -22,6 +22,7 @@ import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
+import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
@@ -346,6 +347,7 @@ export class SessionRecordingBlobIngester {
                 return await this.handleEachBatch(messages)
             },
         })
+        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             /**
