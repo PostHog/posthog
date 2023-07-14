@@ -131,7 +131,7 @@ export class SessionRecordingBlobIngester {
     public async consume(event: IncomingRecordingMessage, sentrySpan?: Sentry.Span): Promise<void> {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        gaugeSessionsRevoked.set(0)
+        gaugeSessionsRevoked.reset()
 
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
@@ -382,8 +382,11 @@ export class SessionRecordingBlobIngester {
                 await this.destroySessions(sessionsToDrop)
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
+                gaugeSessionsHandled.remove()
                 revokedPartitions.forEach((partition) => {
-                    gaugeLagMilliseconds.remove({ partition: partition.toString() })
+                    gaugeLagMilliseconds.remove({ partition })
+                    gaugeOffsetCommitted.remove({ partition })
+                    gaugeOffsetCommitFailed.remove({ partition })
                 })
 
                 topicPartitions.forEach((topicPartition: TopicPartition) => {
@@ -481,7 +484,7 @@ export class SessionRecordingBlobIngester {
 
         this.sessions = {}
 
-        gaugeRealtimeSessions.set(0)
+        gaugeRealtimeSessions.reset()
     }
 
     async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
