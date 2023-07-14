@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
 import { InsightLegendRow } from './InsightLegendRow'
-import { shouldShowLegend, shouldHighlightThisRow, DISPLAY_TYPES_WITHOUT_LEGEND } from './utils'
+import { shouldHighlightThisRow, DISPLAY_TYPES_WITHOUT_LEGEND } from './utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { ChartDisplayType } from '~/types'
 
 export interface InsightLegendProps {
     readOnly?: boolean
@@ -18,7 +19,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
     const { toggleVisibility } = useActions(insightLogic)
     const { indexedResults, compare, display, trendsFilter } = useValues(trendsDataLogic(insightProps))
 
-    return DISPLAY_TYPES_WITHOUT_LEGEND.includes(display) ? (
+    return DISPLAY_TYPES_WITHOUT_LEGEND.includes(display || ('' as ChartDisplayType)) ? (
         <div
             className={clsx('InsightLegendMenu', 'flex overflow-auto border rounded', {
                 'InsightLegendMenu--horizontal': horizontal,
