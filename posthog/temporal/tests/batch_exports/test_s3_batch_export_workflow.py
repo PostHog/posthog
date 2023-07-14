@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import boto3
 import pytest
-from aiochclient import ChClient
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import Client as HttpClient
@@ -23,6 +22,7 @@ from posthog.api.test.test_team import acreate_team
 from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
 from posthog.temporal.workflows.batch_exports import get_results_iterator
+from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.s3_batch_export import (
     S3BatchExportInputs,
     S3BatchExportWorkflow,
@@ -53,9 +53,9 @@ EventValues = TypedDict(
 )
 
 
-async def insert_events(client: ChClient, events: list[EventValues]):
+async def insert_events(client, events: list[EventValues]):
     """Insert some events into the sharded_events table."""
-    await client.execute(
+    await client.execute_query(
         f"""
         INSERT INTO `sharded_events` (
             uuid,
@@ -92,7 +92,6 @@ async def insert_events(client: ChClient, events: list[EventValues]):
             )
             for event in events
         ],
-        json=False,
     )
 
 
@@ -184,7 +183,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(bucket_name, s3_client,
     # but it's very small.
     team_id = randint(1, 1000000)
 
-    client = ChClient(
+    client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -328,7 +327,7 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
     the batch export run status to completed, as well as updating the record
     count.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -666,7 +665,7 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
     In this particular case, we should be handling JSONDecodeErrors produced by attempting to parse
     ClickHouse error strings.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -816,7 +815,7 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
     In this particular case, we should be handling JSONDecodeErrors produced by attempting to parse
     ClickHouse error strings.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,

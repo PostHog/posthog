@@ -2,8 +2,6 @@ import json
 from datetime import datetime
 from string import Template
 
-from aiochclient import ChClient
-
 SELECT_QUERY_TEMPLATE = Template(
     """
     SELECT $fields
@@ -18,36 +16,35 @@ SELECT_QUERY_TEMPLATE = Template(
         AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
     $order_by
+    $format
     """
 )
 
 
-async def get_rows_count(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str):
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-
-    row = await client.fetchrow(
-        SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count", order_by=""),
-        params={
+    query = SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count", order_by="", format="")
+    count = await client.read_query(
+        query,
+        query_parameters={
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
         },
     )
 
-    if row is None:
+    if count is None or len(count) == 0:
         raise ValueError("Unexpected result from ClickHouse: `None` returned for count query")
 
-    return row["count"]
+    return int(count)
 
 
-async def get_results_iterator(client: ChClient, team_id: int, interval_start: str, interval_end: str):
+async def get_results_iterator(client, team_id: int, interval_start: str, interval_end: str):
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-
-    async for row in client.iterate(
-        SELECT_QUERY_TEMPLATE.safe_substitute(
-            fields="""
+    query = SELECT_QUERY_TEMPLATE.substitute(
+        fields="""
                     uuid,
                     timestamp,
                     inserted_at,
@@ -61,10 +58,13 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
                     -- Autocapture fields
                     elements_chain
             """,
-            order_by="ORDER BY _timestamp",
-        ),
-        json=True,
-        params={
+        order_by="ORDER BY _timestamp",
+        format="FORMAT JSONEachRow",
+    )
+
+    async for row in client.stream_query_as_jsonl(
+        query,
+        query_parameters={
             "team_id": team_id,
             "data_interval_start": data_interval_start_ch,
             "data_interval_end": data_interval_end_ch,
