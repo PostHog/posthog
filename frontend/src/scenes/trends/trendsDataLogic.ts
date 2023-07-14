@@ -17,6 +17,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             insightVizDataLogic(props),
             [
                 'insightData',
+                'insightDataLoading',
                 'series',
                 'formula',
                 'display',

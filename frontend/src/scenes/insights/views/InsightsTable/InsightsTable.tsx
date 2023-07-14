@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, ItemMode } from '~/types'
 import { CalcColumnState } from './insightsTableLogic'
@@ -50,6 +49,7 @@ export function InsightsTable({
     const { insightProps, isInDashboardContext, insight, hiddenLegendKeys } = useValues(insightLogic)
     const { toggleVisibility } = useActions(insightLogic)
     const {
+        insightDataLoading,
         indexedResults,
         isNonTimeSeriesDisplay,
         compare,
@@ -76,9 +76,6 @@ export function InsightsTable({
 
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-
-    // TODO: resultsLoading
-    const { resultsLoading } = useValues(trendsLogic(insightProps))
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
@@ -226,7 +223,7 @@ export function InsightsTable({
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
-            loading={resultsLoading}
+            loading={insightDataLoading}
             emptyState="No insight results"
             data-attr="insights-table-graph"
             className="insights-table"

@@ -57,7 +57,6 @@ export const trendsLogic = kea<trendsLogicType>([
             (s) => [s.insight],
             ({ filters, next }) => (isTrendsInsight(filters?.insight) ? next : null),
         ],
-        resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
     }),
 
     listeners(({ actions, values, props }) => ({
