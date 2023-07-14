@@ -59,7 +59,7 @@ export function ActionsLineGraph({
                       }
                     : undefined
             }
-            isCompare={compare}
+            compare={compare}
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}

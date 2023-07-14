@@ -203,13 +203,13 @@ export interface LineGraphProps {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
-    isCompare?: boolean
     inCardView?: boolean
     isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     trendsFilter?: TrendsFilter | null
     formula?: string | null
+    compare?: boolean | null
     showValueOnSeries?: boolean | null
 }
 
@@ -230,7 +230,7 @@ export function LineGraph_({
     onClick,
     ['data-attr']: dataAttr,
     showPersonsModal = true,
-    isCompare = false,
+    compare = false,
     inCardView,
     isArea = false,
     incompletenessOffsetFromEnd = -1,
@@ -279,7 +279,7 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, isCompare && !isArea)
+            : getSeriesColor(dataset.id, compare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
         const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
         const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
