@@ -79,6 +79,7 @@ import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { PostHogFeature } from 'posthog-js/react'
+import { concatWithPunctuation } from 'scenes/insights/utils'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -645,7 +646,7 @@ interface FeatureFlagReadOnlyProps {
     excludeTitle?: boolean
 }
 
-function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
+function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -661,6 +662,10 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
+
+    const _filter_groups: FeatureFlagGroupType[] = isSuper
+        ? featureFlag.filters.super_groups || []
+        : featureFlag.filters.groups
 
     return (
         <>
@@ -873,10 +878,10 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 </LemonButton>
                             </Col>
                         </Row>
-                        {variants.map((_, index) => (
+                        {variants.map((variant, index) => (
                             <Group key={index} name="filters">
-                                <Row gutter={8} align="middle">
-                                    <Col span={1}>
+                                <Row gutter={8} align="top">
+                                    <Col span={1} style={{ paddingTop: 8 }}>
                                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                     </Col>
                                     <Col span={4}>
@@ -922,22 +927,47 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                         </Field>
                                     </Col>
                                     <Col span={3}>
-                                        <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
+                                        <Field name={['multivariate', 'variants', index, 'rollout_percentage']} info="">
                                             {({ value, onChange }) => (
-                                                <LemonInput
-                                                    type="number"
-                                                    min={0}
-                                                    max={100}
-                                                    value={value}
-                                                    onChange={(changedValue) => {
-                                                        if (changedValue !== null && changedValue !== undefined) {
-                                                            const valueInt = parseInt(changedValue.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                onChange(valueInt)
+                                                <div>
+                                                    <LemonInput
+                                                        type="number"
+                                                        min={0}
+                                                        max={100}
+                                                        value={value}
+                                                        onChange={(changedValue) => {
+                                                            if (changedValue !== null && changedValue !== undefined) {
+                                                                const valueInt = parseInt(changedValue.toString())
+                                                                if (!isNaN(valueInt)) {
+                                                                    onChange(valueInt)
+                                                                }
                                                             }
-                                                        }
-                                                    }}
-                                                />
+                                                        }}
+                                                    />
+                                                    {_filter_groups.filter((g) => g.variant == variant.key).length >
+                                                    0 ? (
+                                                        <span style={{ fontSize: 11 }} className="text-muted">
+                                                            Override for{' '}
+                                                            <strong>
+                                                                {concatWithPunctuation(
+                                                                    _filter_groups
+                                                                        .filter((g) => g.variant == variant.key)
+                                                                        .map(
+                                                                            (variant) =>
+                                                                                'Set ' +
+                                                                                (_filter_groups.findIndex(
+                                                                                    (groupVariant) =>
+                                                                                        groupVariant == variant
+                                                                                ) +
+                                                                                    1)
+                                                                        )
+                                                                )}
+                                                            </strong>
+                                                        </span>
+                                                    ) : (
+                                                        ''
+                                                    )}
+                                                </div>
                                             )}
                                         </Field>
                                     </Col>
@@ -1380,6 +1410,16 @@ export function FeatureFlagReleaseConditions({
                             )}
                         </>
                     )}
+                    {!readOnly &&
+                        !_filter_groups.every(
+                            (group) =>
+                                _filter_groups.filter((g) => g.variant == group.variant && g.variant != null).length < 2
+                        ) && (
+                            <LemonBanner type="info" className="mt-3 mb-3">
+                                More than one set override is assigned to the same variant. The earlier release
+                                condition override trumps any override in following sets.{' '}
+                            </LemonBanner>
+                        )}
                 </div>
                 {!readOnly && showGroupsOptions && (
                     <div className="centered">
