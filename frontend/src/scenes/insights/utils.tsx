@@ -279,7 +279,7 @@ export const insightTypeURL: Record<InsightType, string> = {
     SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
 }
 
-/** Combines a list of words, separating with the correct punctuation. For example: a, b, c, and d  */
+/** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
 export function concatWithPunctuation(phrases: string[]): string {
     if (phrases.length == 0) {
         return ''

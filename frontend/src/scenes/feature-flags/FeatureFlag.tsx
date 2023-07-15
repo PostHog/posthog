@@ -927,7 +927,7 @@ function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JS
                                         </Field>
                                     </Col>
                                     <Col span={3}>
-                                        <Field name={['multivariate', 'variants', index, 'rollout_percentage']} info="">
+                                        <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
                                             {({ value, onChange }) => (
                                                 <div>
                                                     <LemonInput
@@ -945,7 +945,7 @@ function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JS
                                                         }}
                                                     />
                                                     {_filter_groups.filter((g) => g.variant == variant.key).length >
-                                                    0 ? (
+                                                        0 && (
                                                         <span style={{ fontSize: 11 }} className="text-muted">
                                                             Override for{' '}
                                                             <strong>
@@ -956,16 +956,13 @@ function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JS
                                                                             (variant) =>
                                                                                 'Set ' +
                                                                                 (_filter_groups.findIndex(
-                                                                                    (groupVariant) =>
-                                                                                        groupVariant == variant
+                                                                                    (gf) => gf == variant
                                                                                 ) +
                                                                                     1)
                                                                         )
                                                                 )}
                                                             </strong>
                                                         </span>
-                                                    ) : (
-                                                        ''
                                                     )}
                                                 </div>
                                             )}
@@ -1417,7 +1414,7 @@ export function FeatureFlagReleaseConditions({
                         ) && (
                             <LemonBanner type="info" className="mt-3 mb-3">
                                 More than one set override is assigned to the same variant. The earlier release
-                                condition override trumps any override in following sets.{' '}
+                                condition override trumps any override in following sets.
                             </LemonBanner>
                         )}
                 </div>
