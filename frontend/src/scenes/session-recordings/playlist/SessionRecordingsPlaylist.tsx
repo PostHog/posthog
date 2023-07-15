@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -83,9 +84,16 @@ export function RecordingsLists({
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
+        durationTypeToShow,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
-        useActions(logic)
+    const {
+        setSelectedRecordingId,
+        setFilters,
+        maybeLoadSessionRecordings,
+        setShowFilters,
+        resetFilters,
+        setDurationTypeToShow,
+    } = useActions(logic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
@@ -212,16 +220,26 @@ export function RecordingsLists({
                         </>
                     }
                     subheader={
-                        showFilters ? (
-                            <SessionRecordingsFilters
-                                filters={filters}
-                                setFilters={setFilters}
-                                showPropertyFilters={!personUUID}
-                                onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                usesListingV3={listingVersion === '3'}
-                            />
-                        ) : null
+                        <>
+                            {showFilters ? (
+                                <SessionRecordingsFilters
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    showPropertyFilters={!personUUID}
+                                    onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                    usesListingV3={listingVersion === '3'}
+                                />
+                            ) : null}
+                            <div className={'flex flex-row border-b items-center justify-center py-2 px-4 space-x-2'}>
+                                <span>Show</span>
+                                <DurationTypeSelect
+                                    value={durationTypeToShow}
+                                    onChange={(value) => setDurationTypeToShow(value)}
+                                />
+                            </div>
+                        </>
                     }
+                    durationType={durationTypeToShow}
                     onRecordingClick={onRecordingClick}
                     onPropertyClick={onPropertyClick}
                     collapsed={collapsed.other}
