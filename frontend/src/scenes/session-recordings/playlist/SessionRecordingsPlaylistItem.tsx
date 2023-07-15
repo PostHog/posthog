@@ -161,7 +161,7 @@ function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     ) : null
 }
 
-function chooseDuration(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
+function durationToShow(recording: SessionRecordingType, durationType: DurationType | undefined): number | undefined {
     return {
         duration: recording.recording_duration,
         active_seconds: recording.active_seconds,
@@ -209,7 +209,7 @@ export function SessionRecordingPlaylistItem({
 
                         <RecordingDuration
                             iconClassNames={iconClassnames}
-                            recordingDuration={chooseDuration(recording, durationType)}
+                            recordingDuration={durationToShow(recording, durationType)}
                         />
                     </div>
 
