@@ -970,6 +970,20 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 ).
                             </p>
                         )}
+                        {featureFlag.filters.groups.filter((group) => group.variant).length > 0 && (
+                            <p className="text-muted">
+                                * Variants rollouts are overriden by release conditions in the following order{' '}
+                                {featureFlag.filters.groups.map((group, index) => {
+                                    if (group.variant) {
+                                        return (
+                                            <span className="simple-tag tag-light-blue font-medium mr-2" key={index}>
+                                                Set {index + 1}
+                                            </span>
+                                        )
+                                    }
+                                })}
+                            </p>
+                        )}
                         <LemonButton
                             type="secondary"
                             onClick={() => {
