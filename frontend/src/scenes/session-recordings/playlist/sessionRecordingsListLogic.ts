@@ -245,7 +245,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     reducers(({ props }) => ({
         durationTypeToShow: [
-            'total' as DurationType,
+            'duration' as DurationType,
             { persist: true },
             {
                 setDurationTypeToShow: (_, { type }) => type,
