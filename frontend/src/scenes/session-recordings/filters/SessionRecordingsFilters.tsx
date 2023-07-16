@@ -17,8 +17,6 @@ import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
 import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -231,19 +229,17 @@ export function SessionRecordingsFilters({
                 </>
             )}
 
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER} match={true}>
-                <LemonLabel info="Show recordings that have captured console log messages">
-                    Filter by console logs
-                </LemonLabel>
-                <ConsoleFilters
-                    filters={filters}
-                    setConsoleFilters={(x) =>
-                        setFilters({
-                            console_logs: x,
-                        })
-                    }
-                />
-            </FlaggedFeature>
+            <LemonLabel info="Show recordings that have captured console log messages">
+                Filter by console logs
+            </LemonLabel>
+            <ConsoleFilters
+                filters={filters}
+                setConsoleFilters={(x) =>
+                    setFilters({
+                        console_logs: x,
+                    })
+                }
+            />
         </div>
     )
 }
