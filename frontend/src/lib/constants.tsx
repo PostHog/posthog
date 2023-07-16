@@ -142,7 +142,6 @@ export const FEATURE_FLAGS = {
     RECORDINGS_DOM_EXPLORER: 'recordings-dom-explorer', // owner: #team-session-recordings
     AUTO_REDIRECT: 'auto-redirect', // owner: @lharries
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
-    SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
