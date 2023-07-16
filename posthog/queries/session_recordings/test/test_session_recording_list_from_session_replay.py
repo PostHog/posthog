@@ -1,5 +1,4 @@
 from datetime import datetime
-from unittest import skip
 from uuid import uuid4, UUID
 
 from dateutil.relativedelta import relativedelta
@@ -1381,7 +1380,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
     # @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
-    @skip("This and SessionListV2 can't query using HogQL  ¯\\_(ツ)_/¯")
     def test_event_filter_with_hogql_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
 
@@ -1415,7 +1413,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                         "name": "$pageview",
                         "properties": [
                             {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
-                            {"key": "person.properties.email == 'bla'", "type": "hogql"},
                         ],
                     }
                 ]
@@ -1437,6 +1434,73 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                         "order": 0,
                         "name": "$pageview",
                         "properties": [{"key": "properties.$browser == 'Firefox'", "type": "hogql"}],
+                    }
+                ]
+            },
+        )
+
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert session_recordings == []
+
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_hogql_person_properties(self):
+        user = "test_event_filter_with_hogql_properties-user"
+
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
+        self.create_event(
+            user,
+            self.base_time,
+            properties={"$browser": "Chrome", "$session_id": session_id, "$window_id": str(uuid4())},
+        )
+
+        produce_replay_summary(
+            distinct_id=user, session_id=session_id, first_timestamp=self.base_time, team_id=self.team.id
+        )
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id,
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "properties": [
+                            {"key": "person.properties.email == 'bla'", "type": "hogql"},
+                        ],
+                    }
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "properties": [
+                            {"key": "person.properties.email == 'something else'", "type": "hogql"},
+                        ],
                     }
                 ]
             },
