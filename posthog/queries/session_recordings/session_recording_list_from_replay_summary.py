@@ -1,11 +1,19 @@
 import dataclasses
 import datetime
-from typing import Any, Dict, List, Tuple, Union, Literal
+from typing import Any, Dict, List, Tuple, Union, Literal, NamedTuple
 
+from posthog.models import Entity
+from posthog.models.action.util import format_entity_filter
+from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.instance_setting import get_instance_setting
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.event_query import EventQuery
+from posthog.queries.util import PersonPropertiesMode
+
+from posthog.utils import PersonOnEventsMode
 
 
 @dataclasses.dataclass(frozen=True)
@@ -15,7 +23,13 @@ class SummaryEventFiltersSQL:
     params: Dict[str, Any]
 
 
-class SessionRecordingListFromReplaySummary(SessionRecordingList):
+class SessionRecordingQueryResult(NamedTuple):
+    results: List
+    has_more_recording: bool
+
+
+class SessionRecordingListFromReplaySummary(EventQuery):
+    _filter: SessionRecordingsFilter
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
     def __init__(
@@ -26,6 +40,13 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             **kwargs,
         )
         self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+    def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
+        self._filter.hogql_context.person_on_events_mode = PersonOnEventsMode.DISABLED
+        query, query_params = self.get_query()
+        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
+        session_recordings = self._data_to_return(query_results)
+        return self._paginate_results(session_recordings)
 
     _persons_lookup_cte = """
     distinct_ids_for_person as (
@@ -116,6 +137,76 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         ORDER BY start_time DESC
         LIMIT %(limit)s OFFSET %(offset)s
         """
+
+    @cached_property
+    def session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
+        if self._filter.session_ids is None:
+            return "", {}
+
+        return "AND session_id in %(session_ids)s", {"session_ids": self._filter.session_ids}
+
+    def _determine_should_join_events(self):
+        return self._filter.entities and len(self._filter.entities) > 0
+
+    def _determine_should_join_distinct_ids(self) -> None:
+        self._should_join_distinct_ids = True
+
+    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
+        filter_sql, params = format_entity_filter(
+            team_id=team_id,
+            entity=entity,
+            prepend=prepend,
+            filter_by_team=False,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            hogql_context=self._filter.hogql_context,
+        )
+
+        filters, filter_params = parse_prop_grouped_clauses(
+            team_id=team_id,
+            property_group=entity.property_groups,
+            prepend=prepend,
+            allow_denormalized_props=True,
+            has_person_id_joined=True,
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_context=self._filter.hogql_context,
+        )
+        filter_sql += f" {filters}"
+        params = {**params, **filter_params}
+
+        return filter_sql, params
+
+    def _paginate_results(self, session_recordings) -> SessionRecordingQueryResult:
+        more_recordings_available = False
+        if len(session_recordings) > self.limit:
+            more_recordings_available = True
+            session_recordings = session_recordings[0 : self.limit]
+        return SessionRecordingQueryResult(session_recordings, more_recordings_available)
+
+    # We want to select events beyond the range of the recording to handle the case where
+    # a recording spans the time boundaries
+    @cached_property
+    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+        timestamp_clause = ""
+        timestamp_params = {}
+        if self._filter.date_from:
+            timestamp_clause += "\nAND timestamp >= %(event_start_time)s"
+            timestamp_params["event_start_time"] = self._filter.date_from - datetime.timedelta(hours=12)
+        if self._filter.date_to:
+            timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
+            timestamp_params["event_end_time"] = self._filter.date_to + datetime.timedelta(hours=12)
+        return timestamp_clause, timestamp_params
+
+    @cached_property
+    def _get_recording_start_time_clause(self) -> Tuple[str, Dict[str, Any]]:
+        start_time_clause = ""
+        start_time_params = {}
+        if self._filter.date_from:
+            start_time_clause += "\nAND start_time >= %(start_time)s"
+            start_time_params["start_time"] = self._filter.date_from
+        if self._filter.date_to:
+            start_time_clause += "\nAND start_time <= %(end_time)s"
+            start_time_params["end_time"] = self._filter.date_to
+        return start_time_clause, start_time_params
 
     @cached_property
     def build_event_filters(self) -> SummaryEventFiltersSQL:

@@ -186,13 +186,7 @@
   WITH distinct_ids_for_person as
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
-     FROM person_distinct_id2 as pdi
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     FROM person_distinct_id2 as pdi PREWHERE team_id = 2
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0
      and person_id = '00000000-0000-0000-0000-000000000000') ,
@@ -2218,13 +2212,7 @@
   with distinct_ids_for_person as
     (SELECT distinct_id,
             argMax(person_id, version) as person_id
-     FROM person_distinct_id2 as pdi
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     FROM person_distinct_id2 as pdi PREWHERE team_id = 2
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0
      and person_id = '00000000-0000-0000-0000-000000000000')
