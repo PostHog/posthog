@@ -1378,7 +1378,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         assert session_recordings == []
 
-    # @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_properties(self):
         user = "test_event_filter_with_hogql_properties-user"

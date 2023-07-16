@@ -426,11 +426,6 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
-
-        # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
-        # check separately here to help mypy see that SessionRecordingListFromReplaySummary
-        # is its own thing even though it is still stuck with inheritance until we can collapse
-        # the number of listing mechanisms
         (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
             filter=filter, team=team
         ).run()
