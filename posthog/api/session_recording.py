@@ -391,9 +391,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(
-    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any], v2=False, v3=False
-) -> dict:
+def list_recordings(filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]) -> dict:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
