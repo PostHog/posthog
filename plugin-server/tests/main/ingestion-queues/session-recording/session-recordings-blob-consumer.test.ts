@@ -35,6 +35,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                 consumer: {
                     on: jest.fn(),
                     commitSync: mockCommit,
+                    commit: mockCommit,
                 },
             })
         ),
