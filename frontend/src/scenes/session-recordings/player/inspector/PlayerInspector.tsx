@@ -3,25 +3,31 @@ import { PlayerInspectorControls } from './PlayerInspectorControls'
 import { useEffect, useRef, useState } from 'react'
 import { PlayerInspectorPreview } from './PlayerInspectorPreview'
 
+const MOUSE_ENTER_DELAY = 100
 const MOUSE_LEAVE_DELAY = 500
 
 export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: boolean) => void }): JSX.Element {
     const [inspectorFocus, setInspectorFocus] = useState(false)
-    const timeoutRef = useRef<any>(null)
+    const enterTimeoutRef = useRef<any>(null)
+    const exitTimeoutRef = useRef<any>(null)
 
     const clear = (): void => {
-        clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
+        clearTimeout(exitTimeoutRef.current)
+        clearTimeout(enterTimeoutRef.current)
+        exitTimeoutRef.current = null
+        enterTimeoutRef.current = null
     }
 
     const onInspectorEnter = (): void => {
         clear()
-        setInspectorFocus(true)
+        enterTimeoutRef.current = setTimeout(() => {
+            setInspectorFocus(true)
+        }, MOUSE_ENTER_DELAY)
     }
 
     const onInspectorLeave = (): void => {
         clear()
-        timeoutRef.current = setTimeout(() => {
+        exitTimeoutRef.current = setTimeout(() => {
             setInspectorFocus(false)
         }, MOUSE_LEAVE_DELAY)
     }
@@ -37,7 +43,7 @@ export function PlayerInspector({ onFocusChange }: { onFocusChange: (focus: bool
         }
 
         const onClickHandler = (): void => {
-            if (timeoutRef.current) {
+            if (exitTimeoutRef.current) {
                 setInspectorFocus(false)
             }
         }
