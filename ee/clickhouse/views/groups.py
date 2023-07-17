@@ -94,7 +94,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
 
         group_search = self.request.GET.get("search")
         if group_search is not None:
-            queryset = queryset.filter(Q(group_properties__icontains=group_search) | Q(group_key=group_search))
+            queryset = queryset.filter(Q(group_properties__icontains=group_search) | Q(group_key__iexact=group_search))
 
         page = self.paginate_queryset(queryset)
         if page is not None:
