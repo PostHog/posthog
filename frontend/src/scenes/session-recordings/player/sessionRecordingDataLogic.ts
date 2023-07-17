@@ -111,7 +111,7 @@ const generateRecordingReportDurations = (
     cache: Record<string, any>,
     values: Record<string, any>
 ): RecordingReportLoadTimes => {
-    // TODO: This anytyping is super hard to manage - we should either type it or move it to a selector.
+    // TODO: This any typing is super hard to manage - we should either type it or move it to a selector.
     return {
         metadata: {
             size: values.segments.length,
