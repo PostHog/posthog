@@ -44,7 +44,7 @@ export const validateProposedUrl = (
     }
 
     if (onlyAllowDomains && !isDomain(proposedUrl)) {
-        return "Please type a valid domain (URLs with a path aren't allowed)"
+        return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
     if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
