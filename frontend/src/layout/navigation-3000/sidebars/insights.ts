@@ -48,7 +48,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             (insights, infiniteInsights, insightsLoading, currentTeamId) => [
                 {
                     key: 'insights',
-                    title: 'Insights',
+                    noun: 'insight',
                     onAdd: urls.insightNew(),
                     items: infiniteInsights.map(
                         (insight) =>

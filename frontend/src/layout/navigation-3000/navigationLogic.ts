@@ -35,6 +35,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         initiateNewItemInCategory: (category: string) => ({ category }),
+        initiateNewItemInlineInCategory: (category: string) => ({ category }),
         cancelNewItem: true,
         saveNewItem: (itemName: string) => ({ itemName }),
         saveNewItemComplete: true,
@@ -127,10 +128,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }),
             },
         ],
-        categoryWithNewItemBeingAdded: [
+        newItemInlineCategory: [
             null as string | null,
             {
-                initiateNewItemInCategory: (_, { category }) => category,
+                initiateNewItemInlineInCategory: (_, { category }) => category,
                 saveNewItemComplete: () => null,
                 cancelNewItem: () => null,
                 toggleSidebar: () => null,
@@ -147,9 +148,22 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        initiateNewItemInCategory: ({ category: categoryKey }) => {
+            const category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
+            if (!category) {
+                throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
+            } else if (!category.onAdd || typeof category.onAdd !== 'function') {
+                throw new Error(`Sidebar category '${categoryKey}' doesn't support onAdd`)
+            }
+            if (category.onAdd.length === 0) {
+                ;(category.onAdd as () => void)() // If a zero-arg function, call it immediately
+            } else {
+                actions.initiateNewItemInlineInCategory(categoryKey) // Otherwise initiate inline item creation
+            }
+        },
         saveNewItem: async ({ itemName }) => {
             try {
-                const categoryKey = values.categoryWithNewItemBeingAdded
+                const categoryKey = values.newItemInlineCategory
                 if (!categoryKey) {
                     throw new Error(`Can't save new sidebar item without a category`)
                 }
@@ -266,21 +280,23 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         : activeListItemKey
                     : null,
         ],
-        isNewItemBeingAdded: [
+        newItemCategory: [
             (s) => [
                 (state) => s.activeNavbarItem(state)?.logic.selectors.contents(state),
-                s.categoryWithNewItemBeingAdded,
+                s.newItemInlineCategory,
                 router.selectors.location,
             ],
-            (sidebarContents, categoryWithNewItemBeingAdded, location): boolean => {
+            (sidebarContents, newItemInlineCategory, location): string | null => {
                 if (!sidebarContents) {
-                    return false
+                    return null
                 }
-                if (categoryWithNewItemBeingAdded) {
-                    return true
+                if (newItemInlineCategory) {
+                    return newItemInlineCategory
                 }
-                return sidebarContents.some(
-                    (category) => typeof category.onAdd === 'string' && category.onAdd === location.pathname
+                return (
+                    sidebarContents.find(
+                        (category) => typeof category.onAdd === 'string' && category.onAdd === location.pathname
+                    )?.key || null
                 )
             },
         ],

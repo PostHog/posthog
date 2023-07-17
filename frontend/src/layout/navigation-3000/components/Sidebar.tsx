@@ -1,15 +1,17 @@
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
-import { IconClose, IconMagnifier, IconPlus } from 'lib/lemon-ui/icons'
+import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
 import React, { useRef, useState } from 'react'
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
-import { SidebarAccordion } from './SidebarAccordion'
+import { SidebarAccordion, pluralizeCategory } from './SidebarAccordion'
 import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useDebouncedCallback } from 'use-debounce'
 import { SidebarList } from './SidebarList'
+import { NewItemButton } from './NewItemButton'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 /** A small delay that prevents us from making a search request on each key press. */
 const SEARCH_DEBOUNCE_MS = 300
@@ -31,10 +33,11 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
     const { beginResize } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { contents } = useValues(navbarItem.logic)
 
+    const onlyCategoryTitle = contents.length === 1 ? capitalizeFirstLetter(pluralizeCategory(contents[0].noun)) : null
     const title =
-        contents.length !== 1 || contents[0].title === navbarItem.label
+        !onlyCategoryTitle || onlyCategoryTitle.toLowerCase() === navbarItem.label.toLowerCase()
             ? navbarItem.label
-            : `${navbarItem.label} — ${contents[0].title}`
+            : `${navbarItem.label} — ${onlyCategoryTitle}`
 
     return (
         <div
@@ -63,6 +66,11 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
                     {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
                 </div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
+                {contents
+                    .filter(({ modalContent }) => modalContent)
+                    .map((category) => (
+                        <React.Fragment key={category.key}>{category.modalContent}</React.Fragment>
+                    ))}
             </div>
             <div
                 className="Sidebar3000__slider"
@@ -77,28 +85,15 @@ export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
 }
 
 function SidebarActions({ activeSidebarLogic }: { activeSidebarLogic: LogicWrapper<SidebarLogic> }): JSX.Element {
-    const { isSearchShown, isNewItemBeingAdded } = useValues(navigation3000Logic)
-    const { setIsSearchShown, initiateNewItemInCategory } = useActions(navigation3000Logic)
+    const { isSearchShown } = useValues(navigation3000Logic)
+    const { setIsSearchShown } = useActions(navigation3000Logic)
     const { contents } = useValues(activeSidebarLogic)
 
     return (
         <>
-            {contents.length === 1 && !!contents[0].onAdd && (
+            {contents.length === 1 && (
                 // If there's only one category, show a top level "New" button
-                <LemonButton
-                    icon={<IconPlus />}
-                    size="small"
-                    noPadding
-                    to={typeof contents[0].onAdd === 'string' ? contents[0].onAdd : undefined}
-                    onClick={
-                        typeof contents[0].onAdd === 'function'
-                            ? () => initiateNewItemInCategory(contents[0].key)
-                            : undefined
-                    }
-                    active={isNewItemBeingAdded}
-                    tooltip="New"
-                    tooltipPlacement="bottom"
-                />
+                <NewItemButton category={contents[0]} />
             )}
             <LemonButton
                 icon={<IconMagnifier />}

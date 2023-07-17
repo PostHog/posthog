@@ -4,6 +4,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SidebarList } from './SidebarList'
 import { navigation3000Logic } from '../navigationLogic'
 import { useActions, useValues } from 'kea'
+import { NewItemButton } from './NewItemButton'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 interface SidebarAccordionProps {
     category: SidebarCategory
@@ -13,7 +15,7 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
     const { accordionCollapseMapping } = useValues(navigation3000Logic)
     const { toggleAccordion } = useActions(navigation3000Logic)
 
-    const { key, title, items, loading } = category
+    const { key, items, loading } = category
 
     const isEmpty = items.length === 0
     const isEmptyDefinitively = !loading && isEmpty
@@ -27,7 +29,7 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
             >
                 {loading ? <Spinner /> : <IconChevronRight />}
                 <h4>
-                    {title}
+                    {capitalizeFirstLetter(pluralizeCategory(category.noun))}
                     {isEmptyDefinitively && (
                         <>
                             {' '}
@@ -35,8 +37,17 @@ export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Eleme
                         </>
                     )}
                 </h4>
+                <NewItemButton category={category} />
             </div>
             {isExpanded && <SidebarList category={category} />}
         </section>
     )
+}
+
+export function singularizeCategory(noun: SidebarCategory['noun']): string {
+    return Array.isArray(noun) ? noun[0] : noun
+}
+
+export function pluralizeCategory(noun: SidebarCategory['noun']): string {
+    return Array.isArray(noun) ? noun[1] : `${noun}s`
 }

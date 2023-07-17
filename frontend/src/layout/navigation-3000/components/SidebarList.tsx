@@ -16,14 +16,14 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function SidebarList({ category }: { category: SidebarCategory }): JSX.Element {
-    const { normalizedActiveListItemKey, sidebarWidth, categoryWithNewItemBeingAdded, savingNewItem } =
+    const { normalizedActiveListItemKey, sidebarWidth, newItemInlineCategory, savingNewItem } =
         useValues(navigation3000Logic)
     const { cancelNewItem } = useActions(navigation3000Logic)
     const { saveNewItem } = useAsyncActions(navigation3000Logic)
 
     const { items, remote } = category
 
-    const addingNewItem = categoryWithNewItemBeingAdded === category.key
+    const addingNewItem = newItemInlineCategory === category.key
     const firstItem = items.find(Boolean)
     const usingExtendedItemFormat = !!firstItem && 'summary' in firstItem
 

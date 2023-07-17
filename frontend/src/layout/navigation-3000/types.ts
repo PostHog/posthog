@@ -43,21 +43,25 @@ export type ListItemSaveHandler = (newName: string) => Promise<void>
 /** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
 export interface SidebarCategory {
     key: string
-    title: string
+    /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
+    noun: string | [singular: string, plural: string]
     items: BasicListItem[] | ExtendedListItem[]
     loading: boolean
     /**
-     * Items can be created in two ways:
+     * Items can be created in three ways:
      * 1. In a "new item" scene, in which case this is a string pointing to the scene URL (such as new insight).
-     * 2. Directly in the sidebar, in which case this is an async function that takes the new item's name and saves it.
-     *    For a smooth experience, this should only return once the new item is present in `contents`.
+     * 2. In a modal, in which case this is a zero-argument function that opens the modal.
+     * 3. Directly in the sidebar, in which case this is a single-argument function that takes the new item's name
+     *    and saves it. For a smooth experience, this should only resolve once the new item is present in `contents`.
      */
-    onAdd?: string | ListItemSaveHandler
+    onAdd?: string | (() => void) | ListItemSaveHandler
     /**
      * Name validation. Returns a messag string in case of error, otherwise null.
      * This is relevant if the category has `onAdd` or items have `onRename`.
      */
     validateName?: (name: string) => string | null
+    /** Optional extra JSX rendered in the background, enabling category-specific modals. */
+    modalContent?: JSX.Element
     /** Controls for data that's only loaded partially from the API at first. This powers infinite loading. */
     remote?: {
         isItemLoaded: (index: number) => boolean

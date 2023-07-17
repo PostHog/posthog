@@ -33,7 +33,7 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
             (relevantCohorts, cohortsLoading) => [
                 {
                     key: 'cohorts',
-                    title: 'Cohorts',
+                    noun: 'cohort',
                     onAdd: urls.cohort('new'),
                     items: relevantCohorts.map(
                         ([cohort, matches]) =>

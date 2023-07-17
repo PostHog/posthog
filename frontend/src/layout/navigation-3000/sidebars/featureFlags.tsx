@@ -46,7 +46,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             (relevantFeatureFlags, featureFlagsLoading, currentTeamId, aggregationLabel) => [
                 {
                     key: 'feature-flags',
-                    title: 'Feature Flags',
+                    noun: 'feature flag',
                     loading: featureFlagsLoading,
                     onAdd: urls.featureFlag('new'),
                     items: relevantFeatureFlags.map(([featureFlag, matches]) => {

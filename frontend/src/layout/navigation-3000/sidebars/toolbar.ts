@@ -44,7 +44,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
             (relevantUrls, suggestionsLoading) => [
                 {
                     key: 'sites',
-                    title: 'Sites',
+                    noun: 'site',
                     loading: suggestionsLoading,
                     onAdd: async (url) => {
                         await authorizedUrlListLogic({

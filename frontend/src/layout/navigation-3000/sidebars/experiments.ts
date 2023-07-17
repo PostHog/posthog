@@ -33,7 +33,7 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
             (relevantExperiments, experimentsLoading) => [
                 {
                     key: 'experiments',
-                    title: 'Experiments',
+                    noun: 'experiment',
                     loading: experimentsLoading,
                     items: relevantExperiments.map(([experiment, matches]) => {
                         const experimentStatus = getExperimentStatus(experiment)

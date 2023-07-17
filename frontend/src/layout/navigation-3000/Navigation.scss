@@ -109,6 +109,7 @@
         font-weight: 600;
         line-height: 1.75rem;
         font-size: 0.6875rem;
+        flex-grow: 1;
     }
     h5 {
         font-weight: 400;
@@ -282,7 +283,7 @@
     &:hover {
         background: var(--border-3000);
     }
-    .LemonIcon {
+    > .LemonIcon {
         transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;

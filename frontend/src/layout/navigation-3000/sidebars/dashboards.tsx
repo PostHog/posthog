@@ -15,6 +15,8 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from './utils'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 const fuse = new Fuse<DashboardType>([], {
     keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
@@ -39,6 +41,8 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             ['showDuplicateDashboardModal'],
             deleteDashboardLogic,
             ['showDeleteDashboardModal'],
+            newDashboardLogic,
+            ['showNewDashboardModal'],
         ],
     }),
     selectors(({ actions }) => ({
@@ -47,9 +51,10 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             (relevantDashboards, dashboardsLoading) => [
                 {
                     key: 'dashboards',
-                    title: 'Dashboards',
+                    noun: 'dashboard',
                     loading: dashboardsLoading,
-                    // TODO: Add onAdd opening modal
+                    onAdd: () => actions.showNewDashboardModal(),
+                    modalContent: <NewDashboardModal />,
                     items: relevantDashboards.map(
                         ([dashboard, matches]) =>
                             ({
