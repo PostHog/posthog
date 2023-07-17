@@ -16,7 +16,10 @@ import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { useActions, useValues } from 'kea'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -115,6 +118,9 @@ export function SessionRecordingsFilters({
     onReset,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
+
+    const { durationTypeToShow } = useValues(playerSettingsLogic)
+    const { setDurationTypeToShow } = useActions(playerSettingsLogic)
 
     // We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
@@ -237,6 +243,19 @@ export function SessionRecordingsFilters({
                     })
                 }
             />
+
+            <div className={'flex flex-col py-1 px-2 '}>
+                <LemonDivider />
+
+                <div className={'flex flex-row items-center justify-end space-x-2'}>
+                    <span>Show</span>
+                    <DurationTypeSelect
+                        value={durationTypeToShow}
+                        onChange={(value) => setDurationTypeToShow(value)}
+                        onChangeEventDescription={'session recording list duration type to show selected'}
+                    />
+                </div>
+            </div>
         </div>
     )
 }
