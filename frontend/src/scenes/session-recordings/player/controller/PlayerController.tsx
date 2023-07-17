@@ -27,9 +27,9 @@ export function PlayerController(): JSX.Element {
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
-        <div className="p-3 bg-bg-light flex flex-col select-none">
+        <div className="bg-bg-light flex flex-col select-none">
             <Seekbar />
-            <div className="flex justify-between items-center h-8 gap-2">
+            <div className="flex justify-between items-center h-8 gap-2 m-2">
                 <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />

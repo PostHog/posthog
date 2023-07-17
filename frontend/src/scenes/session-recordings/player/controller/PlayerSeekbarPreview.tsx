@@ -1,5 +1,5 @@
 import { colonDelimitedDuration, debounce } from 'lib/utils'
-import { Ref, RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { PlayerFrame } from '../PlayerFrame'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
@@ -9,7 +9,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 export function PlayerSeekbarPreview({
     minMs,
     maxMs,
-    parentRef,
 }: {
     minMs: number
     maxMs: number
@@ -61,20 +60,6 @@ export function PlayerSeekbarPreview({
     useEffect(() => {
         debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
     }, [content])
-
-    const leftOffset = useMemo(() => {
-        const parentRect = parentRef.current?.getBoundingClientRect()
-        const rect = ref.current?.getBoundingClientRect()
-
-        if (!rect || !parentRect) {
-            return 0
-        }
-
-        const relativeX = parentRect.x - rect.x
-        const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
-
-        return newPercentage * rect.width
-    }, [parentRef.current])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>

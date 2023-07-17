@@ -1,5 +1,5 @@
 import './Seekbar.scss'
-import { memo, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from './seekbarLogic'
@@ -7,90 +7,9 @@ import { RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
-import { InspectorListItemEvent, playerInspectorLogic } from '../inspector/playerInspectorLogic'
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
-
-function PlayerSeekbarTick(props: {
-    item: InspectorListItemEvent
-    endTimeMs: number
-    zIndex: number
-    onClick: (e: React.MouseEvent) => void
-}): JSX.Element {
-    return (
-        <div
-            className={clsx(
-                'PlayerSeekbarTick',
-                props.item.highlightColor && `PlayerSeekbarTick--${props.item.highlightColor}`
-            )}
-            title={props.item.data.event}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                left: `${(props.item.timeInRecording / props.endTimeMs) * 100}%`,
-                zIndex: props.zIndex,
-            }}
-            onClick={props.onClick}
-        >
-            <div className="PlayerSeekbarTick__info">
-                <PropertyKeyInfo
-                    className="font-medium"
-                    disableIcon
-                    disablePopover
-                    ellipsis={true}
-                    value={capitalizeFirstLetter(autoCaptureEventToDescription(props.item.data))}
-                />
-                {props.item.data.event === '$autocapture' ? (
-                    <span className="opacity-75 ml-2">(Autocapture)</span>
-                ) : null}
-                {props.item.data.event === '$pageview' ? (
-                    <span className="ml-2 opacity-75">
-                        {props.item.data.properties.$pathname || props.item.data.properties.$current_url}
-                    </span>
-                ) : null}
-            </div>
-            <div className="PlayerSeekbarTick__line" />
-        </div>
-    )
-}
-
-const PlayerSeekbarTicks = memo(
-    function PlayerSeekbarTicks({
-        seekbarItems,
-        endTimeMs,
-        seekToTime,
-    }: {
-        seekbarItems: InspectorListItemEvent[]
-        endTimeMs: number
-        seekToTime: (timeInMilliseconds: number) => void
-    }): JSX.Element {
-        return (
-            <div className="PlayerSeekbar__ticks">
-                {seekbarItems.map((item, i) => {
-                    return (
-                        <PlayerSeekbarTick
-                            key={item.data.id}
-                            item={item}
-                            endTimeMs={endTimeMs}
-                            zIndex={i + (item.highlightColor ? 1000 : 0)}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                seekToTime(item.timeInRecording)
-                            }}
-                        />
-                    )
-                })}
-            </div>
-        )
-    },
-    (prev, next) => {
-        const seekbarItemsAreEqual =
-            prev.seekbarItems.length === next.seekbarItems.length &&
-            prev.seekbarItems.every((item, i) => item.data.id === next.seekbarItems[i].data.id)
-
-        return seekbarItemsAreEqual && prev.endTimeMs === next.endTimeMs && prev.seekToTime === next.seekToTime
-    }
-)
+import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
 
 export function Seekbar(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -115,47 +34,52 @@ export function Seekbar(): JSX.Element {
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
-        <div ref={areaRef} className="PlayerSeekbarWrapper flex items-center h-8" data-attr="rrweb-controller">
+        <div ref={areaRef} className="flex items-end h-8 mx-2 mt-2" data-attr="rrweb-controller">
             <Timestamp />
-            <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
-                <div
-                    className="PlayerSeekbar__slider"
-                    ref={sliderRef}
-                    onMouseDown={handleDown}
-                    onTouchStart={handleDown}
-                >
-                    <div className="PlayerSeekbar__segments">
-                        {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
-                            <div
-                                key={`${segment.windowId}-${segment.startTimestamp}`}
-                                className={clsx(
-                                    'PlayerSeekbar__segments__item',
-                                    segment.isActive && 'PlayerSeekbar__segments__item--active'
-                                )}
-                                title={!segment.isActive ? 'Inactive period' : 'Active period'}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${(100 * segment.durationMs) / sessionPlayerData.durationMs}%`,
-                                }}
-                            />
-                        ))}
-                    </div>
-
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="PlayerSeekbar__currentbar" style={{ width: `${Math.max(thumbLeftPos, 0)}px` }} />
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
-                    <div
-                        className="PlayerSeekbar__thumb"
-                        ref={thumbRef}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ transform: `translateX(${thumbLeftPos}px)` }}
-                    />
-
-                    <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} parentRef={areaRef} />
-                </div>
-
+            <div className="flex flex-col w-full">
                 <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
+
+                <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
+                    <div
+                        className="PlayerSeekbar__slider"
+                        ref={sliderRef}
+                        onMouseDown={handleDown}
+                        onTouchStart={handleDown}
+                    >
+                        <div className="PlayerSeekbar__segments">
+                            {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
+                                <div
+                                    key={`${segment.windowId}-${segment.startTimestamp}`}
+                                    className={clsx(
+                                        'PlayerSeekbar__segments__item',
+                                        segment.isActive && 'PlayerSeekbar__segments__item--active'
+                                    )}
+                                    title={!segment.isActive ? 'Inactive period' : 'Active period'}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        width: `${(100 * segment.durationMs) / sessionPlayerData.durationMs}%`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div
+                            className="PlayerSeekbar__currentbar"
+                            style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
+                        />
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
+                        <div
+                            className="PlayerSeekbar__thumb"
+                            ref={thumbRef}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ transform: `translateX(${thumbLeftPos}px)` }}
+                        />
+
+                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} parentRef={areaRef} />
+                    </div>
+                </div>
             </div>
         </div>
     )
