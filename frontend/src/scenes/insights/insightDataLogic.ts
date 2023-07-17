@@ -132,11 +132,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
+        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
             } else if (query) {
                 actions.setQuery(query)
+            }
+
+            if (result) {
+                actions.setInsightData({ ...values.insightData, result })
             }
         },
         loadInsightSuccess: ({ insight }) => {
