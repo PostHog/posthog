@@ -289,10 +289,8 @@ class PersonQuery:
             )
             """
             try:
-                # If passed a UUID, also look for persons
-                uuid = UUID(self._filter.search)
-                if uuid:
-                    distinct_id_clause = f"(id = %({distinct_id_param})s OR {distinct_id_clause})"
+                UUID(self._filter.search)  # will this throw?
+                distinct_id_clause = f"(id = %({distinct_id_param})s OR {distinct_id_clause})"
             except ValueError:
                 pass
 
