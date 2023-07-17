@@ -31,7 +31,7 @@ import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export interface DataNodeLogicProps {
     key: string
-    query: DataNode
+    query?: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
     /** Disabled data fetching and only allow cached results. */
@@ -45,7 +45,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     connect({
         values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
-    props({} as DataNodeLogicProps),
+    props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
@@ -108,7 +108,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (Object.keys(props.query).length === 0) {
+                    if (props.query === undefined || Object.keys(props.query).length === 0) {
                         // no need to try and load a query before properly initialized
                         return null
                     }
@@ -233,7 +233,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // store the 'autoload toggle' state in localstorage, separately for each data node kind
             {
                 persist: true,
-                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
+                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query?.kind, {
                     action: isEventsQuery(props.query) && props.query.actionId,
                     person: isEventsQuery(props.query) && props.query.personId,
                 }),

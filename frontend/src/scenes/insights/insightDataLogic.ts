@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
@@ -37,8 +37,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['filters', 'insight', 'savedInsight'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) }),
             [
                 'query as insightQuery',
                 'response as insightData',
@@ -52,8 +51,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) }),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
         logic: [insightDataTimingLogic(props)],
