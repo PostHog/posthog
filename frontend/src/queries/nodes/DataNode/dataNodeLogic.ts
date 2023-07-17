@@ -456,8 +456,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadData()
+    afterMount(({ actions, props }) => {
+        if (Object.keys(props.query || {}).length > 0) {
+            actions.loadData()
+        }
     }),
     beforeUnmount(({ actions, values }) => {
         if (values.autoLoadRunning) {
