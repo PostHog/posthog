@@ -72,7 +72,7 @@ jobs:
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
                   tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-amd64
-                  platforms: linux/amd64
+                  platforms: linux/arm64,linux/amd64
 
             - name: Build and push container image for linux/arm64
               id: build-arm64
@@ -84,7 +84,7 @@ jobs:
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
                   tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master-arm64
-                  platforms: linux/arm64
+                  platforms: linux/arm64,linux/amd64
 
             - name: get deployer token
               id: deployer
