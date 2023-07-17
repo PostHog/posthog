@@ -425,7 +425,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
-        # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
+        # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
         (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
             filter=filter, team=team
         ).run()

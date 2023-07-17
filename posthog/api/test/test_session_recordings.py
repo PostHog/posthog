@@ -15,6 +15,7 @@ from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
@@ -115,14 +116,36 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        self.create_snapshot("user", "1", base_time)
-        self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
-        self.create_snapshot("user2", "2", base_time + relativedelta(seconds=20))
-        self.create_snapshot("user", "1", base_time + relativedelta(seconds=30))
 
+        produce_replay_summary(
+            session_id="1",
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="user",
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=50 * 1000 * 0.5,
+        )
+
+        produce_replay_summary(
+            session_id="2",
+            team_id=self.team.pk,
+            first_timestamp=(base_time + relativedelta(seconds=20)).isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=40)).isoformat(),
+            distinct_id="user2",
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=50 * 1000 * 0.5,
+        )
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
+
         self.assertEqual(len(response_data["results"]), 2)
         first_session = response_data["results"][0]
         second_session = response_data["results"][1]
@@ -130,8 +153,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(first_session["id"], "2")
         self.assertEqual(first_session["distinct_id"], "user2")
         self.assertEqual(parse(first_session["start_time"]), (base_time + relativedelta(seconds=20)))
-        self.assertEqual(parse(first_session["end_time"]), (base_time + relativedelta(seconds=20)))
-        self.assertEqual(first_session["recording_duration"], 0)
+        self.assertEqual(parse(first_session["end_time"]), (base_time + relativedelta(seconds=40)))
+        self.assertEqual(first_session["recording_duration"], 20)
         self.assertEqual(first_session["viewed"], False)
 
         self.assertEqual(second_session["id"], "1")
