@@ -39,7 +39,6 @@ import {
     getShownAs,
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
-import { subscriptions } from 'kea-subscriptions'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
@@ -58,8 +57,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
     connect(() => ({
         values: [
-            insightLogic,
-            ['insight'],
             insightDataLogic,
             ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
@@ -67,7 +64,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setFilters', 'setInsight'],
+            ['setFilters'],
             insightDataLogic,
             ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure'],
         ],
@@ -259,29 +256,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
-        },
-    })),
-    subscriptions(({ values, actions }) => ({
-        /**
-         * This subscription updates the insight for all visualizations
-         * that haven't been refactored to use the data exploration yet.
-         */
-        insightData: (insightData: Record<string, any> | null) => {
-            if (insightData === null) {
-                return
-            }
-            if (isInsightVizNode(values.query)) {
-                const updatedInsight = {
-                    ...values.insight,
-                    result: insightData?.result,
-                    next: insightData?.next,
-                }
-
-                updatedInsight.filters = queryNodeToFilter(values.query.source)
-                updatedInsight.query = undefined
-
-                actions.setInsight(updatedInsight, {})
-            }
         },
     })),
 ])
