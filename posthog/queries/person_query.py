@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from uuid import UUID
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
@@ -287,6 +288,13 @@ class PersonQuery:
                 WHERE distinct_id = %({distinct_id_param})s
             )
             """
+            try:
+                # If passed a UUID, also look for persons
+                uuid = UUID(self._filter.search)
+                if uuid:
+                    distinct_id_clause = f"(id = %({distinct_id_param})s OR {distinct_id_clause})"
+            except ValueError:
+                pass
 
             prop_group = PropertyGroup(
                 type=PropertyOperatorType.AND,
