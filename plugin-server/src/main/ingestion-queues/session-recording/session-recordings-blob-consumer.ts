@@ -144,6 +144,8 @@ export class SessionRecordingBlobIngester {
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
         this.partitionNow[partition] = timestamp
+        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
@@ -385,14 +387,16 @@ export class SessionRecordingBlobIngester {
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugeSessionsHandled.remove()
-                revokedPartitions.forEach((partition) => {
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    const partition = topicPartition.partition
+
                     gaugeLagMilliseconds.remove({ partition })
                     gaugeOffsetCommitted.remove({ partition })
                     gaugeOffsetCommitFailed.remove({ partition })
-                })
-
-                topicPartitions.forEach((topicPartition: TopicPartition) => {
                     this.sessionOffsetHighWaterMark.revoke(topicPartition)
+                    this.partitionNow[partition] = null
+                    this.partitionLastKnownCommit[partition] = null
                 })
 
                 return
@@ -548,7 +552,7 @@ export class SessionRecordingBlobIngester {
         void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
-            this.batchConsumer?.consumer.commitSync({
+            this.batchConsumer?.consumer.commit({
                 topic,
                 partition,
                 // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
