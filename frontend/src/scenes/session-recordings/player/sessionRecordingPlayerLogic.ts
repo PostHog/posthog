@@ -675,6 +675,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.timestampChangeTracking.timestampMatchesPrevious > 10
             ) {
                 actions.skipPlayerForward(rrwebPlayerTime, skip)
+                newTimestamp = newTimestamp + skip
             }
 
             if (newTimestamp == undefined && values.currentTimestamp) {
