@@ -102,6 +102,7 @@ export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Elem
 
                         return ''
                     }}
+                    notebookId={shortId}
                 />
             </div>
         </BindLogic>

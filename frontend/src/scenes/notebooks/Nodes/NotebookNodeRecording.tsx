@@ -13,10 +13,13 @@ const HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
+    const notebookShortId = props.node.attrs.notebookShortId
+
     const recordingLogicProps: SessionRecordingPlayerProps = {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
         autoPlay: false,
+        notebookShortId,
     }
 
     return (

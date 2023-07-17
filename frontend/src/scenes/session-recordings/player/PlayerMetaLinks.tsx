@@ -8,6 +8,7 @@ import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -44,10 +45,20 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
+    const isInNotebook = notebookLogic.isMounted({ shortId: logicProps.notebookShortId })
+
+    console.log(isInNotebook)
+
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
+                    {isInNotebook && (
+                        <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                            <span>Comment</span>
+                        </LemonButton>
+                    )}
+
                     <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
                         <span>Share</span>
                     </LemonButton>

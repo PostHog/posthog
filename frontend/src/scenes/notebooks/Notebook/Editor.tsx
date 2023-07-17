@@ -30,11 +30,13 @@ export function Editor({
     onCreate,
     onUpdate,
     placeholder,
+    notebookId,
 }: {
     initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
+    notebookId: string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
 
@@ -78,9 +80,7 @@ export function Editor({
         ],
         content: initialContent,
         editorProps: {
-            attributes: {
-                class: 'NotebookEditor',
-            },
+            attributes: { class: 'NotebookEditor' },
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
                 if (!editor) {
