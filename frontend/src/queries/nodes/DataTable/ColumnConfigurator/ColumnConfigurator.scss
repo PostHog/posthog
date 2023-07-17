@@ -30,13 +30,13 @@
         margin: calc(var(--radius) / 2) 0;
 
         &:hover {
-            background-color: var(--bg-mid);
+            background-color: var(--mid);
         }
 
         &.disabled {
             cursor: not-allowed;
             color: var(--muted);
-            background-color: var(--bg-mid);
+            background-color: var(--mid);
         }
 
         &.selected {

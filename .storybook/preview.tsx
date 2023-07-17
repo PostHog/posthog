@@ -8,6 +8,7 @@ import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
 import { withSnapshotsDisabled } from './decorators/withSnapshotsDisabled'
+import { withFeatureFlags } from './decorators/withFeatureFlags'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -71,4 +72,6 @@ export const decorators: Meta['decorators'] = [
     // Allow us to time travel to ensure our stories don't change over time.
     // To mock a date for a story, set the `mockDate` parameter.
     withMockDate,
+    // Allow us to easily set feature flags in stories.
+    withFeatureFlags,
 ]

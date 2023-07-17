@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.indexes import index_by_kafka_timestamp, projection_for_max_kafka_timestamp
+from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -89,7 +89,6 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     indexes=f"""
-    , {projection_for_max_kafka_timestamp(EVENTS_DATA_TABLE())}
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
@@ -383,26 +382,6 @@ LIMIT %(limit)s
 GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
-
-GET_EVENTS_VOLUME = """
-SELECT event, count() AS count, max(timestamp) AS last_seen_at
-FROM events
-PREWHERE team_id = %(team_id)s
-AND timestamp > %(timestamp)s
-GROUP BY event ORDER BY count DESC
-"""
-
-
-GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
-    WITH property_tuples AS (
-        SELECT DISTINCT ON (property_tuple.1)
-            arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_tuple
-        FROM events
-        WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s
-    ) SELECT property_tuple.1 AS property_key, property_tuple.2 AS sample_json_value FROM property_tuples"""
-GET_EVENT_PROPERTIES = """
-    SELECT DISTINCT event, arrayJoin(JSONExtractKeys(properties)) AS property_key FROM events
-    WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s"""
 
 #
 # Demo data

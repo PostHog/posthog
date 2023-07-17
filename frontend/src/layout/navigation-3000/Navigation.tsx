@@ -7,12 +7,13 @@ import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
 import { themeLogic } from './themeLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { navigation3000Logic } from './navigationLogic'
+import clsx from 'clsx'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     useMountedLogic(themeLogic)
+    const { sceneConfig } = useValues(sceneLogic)
     const { activeNavbarItem } = useValues(navigation3000Logic)
 
     useEffect(() => {
@@ -20,19 +21,27 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
         document.getElementById('bottom-notice')?.remove()
     }, [])
 
+    if (sceneConfig?.layout === 'plain') {
+        throw new Error('Navigation should never be rendered for a plain scene')
+    }
+
     return (
         <div className="Navigation3000">
             <Navbar />
-            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} />}
-            <main>
-                <Breadcrumbs />
-                <div className="Navigation3000__scene">
-                    <div className="Navigation3000__content">{children}</div>
-                </div>
-            </main>
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                <NotebookSideBar />
-            </FlaggedFeature>
+            {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
+            <NotebookSideBar>
+                <main>
+                    <Breadcrumbs />
+                    <div
+                        className={clsx(
+                            'Navigation3000__scene',
+                            sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
+                        )}
+                    >
+                        {children}
+                    </div>
+                </main>
+            </NotebookSideBar>
 
             <CommandPalette />
         </div>

@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import api, { ACTIVITY_PAGE_SIZE, CountedPaginatedResponse } from 'lib/api'
+import api, { ACTIVITY_PAGE_SIZE, ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     ActivityScope,
@@ -18,6 +18,7 @@ import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptio
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
+import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 
 /**
  * Having this function inside the `humanizeActivity module was causing very weird test errors in other modules
@@ -38,6 +39,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EVENT_DEFINITION:
         case ActivityScope.PROPERTY_DEFINITION:
             return dataManagementActivityDescriber
+        case ActivityScope.NOTEBOOK:
+            return notebookActivityDescriber
         default:
             return undefined
     }
@@ -52,13 +55,13 @@ export const activityLogLogic = kea<activityLogLogicType>({
     },
     loaders: ({ values, props }) => ({
         nextPage: [
-            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchNextPage: async () => await api.activity.list(props, values.page),
             },
         ],
         previousPage: [
-            { results: [], total_count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
                 fetchPreviousPage: async () => await api.activity.list(props, values.page - 1),
             },

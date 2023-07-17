@@ -16,6 +16,7 @@ export interface LemonSwitchProps {
     size?: 'small' | 'medium'
     icon?: React.ReactElement | null
     handleContent?: React.ReactElement | null
+    'aria-label'?: string
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -33,10 +34,16 @@ export function LemonSwitch({
     labelClassName,
     icon,
     'data-attr': dataAttr,
+    'aria-label': ariaLabel,
     handleContent,
 }: LemonSwitchProps): JSX.Element {
     const id = useMemo(() => rawId || `lemon-switch-${switchCounter++}`, [rawId])
     const [isActive, setIsActive] = useState(false)
+
+    const conditionalProps = {}
+    if (ariaLabel) {
+        conditionalProps['aria-label'] = ariaLabel
+    }
 
     return (
         <div
@@ -68,6 +75,7 @@ export function LemonSwitch({
                 onMouseOut={() => setIsActive(false)}
                 data-attr={dataAttr}
                 disabled={disabled}
+                {...conditionalProps}
             >
                 <div className="LemonSwitch__slider" />
                 <div className="LemonSwitch__handle">{handleContent}</div>

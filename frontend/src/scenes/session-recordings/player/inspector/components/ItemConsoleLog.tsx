@@ -12,13 +12,19 @@ export interface ItemConsoleLogProps {
 export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogProps): JSX.Element {
     return (
         <>
-            <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
+            <LemonButton
+                noPadding
+                onClick={() => setExpanded(!expanded)}
+                status={'primary-alt'}
+                fullWidth
+                data-attr={'item-console-log'}
+            >
                 <div className="p-2 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
                 {item.data.count > 1 ? (
                     <span
                         className={`bg-${
                             item.highlightColor || 'primary-alt'
-                        } rounded-lg px-1 mx-2 text-light text-xs font-semibold`}
+                        } rounded-lg px-1 mx-2 text-white text-xs font-semibold`}
                     >
                         {item.data.count}
                     </span>

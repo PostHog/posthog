@@ -39,7 +39,7 @@ class Command(BaseCommand):
                         tables_created_so_far.append(table_name)
 
                     if (
-                        re.findall(r"(?<!DROP) (NOT NULL|DEFAULT)", operation_sql, re.M & re.I)
+                        re.findall(r"(?<!DROP) (NOT NULL|DEFAULT .* NOT NULL)", operation_sql, re.M & re.I)
                         and "CREATE TABLE" not in operation_sql
                         and "-- not-null-ignore" not in operation_sql
                     ):
@@ -66,9 +66,12 @@ class Command(BaseCommand):
                         )
                         sys.exit(1)
                     if "CONSTRAINT" in operation_sql and (
-                        table_being_altered not in tables_created_so_far
-                        or self._get_table("ALTER TABLE", operation_sql) not in new_tables
-                    ):  # Ignore for brand new tables
+                        "-- existing-table-constraint-ignore" not in operation_sql
+                        or (
+                            table_being_altered not in tables_created_so_far
+                            or self._get_table("ALTER TABLE", operation_sql) not in new_tables
+                        )  # Ignore for brand-new tables
+                    ):
                         print(
                             f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
                         )

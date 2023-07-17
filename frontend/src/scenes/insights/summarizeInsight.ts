@@ -1,6 +1,6 @@
 import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 import { BreakdownFilter, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
     isFunnelsFilter,
@@ -38,6 +38,7 @@ import {
     getDisplayNameFromEntityNode,
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
@@ -61,7 +62,7 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                     ? breakdown_type
                     : context.aggregationLabel(breakdown_group_type_index, true).singular
             return `${noun}'s ${
-                (breakdown as string) in keyMapping.event ? keyMapping.event[breakdown as string].label : breakdown
+                (breakdown as string) in KEY_MAPPING.event ? KEY_MAPPING.event[breakdown as string].label : breakdown
             }`
         }
     }
@@ -140,7 +141,7 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                     series = `${getDisplayNameFromEntityFilter(localFilter)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityFilter(localFilter)}'s ${
-                        keyMapping.event[localFilter.math_property as string]?.label || localFilter.math_property
+                        KEY_MAPPING.event[localFilter.math_property as string]?.label || localFilter.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName
@@ -148,6 +149,8 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
                             ? 'unique groups'
                             : mathType
                     }`
+                } else if (mathDefinition?.category === MathCategory.HogQLExpression) {
+                    series = localFilter.math_hogql ?? 'HogQL'
                 } else {
                     series = `${getDisplayNameFromEntityFilter(localFilter)} ${
                         mathDefinition
@@ -187,7 +190,7 @@ function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext)
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
                     series = `${getDisplayNameFromEntityNode(s)}'s ${
-                        keyMapping.event[s.math_property as string]?.label || s.math_property
+                        KEY_MAPPING.event[s.math_property as string]?.label || s.math_property
                     } ${
                         mathDefinition
                             ? mathDefinition.shortName
@@ -284,8 +287,26 @@ function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext)
     }
 }
 
-function summariseQuery(query: Node): string {
+function summarizeQuery(query: Node): string {
+    if (isHogQLQuery(query)) {
+        return 'SQL query'
+    }
+
+    if (isTimeToSeeDataSessionsNode(query)) {
+        return `Time to see data in ${
+            query.source.sessionId ? `session ${query.source.sessionId}` : 'the current session'
+        }`
+    }
+
+    if (isRecentPerformancePageViewNode(query)) {
+        return 'Recent page views with performance data'
+    }
+
     if (isDataTableNode(query)) {
+        if (isHogQLQuery(query.source) || isRecentPerformancePageViewNode(query)) {
+            return summarizeQuery(query.source)
+        }
+
         let selected: string[] = []
         let source = ''
 
@@ -295,40 +316,27 @@ function summariseQuery(query: Node): string {
         } else if (isPersonsNode(query.source)) {
             selected = []
             source = 'persons'
-        } else if (isHogQLQuery(query.source)) {
-            selected = []
-            source = 'HogQL'
         } else if (isTimeToSeeDataSessionsQuery(query.source)) {
             selected = ['sessions']
-            source = 'Time to See Data'
+            source = 'time to see data stats'
         }
 
-        if (!!query.columns) {
-            selected = [...query.columns]
+        if (query.columns) {
+            selected = query.columns.slice()
         }
-        return `${selected
-            .filter((c) => !(query.hiddenColumns || []).includes(c))
-            .join(', ')} from ${source} into a data table.`
+
+        if (selected.length > 0) {
+            return `${selected
+                .map(extractExpressionComment)
+                .filter((c) => !query.hiddenColumns?.includes(c))
+                .join(', ')}${source ? ` from ${source}` : ''}`
+        }
     }
 
-    if (isTimeToSeeDataSessionsNode(query)) {
-        return `Waterfall chart for time to see session ${query.source.sessionId}.`
-    }
-
-    if (isHogQLQuery(query)) {
-        return 'HogQL data table.'
-    }
-
-    if (isRecentPerformancePageViewNode(query)) {
-        return 'Recent page views with performance data.'
-    }
-
-    return `QueryKind: ${query?.kind}`
+    return `${query?.kind} query`
 }
 
 export interface SummaryContext {
-    isUsingDataExploration: boolean
-    isUsingDashboardQueries: boolean
     aggregationLabel: groupsModelType['values']['aggregationLabel']
     cohortsById: cohortsModelType['values']['cohortsById']
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
@@ -340,11 +348,10 @@ export function summarizeInsight(
     context: SummaryContext
 ): string {
     const hasFilters = Object.keys(filters || {}).length > 0
-
-    return context.isUsingDataExploration && isInsightVizNode(query)
+    return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
-        : context.isUsingDashboardQueries && !!query && !isInsightVizNode(query)
-        ? summariseQuery(query)
+        : !!query && !isInsightVizNode(query)
+        ? summarizeQuery(query)
         : hasFilters
         ? summarizeInsightFilters(filters, context)
         : ''

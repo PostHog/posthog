@@ -34,3 +34,11 @@ Closable.args = {
     children: 'This is a one-time message. Acknowledge it and move on with your life.',
     onClose: () => alert('👋'),
 }
+
+export const Dismissable = Template.bind({})
+Dismissable.args = {
+    type: 'info',
+    children: 'If you dismiss this message, it will be gone forever. (Clear the localstorage key to get it back)',
+    dismissKey: 'storybook-banner',
+    onClose: () => alert('👋'),
+}

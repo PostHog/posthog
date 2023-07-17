@@ -1,12 +1,15 @@
+from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
 import posthoganalytics
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
@@ -17,6 +20,7 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -66,7 +70,8 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "toolbarParams": {},
         "isAuthenticated": False,
-        "supportedCompression": ["gzip", "gzip-js", "lz64"],
+        # gzip and gzip-js are aliases for the same compression algorithm
+        "supportedCompression": ["gzip", "gzip-js"],
     }
 
     response["featureFlags"] = []
@@ -180,6 +185,11 @@ def get_decide(request: HttpRequest):
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
+            response["autocaptureExceptions"] = (
+                {"endpoint": "/e/", "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or []}
+                if team.autocapture_exceptions_opt_in
+                else False
+            )
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
@@ -188,13 +198,16 @@ def get_decide(request: HttpRequest):
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
-                    "recorderVersion": "v2" if team.session_recording_version == "v2" else "v1",
+                    "recorderVersion": team.session_recording_version
+                    if team.session_recording_version is not None
+                    else "v2",
                 }
 
             site_apps = []
             if team.inject_web_apps:
                 try:
-                    site_apps = get_decide_site_apps(team)
+                    with execute_with_timeout(200):
+                        site_apps = get_decide_site_apps(team)
                 except Exception:
                     pass
 
@@ -203,6 +216,14 @@ def get_decide(request: HttpRequest):
             # NOTE: Whenever you add something to decide response, update this test:
             # `test_decide_doesnt_error_out_when_database_is_down`
             # which ensures that decide doesn't error out when the database is down
+
+            if feature_flags:
+                # Billing analytics for decide requests with feature flags
+
+                # Sample no. of decide requests with feature flags
+                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                    increment_request_count(team.pk, count)
 
             # Analytics for decide requests with feature flags
             # Only send once flag definitions are loaded

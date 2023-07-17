@@ -21,18 +21,21 @@ import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/util
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import clsx from 'clsx'
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import equal from 'fast-deep-equal'
+import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export interface DataNodeLogicProps {
     key: string
     query: DataNode
-    /* Cached Results are provided when shared or exported,
-    the data node logic becomes read only implicitly */
+    /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
+    /** Disabled data fetching and only allow cached results. */
+    doNotLoad?: boolean
 }
 
 const AUTOLOAD_INTERVAL = 30000
@@ -44,12 +47,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (props.query?.kind && !objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
+        if (
+            props.query?.kind &&
+            !objectsEqual(props.query, oldProps.query) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) &&
+                    (props.cachedResults['result'] === null || props.cachedResults['result'] === undefined)))
+        ) {
             actions.loadData()
+        }
+        if (props.cachedResults && !values.response) {
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -57,6 +69,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortAnyRunningQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
+        setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -68,9 +81,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         response: [
             props.cachedResults ?? null,
             {
+                setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh, queryId }, breakpoint) => {
-                    if (props.cachedResults) {
+                    if (props.doNotLoad) {
+                        return props.cachedResults
+                    }
+                    if (
+                        isInsightQueryNode(props.query) &&
+                        props.cachedResults &&
+                        props.cachedResults['id'] &&
+                        props.cachedResults['filters'] &&
+                        equal(props.query, filtersToQueryNode(props.cachedResults['filters']))
+                    ) {
+                        const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
+                        const fetchResponse = await api.getResponse(url)
+                        return await getJSONOrThrow(fetchResponse)
+                    }
+
+                    if (props.cachedResults && !refresh) {
                         return props.cachedResults
                     }
 
@@ -355,11 +384,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
         ],
         lastRefresh: [
-            (s, p) => [p.query, s.response],
-            (query, response): string | null => {
-                return isInsightQueryNode(query) && response && 'last_refresh' in response
-                    ? response.last_refresh
-                    : null
+            (s) => [s.response],
+            (response): string | null => {
+                return response && 'last_refresh' in response ? response.last_refresh : null
             },
         ],
         nextAllowedRefresh: [

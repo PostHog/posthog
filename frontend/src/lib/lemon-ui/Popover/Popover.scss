@@ -4,6 +4,7 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+
     h5 {
         margin: 0.25rem 0.5rem;
     }
@@ -91,26 +92,30 @@
     width: 0.5rem;
     height: 0.5rem;
     transform: rotate(45deg);
-    background: #fff;
+    background: var(--bg-light);
 
-    &--top {
+    [data-placement^='bottom'] & {
+        top: -0.25rem;
         border-top: 1px solid var(--border);
         border-left: 1px solid var(--border);
     }
 
-    &--bottom {
+    [data-placement^='top'] & {
+        bottom: -0.25rem;
         border-bottom: 1px solid var(--border);
         border-right: 1px solid var(--border);
     }
 
-    &--right {
-        border-bottom: 1px solid var(--border);
-        border-left: 1px solid var(--border);
-    }
-
-    &--left {
+    [data-placement^='left'] & {
+        right: -0.25rem;
         border-top: 1px solid var(--border);
         border-right: 1px solid var(--border);
+    }
+
+    [data-placement^='right'] & {
+        left: -0.25rem;
+        border-bottom: 1px solid var(--border);
+        border-left: 1px solid var(--border);
     }
 
     .Popover--actionable & {
@@ -119,6 +124,6 @@
 }
 
 .Popover__content {
-    overflow: auto;
+    overflow-y: auto;
     max-height: 100%;
 }

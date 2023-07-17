@@ -1,4 +1,8 @@
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import {
+    prepareRecordingSnapshots,
+    sessionRecordingDataLogic,
+    convertSnapshotsByWindowId,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
@@ -7,7 +11,6 @@ import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import recordingPerformanceEventsJson from '../__mocks__/recording_performance_events.json'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from 'scenes/teamLogic'
@@ -49,7 +52,7 @@ describe('sessionRecordingDataLogic', () => {
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
         logic.mount()
         // Most of these tests assume the metadata is being loaded upfront which is the typical case
-        logic.actions.loadRecording()
+        logic.actions.loadRecordingMeta()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'create')
     })
@@ -76,15 +79,10 @@ describe('sessionRecordingDataLogic', () => {
     describe('loading session core', () => {
         it('loads all data', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecording(true)
+                logic.actions.loadRecordingMeta()
+                logic.actions.loadRecordingSnapshots()
             })
-                .toDispatchActions([
-                    'loadRecording',
-                    'loadRecordingMeta',
-                    'loadRecordingMetaSuccess',
-                    'loadRecordingSnapshots',
-                    'loadRecordingSnapshotsSuccess',
-                ])
+                .toDispatchActions(['loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
                 .toFinishAllListeners()
 
             expect(logic.values.sessionPlayerData).toMatchObject({
@@ -104,10 +102,10 @@ describe('sessionRecordingDataLogic', () => {
                 },
             })
             logic.mount()
-            logic.actions.loadRecording()
+            logic.actions.loadRecordingMeta()
 
             await expectLogic(logic)
-                .toDispatchActionsInAnyOrder(['loadRecordingMeta', 'loadRecordingMetaFailure'])
+                .toDispatchActionsInAnyOrder(['loadRecordingMetaFailure'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     sessionPlayerData: {
@@ -119,6 +117,7 @@ describe('sessionRecordingDataLogic', () => {
                         segments: [],
                         person: null,
                         snapshotsByWindowId: {},
+                        fullyLoaded: false,
                     },
                 })
             resumeKeaLoadersErrors()
@@ -133,9 +132,10 @@ describe('sessionRecordingDataLogic', () => {
                 },
             })
             logic.mount()
-            logic.actions.loadRecording(true)
+            logic.actions.loadRecordingMeta()
+            logic.actions.loadRecordingSnapshots()
 
-            await expectLogic(logic).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
+            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess', 'loadRecordingSnapshotsFailure'])
             expect(logic.values.sessionPlayerData).toMatchObject({
                 person: recordingMetaJson.person,
                 durationMs: 11868,
@@ -155,7 +155,8 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
             logic.mount()
-            logic.actions.loadRecording()
+            logic.actions.loadRecordingMeta()
+            await expectLogic(logic).toFinishAllListeners()
             api.get.mockClear()
             api.create.mockClear()
         })
@@ -173,8 +174,8 @@ describe('sessionRecordingDataLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecording(true)
-            }).toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
+                logic.actions.loadRecordingSnapshots()
+            }).toDispatchActions(['loadEvents', 'loadEventsSuccess'])
 
             expect(api.create).toHaveBeenCalledWith(
                 `api/projects/${MOCK_TEAM_ID}/query`,
@@ -207,22 +208,40 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('loading session performance events', () => {
+        it('loads performance events', async () => {
+            logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
+            logic.mount()
+            logic.actions.loadRecordingMeta()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingSnapshots()
+            })
+                .toDispatchActions(['loadPerformanceEvents', 'loadPerformanceEventsSuccess'])
+                .toMatchValues({
+                    performanceEvents: expect.arrayContaining([
+                        expect.objectContaining({
+                            entry_type: 'navigation',
+                        }),
+                    ]),
+                })
+        })
+
         describe("don't call performance endpoint", () => {
             beforeEach(async () => {
                 useAvailableFeatures([])
                 initKeaTests()
                 logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
                 logic.mount()
-                logic.actions.loadRecording()
+                logic.actions.loadRecordingMeta()
+                await expectLogic(logic).toFinishAllListeners()
                 api.get.mockClear()
             })
 
             it("user doesn't have the performance feature", async () => {
                 api.get.mockClear()
                 await expectLogic(logic, async () => {
-                    logic.actions.loadRecording(true)
+                    logic.actions.loadRecordingSnapshots()
                 })
-                    .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
                     .toDispatchActionsInAnyOrder([
                         'loadEvents',
                         'loadEventsSuccess',
@@ -233,36 +252,17 @@ describe('sessionRecordingDataLogic', () => {
                         performanceEvents: [],
                     })
 
-                // data, meta... but not performance events
-                expect(api.get).toBeCalledTimes(2)
+                // data, but not performance events
+                expect(api.get).toBeCalledTimes(1)
             })
-        })
-
-        it('load performance events', async () => {
-            logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
-            logic.mount()
-            logic.actions.loadRecording(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions([
-                    'loadRecordingMeta',
-                    'loadRecordingMetaSuccess',
-                    'loadPerformanceEvents',
-                    'loadPerformanceEventsSuccess',
-                ])
-                .toMatchValues({
-                    performanceEvents: expect.arrayContaining([
-                        expect.objectContaining({
-                            entry_type: 'navigation',
-                        }),
-                    ]),
-                })
         })
     })
 
     describe('loading session snapshots', () => {
+        beforeEach(async () => {
+            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess'])
+        })
+
         it('no next url', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
@@ -316,17 +316,17 @@ describe('sessionRecordingDataLogic', () => {
             })
 
             logic.mount()
-            logic.actions.loadRecording(true)
-
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            logic.actions.loadRecordingMeta()
+            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess'])
             api.get.mockClear()
+            logic.actions.loadRecordingSnapshots()
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
-            await expectLogic(logic).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadRecordingSnapshotsV1', 'loadRecordingSnapshotsV1Success'])
 
             await expectLogic(logic)
                 .toDispatchActions([
-                    logic.actionCreators.loadRecordingSnapshots(firstNext),
-                    'loadRecordingSnapshotsSuccess',
+                    logic.actionCreators.loadRecordingSnapshotsV1(firstNext),
+                    'loadRecordingSnapshotsV1Success',
                 ])
                 .toFinishAllListeners()
 
@@ -366,9 +366,9 @@ describe('sessionRecordingDataLogic', () => {
                 },
             })
             logic.mount()
-            logic.actions.loadRecording()
+            logic.actions.loadRecordingMeta()
 
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadRecordingMetaSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
             api.get.mockClear()
 
@@ -378,7 +378,7 @@ describe('sessionRecordingDataLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
-            }).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
+            }).toDispatchActions(['loadRecordingSnapshotsV1', 'loadRecordingSnapshotsV1Success'])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {
@@ -392,42 +392,35 @@ describe('sessionRecordingDataLogic', () => {
             })
             await expectLogic(logic)
                 .toDispatchActions([
-                    logic.actionCreators.loadRecordingSnapshots(firstNext),
-                    'loadRecordingSnapshotsFailure',
+                    logic.actionCreators.loadRecordingSnapshotsV1(firstNext),
+                    'loadRecordingSnapshotsV1Failure',
                 ])
                 .toFinishAllListeners()
             resumeKeaLoadersErrors()
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toHaveBeenCalledWith(firstNext)
         })
     })
 
     describe('report usage', () => {
         it('send `recording loaded` event only when entire recording has loaded', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecording(true)
+                logic.actions.loadRecordingSnapshots()
             })
-                .toDispatchActions(['loadRecording'])
                 .toDispatchActionsInAnyOrder([
-                    'loadRecordingMeta',
-                    'loadRecordingMetaSuccess',
-                    'loadRecordingSnapshots',
-                    'loadRecordingSnapshotsSuccess',
+                    'loadRecordingSnapshotsV1',
+                    'loadRecordingSnapshotsV1Success',
                     'loadEvents',
                     'loadEventsSuccess',
                     'loadPerformanceEvents',
                     'loadPerformanceEventsSuccess',
                 ])
-                .toDispatchActions([eventUsageLogic.actionTypes.reportRecording]) // only dispatch once
-                .toNotHaveDispatchedActions([
-                    eventUsageLogic.actionTypes.reportRecording,
-                    eventUsageLogic.actionTypes.reportRecording,
-                ])
+                .toDispatchActions([eventUsageLogic.actionTypes.reportRecording])
         })
         it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecording(true)
+                logic.actions.loadRecordingSnapshots()
             })
-                .toDispatchActions(['loadRecording', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActions(['loadRecordingSnapshotsSuccess'])
                 .toDispatchActionsInAnyOrder([
                     eventUsageLogic.actionTypes.reportRecording, // loaded
                     eventUsageLogic.actionTypes.reportRecording, // viewed
@@ -436,6 +429,26 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     chunkPaginationIndex: 1,
                 })
+        })
+    })
+
+    describe('prepareRecordingSnapshots', () => {
+        it('should remove duplicate snapshots and sort by timestamp', () => {
+            const snapshots = convertSnapshotsByWindowId(recordingSnapshotsJson.snapshot_data_by_window_id)
+            const snapshotsWithDuplicates = snapshots
+                .slice(0, 2)
+                .concat(snapshots.slice(0, 2))
+                .concat(snapshots.slice(2))
+
+            expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
+
+            expect(prepareRecordingSnapshots(snapshots)).toEqual(prepareRecordingSnapshots(snapshotsWithDuplicates))
+        })
+
+        it('should match snapshot', () => {
+            const snapshots = convertSnapshotsByWindowId(recordingSnapshotsJson.snapshot_data_by_window_id)
+
+            expect(prepareRecordingSnapshots(snapshots)).toMatchSnapshot()
         })
     })
 })

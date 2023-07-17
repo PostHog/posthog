@@ -57,8 +57,6 @@ export const mockEventDefinitions: EventDefinition[] = [
     id: `uuid-${index}-foobar`,
     name: name || `misc-${index}-generated`,
     description: `${name || 'name generation'} is the best!`,
-    query_usage_30_day: index * 3 + 1,
-    volume_30_day: index * 13 + 2,
     tags: [],
 }))
 
@@ -70,8 +68,6 @@ export const mockEventPropertyDefinition = {
     is_numerical: false,
     updated_at: '2022-01-24T21:32:38.359756Z',
     updated_by: null,
-    volume_30_day: 2,
-    query_usage_30_day: 1,
     is_seen_on_filtered_events: true,
     property_type: undefined,
 }
@@ -108,7 +104,7 @@ export const mockElement = {
 
 export const mockActionDefinition = {
     id: 3,
-    name: 'Action',
+    name: 'Action with a moderately long name',
     post_to_slack: false,
     slack_message_format: '',
     steps: [
@@ -118,11 +114,16 @@ export const mockActionDefinition = {
             tag_name: 'div',
             text: null,
             href: null,
-            selector: null,
+            selector: '.buy-now-important-on-sale-button',
             url: 'test',
             name: 'Rage',
             url_matching: 'contains',
             properties: [],
+        },
+        {
+            id: 4,
+            event: null, // All events
+            properties: [{ type: 'property', key: '$geoip_country_code', value: ['US', 'DE'], operator: 'exact' }],
         },
     ],
     created_at: '2022-01-24T21:32:38.360176Z',

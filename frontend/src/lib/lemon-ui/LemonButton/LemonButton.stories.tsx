@@ -7,7 +7,7 @@ import {
     LemonButtonWithSideAction,
 } from './LemonButton'
 import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
-import { More, MoreProps } from './More'
+import { More } from './More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -73,10 +73,6 @@ TypesAndStatuses.args = {}
 
 const PopoverTemplate: ComponentStory<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
     return <LemonButtonWithDropdown {...props} />
-}
-
-const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
-    return <More {...props} />
 }
 
 export const NoPadding = (): JSX.Element => {
@@ -334,20 +330,23 @@ WithTooltip.args = {
     tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
 }
 
-export const More_ = MoreTemplate.bind({})
-More_.args = {
-    overlay: (
-        <>
-            <LemonButton status="stealth" fullWidth>
-                View
-            </LemonButton>
-            <LemonButton status="stealth" fullWidth>
-                Edit
-            </LemonButton>
-            <LemonDivider />
-            <LemonButton status="danger" fullWidth>
-                Delete
-            </LemonButton>
-        </>
-    ),
+export const More_ = (): JSX.Element => {
+    return (
+        <More
+            overlay={
+                <>
+                    <LemonButton status="stealth" fullWidth>
+                        View
+                    </LemonButton>
+                    <LemonButton status="stealth" fullWidth>
+                        Edit
+                    </LemonButton>
+                    <LemonDivider />
+                    <LemonButton status="danger" fullWidth>
+                        Delete
+                    </LemonButton>
+                </>
+            }
+        />
+    )
 }

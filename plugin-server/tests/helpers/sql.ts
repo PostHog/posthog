@@ -1,8 +1,10 @@
+import { DateTime } from 'luxon'
 import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
 import {
     Hub,
+    Person,
     Plugin,
     PluginAttachmentDB,
     PluginConfig,
@@ -10,8 +12,10 @@ import {
     PropertyOperator,
     RawAction,
     RawOrganization,
+    RawPerson,
     Team,
 } from '../../src/types'
+import { DB } from '../../src/utils/db/db'
 import { UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,
@@ -92,7 +96,7 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(db: PoolClient | Pool, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -395,4 +399,19 @@ export const createOrganizationMembership = async (pgClient: Pool, organizationI
         updated_at: new Date().toISOString(),
     })
     return membership.id
+}
+
+export async function fetchPostgresPersons(db: DB, teamId: number) {
+    const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    return (await db.postgresQuery(query, undefined, 'persons')).rows.map(
+        // NOTE: we map to update some values here to maintain
+        // compatibility with `hub.db.fetchPersons`.
+        // TODO: remove unnecessary property translation operation.
+        (rawPerson: RawPerson) =>
+            ({
+                ...rawPerson,
+                created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
+                version: Number(rawPerson.version || 0),
+            } as Person)
+    )
 }

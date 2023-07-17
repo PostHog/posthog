@@ -15,12 +15,12 @@ export const sessionRecordingDetailLogic = kea<sessionRecordingDetailLogicType>(
             () => [(_, props) => props.id],
             (sessionRecordingId): Breadcrumb[] => [
                 {
-                    name: `Recordings`,
-                    path: urls.sessionRecordings(),
+                    name: `Replay`,
+                    path: urls.replay(),
                 },
                 {
                     name: sessionRecordingId ?? 'Not Found',
-                    path: sessionRecordingId ? urls.sessionRecording(sessionRecordingId) : undefined,
+                    path: sessionRecordingId ? urls.replaySingle(sessionRecordingId) : undefined,
                 },
             ],
         ],

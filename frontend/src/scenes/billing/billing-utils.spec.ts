@@ -62,21 +62,43 @@ const amountToUsageMapping = [
     { usage: 230_000_000, amount: '12250.00' },
 ]
 
+const amountToUsageMappingWithAddons = [
+    { usage: 0, amount: '0.00' },
+    { usage: 1_000_000, amount: '0.00' },
+    { usage: 1_409_091, amount: '225.00' },
+    { usage: 1_818_182, amount: '450.00' },
+    { usage: 4_888_087, amount: '1350.00' },
+    { usage: 8_137_184, amount: '2250.00' },
+    { usage: 139_090_909, amount: '12250.00' },
+]
+
 // 20% discount
 const amountToUsageMappingWithPercentDiscount = [
     { usage: 0, amount: '0.00' },
     { usage: 1_000_000, amount: '0.00' },
-    { usage: 1_600_000, amount: '225.00' }, // $270 worth of units
-    { usage: 2_400_000, amount: '450.00' }, // $540 worth of units
-    { usage: 7_200_000, amount: '1350.00' }, // $1620 worth of units
-    { usage: 16_000_000, amount: '2250.00' }, // $2700 worth of units
-    { usage: 328_000_000, amount: '12250.00' }, // $14700 worth of units
+    { usage: 1_625_000, amount: '225.00' }, // $281.25 worth of units
+    { usage: 2_500_000, amount: '450.00' }, // $562.50 worth of units
+    { usage: 7_500_000, amount: '1350.00' }, // $1687.50 worth of units
+    { usage: 17_500_000, amount: '2250.00' }, // $2812.50 worth of units
+    { usage: 352_500_000, amount: '12250.00' }, // $15,312.50 worth of units
 ]
 
 describe('convertUsageToAmount', () => {
     it.each(amountToUsageMapping)('should convert usage to an amount based on the tiers', (mapping) => {
-        if (billingJson.products[0].tiers && billingJson.discount_percent) {
-            expect(convertUsageToAmount(mapping.usage, billingJson.products[0].tiers)).toEqual(mapping.amount)
+        if (billingJson.products[0].tiers) {
+            expect(convertUsageToAmount(mapping.usage, [billingJson.products[0].tiers])).toEqual(mapping.amount)
+        }
+    })
+})
+describe('convertUsageToAmountWithAddons', () => {
+    it.each(amountToUsageMappingWithAddons)('should convert usage to an amount based on the tiers', (mapping) => {
+        if (billingJson.products[0].tiers) {
+            expect(
+                convertUsageToAmount(mapping.usage, [
+                    billingJson.products[0].tiers,
+                    billingJson.products[0].addons[0].tiers,
+                ])
+            ).toEqual(mapping.amount)
         }
     })
 })
@@ -86,8 +108,24 @@ describe('convertAmountToUsage', () => {
             // Skip the 0 case as anything below a million is free
             return
         }
-        if (billingJson.products[0].tiers && billingJson.discount_percent) {
-            expect(convertAmountToUsage(mapping.amount, billingJson.products[0].tiers)).toEqual(mapping.usage)
+        if (billingJson.products[0].tiers) {
+            expect(convertAmountToUsage(mapping.amount, [billingJson.products[0].tiers])).toEqual(mapping.usage)
+        }
+    })
+})
+describe('convertAmountToUsageWithAddons', () => {
+    it.each(amountToUsageMappingWithAddons)('should convert amount to a usage based on the tiers', (mapping) => {
+        if (mapping.usage === 0) {
+            // Skip the 0 case as anything below a million is free
+            return
+        }
+        if (billingJson.products[0].tiers) {
+            expect(
+                convertAmountToUsage(mapping.amount, [
+                    billingJson.products[0].tiers,
+                    billingJson.products[0].addons[0].tiers,
+                ])
+            ).toEqual(mapping.usage)
         }
     })
 })
@@ -95,10 +133,11 @@ describe('convertUsageToAmountWithPercentDiscount', () => {
     it.each(amountToUsageMappingWithPercentDiscount)(
         'should convert usage to an amount based on the tiers',
         (mapping) => {
-            if (billingJson.products[0].tiers && billingJson.discount_percent) {
-                expect(
-                    convertUsageToAmount(mapping.usage, billingJson.products[0].tiers, billingJson.discount_percent)
-                ).toEqual(mapping.amount)
+            const discountPercent = 20
+            if (billingJson.products[0].tiers) {
+                expect(convertUsageToAmount(mapping.usage, [billingJson.products[0].tiers], discountPercent)).toEqual(
+                    mapping.amount
+                )
             }
         }
     )
@@ -111,10 +150,11 @@ describe('convertAmountToUsageWithPercentDiscount', () => {
                 // Skip the 0 case as anything below a million is free
                 return
             }
-            if (billingJson.products[0].tiers && billingJson.discount_percent) {
-                expect(
-                    convertAmountToUsage(mapping.amount, billingJson.products[0].tiers, billingJson.discount_percent)
-                ).toEqual(mapping.usage)
+            if (billingJson.products[0].tiers) {
+                const discountPercent = 20
+                expect(convertAmountToUsage(mapping.amount, [billingJson.products[0].tiers], discountPercent)).toEqual(
+                    mapping.usage
+                )
             }
         }
     )

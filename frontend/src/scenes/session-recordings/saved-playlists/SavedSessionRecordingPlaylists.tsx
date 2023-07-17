@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
+import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -14,7 +14,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { IconPinOutline, IconPinFilled, IconCalendar } from 'lib/lemon-ui/icons'
 
 export type SavedSessionRecordingPlaylistsProps = {
-    tab: SessionRecordingsTabs.Playlists
+    tab: ReplayTabs.Playlists
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
@@ -44,10 +44,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             render: function Render(name, { short_id, derived_name, description }) {
                 return (
                     <>
-                        <Link
-                            className={clsx('font-semibold', !name && 'italic')}
-                            to={urls.sessionRecordingPlaylist(short_id)}
-                        >
+                        <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
                             {name || derived_name || '(Untitled)'}
                         </Link>
                         {description ? <div className="truncate">{description}</div> : null}

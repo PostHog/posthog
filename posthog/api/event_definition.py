@@ -35,8 +35,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         fields = (
             "id",
             "name",
-            "volume_30_day",
-            "query_usage_30_day",
             "created_at",
             "last_seen_at",
             "last_updated_at",
@@ -76,7 +74,7 @@ class EventDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
 
     search_fields = ["name"]
-    ordering_fields = ["volume_30_day", "query_usage_30_day", "name"]
+    ordering_fields = ["name", "last_seen_at"]
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -87,7 +85,7 @@ class EventDefinitionViewSet(
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
-        order, order_direction = self._ordering_params_from_request()
+        order_expressions = [self._ordering_params_from_request()]
 
         ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
         is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
@@ -110,8 +108,7 @@ class EventDefinitionViewSet(
             event_type,
             is_enterprise=is_enterprise,
             conditions=search_query,
-            order_expr=order,
-            order_direction=order_direction,
+            order_expressions=order_expressions,
         )
         return event_definition_object_manager.raw(sql, params=params)
 
@@ -128,7 +125,7 @@ class EventDefinitionViewSet(
             else:
                 order_direction = "ASC"
         else:
-            order = "volume_30_day"
+            order = "last_seen_at"
             order_direction = "DESC"
 
         return order, order_direction

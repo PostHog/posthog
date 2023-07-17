@@ -6,6 +6,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Literal,
     Optional,
     Sequence,
     Tuple,
@@ -14,9 +15,9 @@ from typing import (
     cast,
 )
 
-import dateutil
 import requests
 import structlog
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
 from django.db.models import Count, Q
@@ -28,6 +29,8 @@ from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
+from posthog.constants import FlagRequestType
+from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -35,8 +38,8 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.settings import INSTANCE_TAG
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
+from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
+from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +71,24 @@ class UsageReportCounters:
     # Feature flags
     ff_count: int
     ff_active_count: int
+    decide_requests_count_in_period: int
+    decide_requests_count_in_month: int
+    local_evaluation_requests_count_in_period: int
+    local_evaluation_requests_count_in_month: int
+    # HogQL
+    hogql_app_bytes_read: int
+    hogql_app_rows_read: int
+    hogql_app_duration_ms: int
+    hogql_api_bytes_read: int
+    hogql_api_rows_read: int
+    hogql_api_duration_ms: int
+    # Event Explorer
+    event_explorer_app_bytes_read: int
+    event_explorer_app_rows_read: int
+    event_explorer_app_duration_ms: int
+    event_explorer_api_bytes_read: int
+    event_explorer_api_rows_read: int
+    event_explorer_api_duration_ms: int
 
 
 # Instance metadata to be included in oveall report
@@ -216,7 +237,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-@app.task(ignore_result=True, retries=3)
+@app.task(ignore_result=True, autoretry_for=(Exception,), max_retries=3)
 def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -256,6 +277,7 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
         capture_event(pha_client, f"organization usage report to billing service failure", org_id, {"err": str(err)})
+        raise err
 
 
 def capture_event(
@@ -263,8 +285,14 @@ def capture_event(
     name: str,
     organization_id: str,
     properties: Dict[str, Any],
-    timestamp: Optional[datetime] = None,
+    timestamp: Optional[Union[datetime, str]] = None,
 ) -> None:
+    if timestamp and isinstance(timestamp, str):
+        try:
+            timestamp = parser.isoparse(timestamp)
+        except ValueError:
+            timestamp = None
+
     if is_cloud():
         org_owner = get_org_owner_or_first_user(organization_id)
         distinct_id = org_owner.distinct_id if org_owner and org_owner.distinct_id else f"org-{organization_id}"
@@ -287,6 +315,7 @@ def capture_event(
         pha_client.group_identify("instance", settings.SITE_URL, properties)
 
 
+@timed_log()
 def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -298,6 +327,7 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -311,6 +341,7 @@ def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -325,6 +356,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
     return result
 
 
+@timed_log()
 def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -338,6 +370,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
     return results
 
 
+@timed_log()
 def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[Tuple[int, str, int]]:
     results = sync_execute(
         """
@@ -351,12 +384,24 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
     return results
 
 
+@timed_log()
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
         FROM session_recording_events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE first_event_timestamp BETWEEN %(begin)s AND %(end)s
+        AND session_id NOT IN (
+            -- we want to exclude sessions that might have events with timestamps
+            -- before the period we are interested in
+            SELECT DISTINCT session_id
+            FROM session_recording_events
+            -- begin is the very first instant of the period we are interested in
+            -- we assume it is also the very first instant of a day
+            -- so we can to subtract 1 second to get the day before
+            WHERE toDate(first_event_timestamp) = toDate(%(begin)s) - INTERVAL 1 DAY
+            GROUP BY session_id
+        )
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -364,6 +409,7 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
     return result
 
 
+@timed_log()
 def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
@@ -375,17 +421,67 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     return result
 
 
-def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
-    for row in rows:
-        if "team_id" in row:
-            if row["team_id"] == team_id:
-                return row["total"]
-        elif row[0] == team_id:
-            return row[1]
-    return 0
+@timed_log()
+def get_teams_with_hogql_metric(
+    begin: datetime,
+    end: datetime,
+    query_types: List[str],
+    access_method: str = "",
+    metric: Literal["read_bytes", "read_rows", "query_duration_ms"] = "read_bytes",
+) -> List[Tuple[int, int]]:
+    if metric not in ["read_bytes", "read_rows", "query_duration_ms"]:
+        # :TRICKY: Inlined into the query below.
+        raise ValueError(f"Invalid metric {metric}")
+    result = sync_execute(
+        f"""
+        WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+             JSONExtractString(log_comment, 'query_type') as query_type,
+             JSONExtractString(log_comment, 'access_method') as access_method
+        SELECT team_id, sum({metric}) as count
+        FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
+        WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
+          AND is_initial_query = 1
+          AND query_type IN (%(query_types)s)
+          AND query_start_time between %(begin)s AND %(end)s
+          AND access_method = %(access_method)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end, "query_types": query_types, "access_method": access_method},
+    )
+    return result
 
 
-@app.task(ignore_result=True, retries=0)
+@timed_log()
+def get_teams_with_feature_flag_requests_count_in_period(
+    begin: datetime, end: datetime, request_type: FlagRequestType
+) -> List[Tuple[int, int]]:
+    # depending on the region, events are stored in different teams
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+
+    result = sync_execute(
+        """
+        SELECT distinct_id as team, sum(JSONExtractInt(properties, 'count')) as sum
+        FROM events
+        WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp between %(begin)s AND %(end)s
+        AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+        GROUP BY team
+    """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+            "validity_token": validity_token,
+            "target_event": target_event,
+        },
+    )
+
+    return result
+
+
+@app.task(ignore_result=True, max_retries=0)
 def capture_report(
     capture_event_name: str, org_id: str, full_report_dict: Dict[str, Any], at_date: Optional[datetime] = None
 ) -> None:
@@ -403,10 +499,28 @@ def capture_report(
 
 # extend this with future usage based products
 def has_non_zero_usage(report: FullUsageReport) -> bool:
-    return report.event_count_in_period > 0 or report.recording_count_in_period > 0
+    return (
+        report.event_count_in_period > 0
+        or report.recording_count_in_period > 0
+        or report.decide_requests_count_in_period > 0
+        or report.local_evaluation_requests_count_in_period > 0
+    )
 
 
-@app.task(ignore_result=True, retries=3)
+def convert_team_usage_rows_to_dict(rows: List[Union[dict, Tuple[int, int]]]) -> Dict[int, int]:
+    team_id_map = {}
+    for row in rows:
+        if isinstance(row, dict) and "team_id" in row:
+            # Some queries return a dict with team_id and total
+            team_id_map[row["team_id"]] = row["total"]
+        else:
+            # Others are just a tuple with team_id and total
+            team_id_map[int(row[0])] = row[1]
+
+    return team_id_map
+
+
+@app.task(ignore_result=True, max_retries=3, autoretry_for=(Exception,))
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
@@ -416,138 +530,275 @@ def send_all_org_usage_reports(
 ) -> List[dict]:  # Dict[str, OrgReport]:
     capture_event_name = capture_event_name or "organization usage report"
 
-    at_date = dateutil.parser.parse(at) if at else None
+    at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
 
     instance_metadata = get_instance_metadata(period)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
-    all_data = dict(
-        teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-        teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
-        teams_with_event_count_in_month=get_teams_with_event_count_in_period(period_start.replace(day=1), period_end),
-        teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
-            period_start, period_end
-        ),
-        # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
-        # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
-        teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
-        teams_with_recording_count_total=get_teams_with_recording_count_total(),
-        teams_with_group_types_total=list(
-            GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        teams_with_dashboard_count=list(
-            Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        teams_with_dashboard_template_count=list(
-            Dashboard.objects.filter(creation_mode="template")
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        teams_with_dashboard_shared_count=list(
-            Dashboard.objects.filter(sharingconfiguration__enabled=True)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        teams_with_dashboard_tagged_count=list(
-            Dashboard.objects.filter(tagged_items__isnull=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        teams_with_ff_count=list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
-        teams_with_ff_active_count=list(
-            FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-    )
-
-    teams: Sequence[Team] = list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
+    try:
+        all_data = dict(
+            teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
+            teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_month=get_teams_with_event_count_in_period(
+                period_start.replace(day=1), period_end
+            ),
+            teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
+                period_start, period_end
+            ),
+            # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
+            # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
+            teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
+            teams_with_recording_count_total=get_teams_with_recording_count_total(),
+            teams_with_decide_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+                period_start, period_end, FlagRequestType.DECIDE
+            ),
+            teams_with_decide_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+                period_start.replace(day=1), period_end, FlagRequestType.DECIDE
+            ),
+            teams_with_local_evaluation_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+                period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+            ),
+            teams_with_local_evaluation_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+                period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
+            ),
+            teams_with_group_types_total=list(
+                GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+            ),
+            teams_with_dashboard_count=list(
+                Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+            ),
+            teams_with_dashboard_template_count=list(
+                Dashboard.objects.filter(creation_mode="template")
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
+            ),
+            teams_with_dashboard_shared_count=list(
+                Dashboard.objects.filter(sharingconfiguration__enabled=True)
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
+            ),
+            teams_with_dashboard_tagged_count=list(
+                Dashboard.objects.filter(tagged_items__isnull=False)
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
+            ),
+            teams_with_ff_count=list(
+                FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
+            ),
+            teams_with_ff_active_count=list(
+                FeatureFlag.objects.filter(active=True)
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
+            ),
+            teams_with_hogql_app_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="",
+            ),
+            teams_with_hogql_app_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="",
+            ),
+            teams_with_hogql_app_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="",
+            ),
+            teams_with_hogql_api_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_hogql_api_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_hogql_api_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_event_explorer_app_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["EventsQuery"],
+                access_method="",
+            ),
+            teams_with_event_explorer_app_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["EventsQuery"],
+                access_method="",
+            ),
+            teams_with_event_explorer_app_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["EventsQuery"],
+                access_method="",
+            ),
+            teams_with_event_explorer_api_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["EventsQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_event_explorer_api_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["EventsQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_event_explorer_api_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["EventsQuery"],
+                access_method="personal_api_key",
+            ),
         )
-    )
 
-    org_reports: Dict[str, OrgReport] = {}
+        # The data is all as raw rows which will dramatically slow down the upcoming loop
+        # so we convert it to a map of team_id -> value
+        for key, rows in all_data.items():
+            all_data[key] = convert_team_usage_rows_to_dict(rows)
 
-    for team in teams:
-        team_report = UsageReportCounters(
-            event_count_lifetime=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_lifetime"]),
-            event_count_in_period=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_period"]),
-            event_count_in_month=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_month"]),
-            event_count_with_groups_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_count_with_groups_in_period"]
-            ),
-            # event_count_by_lib: Difind_count_for_team_in_rows(team.id, all_data["teams_with_#"]),
-            # event_count_by_name: Difind_count_for_team_in_rows(team.id, all_data["teams_with_#"]),
-            recording_count_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_recording_count_in_period"]
-            ),
-            recording_count_total=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_total"]),
-            group_types_total=find_count_for_team_in_rows(team.id, all_data["teams_with_group_types_total"]),
-            dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
-            dashboard_template_count=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_dashboard_template_count"]
-            ),
-            dashboard_shared_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_shared_count"]),
-            dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
-            ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
-            ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
-        )
-
-        org_id = str(team.organization.id)
-
-        if org_id not in org_reports:
-            org_report = OrgReport(
-                date=period_start.strftime("%Y-%m-%d"),
-                organization_id=org_id,
-                organization_name=team.organization.name,
-                organization_created_at=team.organization.created_at.isoformat(),
-                organization_user_count=get_org_user_count(org_id),
-                team_count=1,
-                teams={str(team.id): team_report},
-                **dataclasses.asdict(team_report),  # Clone the team report as the basis
+        teams: Sequence[Team] = list(
+            Team.objects.select_related("organization").exclude(
+                Q(organization__for_internal_metrics=True) | Q(is_demo=True)
             )
-            org_reports[org_id] = org_report
-        else:
-            org_report = org_reports[org_id]
-            org_report.teams[str(team.id)] = team_report
-            org_report.team_count += 1
-
-            # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
-            for field in dataclasses.fields(UsageReportCounters):
-                if hasattr(team_report, field.name):
-                    setattr(
-                        org_report,
-                        field.name,
-                        getattr(org_report, field.name) + getattr(team_report, field.name),
-                    )
-
-    all_reports = []
-
-    for org_report in org_reports.values():
-        org_id = org_report.organization_id
-
-        if only_organization_id and only_organization_id != org_id:
-            continue
-
-        full_report = FullUsageReport(
-            **dataclasses.asdict(org_report),
-            **dataclasses.asdict(instance_metadata),
         )
-        full_report_dict = dataclasses.asdict(full_report)
-        all_reports.append(full_report_dict)
 
-        if dry_run:
-            continue
+        org_reports: Dict[str, OrgReport] = {}
 
-        # First capture the events to PostHog
-        if not skip_capture_event:
-            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
+        print("Generating reports for teams...")  # noqa T201
+        time_now = datetime.now()
+        for team in teams:
+            team_report = UsageReportCounters(
+                event_count_lifetime=all_data["teams_with_event_count_lifetime"].get(team.id, 0),
+                event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
+                event_count_in_month=all_data["teams_with_event_count_in_month"].get(team.id, 0),
+                event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(
+                    team.id, 0
+                ),
+                # event_count_by_lib: Di all_data["teams_with_#"].get(team.id, 0),
+                # event_count_by_name: Di all_data["teams_with_#"].get(team.id, 0),
+                recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
+                recording_count_total=all_data["teams_with_recording_count_total"].get(team.id, 0),
+                group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
+                decide_requests_count_in_period=all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0),
+                decide_requests_count_in_month=all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0),
+                local_evaluation_requests_count_in_period=all_data[
+                    "teams_with_local_evaluation_requests_count_in_period"
+                ].get(team.id, 0),
+                local_evaluation_requests_count_in_month=all_data[
+                    "teams_with_local_evaluation_requests_count_in_month"
+                ].get(team.id, 0),
+                dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
+                dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
+                dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),
+                dashboard_tagged_count=all_data["teams_with_dashboard_tagged_count"].get(team.id, 0),
+                ff_count=all_data["teams_with_ff_count"].get(team.id, 0),
+                ff_active_count=all_data["teams_with_ff_active_count"].get(team.id, 0),
+                hogql_app_bytes_read=all_data["teams_with_hogql_app_bytes_read"].get(team.id, 0),
+                hogql_app_rows_read=all_data["teams_with_hogql_app_rows_read"].get(team.id, 0),
+                hogql_app_duration_ms=all_data["teams_with_hogql_app_duration_ms"].get(team.id, 0),
+                hogql_api_bytes_read=all_data["teams_with_hogql_api_bytes_read"].get(team.id, 0),
+                hogql_api_rows_read=all_data["teams_with_hogql_api_rows_read"].get(team.id, 0),
+                hogql_api_duration_ms=all_data["teams_with_hogql_api_duration_ms"].get(team.id, 0),
+                event_explorer_app_bytes_read=all_data["teams_with_event_explorer_app_bytes_read"].get(team.id, 0),
+                event_explorer_app_rows_read=all_data["teams_with_event_explorer_app_rows_read"].get(team.id, 0),
+                event_explorer_app_duration_ms=all_data["teams_with_event_explorer_app_duration_ms"].get(team.id, 0),
+                event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
+                event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
+                event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+            )
 
-        # Then capture the events to Billing
-        if has_non_zero_usage(full_report):
-            send_report_to_billing_service.delay(org_id, full_report_dict)
-    return all_reports
+            org_id = str(team.organization.id)
+
+            if org_id not in org_reports:
+                org_report = OrgReport(
+                    date=period_start.strftime("%Y-%m-%d"),
+                    organization_id=org_id,
+                    organization_name=team.organization.name,
+                    organization_created_at=team.organization.created_at.isoformat(),
+                    organization_user_count=get_org_user_count(org_id),
+                    team_count=1,
+                    teams={str(team.id): team_report},
+                    **dataclasses.asdict(team_report),  # Clone the team report as the basis
+                )
+                org_reports[org_id] = org_report
+            else:
+                org_report = org_reports[org_id]
+                org_report.teams[str(team.id)] = team_report
+                org_report.team_count += 1
+
+                # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
+                for field in dataclasses.fields(UsageReportCounters):
+                    if hasattr(team_report, field.name):
+                        setattr(
+                            org_report,
+                            field.name,
+                            getattr(org_report, field.name) + getattr(team_report, field.name),
+                        )
+        time_since = datetime.now() - time_now
+        print(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
+
+        all_reports = []
+
+        print("Sending usage reports to PostHog and Billing...")  # noqa T201
+        time_now = datetime.now()
+        for org_report in org_reports.values():
+            org_id = org_report.organization_id
+
+            if only_organization_id and only_organization_id != org_id:
+                continue
+
+            full_report = FullUsageReport(
+                **dataclasses.asdict(org_report),
+                **dataclasses.asdict(instance_metadata),
+            )
+            full_report_dict = dataclasses.asdict(full_report)
+            all_reports.append(full_report_dict)
+
+            if dry_run:
+                continue
+
+            # First capture the events to PostHog
+            if not skip_capture_event:
+                at_date_str = at_date.isoformat() if at_date else None
+                capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
+
+            # Then capture the events to Billing
+            if has_non_zero_usage(full_report):
+                send_report_to_billing_service.delay(org_id, full_report_dict)
+        time_since = datetime.now() - time_now
+        print(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        return all_reports
+    except Exception as err:
+        capture_exception(err)
+        raise err

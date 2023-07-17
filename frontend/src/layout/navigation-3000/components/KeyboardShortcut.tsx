@@ -12,15 +12,16 @@ const KEY_TO_SYMBOL: Partial<Record<HotKeyOrModifier, string>> = {
     arrowdown: '↓',
     arrowleft: '←',
     arrowright: '→',
-    enter: '↩',
+    enter: '↵',
     escape: 'esc',
     tab: '⇥',
     space: '␣',
+    forwardslash: '/',
 }
 /** For consistency, we always show modifiers in this order, before other keys. */
 const MODIFIER_PRIORITY: HotKeyOrModifier[] = ['shift', 'command', 'option']
 
-interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, true>> {
+export interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, true>> {
     /** Whether this shortcut should be shown with muted opacity. */
     muted?: boolean
 }

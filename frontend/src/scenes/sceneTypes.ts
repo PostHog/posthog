@@ -20,9 +20,9 @@ export enum Scene {
     PropertyDefinition = 'PropertyDefinition',
     DataManagementHistory = 'DataManagementHistory',
     IngestionWarnings = 'IngestionWarnings',
-    SessionRecordings = 'SessionsRecordings',
-    SessionRecording = 'SessionRecording',
-    SessionRecordingPlaylist = 'SessionRecordingPlaylist',
+    Replay = 'Replay',
+    ReplaySingle = 'ReplaySingle',
+    ReplayPlaylist = 'ReplayPlaylist',
     Person = 'Person',
     Persons = 'Persons',
     Groups = 'Groups',
@@ -31,10 +31,17 @@ export enum Scene {
     Actions = 'ActionsTable',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
+    Exports = 'Exports',
+    CreateExport = 'CreateExport',
+    ViewExport = 'ViewExport',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    Surveys = 'Surveys',
+    Survey = 'Survey',
+    DataWarehouse = 'DataWarehouse',
+    DataWarehouseTable = 'DataWarehouseTable',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
@@ -51,6 +58,7 @@ export enum Scene {
     AppMetrics = 'AppMetrics',
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
+    Site = 'Site',
     WebPerformance = 'WebPerformance',
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
@@ -67,6 +75,7 @@ export enum Scene {
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
     Feedback = 'Feedback',
+    Notebook = 'Notebook',
 }
 
 export type SceneProps = Record<string, any>
@@ -106,8 +115,13 @@ export interface SceneConfig {
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
     allowUnauthenticated?: boolean
-    /** Hides most navigation UI, like the sidebar and breadcrumbs. */
-    plain?: boolean
+    /**
+     * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-raw`, navigation is shown, but the scene has no padding.
+     * If `plain`, there's no navigation present, and the scene has no padding.
+     * @default 'app'
+     */
+    layout?: 'app' | 'app-raw' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
@@ -116,6 +130,6 @@ export interface SceneConfig {
     instanceLevel?: boolean
     /** Route requires organization access (used e.g. by breadcrumbs) */
     organizationBased?: boolean
-    /** Route requires project access (used e.g. by breadcrumbs). `true` implies `organizationBased` */
+    /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
 }

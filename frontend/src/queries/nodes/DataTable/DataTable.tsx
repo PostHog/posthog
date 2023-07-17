@@ -14,7 +14,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/data
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { EventDetails } from 'scenes/events'
+import { EventDetails } from 'scenes/events/EventDetails'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
@@ -142,6 +142,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             renderValue={() => <>Edit column</>}
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -164,7 +166,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <LemonDivider />
                         {canSort ? (
@@ -209,6 +210,8 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -227,13 +230,14 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
+                            type="tertiary"
+                            fullWidth
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -252,7 +256,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 }
                             }}
                             groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
                         />
                         {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                             <>
@@ -355,7 +358,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full h-full space-y-4">
+                <div className="relative w-full flex flex-col gap-4 flex-1">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
@@ -369,7 +372,7 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             ) : null}
                         </div>
                     )}
-                    {showFirstRow && showSecondRow && <LemonDivider />}
+                    {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}
@@ -457,6 +460,12 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                       },
                                       rowExpandable: ({ result }) => !!result,
                                       noIndent: true,
+                                      expandedRowClassName: ({ result }) => {
+                                          const record = Array.isArray(result) ? result[0] : result
+                                          return record && record['event'] === '$exception'
+                                              ? 'border border-danger-dark bg-danger-highlight'
+                                              : null
+                                      },
                                   }
                                 : undefined
                         }
@@ -464,12 +473,17 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                             clsx('DataTable__row', {
                                 'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                 'DataTable__row--category_row': !!label,
+                                'border border-danger-dark bg-danger-highlight':
+                                    result && result[0] && result[0]['event'] === '$exception',
                             })
                         }
+                        footer={
+                            canLoadNextData &&
+                            ((response as any).results.length > 0 || !responseLoading) && (
+                                <LoadNext query={query.source} />
+                            )
+                        }
                     />
-                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
-                        <LoadNext query={query.source} />
-                    )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />

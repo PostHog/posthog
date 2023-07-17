@@ -33,7 +33,7 @@ import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
+import { KeyMappingInterface } from 'lib/taxonomy'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
@@ -388,6 +388,8 @@ export function formatPropertyLabel(
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Unique users) `
+    } else if (action.math === 'hogql') {
+        label += ` (${action.math_hogql})`
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }
@@ -808,7 +810,7 @@ export const dateMapping: DateMappingOption[] = [
     },
     {
         key: 'Yesterday',
-        values: ['-1dStart', 'dStart'],
+        values: ['-1dStart', '-1dEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
@@ -1007,14 +1009,14 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     return response
 }
 
-export function copyToClipboard(value: string, description: string = 'text'): boolean {
+export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
     if (!navigator.clipboard) {
         lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
         return false
     }
 
     try {
-        navigator.clipboard.writeText(value)
+        await navigator.clipboard.writeText(value)
         lemonToast.info(`Copied ${description} to clipboard`, {
             icon: <IconCopy />,
         })

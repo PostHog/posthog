@@ -4,7 +4,7 @@ import LRU from 'lru-cache'
 import { Client, Pool } from 'pg'
 
 import { ONE_MINUTE } from '../../config/constants'
-import { PluginsServerConfig, Team, TeamId } from '../../types'
+import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
 import { postgresQuery } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -31,6 +31,16 @@ export class TeamManager {
             updateAgeOnGet: false, // Make default behaviour explicit
         })
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
+    }
+
+    public async getTeamForEvent(event: PipelineEvent): Promise<Team | null> {
+        if (event.team_id) {
+            return this.fetchTeam(event.team_id)
+        } else if (event.token) {
+            return this.getTeamByToken(event.token)
+        } else {
+            return Promise.resolve(null)
+        }
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -148,7 +158,8 @@ export async function fetchTeam(client: Client | Pool, teamId: Team['id']): Prom
                 api_token,
                 slack_incoming_webhook,
                 session_recording_opt_in,
-                ingested_event
+                ingested_event,
+                person_display_name_properties
             FROM posthog_team
             WHERE id = $1
             `,
@@ -180,4 +191,22 @@ export async function fetchTeamByToken(client: Client | Pool, token: string): Pr
         'fetchTeamByToken'
     )
     return selectResult.rows[0] ?? null
+}
+
+export async function fetchTeamTokensWithRecordings(client: Client | Pool): Promise<Record<string, TeamId>> {
+    const selectResult = await postgresQuery<Pick<Team, 'id' | 'api_token'>>(
+        client,
+        `
+            SELECT id, api_token
+            FROM posthog_team
+            WHERE session_recording_opt_in = true
+        `,
+        [],
+        'fetchTeamTokensWithRecordings'
+    )
+
+    return selectResult.rows.reduce((acc, row) => {
+        acc[row.api_token] = row.id
+        return acc
+    }, {} as Record<string, TeamId>)
 }

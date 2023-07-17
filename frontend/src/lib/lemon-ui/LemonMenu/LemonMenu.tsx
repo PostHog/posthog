@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useMemo } from 'react'
+import React, { FunctionComponent, useCallback, useMemo } from 'react'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -8,6 +8,9 @@ import { useKeyboardNavigation } from './useKeyboardNavigation'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
+type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
 export interface LemonMenuItemBase
     extends Pick<
@@ -15,31 +18,40 @@ export interface LemonMenuItemBase
         'icon' | 'sideIcon' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
     > {
     label: string | JSX.Element
+    /** True if the item is a custom element. */
+    custom?: boolean
 }
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: (LemonMenuItemLeaf | false | null)[]
+    keyboardShortcut?: never
 }
 export type LemonMenuItemLeaf =
     | (LemonMenuItemBase & {
           onClick: () => void
           items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           to: string
           targetBlank?: boolean
           items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
     | (LemonMenuItemBase & {
           onClick: () => void
           to: string
           targetBlank?: boolean
           items?: never
+          keyboardShortcut?: KeyboardShortcut
       })
 export interface LemonMenuItemCustom {
     /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
     label: () => JSX.Element
     active?: never
     items?: never
+    keyboardShortcut?: never
+    /** True if the item is a custom element. */
+    custom?: boolean
 }
 export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
 
@@ -61,6 +73,7 @@ export interface LemonMenuProps
             | 'maxContentWidth'
             | 'visible'
             | 'onVisibilityChange'
+            | 'closeOnClickInside'
             | 'closeParentPopoverOnClickInside'
             | 'className'
         >,
@@ -83,21 +96,23 @@ export function LemonMenu({
         activeItemIndex
     )
 
+    const _onVisibilityChange = useCallback(
+        (visible) => {
+            onVisibilityChange?.(visible)
+            if (visible && activeItemIndex && activeItemIndex > -1) {
+                // Scroll the active item into view once the menu is open (i.e. in the next tick)
+                setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
+            }
+        },
+        [onVisibilityChange, activeItemIndex]
+    )
+
     return (
         <LemonDropdown
             overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
             closeOnClickInside
             referenceRef={referenceRef}
-            onVisibilityChange={(visible) => {
-                onVisibilityChange?.(visible)
-                if (visible && activeItemIndex && activeItemIndex > -1) {
-                    // Scroll the active item into view once the menu is open (i.e. in the next tick)
-                    setTimeout(
-                        () => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }),
-                        0
-                    )
-                }
-            }}
+            onVisibilityChange={_onVisibilityChange}
             {...dropdownProps}
         />
     )
@@ -168,7 +183,7 @@ export function LemonMenuSectionList({
                                 itemsRef={itemsRef}
                                 itemIndexOffset={rollingItemIndex}
                             />
-                            {section.footer ? <ul>{section.footer}</ul> : null}
+                            {section.footer ? <div>{section.footer}</div> : null}
                         </section>
                         {i < sections.length - 1 ? (
                             <LemonDivider className={buttonSize === 'small' ? 'my-1' : 'my-2'} />
@@ -222,38 +237,50 @@ interface LemonMenuItemButtonProps {
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
-    React.forwardRef(({ item: { label, items, ...buttonProps }, size, tooltipPlacement }, ref): JSX.Element => {
-        const Label = typeof label === 'function' ? label : null
-        const button = Label ? (
-            <Label key="x" />
-        ) : (
-            <LemonButton
-                ref={ref}
-                tooltipPlacement={tooltipPlacement}
-                status="stealth"
-                fullWidth
-                role="menuitem"
-                size={size}
-                {...buttonProps}
-            >
-                {label}
-            </LemonButton>
-        )
+    React.forwardRef(
+        (
+            { item: { label, items, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
+            ref
+        ): JSX.Element => {
+            const Label = typeof label === 'function' ? label : null
+            const button = Label ? (
+                <Label key="x" />
+            ) : (
+                <LemonButton
+                    ref={ref}
+                    tooltipPlacement={tooltipPlacement}
+                    status="stealth"
+                    fullWidth
+                    role="menuitem"
+                    size={size}
+                    {...buttonProps}
+                >
+                    {label}
+                    {keyboardShortcut && (
+                        <div className="-mr-0.5 inline-flex grow justify-end">
+                            {/* Show the keyboard shortcut on the right */}
+                            <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
+                        </div>
+                    )}
+                </LemonButton>
+            )
 
-        return items ? (
-            <LemonMenu
-                items={items}
-                tooltipPlacement={tooltipPlacement}
-                placement="right-start"
-                actionable
-                closeParentPopoverOnClickInside
-            >
-                {button}
-            </LemonMenu>
-        ) : (
-            button
-        )
-    })
+            return items ? (
+                <LemonMenu
+                    items={items}
+                    tooltipPlacement={tooltipPlacement}
+                    placement="right-start"
+                    actionable
+                    closeOnClickInside={custom ? false : true}
+                    closeParentPopoverOnClickInside={custom ? false : true}
+                >
+                    {button}
+                </LemonMenu>
+            ) : (
+                button
+            )
+        }
+    )
 LemonMenuItemButton.displayName = 'LemonMenuItemButton'
 
 function normalizeItems(sectionsAndItems: LemonMenuItems): LemonMenuItem[] | LemonMenuSection[] {

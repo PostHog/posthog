@@ -4,7 +4,6 @@ from typing import List, Optional
 
 import structlog
 from django.conf import settings
-from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 
 from posthog.celery import app
@@ -63,16 +62,15 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 
 
 @app.task(max_retries=1)
-def send_password_reset(user_id: int) -> None:
+def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
-    password_reset_token = default_token_generator.make_token(user)
     message = EmailMessage(
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
         template_name="password_reset",
         template_context={
             "preheader": "Please follow the link inside to reset your password.",
-            "link": f"/reset/{user.uuid}/{password_reset_token}",
+            "link": f"/reset/{user.uuid}/{token}",
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
@@ -171,7 +169,6 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
 
 @app.task(max_retries=1)
 def send_async_migration_complete_email(migration_key: str, time: str) -> None:
-
     message = EmailMessage(
         campaign_key=f"async_migration_complete_{migration_key}",
         subject=f"Async migration {migration_key} completed",
@@ -186,7 +183,6 @@ def send_async_migration_complete_email(migration_key: str, time: str) -> None:
 
 @app.task(max_retries=1)
 def send_async_migration_errored_email(migration_key: str, time: str, error: str) -> None:
-
     message = EmailMessage(
         campaign_key=f"async_migration_error_{migration_key}",
         subject=f"Async migration {migration_key} errored",

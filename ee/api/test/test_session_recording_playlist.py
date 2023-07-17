@@ -211,8 +211,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
 
         assert len(result["results"]) == 2
-        assert result["results"][0]["id"] == "session2"
-        assert result["results"][1]["id"] == "session1"
+        assert result["results"][0]["id"] == "session1"
+        assert result["results"][1]["id"] == "session2"
 
         # Test get recordings
         result = self.client.get(

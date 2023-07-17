@@ -12,7 +12,6 @@ import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
-    ActionStep,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
@@ -28,8 +27,6 @@ import {
     GroupKey,
     GroupTypeIndex,
     GroupTypeToColumnIndex,
-    Hook,
-    IngestionPersonData,
     OrganizationMembershipLevel,
     Person,
     PersonDistinctId,
@@ -43,7 +40,6 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
-    RawAction,
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
@@ -53,6 +49,8 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
+import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
@@ -141,6 +139,7 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
     'ETIMEDOUT',
+    'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
 
 /** The recommended way of accessing the database. */
@@ -520,129 +519,10 @@ export class DB {
         })
     }
 
-    REDIS_PERSON_ID_PREFIX = 'person_id'
-    REDIS_PERSON_UUID_PREFIX = 'person_uuid'
-    REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
-    REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
     REDIS_GROUP_DATA_PREFIX = 'group_data_cache_v2'
-
-    private getPersonIdCacheKey(teamId: number, distinctId: string): string {
-        return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
-    }
-
-    private getPersonUuidCacheKey(teamId: number, personId: number): string {
-        return `${this.REDIS_PERSON_UUID_PREFIX}:${teamId}:${personId}`
-    }
-
-    private getPersonCreatedAtCacheKey(teamId: number, personId: number): string {
-        return `${this.REDIS_PERSON_CREATED_AT_PREFIX}:${teamId}:${personId}`
-    }
-
-    private getPersonPropertiesCacheKey(teamId: number, personId: number): string {
-        return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
-    }
 
     public getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
         return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
-    }
-
-    private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
-        await this.redisSet(this.getPersonIdCacheKey(teamId, distinctId), personId, this.PERSONS_AND_GROUPS_CACHE_TTL)
-    }
-
-    private async updatePersonUuidCache(teamId: number, personId: number, uuid: string): Promise<void> {
-        await this.redisSet(this.getPersonUuidCacheKey(teamId, personId), uuid, this.PERSONS_AND_GROUPS_CACHE_TTL)
-    }
-
-    private async updatePersonCreatedAtIsoCache(teamId: number, personId: number, createdAtIso: string): Promise<void> {
-        await this.redisSet(
-            this.getPersonCreatedAtCacheKey(teamId, personId),
-            createdAtIso,
-            this.PERSONS_AND_GROUPS_CACHE_TTL
-        )
-    }
-
-    private async updatePersonCreatedAtCache(teamId: number, personId: number, createdAt: DateTime): Promise<void> {
-        await this.updatePersonCreatedAtIsoCache(teamId, personId, createdAt.toISO())
-    }
-
-    private async updatePersonPropertiesCache(teamId: number, personId: number, properties: Properties): Promise<void> {
-        await this.redisSet(
-            this.getPersonPropertiesCacheKey(teamId, personId),
-            properties,
-            this.PERSONS_AND_GROUPS_CACHE_TTL
-        )
-    }
-
-    public async getPersonId(teamId: number, distinctId: string): Promise<number | null> {
-        const personId = await this.redisGet(this.getPersonIdCacheKey(teamId, distinctId), null)
-        if (personId) {
-            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_id', team_id: teamId.toString() })
-            return Number(personId)
-        }
-        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_id', team_id: teamId.toString() })
-        // Query from postgres and update cache
-        const result = await this.postgresQuery(
-            'SELECT person_id FROM posthog_persondistinctid WHERE team_id=$1 AND distinct_id=$2 LIMIT 1',
-            [teamId, distinctId],
-            'fetchPersonId'
-        )
-        if (result.rows.length > 0) {
-            const personId = Number(result.rows[0].person_id)
-            await this.updatePersonIdCache(teamId, distinctId, personId)
-            return personId
-        }
-        return null
-    }
-
-    public async getPersonDataByPersonId(teamId: number, personId: number): Promise<IngestionPersonData | undefined> {
-        const [personUuid, personCreatedAtIso, personProperties] = await Promise.all([
-            this.redisGet(this.getPersonUuidCacheKey(teamId, personId), null),
-            this.redisGet(this.getPersonCreatedAtCacheKey(teamId, personId), null),
-            this.redisGet(this.getPersonPropertiesCacheKey(teamId, personId), null),
-        ])
-        if (personUuid !== null && personCreatedAtIso !== null && personProperties !== null) {
-            this.statsd?.increment(`person_info_cache.hit`, { lookup: 'person_properties', team_id: teamId.toString() })
-
-            return {
-                team_id: teamId,
-                uuid: String(personUuid),
-                created_at: DateTime.fromISO(String(personCreatedAtIso)).toUTC(),
-                properties: personProperties as Properties, // redisGet does JSON.parse and we redisSet JSON.stringify(Properties)
-                id: personId,
-            }
-        }
-        this.statsd?.increment(`person_info_cache.miss`, { lookup: 'person_properties', team_id: teamId.toString() })
-        // Query from postgres and update cache
-        const result = await this.postgresQuery(
-            'SELECT uuid, created_at, properties FROM posthog_person WHERE team_id=$1 AND id=$2 LIMIT 1',
-            [teamId, personId],
-            'fetchPersonProperties'
-        )
-        if (result.rows.length !== 0) {
-            const personUuid = String(result.rows[0].uuid)
-            const personCreatedAtIso = String(result.rows[0].created_at)
-            const personProperties: Properties = result.rows[0].properties
-            this.promiseManager.trackPromise(this.updatePersonUuidCache(teamId, personId, personUuid))
-            this.promiseManager.trackPromise(this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso))
-            this.promiseManager.trackPromise(this.updatePersonPropertiesCache(teamId, personId, personProperties))
-            return {
-                team_id: teamId,
-                uuid: personUuid,
-                created_at: DateTime.fromISO(personCreatedAtIso).toUTC(),
-                properties: personProperties,
-                id: personId,
-            }
-        }
-        return undefined
-    }
-
-    public async getPersonData(teamId: number, distinctId: string): Promise<IngestionPersonData | undefined> {
-        const personId = await this.getPersonId(teamId, distinctId)
-        if (personId) {
-            return await this.getPersonDataByPersonId(teamId, personId)
-        }
-        return undefined
     }
 
     public async updateGroupCache(
@@ -864,18 +744,6 @@ export class DB {
         })
 
         await this.kafkaProducer.queueMessages(kafkaMessages)
-
-        // Update person info cache - we want to await to make sure the Event gets the right properties
-        await Promise.all(
-            (distinctIds || [])
-                .map((distinctId) => this.updatePersonIdCache(teamId, distinctId, person.id))
-                .concat([
-                    this.updatePersonUuidCache(teamId, person.id, person.uuid),
-                    this.updatePersonCreatedAtCache(teamId, person.id, person.created_at),
-                    this.updatePersonPropertiesCache(teamId, person.id, properties),
-                ])
-        )
-
         return person
     }
 
@@ -937,10 +805,6 @@ export class DB {
             await this.kafkaProducer.queueMessage(message)
         }
 
-        // Update person info cache - we want to await to make sure the Event gets the right properties
-        await this.updatePersonPropertiesCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.properties)
-        await this.updatePersonCreatedAtCache(updatedPerson.team_id, updatedPerson.id, updatedPerson.created_at)
-
         return [updatedPerson, kafkaMessages]
     }
 
@@ -967,7 +831,6 @@ export class DB {
                 ),
             ]
         }
-        // TODO: remove from cache
         return kafkaMessages
     }
 
@@ -1014,8 +877,6 @@ export class DB {
         if (kafkaMessages.length) {
             await this.kafkaProducer.queueMessages(kafkaMessages)
         }
-        // Update person info cache - we want to await to make sure the Event gets the right properties
-        await this.updatePersonIdCache(person.team_id, distinctId, person.id)
     }
 
     public async addDistinctIdPooled(
@@ -1102,9 +963,6 @@ export class DB {
                     },
                 ],
             })
-
-            // Update person info cache - we want to await to make sure the Event gets the right properties
-            await this.updatePersonIdCache(usefulColumns.team_id, usefulColumns.distinct_id, usefulColumns.person_id)
         }
         return kafkaMessages
     }
@@ -1134,23 +992,6 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
-        const psqlResult = await this.postgresQuery(
-            `
-            SELECT count(1) AS count
-            FROM posthog_cohortpeople
-            JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
-            JOIN (SELECT * FROM posthog_person where team_id = $3) AS posthog_person_in_team ON (posthog_cohortpeople.person_id = posthog_person_in_team.id)
-            WHERE cohort_id=$1
-              AND posthog_person_in_team.uuid=$2
-              AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
-            `,
-            [cohortId, personUuid, teamId],
-            'doesPersonBelongToCohort'
-        )
-        return psqlResult.rows[0].count > 0
-    }
-
     public async addPersonToCohort(
         cohortId: number,
         personId: Person['id'],
@@ -1168,7 +1009,8 @@ export class DB {
     public async addFeatureFlagHashKeysForMergedPerson(
         teamID: Team['id'],
         sourcePersonID: Person['id'],
-        targetPersonID: Person['id']
+        targetPersonID: Person['id'],
+        client: PoolClient
     ): Promise<void> {
         // Delete and insert in a single query to ensure
         // this function is safe wherever it is run.
@@ -1191,7 +1033,8 @@ export class DB {
                 ON CONFLICT DO NOTHING
             `,
             [teamID, sourcePersonID, targetPersonID],
-            'addFeatureFlagHashKeysForMergedPerson'
+            'addFeatureFlagHashKeysForMergedPerson',
+            client
         )
     }
 
@@ -1347,104 +1190,17 @@ export class DB {
     // Action & ActionStep & Action<>Event
 
     public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-        const restHooks = await this.fetchActionRestHooks()
-        const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
-
-        const rawActions = (
-            await this.postgresQuery<RawAction>(
-                `
-                SELECT
-                    id,
-                    team_id,
-                    name,
-                    description,
-                    created_at,
-                    created_by_id,
-                    deleted,
-                    post_to_slack,
-                    slack_message_format,
-                    is_calculating,
-                    updated_at,
-                    last_calculated_at
-                FROM posthog_action
-                WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
-            `,
-                [restHookActionIds],
-                'fetchActions'
-            )
-        ).rows
-
-        const pluginIds: number[] = rawActions.map(({ id }) => id)
-        const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
-            await this.postgresQuery(
-                `
-                    SELECT posthog_actionstep.*, posthog_action.team_id
-                    FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
-                    WHERE posthog_action.id = ANY($1)
-                `,
-                [pluginIds],
-                'fetchActionSteps'
-            )
-        ).rows
-        const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
-        for (const rawAction of rawActions) {
-            if (!actions[rawAction.team_id]) {
-                actions[rawAction.team_id] = {}
-            }
-
-            actions[rawAction.team_id][rawAction.id] = {
-                ...rawAction,
-                steps: [],
-                hooks: [],
-            }
-        }
-        for (const hook of restHooks) {
-            if (hook.resource_id !== null && actions[hook.team_id]?.[hook.resource_id]) {
-                actions[hook.team_id][hook.resource_id].hooks.push(hook)
-            }
-        }
-        for (const actionStep of actionSteps) {
-            if (actions[actionStep.team_id]?.[actionStep.action_id]) {
-                actions[actionStep.team_id][actionStep.action_id].steps.push(actionStep)
-            }
-        }
-        return actions
+        return fetchAllActionsGroupedByTeam(this.postgres)
     }
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
-        const rawActions: RawAction[] = (
-            await this.postgresQuery(
-                `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
-                [id],
-                'fetchActions'
-            )
-        ).rows
-        if (!rawActions.length) {
-            return null
-        }
-
-        const [steps, hooks] = await Promise.all([
-            this.postgresQuery<ActionStep>(
-                `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
-                [id],
-                'fetchActionSteps'
-            ),
-            this.fetchActionRestHooks(id),
-        ])
-
-        const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
-        return action.post_to_slack || action.hooks.length > 0 ? action : null
+        return await fetchAction(this.postgres, id)
     }
 
     // Organization
 
     public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        const selectResult = await this.postgresQuery<RawOrganization>(
-            `SELECT * FROM posthog_organization WHERE id = $1`,
-            [organizationId],
-            'fetchOrganization'
-        )
-        return selectResult.rows[0]
+        return await fetchOrganization(this.postgres, organizationId)
     }
 
     // Team
@@ -1458,33 +1214,6 @@ export class DB {
     }
 
     // Hook (EE)
-
-    private async fetchActionRestHooks(actionId?: Hook['resource_id']): Promise<Hook[]> {
-        try {
-            const { rows } = await this.postgresQuery<Hook>(
-                `
-                SELECT *
-                FROM ee_hook
-                WHERE event = 'action_performed'
-                ${actionId !== undefined ? 'AND resource_id = $1' : ''}
-                `,
-                actionId !== undefined ? [actionId] : [],
-                'fetchActionRestHooks'
-            )
-            return rows
-        } catch (err) {
-            // On FOSS this table does not exist - ignore errors
-            if (err.message.includes('relation "ee_hook" does not exist')) {
-                return []
-            }
-
-            throw err
-        }
-    }
-
-    public async deleteRestHook(hookId: Hook['id']): Promise<void> {
-        await this.postgresQuery(`DELETE FROM ee_hook WHERE id = $1`, [hookId], 'deleteRestHook')
-    }
 
     public async createUser({
         uuid,
@@ -1570,33 +1299,6 @@ export class DB {
         }
 
         return result
-    }
-
-    public async fetchInstanceSetting<Type>(key: string): Promise<Type | null> {
-        const result = await this.postgresQuery<{ raw_value: string }>(
-            `SELECT raw_value FROM posthog_instancesetting WHERE key = $1`,
-            [key],
-            'fetchInstanceSetting'
-        )
-
-        if (result.rows.length > 0) {
-            const value = JSON.parse(result.rows[0].raw_value)
-            return value
-        } else {
-            return null
-        }
-    }
-
-    public async upsertInstanceSetting(key: string, value: string | number | boolean): Promise<void> {
-        await this.postgresQuery(
-            `
-                INSERT INTO posthog_instancesetting (key, raw_value)
-                VALUES ($1, $2)
-                ON CONFLICT (key) DO UPDATE SET raw_value = EXCLUDED.raw_value
-            `,
-            [key, JSON.stringify(value)],
-            'upsertInstanceSetting'
-        )
     }
 
     public async insertGroupType(

@@ -3,12 +3,12 @@ import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
+import { Client, Pool } from 'pg'
 import RE2 from 're2'
 
 import {
     Action,
     ActionStep,
-    ActionStepUrlMatching,
     CohortPropertyFilter,
     Element,
     ElementPropertyFilter,
@@ -18,9 +18,10 @@ import {
     PropertyFilter,
     PropertyFilterWithOperator,
     PropertyOperator,
+    StringMatching,
 } from '../../types'
-import { DB } from '../../utils/db/db'
 import { extractElements } from '../../utils/db/elements-chain'
+import { postgresQuery } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
@@ -106,13 +107,32 @@ export function castingCompare(
     return false
 }
 
+export function matchString(actual: string, expected: string, matching: StringMatching): boolean {
+    switch (matching) {
+        case StringMatching.Regex:
+            // Using RE2 here because that's what ClickHouse uses for regex matching anyway
+            // It's also safer for user-provided patterns because of a few explicit limitations
+            try {
+                return new RE2(expected).test(actual)
+            } catch {
+                return false
+            }
+        case StringMatching.Exact:
+            return expected === actual
+        case StringMatching.Contains:
+            // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
+            const adjustedRegExpString = escapeStringRegexp(expected).replace(/_/g, '.').replace(/%/g, '.*')
+            return new RegExp(adjustedRegExpString).test(actual)
+    }
+}
+
 export class ActionMatcher {
-    private db: DB
+    private postgres: Client | Pool
     private actionManager: ActionManager
     private statsd: StatsD | undefined
 
-    constructor(db: DB, actionManager: ActionManager, statsd?: StatsD) {
-        this.db = db
+    constructor(postgres: Client | Pool, actionManager: ActionManager, statsd?: StatsD) {
+        this.postgres = postgres
         this.actionManager = actionManager
         this.statsd = statsd
     }
@@ -200,27 +220,7 @@ export class ActionMatcher {
             if (!eventUrl || typeof eventUrl !== 'string') {
                 return false // URL IS UNKNOWN
             }
-            let doesUrlMatch: boolean
-            switch (step.url_matching) {
-                case ActionStepUrlMatching.Regex:
-                    // Using RE2 here because that's what ClickHouse uses for regex matching anyway
-                    // It's also safer for user-provided patterns because of a few explicit limitations
-                    try {
-                        doesUrlMatch = new RE2(step.url).test(eventUrl)
-                    } catch {
-                        doesUrlMatch = false
-                    }
-                    break
-                case ActionStepUrlMatching.Exact:
-                    doesUrlMatch = step.url === eventUrl
-                    break
-                case ActionStepUrlMatching.Contains:
-                default:
-                    // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
-                    const adjustedRegExpString = escapeStringRegexp(step.url).replace(/_/g, '.').replace(/%/g, '.*')
-                    doesUrlMatch = new RegExp(adjustedRegExpString).test(eventUrl)
-            }
-            if (!doesUrlMatch) {
+            if (!matchString(eventUrl, step.url, step.url_matching || StringMatching.Contains)) {
                 return false // URL IS A MISMATCH
             }
         }
@@ -239,13 +239,19 @@ export class ActionMatcher {
         if (step.href || step.tag_name || step.text) {
             if (
                 !elements.some((element) => {
-                    if (step.href && element.href !== step.href) {
+                    if (
+                        step.href &&
+                        !matchString(element.href || '', step.href, step.href_matching || StringMatching.Exact)
+                    ) {
                         return false // ELEMENT HREF IS A MISMATCH
                     }
                     if (step.tag_name && element.tag_name !== step.tag_name) {
                         return false // ELEMENT TAG NAME IS A MISMATCH
                     }
-                    if (step.text && element.text !== step.text) {
+                    if (
+                        step.text &&
+                        !matchString(element.text || '', step.text, step.text_matching || StringMatching.Exact)
+                    ) {
                         return false // ELEMENT TEXT IS A MISMATCH
                     }
                     return true
@@ -372,7 +378,25 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
-        return await this.db.doesPersonBelongToCohort(Number(filter.value), personUuid, teamId)
+        return await this.doesPersonBelongToCohort(Number(filter.value), personUuid, teamId)
+    }
+
+    public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
+        const psqlResult = await postgresQuery(
+            this.postgres,
+            `
+        SELECT count(1) AS count
+        FROM posthog_cohortpeople
+        JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
+        JOIN (SELECT * FROM posthog_person where team_id = $3) AS posthog_person_in_team ON (posthog_cohortpeople.person_id = posthog_person_in_team.id)
+        WHERE cohort_id=$1
+          AND posthog_person_in_team.uuid=$2
+          AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
+        `,
+            [cohortId, personUuid, teamId],
+            'doesPersonBelongToCohort'
+        )
+        return psqlResult.rows[0].count > 0
     }
 
     /**

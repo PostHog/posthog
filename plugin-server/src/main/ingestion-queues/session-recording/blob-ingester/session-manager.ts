@@ -1,56 +1,82 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, unlink } from 'fs/promises'
+import { createReadStream, createWriteStream, WriteStream } from 'fs'
+import { readFile, stat, unlink } from 'fs/promises'
+import { DateTime } from 'luxon'
 import path from 'path'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
+import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
+import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
-import { convertToPersistedMessage } from './utils'
+import { convertToPersistedMessage, now } from './utils'
 
-export const counterS3FilesWritten = new Counter({
+const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
+    labelNames: ['flushReason'],
 })
 
-export const counterS3WriteErrored = new Counter({
+const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3FilesBytesWritten = new Gauge({
-    name: 'recording_s3_bytes_written',
-    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
-    labelNames: ['team'],
+const histogramS3LinesWritten = new Histogram({
+    name: 'recording_s3_lines_written_histogram',
+    help: 'The number of lines in a file we send to s3',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
 })
 
-const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
+const histogramSessionAgeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_age_seconds',
+    help: 'The age of current sessions in seconds',
+    buckets: [0, 60, 60 * 2, 60 * 5, 60 * 8, 60 * 10, 60 * 12, 60 * 15, 60 * 20, Infinity],
+})
+
+const histogramSessionSize = new Histogram({
+    name: 'recording_blob_ingestion_session_lines',
+    help: 'The size of sessions in numbers of lines',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+})
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
     id: string
+    oldestKafkaTimestamp: number | null
+    newestKafkaTimestamp: number | null
     count: number
-    size: number
-    oldestKafkaTimestamp: number
     file: string
-    offsets: number[]
+    fileStream: WriteStream
+    offsets: {
+        lowest: number
+        highest: number
+    }
+    eventsRange: {
+        firstTimestamp: number
+        lastTimestamp: number
+    } | null
+    createdAt: number
 }
 
 export class SessionManager {
-    chunks: Map<string, IncomingRecordingMessage[]> = new Map()
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
+    realtime = false
+    inProgressUpload: Upload | null = null
+    unsubscribe: () => void
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
+        public readonly realtimeManager: RealtimeManager,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
@@ -59,134 +85,90 @@ export class SessionManager {
     ) {
         this.buffer = this.createBuffer()
 
-        // this.lastProcessedOffset = redis.get(`session-recording-last-offset-${this.sessionId}`) || 0
+        // NOTE: a new SessionManager indicates that either everything has been flushed or a rebalance occured so we should clear the existing redis messages
+        void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
+
+        this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
+            void this.startRealtime()
+        })
     }
 
-    private async deleteFile(file: string, context: string) {
-        try {
-            await unlink(file)
-            status.info('🗑️', `blob_ingester_session_manager deleted file ${context}`, { file, context })
-        } catch (err) {
-            if (err && err.code === 'ENOENT') {
-                status.warn(
-                    '🤷‍♀️',
-                    `blob_ingester_session_manager failed deleting file ${context} path: ${file}, file not found. That's probably fine 🤷‍♀️`,
-                    {
-                        err,
-                        file,
-                        context,
-                    }
-                )
-                return
-            }
-            status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
-                err,
-                file,
-                context,
-            })
-            captureException(err)
-            throw err
+    private logContext = (): Record<string, any> => {
+        return {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            teamId: this.teamId,
+            topic: this.topic,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
+                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
+                : undefined,
+            bufferCount: this.buffer.count,
         }
     }
 
-    public async add(message: IncomingRecordingMessage): Promise<void> {
+    public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager add called after destroy`, {
-                message,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
-        this.buffer.oldestKafkaTimestamp = Math.min(this.buffer.oldestKafkaTimestamp, message.metadata.timestamp)
-        // TODO: Check that the offset is higher than the lastProcessed
-        // If not - ignore it
-        // If it is - update lastProcessed and process it
-        if (message.chunk_count === 1) {
-            await this.addToBuffer(message)
-        } else {
-            await this.addToChunks(message)
-        }
 
-        await this.flushIfBufferExceedsCapacity()
+        this.addToBuffer(message)
     }
 
     public get isEmpty(): boolean {
-        return this.buffer.count === 0 && this.chunks.size === 0
+        return !this.buffer.count && !this.flushBuffer?.count
     }
 
-    public async flushIfBufferExceedsCapacity(): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush on buffer size called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-
-        // even if the buffer is over-size we can't flush if we have unfinished chunks
-        if (gzippedCapacity > 1) {
-            if (this.chunks.size === 0) {
-                // return the promise and let the caller decide whether to await
-                status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                    gzippedCapacity,
-                    gzipSizeKb,
-                    sessionId: this.sessionId,
-                })
-                return this.flush()
-            } else {
-                status.warn(
-                    '🚽',
-                    `blob_ingester_session_manager would flush buffer due to size, but chunks are still pending`,
-                    {
-                        gzippedCapacity,
-                        sessionId: this.sessionId,
-                        partition: this.partition,
-                        chunks: this.chunks.size,
-                    }
-                )
-            }
+        const logContext: Record<string, any> = {
+            ...this.logContext(),
+            referenceTime: referenceNow,
+            referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
+            flushThresholdMillis,
         }
-    }
 
-    public async flushIfSessionBufferIsOld(): Promise<void> {
-        if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush on age called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
+        if (this.buffer.oldestKafkaTimestamp === null) {
+            // We have no messages yet, so we can't flush
+            if (this.buffer.count > 0) {
+                throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
+            }
+            status.warn('🚽', `blob_ingester_session_manager buffer has no oldestKafkaTimestamp yet`, { logContext })
             return
         }
 
-        const bufferAge = Date.now() - this.buffer.oldestKafkaTimestamp
-        const tolerance = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
-        if (bufferAge >= tolerance) {
-            if (this.chunks.size === 0) {
-                // return the promise and let the caller decide whether to await
-                status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
-                    bufferAge,
-                    tolerance,
-                    sessionId: this.sessionId,
-                    partition: this.partition,
-                })
-                return this.flush()
-            } else {
-                status.warn(
-                    '🚽',
-                    `blob_ingester_session_manager would flush buffer due to age, but chunks are still pending`,
-                    {
-                        bufferAge,
-                        tolerance,
-                        sessionId: this.sessionId,
-                        partition: this.partition,
-                        chunks: this.chunks.size,
-                    }
-                )
-            }
+        const bufferAgeInMemory = now() - this.buffer.createdAt
+        const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
+
+        const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
+        // check the in-memory age against a larger value than the flush threshold,
+        // otherwise we'll flap between reasons for flushing when close to real-time processing
+        const sessionAgeIsOverThreshold =
+            bufferAgeInMemory >=
+            flushThresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+
+        logContext['bufferAgeInMemory'] = bufferAgeInMemory
+        logContext['bufferAgeFromReference'] = bufferAgeFromReference
+        logContext['bufferAgeIsOverThreshold'] = bufferAgeIsOverThreshold
+        logContext['sessionAgeIsOverThreshold'] = sessionAgeIsOverThreshold
+
+        histogramSessionAgeSeconds.observe(bufferAgeInMemory / 1000)
+        histogramSessionSize.observe(this.buffer.count)
+
+        if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
+            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+                ...logContext,
+            })
+
+            // return the promise and let the caller decide whether to await
+            return this.flush(bufferAgeIsOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
+        } else {
+            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+                ...logContext,
+            })
         }
     }
 
@@ -194,100 +176,127 @@ export class SessionManager {
      * Flushing takes the current buffered file and moves it to the flush buffer
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
-    public async flush(): Promise<void> {
+    public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
         if (this.flushBuffer) {
-            status.warn('⚠️', "blob_ingester_session_manager Flush called but we're already flushing", {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
         if (this.destroying) {
-            status.warn('⚠️', `blob_ingester_session_manager flush somehow called after destroy`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             return
         }
 
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
+        const { fileStream, file } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
 
         try {
+            if (this.flushBuffer.count === 0) {
+                throw new Error("Can't flush empty buffer")
+            }
+
+            const eventsRange = this.flushBuffer.eventsRange
+            if (!eventsRange) {
+                throw new Error("Can't flush buffer due to missing eventRange")
+            }
+
+            const { firstTimestamp, lastTimestamp } = eventsRange
             const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const dataKey = `${baseKey}/data/${this.flushBuffer.oldestKafkaTimestamp}` // TODO: Change to be based on events times
+            const timeRange = `${firstTimestamp}-${lastTimestamp}`
+            const dataKey = `${baseKey}/data/${timeRange}`
 
-            // TODO should only compress over some threshold? Depends how many uncompressed files we see below c200kb
-            const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
+            await new Promise<void>((resolve, reject) => {
+                // We need to safely end the file before reading from it
+                fileStream.end(async () => {
+                    try {
+                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
 
-            const parallelUploads3 = new Upload({
-                client: this.s3Client,
-                params: {
-                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                    Key: dataKey,
-                    Body: fileStream,
-                },
+                        this.inProgressUpload = new Upload({
+                            client: this.s3Client,
+                            params: {
+                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                                Key: dataKey,
+                                Body: fileStream,
+                            },
+                        })
+
+                        await this.inProgressUpload.done()
+                        fileStream.close()
+                        resolve()
+                    } catch (error) {
+                        reject(error)
+                    }
+                })
             })
-            await parallelUploads3.done()
-            fileStream.close()
 
-            counterS3FilesWritten.inc(1)
-            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
-            status.info('🚽', `blob_ingester_session_manager - flushed buffer to S3`, {
-                sessionId: this.sessionId,
-                partition: this.partition,
-                flushedSize: this.flushBuffer.size,
-                flushedAge: this.flushBuffer.oldestKafkaTimestamp,
-                flushedCount: this.flushBuffer.count,
-            })
+            counterS3FilesWritten.labels(reason).inc(1)
+            histogramS3LinesWritten.observe(this.flushBuffer.count)
         } catch (error) {
+            if (error.name === 'AbortError' && this.destroying) {
+                // abort of inProgressUpload while destroying is expected
+                return
+            }
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
+                errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
                 error,
-                sessionId: this.sessionId,
-                partition: this.partition,
-                team: this.teamId,
+                ...this.logContext(),
+                reason,
             })
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            await this.deleteFile(this.flushBuffer.file, 'on s3 flush')
+            clearTimeout(timeout)
+            this.endFlush()
+        }
+    }
 
-            const offsets = this.flushBuffer.offsets
+    private endFlush(): void {
+        if (!this.flushBuffer) {
+            return
+        }
+        const { offsets } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.endFlush delayed. Waiting over 30 seconds.`)
+        try {
+            this.inProgressUpload = null
+            // We turn off real time as the file will now be in S3
+            this.realtime = false
+            // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
+            void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
-
-            // TODO: Sync the last processed offset to redis
-            this.onFinish(offsets)
+            this.onFinish([offsets.lowest, offsets.highest])
+        } catch (error) {
+            captureException(error)
+        } finally {
+            clearTimeout(timeout)
         }
     }
 
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const file = path.join(
+                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            )
             const buffer: SessionBuffer = {
                 id,
+                createdAt: now(),
                 count: 0,
-                size: 0,
-                oldestKafkaTimestamp: Date.now(),
-                file: path.join(
-                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
-                ),
-                offsets: [],
+                oldestKafkaTimestamp: null,
+                newestKafkaTimestamp: null,
+                file,
+                fileStream: createWriteStream(file, 'utf-8'),
+                offsets: {
+                    lowest: Infinity,
+                    highest: -Infinity,
+                },
+                eventsRange: null,
             }
-
-            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-            writeFileSync(buffer.file, '', 'utf-8')
 
             return buffer
         } catch (error) {
-            status.error('🧨', 'blob_ingester_session_manager failed creating session recording buffer', {
-                error,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
         }
@@ -296,96 +305,126 @@ export class SessionManager {
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
-    private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
+    private addToBuffer(message: IncomingRecordingMessage): void {
         try {
-            const content = JSON.stringify(convertToPersistedMessage(message)) + '\n'
+            this.buffer.oldestKafkaTimestamp = Math.min(
+                this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
+            this.buffer.newestKafkaTimestamp = Math.max(
+                this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
+            const messageData = convertToPersistedMessage(message)
+            this.setEventsRangeFrom(message)
+
+            const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
-            this.buffer.size += Buffer.byteLength(content)
-            this.buffer.offsets.push(message.metadata.offset)
-            await appendFile(this.buffer.file, content, 'utf-8')
+            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
+
+            if (this.realtime) {
+                // We don't care about the response here as it is an optimistic call
+                void this.realtimeManager.addMessage(message)
+            }
+
+            this.buffer.fileStream.write(content)
         } catch (error) {
-            status.error('🧨', 'blob_ingester_session_manager failed writing session recording buffer to disk', {
-                error,
-                sessionId: this.sessionId,
-                partition: this.partition,
-            })
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
         }
     }
+    private setEventsRangeFrom(message: IncomingRecordingMessage) {
+        const start = message.events.at(0)?.timestamp
+        const end = message.events.at(-1)?.timestamp
 
-    /**
-     * Chunked messages are added to the chunks map
-     * Once all chunks are received, the message is added to the buffer
-     *
-     */
-    private async addToChunks(message: IncomingRecordingMessage): Promise<void> {
-        // If it is a chunked message we add to the collected chunks
-        let chunks: IncomingRecordingMessage[] = []
-
-        if (!this.chunks.has(message.chunk_id)) {
-            this.chunks.set(message.chunk_id, chunks)
-        } else {
-            chunks = this.chunks.get(message.chunk_id) || []
+        if (!start || !end) {
+            captureMessage(
+                "blob_ingester_session_manager: can't set events range from message without events summary",
+                {
+                    extra: { message },
+                    tags: {
+                        team_id: this.teamId,
+                        session_id: this.sessionId,
+                    },
+                }
+            )
+            return
         }
 
-        chunks.push(message)
+        const firstTimestamp = Math.min(start, this.buffer.eventsRange?.firstTimestamp || Infinity)
+        const lastTimestamp = Math.max(end || start, this.buffer.eventsRange?.lastTimestamp || -Infinity)
 
-        if (chunks.length === message.chunk_count) {
-            // If we have all the chunks, we can add the message to the buffer
-            // We want to add all the chunk offsets as well so that they are tracked correctly
-            chunks.forEach((x) => {
-                this.buffer.offsets.push(x.metadata.offset)
-            })
-
-            await this.addToBuffer({
-                ...message,
-                data: chunks
-                    .sort((a, b) => a.chunk_index - b.chunk_index)
-                    .map((c) => c.data)
-                    .join(''),
-            })
-
-            this.chunks.delete(message.chunk_id)
-        }
+        this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
 
-    private waitForFlushToComplete(checkInterval = 100): Promise<void> {
-        return new Promise((resolve) => {
-            // Check if the variable is already undefined
-            if (typeof this.flushBuffer === 'undefined') {
-                resolve()
-                return
-            }
+    private async startRealtime() {
+        if (this.realtime) {
+            return
+        }
 
-            // If the variable is not undefined, set an interval to check its value
-            const intervalId = setInterval(() => {
-                if (typeof this.flushBuffer === 'undefined') {
-                    clearInterval(intervalId)
-                    resolve()
-                }
-            }, checkInterval)
-        })
+        status.info('⚡️', `blob_ingester_session_manager Real-time mode started `, { sessionId: this.sessionId })
+
+        this.realtime = true
+
+        try {
+            const timestamp = this.buffer.oldestKafkaTimestamp ?? 0
+            const existingContent = await readFile(this.buffer.file, 'utf-8')
+            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, existingContent, timestamp)
+            status.info('⚡️', 'blob_ingester_session_manager loaded existing snapshot buffer into realtime', {
+                sessionId: this.sessionId,
+                teamId: this.teamId,
+            })
+        } catch (e) {
+            status.error('🧨', 'blob_ingester_session_manager failed loading existing snapshot buffer', {
+                sessionId: this.sessionId,
+                teamId: this.teamId,
+            })
+            captureException(e)
+        }
     }
 
     public async destroy(): Promise<void> {
         this.destroying = true
-        await this.waitForFlushToComplete()
-
-        status.debug('␡', `blob_ingester_session_manager Destroying session manager`, { sessionId: this.sessionId })
-        const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
-            .filter((x): x is string => x !== undefined)
-            .map((x) =>
-                this.deleteFile(x, 'on destroy').catch((error) => {
-                    status.error('🧨', 'blob_ingester_session_manager failed deleting session recording buffer', {
-                        error,
-                        sessionId: this.sessionId,
-                        partition: this.partition,
-                    })
-                    captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
-                    throw error
+        this.unsubscribe()
+        if (this.inProgressUpload !== null) {
+            await this.inProgressUpload.abort().catch((error) => {
+                status.error('🧨', 'blob_ingester_session_manager failed to abort in progress upload', {
+                    ...this.logContext(),
+                    error,
                 })
-            )
-        await Promise.allSettled(filePromises)
+                captureException(error, { tags: this.logContext() })
+            })
+            this.inProgressUpload = null
+        }
+
+        if (this.flushBuffer) {
+            await this.destroyBuffer(this.flushBuffer)
+        }
+        await this.destroyBuffer(this.buffer)
+    }
+
+    public getLowestOffset(): number | null {
+        if (this.buffer.count === 0) {
+            return null
+        }
+        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
+    }
+
+    private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
+        await new Promise<void>((resolve) => {
+            buffer.fileStream.close(async () => {
+                try {
+                    await stat(buffer.file)
+                    await unlink(buffer.file)
+                } catch (error) {
+                    // Indicates the file was already deleted (i.e. if there was never any data in the buffer)
+                }
+
+                resolve()
+            })
+        })
     }
 }

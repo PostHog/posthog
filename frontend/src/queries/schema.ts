@@ -1,5 +1,4 @@
 import {
-    AnyPartialFilterType,
     AnyPropertyFilter,
     Breakdown,
     BreakdownKeyType,
@@ -19,6 +18,9 @@ import {
     StickinessFilterType,
     LifecycleFilterType,
     LifecycleToggle,
+    HogQLMathType,
+    InsightLogicProps,
+    InsightShortId,
 } from '~/types'
 
 /**
@@ -40,11 +42,12 @@ export enum NodeKind {
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
+    HogQLMetadata = 'HogQLMetadata',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
-    LegacyQuery = 'LegacyQuery',
 
     // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
@@ -67,7 +70,14 @@ export enum NodeKind {
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
 
-export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
+export type AnyDataNode =
+    | EventsNode
+    | EventsQuery
+    | ActionsNode
+    | PersonsNode
+    | HogQLQuery
+    | HogQLMetadata
+    | TimeToSeeDataSessionsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -75,8 +85,8 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
+    | SavedInsightNode
     | InsightVizNode
-    | LegacyQuery
 
     // New queries, not yet implemented
     | TrendsQuery
@@ -100,7 +110,12 @@ export interface Node {
 
 // Data nodes
 
-export type AnyResponseType = Record<string, any> | HogQLQueryResponse | EventsNode['response'] | EventsQueryResponse
+export type AnyResponseType =
+    | Record<string, any>
+    | HogQLQueryResponse
+    | HogQLMetadataResponse
+    | EventsNode['response']
+    | EventsQueryResponse
 
 export interface DataNode extends Node {
     /** Cached query response */
@@ -121,11 +136,36 @@ export interface HogQLQuery extends DataNode {
     query: string
     response?: HogQLQueryResponse
 }
+
+export interface HogQLNotice {
+    start?: number
+    end?: number
+    message: string
+    fix?: string
+}
+
+export interface HogQLMetadataResponse {
+    inputExpr?: string
+    inputSelect?: string
+    isValid?: boolean
+    errors: HogQLNotice[]
+    warnings: HogQLNotice[]
+    notices: HogQLNotice[]
+}
+
+export interface HogQLMetadata extends DataNode {
+    kind: NodeKind.HogQLMetadata
+    expr?: string
+    select?: string
+    response?: HogQLMetadataResponse
+}
+
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
     math_property?: string
+    math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
@@ -272,13 +312,27 @@ export interface DataTableNode extends Node {
     showOpenEditorButton?: boolean
 }
 
+// Saved insight node
+
+export interface SavedInsightNode extends Node {
+    kind: NodeKind.SavedInsightNode
+    shortId: InsightShortId
+}
+
 // Insight viz node
 
 export interface InsightVizNode extends Node {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
 
-    // showViz, showTable, etc.
+    /** Show with most visual options enabled. Used in insight scene. */
+    full?: boolean
+    showHeader?: boolean
+    showTable?: boolean
+    showCorrelationTable?: boolean
+    showLastComputation?: boolean
+    showLastComputationRefresh?: boolean
+    showLegendButton?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -472,13 +526,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
 
 export type HogQLExpression = string
 
-// Legacy queries
-
-export interface LegacyQuery extends Node {
-    kind: NodeKind.LegacyQuery
-    filters: AnyPartialFilterType
-}
-
 // Various utility types below
 
 export interface DateRange {
@@ -505,6 +552,7 @@ export interface QueryContext {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    insightProps?: InsightLogicProps
     emptyStateHeading?: string
     emptyStateDetail?: string
 }

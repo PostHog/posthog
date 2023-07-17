@@ -13,6 +13,7 @@ on:
     push:
         branches:
             - master
+    workflow_dispatch:
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
@@ -48,16 +49,27 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
             - name: Build and push container images
               id: build
               uses: depot/build-push-action@v1
               with:
                   project: x19jffd9zf # posthog
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
-                  tags: posthog/posthog:latest
+                  tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/amd64,linux/arm64
 
     posthog_cloud_build:
@@ -73,6 +85,9 @@ jobs:
         steps:
             - name: Checkout code
               uses: actions/checkout@v3
+
+            - name: Update git SHA
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -105,7 +120,7 @@ jobs:
               uses: depot/build-push-action@v1
               with:
                   project: 1stsk4xt19 # posthog-cloud
-                  buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
@@ -138,6 +153,6 @@ jobs:
                   # to avoid checksum mismatch on multiple platforms.
                   message: |
                       {
-                        "image_tag": "latest",
+                        "image_tag": "master",
                         "context": ${{ toJson(github) }}
                       }

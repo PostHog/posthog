@@ -2,28 +2,39 @@ import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { AvailableFeature, Experiment, ExperimentsTabs, ExperimentStatus } from '~/types'
+import { AvailableFeature, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
 import { userLogic } from 'scenes/userLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export function getExperimentStatus(experiment: Experiment): ExperimentStatus {
+export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
-        return ExperimentStatus.Draft
+        return ProgressStatus.Draft
     } else if (!experiment.end_date) {
-        return ExperimentStatus.Running
+        return ProgressStatus.Running
     }
-    return ExperimentStatus.Complete
+    return ProgressStatus.Complete
 }
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
+    connect({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user', 'hasAvailableFeature'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+    }),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
+        setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
     }),
     reducers({
@@ -101,6 +112,26 @@ export const experimentsLogic = kea<experimentsLogicType>([
         hasExperimentAvailableFeature: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
+        ],
+        shouldShowEmptyState: [
+            (s) => [s.experimentsLoading, s.filteredExperiments],
+            (experimentsLoading, filteredExperiments): boolean => {
+                return (
+                    filteredExperiments.length === 0 &&
+                    !experimentsLoading &&
+                    !values.searchTerm &&
+                    !values.searchStatus
+                )
+            },
+        ],
+        shouldShowProductIntroduction: [
+            (s) => [s.user, s.featureFlags],
+            (user, featureFlags): boolean => {
+                return (
+                    !user?.has_seen_product_intro_for?.[ProductKey.EXPERIMENTS] &&
+                    !!featureFlags[FEATURE_FLAGS.SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS]
+                )
+            },
         ],
     })),
     events(({ actions }) => ({

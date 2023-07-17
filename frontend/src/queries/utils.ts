@@ -15,7 +15,6 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
-    LegacyQuery,
     Node,
     NodeKind,
     PersonsNode,
@@ -27,8 +26,11 @@ import {
     TimeToSeeDataWaterfallNode,
     TimeToSeeDataJSONNode,
     DatabaseSchemaQuery,
+    SavedInsightNode,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
@@ -77,12 +79,12 @@ export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
 }
 
-export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
-    return node?.kind === NodeKind.InsightVizNode
+export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {
+    return node?.kind === NodeKind.SavedInsightNode
 }
 
-export function isLegacyQuery(node?: Node | null): node is LegacyQuery {
-    return node?.kind === NodeKind.LegacyQuery
+export function isInsightVizNode(node?: Node | null): node is InsightVizNode {
+    return node?.kind === NodeKind.InsightVizNode
 }
 
 export function isHogQLQuery(node?: Node | null): node is HogQLQuery {
@@ -184,11 +186,6 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined // convert from number of days to date range
     } else if (isTimeToSeeDataSessionsQuery(node)) {
         return node.dateRange
-    } else if (isLegacyQuery(node)) {
-        return {
-            date_from: node.filters?.date_from,
-            date_to: node.filters?.date_to,
-        }
     } else if (isActionsNode(node)) {
         return undefined
     } else if (isEventsNode(node)) {
@@ -222,36 +219,49 @@ export function filterForQuery(node: InsightQueryNode): InsightFilter | undefine
     return node[filterProperty]
 }
 
+export function isQuoted(identifier: string): boolean {
+    return (
+        (identifier.startsWith('"') && identifier.endsWith('"')) ||
+        (identifier.startsWith('`') && identifier.endsWith('`'))
+    )
+}
+
+export function trimQuotes(identifier: string): string {
+    if (isQuoted(identifier)) {
+        return identifier.slice(1, -1)
+    }
+    return identifier
+}
+
+/** Make sure the property key is wrapped in quotes if it contains any special characters. */
+export function escapePropertyAsHogQlIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        // Same regex as in the backend escape_hogql_identifier
+        return identifier // This identifier is simple
+    }
+    if (isQuoted(identifier)) {
+        return identifier // This identifier is already quoted
+    }
+    return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+}
+
 export function taxonomicFilterToHogQl(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties.${value}`
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties.${value}`
+        return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties.${value}`
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
     return null
-}
-
-export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType, TaxonomicFilterValue] {
-    if (hogQl.startsWith('person.properties.')) {
-        return [TaxonomicFilterGroupType.PersonProperties, hogQl.substring(18)]
-    }
-    if (hogQl.startsWith('properties.$feature/')) {
-        return [TaxonomicFilterGroupType.EventFeatureFlags, hogQl.substring(11)]
-    }
-    if (hogQl.startsWith('properties.')) {
-        return [TaxonomicFilterGroupType.EventProperties, hogQl.substring(11)]
-    }
-    return [TaxonomicFilterGroupType.HogQLExpression, hogQl]
 }
 
 export function isHogQlAggregation(hogQl: string): boolean {
@@ -264,3 +274,48 @@ export function isHogQlAggregation(hogQl: string): boolean {
         hogQl.includes('max(')
     )
 }
+
+export interface HogQLIdentifier {
+    __hogql_identifier: true
+    identifier: string
+}
+
+function hogQlIdentifier(identifier: string): HogQLIdentifier {
+    return {
+        __hogql_identifier: true,
+        identifier,
+    }
+}
+
+function isHogQlIdentifier(value: any): value is HogQLIdentifier {
+    return !!value?.__hogql_identifier
+}
+
+function formatHogQlValue(value: any): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(formatHogQlValue).join(', ')}]`
+    } else if (dayjs.isDayjs(value)) {
+        return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+    } else if (isHogQlIdentifier(value)) {
+        return escapePropertyAsHogQlIdentifier(value.identifier)
+    } else if (typeof value === 'string') {
+        return `'${value}'`
+    } else if (typeof value === 'number') {
+        return String(value)
+    } else if (value === null) {
+        throw new Error(
+            `null cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+        )
+    } else {
+        throw new Error(`Unsupported interpolated value type: ${typeof value}`)
+    }
+}
+
+/**
+ * Template tag for HogQL formatting. Handles formatting of values for you.
+ * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
+ */
+export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
+    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
+}
+hogql.identifier = hogQlIdentifier

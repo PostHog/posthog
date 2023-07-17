@@ -2,9 +2,11 @@ import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PaginationControl.scss'
 import { PaginationState } from './types'
+import clsx from 'clsx'
 
 export interface PaginationControlProps<T> extends PaginationState<T> {
     nouns?: [string, string]
+    bordered?: boolean
 }
 
 export function PaginationControl<T>({
@@ -17,6 +19,7 @@ export function PaginationControl<T>({
     currentStartIndex,
     currentEndIndex,
     nouns = ['entry', 'entries'],
+    bordered = false,
 }: PaginationControlProps<T>): JSX.Element | null {
     /** Whether pages previous and next are available. */
     const isPreviousAvailable: boolean =
@@ -31,7 +34,7 @@ export function PaginationControl<T>({
     const currentPageSize = dataSourcePage.length
 
     return showPagination ? (
-        <div className="PaginationControl">
+        <div className={clsx('PaginationControl', bordered && 'PaginationControl--bordered')}>
             <span>
                 {currentPageSize === 0
                     ? `No ${nouns[1]}`
@@ -44,7 +47,8 @@ export function PaginationControl<T>({
             <LemonButton
                 icon={<IconChevronLeft />}
                 status="stealth"
-                disabled={!isPreviousAvailable}
+                disabledReason={!isPreviousAvailable ? 'No previous page' : undefined}
+                size="small"
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
@@ -55,7 +59,8 @@ export function PaginationControl<T>({
             <LemonButton
                 icon={<IconChevronRight />}
                 status="stealth"
-                disabled={!isNextAvailable}
+                disabledReason={!isNextAvailable ? 'No next page' : undefined}
+                size="small"
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {

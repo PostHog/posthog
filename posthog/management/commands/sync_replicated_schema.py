@@ -1,3 +1,4 @@
+import logging
 import re
 from collections import defaultdict
 from typing import Dict, Set
@@ -11,6 +12,7 @@ from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 TableName = str
 Query = str

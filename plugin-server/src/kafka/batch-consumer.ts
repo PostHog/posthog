@@ -26,9 +26,12 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
     consumerMaxWaitMs,
+    consumerErrorBackoffMs,
     fetchBatchSize,
+    batchingTimeoutMs,
     eachBatch,
     autoCommit = true,
+    queuedMinMessages = 100000,
 }: {
     connectionConfig: GlobalConfig
     groupId: string
@@ -37,9 +40,12 @@ export const startBatchConsumer = async ({
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
     consumerMaxWaitMs: number
+    consumerErrorBackoffMs: number
     fetchBatchSize: number
+    batchingTimeoutMs: number
     eachBatch: (messages: Message[]) => Promise<void>
     autoCommit?: boolean
+    queuedMinMessages?: number
 }): Promise<BatchConsumer> => {
     // Starts consuming from `topic` in batches of `fetchBatchSize` messages,
     // with consumer group id `groupId`. We use `connectionConfig` to connect
@@ -68,11 +74,26 @@ export const startBatchConsumer = async ({
         // We disable auto commit and rather we commit after one batch has
         // completed.
         'enable.auto.commit': false,
+        /**
+         * max.partition.fetch.bytes
+         * The maximum amount of data per-partition the server will return.
+         * Records are fetched in batches by the consumer.
+         * If the first record batch in the first non-empty partition of the fetch is larger than this limit,
+         * the batch will still be returned to ensure that the consumer can make progress.
+         * The maximum record batch size accepted by the broker is defined via message.max.bytes (broker config)
+         * or max.message.bytes (topic config).
+         * https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html#:~:text=max.partition.fetch.bytes,the%20consumer%20can%20make%20progress.
+         */
         'max.partition.fetch.bytes': consumerMaxBytesPerPartition,
+        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L122
+        // Initial maximum number of bytes per topic+partition to request when fetching messages from the broker. If the client encounters a message larger than this value it will gradually try to increase it until the entire message can be fetched.
         'fetch.message.max.bytes': consumerMaxBytes,
         'fetch.wait.max.ms': consumerMaxWaitMs,
+        'fetch.error.backoff.ms': consumerErrorBackoffMs,
         'enable.partition.eof': true,
-        'queued.min.messages': 100000, // 100000 is the default
+        // https://github.com/confluentinc/librdkafka/blob/e75de5be191b6b8e9602efc969f4af64071550de/CONFIGURATION.md?plain=1#L118
+        // Minimum number of messages per topic+partition librdkafka tries to maintain in the local consumer queue
+        'queued.min.messages': queuedMinMessages, // 100000 is the default
         'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
         // Use cooperative-sticky rebalancing strategy, which is the
         // [default](https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy)
@@ -112,7 +133,13 @@ export const startBatchConsumer = async ({
     await ensureTopicExists(adminClient, topic)
     adminClient.disconnect()
 
-    consumer.setDefaultConsumeTimeout(consumerMaxWaitMs)
+    // The consumer has an internal pre-fetching queue that sequentially pools
+    // each partition, with the consumerMaxWaitMs timeout. We want to read big
+    // batches from this queue, but guarantee we are still running (with smaller
+    // batches) if the queue is not full enough. batchingTimeoutMs is that
+    // timeout, to return messages even if fetchBatchSize is not reached.
+    consumer.setDefaultConsumeTimeout(batchingTimeoutMs)
+
     consumer.subscribe([topic])
 
     const startConsuming = async () => {
@@ -147,10 +174,14 @@ export const startBatchConsumer = async ({
 
                 status.debug('🔁', 'main_loop_consuming')
                 const messages = await consumeMessages(consumer, fetchBatchSize)
-                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
+                if (!messages) {
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
+                    continue
+                }
 
+                status.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                 if (!messages.length) {
-                    // For now
+                    status.debug('🔁', 'main_loop_empty_batch', { cause: 'empty' })
                     continue
                 }
 
@@ -162,6 +193,8 @@ export const startBatchConsumer = async ({
                 // NOTE: we do not handle any retries. This should be handled by
                 // the implementation of `eachBatch`.
                 await eachBatch(messages)
+
+                messagesProcessed += messages.length
 
                 if (autoCommit) {
                     commitOffsetsForMessages(messages, consumer)
@@ -204,7 +237,24 @@ export const startBatchConsumer = async ({
 
     const join = async (timeout?: number) => {
         if (timeout) {
-            await Promise.race([mainLoop, new Promise((resolve) => setTimeout(() => resolve(null), timeout))])
+            // If we have a timeout set we want to wait for the main loop to finish
+            // but also want to ensure that we don't wait forever. We do this by
+            // creating a promise that will resolve after the timeout, and then
+            // waiting for either the main loop to finish or the timeout to occur.
+            // We need to make sure that if the main loop finishes before the
+            // timeout, we don't leave the timeout around to resolve later thus
+            // keeping file descriptors open, so make sure to call clearTimeout
+            // on the timer handle.
+            await new Promise((resolve) => {
+                const timerHandle = setTimeout(() => {
+                    resolve(null)
+                }, timeout)
+
+                mainLoop.finally(() => {
+                    resolve(null)
+                    clearTimeout(timerHandle)
+                })
+            })
         } else {
             await mainLoop
         }

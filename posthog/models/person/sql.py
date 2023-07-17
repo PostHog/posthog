@@ -323,6 +323,10 @@ BULK_INSERT_PERSON_DISTINCT_ID2 = """
 INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) VALUES
 """
 
+INSERT_PERSON_OVERRIDE = """
+INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version, merged_at, oldest_event) SELECT %(team_id)s, %(old_person_id)s, %(override_person_id)s, %(version)s, %(merged_at)s, %(oldest_event)s VALUES
+"""
+
 
 INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
@@ -444,21 +448,6 @@ GROUP BY value
 ORDER BY count(value) DESC
 LIMIT 20
 """
-
-GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES = """
-    WITH property_tuples AS (
-        SELECT arrayJoin(JSONExtractKeysAndValuesRaw({properties_column})) AS property_key_value_pair FROM {table_name}
-        WHERE team_id = %(team_id)s
-    )
-    SELECT
-        property_key_value_pair.1 AS property_key,
-        anyLast(property_key_value_pair.2) AS sample_json_value
-    FROM property_tuples
-    GROUP BY property_key"""
-
-GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
-    table_name=PERSONS_TABLE, properties_column="properties"
-)
 
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"

@@ -31,12 +31,11 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
-    EventsTableRowItem,
     PropertyFilterType,
     PropertyOperator,
     Resource,
     FeatureFlagType,
-    SessionRecordingsTabs,
+    ReplayTabs,
     FeatureFlagGroupType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
@@ -55,14 +54,13 @@ import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { FeatureFlagsTabs } from './featureFlagsLogic'
+import { FeatureFlagsTab } from './featureFlagsLogic'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
@@ -75,10 +73,12 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { AddToNotebook } from 'scenes/notebooks/AddToNotebook/AddToNotebook'
-import { NotebookNodeType } from 'scenes/notebooks/Nodes/types'
 import clsx from 'clsx'
+import { AnalysisTab } from './FeatureFlagAnalysisTab'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { PostHogFeature } from 'posthog-js/react'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -114,7 +114,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
-    const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [activeTab, setActiveTab] = useState(FeatureFlagsTab.OVERVIEW)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
@@ -125,7 +125,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     if (featureFlagLoading) {
         return (
             // TODO: This should be skeleton loaders
-            <SpinnerOverlay />
+            <SpinnerOverlay sceneLevel />
         )
     }
 
@@ -174,10 +174,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
-                                This feature flag is linked to an experiment. It's recommended to only make changes to
-                                this flag{' '}
+                                This feature flag is linked to an experiment. Edit settings here only for advanced
+                                functionality. If unsure, go back to{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                    using the experiment creation screen.
+                                    the experiment creation screen.
                                 </Link>
                             </LemonBanner>
                         )}
@@ -283,7 +283,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
                                                 >
-                                                    Learn more <IconOpenInNew />
+                                                    Learn more
                                                 </Link>
                                             </div>
                                         </div>
@@ -378,6 +378,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         ) : (
                             <>
                                 <PageHeader
+                                    notebookProps={{
+                                        href: urls.featureFlag(id),
+                                    }}
                                     title={
                                         <div className="flex items-center gap-2 mb-2">
                                             {featureFlag.key || 'Untitled'}
@@ -441,7 +444,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] && (
                                                     <>
                                                         <LemonButton
-                                                            to={urls.sessionRecordings(SessionRecordingsTabs.Recent, {
+                                                            to={urls.replay(ReplayTabs.Recent, {
                                                                 events: defaultEntityFilterOnFlag(featureFlag.key)
                                                                     .events,
                                                             })}
@@ -489,15 +492,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-                                                    <span>
-                                                        <AddToNotebook
-                                                            node={NotebookNodeType.FeatureFlag}
-                                                            properties={{ id }}
-                                                            type="secondary"
-                                                        />
-                                                    </span>
-                                                </FlaggedFeature>
                                             </div>
                                         </>
                                     }
@@ -505,7 +499,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <Tabs
                                     activeKey={activeTab}
                                     destroyInactiveTabPane
-                                    onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                                    onChange={(t) => setActiveTab(t as FeatureFlagsTab)}
                                 >
                                     <Tabs.TabPane tab="Overview" key="overview">
                                         <Row>
@@ -532,6 +526,26 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
+
+                                    {featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id && (
+                                        <Tabs.TabPane
+                                            tab={
+                                                <div className="flex flex-row">
+                                                    <div>Analysis</div>
+                                                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                                                        {' '}
+                                                        Beta
+                                                    </LemonTag>
+                                                </div>
+                                            }
+                                            key="analysis"
+                                        >
+                                            <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
+                                                <AnalysisTab id={id} featureFlag={featureFlag} />
+                                            </PostHogFeature>
+                                        </Tabs.TabPane>
+                                    )}
+
                                     {featureFlag.id && (
                                         <Tabs.TabPane tab="History" key="history">
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
@@ -581,7 +595,6 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
         },
     ]
 
-    // TODO: reintegrate HogQL Editor
     return (
         <div>
             {connectedDashboardExists ? (
@@ -603,31 +616,24 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
-            <EventsTable
-                fixedFilters={{
-                    event_filter: '$feature_flag_called',
-                    properties: propertyFilter,
-                }}
-                fixedColumns={[
-                    {
-                        title: 'Value',
-                        key: 'value',
-                        render: function renderEventProperty(_, { event }: EventsTableRowItem) {
-                            return event?.properties['$feature_flag_response']?.toString()
-                        },
+            <Query
+                query={{
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: [
+                            ...defaultDataTableColumns(NodeKind.EventsQuery),
+                            featureFlag.filters.multivariate
+                                ? 'properties.$feature_flag_response'
+                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', 'false') -- Feature Flag Response",
+                        ],
+                        event: '$feature_flag_called',
+                        properties: propertyFilter,
+                        after: '-30d',
                     },
-                ]}
-                startingColumns={['person']}
-                fetchMonths={1}
-                pageKey={`feature-flag-` + featureFlagKey}
-                showPersonColumn={true}
-                showEventFilter={false}
-                showPropertyFilter={false}
-                showCustomizeColumns={false}
-                showAutoload={false}
-                showExport={false}
-                showActionsButton={false}
-                emptyPrompt={`No events received`}
+                    full: false,
+                    showDateRange: true,
+                }}
             />
         </div>
     )
@@ -636,6 +642,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
+    excludeTitle?: boolean
 }
 
 function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
@@ -678,7 +685,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4">
+                            <div className="border rounded p-4 mb-4 bg-bg-light">
                                 <Row gutter={16} className="font-semibold">
                                     <Col span={6}>Key</Col>
                                     <Col span={6}>Description</Col>
@@ -750,6 +757,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     {
                                         label: 'Release toggle (boolean)',
                                         value: false,
+                                        disabled: !!(
+                                            featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                        ),
                                     },
                                     {
                                         label: (
@@ -880,6 +890,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
+                                                disabled={
+                                                    !!(
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                    )
+                                                }
                                             />
                                         </Field>
                                     </Col>
@@ -934,6 +950,13 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     data-attr={`delete-prop-filter-${index}`}
                                                     noPadding
                                                     onClick={() => removeVariant(index)}
+                                                    disabledReason={
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                            ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="topRight"
                                                 />
                                             )}
                                         </Row>
@@ -955,6 +978,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 focusVariantKeyField(newIndex)
                             }}
                             icon={<IconPlus />}
+                            disabledReason={
+                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
+                                    : undefined
+                            }
+                            tooltipPlacement="topLeft"
                             center
                         >
                             Add variant
@@ -966,7 +995,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     )
 }
 
-function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JSX.Element {
+export function FeatureFlagReleaseConditions({
+    readOnly,
+    isSuper,
+    excludeTitle,
+}: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -1328,17 +1361,23 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
 
     return (
         <>
-            <div className="feature-flag-form-row">
+            <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        excludeTitle ? null : (
+                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        )
                     ) : (
                         <>
-                            <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb-4">
-                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
-                                condition sets are rolled out independently of each other.
-                            </div>
+                            {!excludeTitle && (
+                                <>
+                                    <h3 className="l3">Release conditions</h3>
+                                    <div className="text-muted mb-4">
+                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
+                                        that condition sets are rolled out independently of each other.
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -1382,7 +1421,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                 )}
             </Row>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set
                 </LemonButton>
             )}

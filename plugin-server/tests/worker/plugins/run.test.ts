@@ -17,6 +17,17 @@ describe('runPluginTask()', () => {
                     1,
                     {
                         team_id: 2,
+                        enabled: true,
+                        vm: {
+                            getTask,
+                        },
+                    },
+                ],
+                [
+                    2,
+                    {
+                        team_id: 2,
+                        enabled: false,
                         vm: {
                             getTask,
                         },
@@ -90,5 +101,13 @@ describe('runPluginTask()', () => {
             new Error('Task "some_task" not found for plugin "undefined" with config id -1')
         )
         expect(mockHub.appMetrics.queueError).not.toHaveBeenCalled()
+    })
+
+    it('skips the task if the pluginconfig is disabled', async () => {
+        await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, 2)
+
+        expect(processError).not.toHaveBeenCalledWith()
+        expect(exec).not.toHaveBeenCalled()
+        expect(mockHub.appMetrics.queueMetric).not.toHaveBeenCalled()
     })
 })

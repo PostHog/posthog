@@ -1,147 +1,109 @@
-import { useEditor, EditorContent } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { useActions, useValues } from 'kea'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import MonacoEditor from '@monaco-editor/react'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { BindLogic, useActions, useValues } from 'kea'
 import './Notebook.scss'
 
-import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
-import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
-import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
-import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
-import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
+import { sampleOne } from 'lib/utils'
+import { NotFound } from 'lib/components/NotFound'
+import clsx from 'clsx'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { NotebookConflictWarning } from './NotebookConflictWarning'
+import { NotebookLoadingState } from './NotebookLoadingState'
+import { Editor } from './Editor'
 
 export type NotebookProps = {
-    id: string
-    sourceMode?: boolean
+    shortId: string
     editable?: boolean
 }
 
-export function Notebook({ id, sourceMode, editable = false }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ id })
-    const { content } = useValues(logic)
-    const { setEditorRef, syncContent } = useActions(logic)
+const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
-    const editor = useEditor({
-        extensions: [
-            StarterKit,
-            NotebookNodeInsight,
-            NotebookNodeQuery,
-            NotebookNodeRecording,
-            NotebookNodePlaylist,
-            NotebookNodePerson,
-            NotebookNodeFlag,
-        ],
-        content,
-        editorProps: {
-            attributes: {
-                class: 'Notebook',
-            },
-            handleDrop: (view, event, _slice, moved) => {
-                if (!moved && event.dataTransfer) {
-                    const text = event.dataTransfer.getData('text/plain')
+export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
+    const logic = notebookLogic({ shortId })
+    const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
+    const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
+    const { isExpanded } = useValues(notebookSettingsLogic)
 
-                    if (text.indexOf(window.location.origin) === 0) {
-                        // PostHog link - ensure this gets input as a proper link
-                        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY })
+    const headingPlaceholder = useMemo(() => sampleOne(PLACEHOLDER_TITLES), [shortId])
 
-                        if (!coordinates) {
-                            return false
-                        }
-
-                        editor?.chain().focus().setTextSelection(coordinates.pos).run()
-                        view.pasteText(text)
-
-                        return true
-                    }
-
-                    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
-                        // if dropping external files
-                        const file = event.dataTransfer.files[0] // the dropped file
-
-                        console.log('TODO: Dropped file!', file)
-                        // TODO: Detect if it is an image and add image upload handler
-
-                        return true
-                    }
-                }
-
-                return false
-            },
-        },
-        onUpdate: ({ editor }) => {
-            syncContent(editor.getHTML())
-        },
-    })
+    useEffect(() => {
+        if (!notebook && !notebookLoading) {
+            loadNotebook()
+        }
+    }, [])
 
     useEffect(() => {
         if (editor) {
-            setEditorRef(editor)
+            editor.setEditable(editable)
         }
-    }, [editor])
+    }, [editor, editable])
 
-    useEffect(() => {
-        editor?.setEditable(editable)
-    }, [editable, editor])
+    // TODO - Render a special state if the notebook is empty
+
+    if (conflictWarningVisible) {
+        return <NotebookConflictWarning />
+    } else if (!notebook && notebookLoading) {
+        return <NotebookLoadingState />
+    } else if (!notebook) {
+        return <NotFound object="notebook" />
+    } else if (isEmpty && !editable) {
+        return (
+            <div className="NotebookEditor">
+                <h1>
+                    <i>Untitled</i>
+                </h1>
+            </div>
+        )
+    }
 
     return (
-        <div className="flex-1 overflow-hidden flex flex-col h-full">
-            {/* {editor && (
-                <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex items-center gap-2">
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-query />').run()}
+        <BindLogic logic={notebookLogic} props={{ shortId }}>
+            <div className={clsx('Notebook', !isExpanded && 'Notebook--compact')}>
+                {notebook.is_template && (
+                    <LemonBanner
+                        type="info"
+                        className="my-4"
+                        action={{
+                            onClick: duplicateNotebook,
+                            children: 'Create notebook',
+                        }}
                     >
-                        Query
-                    </LemonButton>
+                        <b>This is a template.</b> You can create a copy of it to edit and use as your own.
+                    </LemonBanner>
+                )}
 
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-playlist />').run()}
+                {notebook.short_id === SCRATCHPAD_NOTEBOOK.short_id ? (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Convert to Notebook',
+                            onClick: duplicateNotebook,
+                        }}
                     >
-                        Recordings
-                    </LemonButton>
+                        This is your scratchpad. It is only visible to you and is persisted only in this browser. It's a
+                        great place to gather ideas before turning into a saved Notebook!
+                    </LemonBanner>
+                ) : null}
 
-                    <LemonButton
-                        size="small"
-                        status="primary-alt"
-                        noPadding
-                        onClick={() => editor.chain().focus().insertContent('<ph-embed />').run()}
-                    >
-                        Embed
-                    </LemonButton>
-                </FloatingMenu>
-            )} */}
+                <Editor
+                    initialContent={content}
+                    onCreate={setEditor}
+                    onUpdate={onEditorUpdate}
+                    placeholder={({ node }: { node: any }) => {
+                        if (node.type.name === 'heading' && node.attrs.level === 1) {
+                            return `Untitled - maybe.. "${headingPlaceholder}"`
+                        }
 
-            {!sourceMode ? (
-                <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
-            ) : (
-                <AutoSizer disableWidth>
-                    {({ height }) => (
-                        <MonacoEditor
-                            theme="vs-light"
-                            className="border"
-                            language="html"
-                            value={editor?.getHTML() ?? ''}
-                            height={height}
-                            loading={<Spinner />}
-                            onChange={(value) => {
-                                if (value) {
-                                    editor?.chain().setContent(value).run()
-                                }
-                            }}
-                        />
-                    )}
-                </AutoSizer>
-            )}
-        </div>
+                        if (node.type.name === 'heading') {
+                            return `Heading ${node.attrs.level}`
+                        }
+
+                        return ''
+                    }}
+                />
+            </div>
+        </BindLogic>
     )
 }

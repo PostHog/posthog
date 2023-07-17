@@ -3,39 +3,41 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { supportLogicType } from './supportLogicType'
 import { forms } from 'kea-forms'
-import { UserType } from '~/types'
+import { Region, TeamType, UserType } from '~/types'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { captureException } from '@sentry/react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function getSessionReplayLink(): string {
-    const LOOK_BACK = 30
-    const recordingStartTime = Math.max(
-        Math.floor((new Date().getTime() - (posthog?.sessionManager?._sessionStartTimestamp || 0)) / 1000) - LOOK_BACK,
-        0
-    )
-    const link = `https://app.posthog.com/recordings/${posthog?.sessionRecording?.sessionId}?t=${recordingStartTime}`
-    return `[Session replay](${link})`
+    const link = posthog
+        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
+        .replace(window.location.origin + '/replay/', 'http://go/session/')
+
+    return `Session: ${link} (at ${window.location.href.replace(/&supportModal=.+($|&)?/, '$1')})`
 }
 
-function getDjangoAdminLink(user: UserType | null): string {
-    if (!user) {
+function getDjangoAdminLink(
+    user: UserType | null,
+    cloudRegion: Region | undefined,
+    currentTeamId: TeamType['id'] | null
+): string {
+    if (!user || !cloudRegion) {
         return ''
     }
-    const link = `${window.location.origin}/admin/posthog/user/?q=${user.email}`
-    return `[Admin](${link}) (Organization: '${user.organization?.name}'; Project: ${user.team?.id}:'${user.team?.name}')`
+    const link = `http://go/admin${cloudRegion}/${user.email}`
+    return `Admin: ${link} (Organization: '${user.organization?.name}'; Project: ${currentTeamId}:'${user.team?.name}')`
 }
 
-function getSentryLinks(user: UserType | null): string {
-    if (!user) {
+function getSentryLink(user: UserType | null, cloudRegion: Region | undefined): string {
+    if (!user || !cloudRegion) {
         return ''
     }
-    const cloud = window.location.origin == 'https://eu.posthog.com' ? 'EU' : 'US'
-    const link = `http://go/sentry${cloud}/${user.email}`
-    const pluginServer = `http://go/pluginServerSentry${cloud}/${user.team?.id}`
-    return `[Sentry](${link}) | [Plugin Server Sentry](${pluginServer})`
+    const link = `http://go/sentry${cloudRegion}/${user.team?.id}`
+    return `Sentry: ${link}`
 }
 
 export const TARGET_AREA_TO_NAME = {
@@ -46,6 +48,7 @@ export const TARGET_AREA_TO_NAME = {
     cohorts: 'Cohorts',
     data_integrity: 'Data Integrity',
     data_management: 'Data Management',
+    data_warehouse: 'Data Warehouse',
     ingestion: 'Event Ingestion',
     experiments: 'Experiments',
     feature_flags: 'Feature Flags',
@@ -77,6 +80,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     groups: 'data_integrity',
     app: 'apps',
     toolbar: 'analytics',
+    warehouse: 'data_warehouse',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
@@ -87,7 +91,7 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
 export const supportLogic = kea<supportLogicType>([
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], preflightLogic, ['preflight']],
     })),
     actions(() => ({
         closeSupportForm: () => true,
@@ -200,23 +204,25 @@ export const supportLogic = kea<supportLogicType>([
                 ' (' +
                 zendesk_ticket_uuid +
                 ')'
+            const cloudRegion = preflightLogic.values.preflight?.region
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
                     comment: {
-                        body:
+                        body: (
                             message +
                             `\n\n-----` +
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
-                            `\nInternal links: [Event](http://go/ticketByUUID/${zendesk_ticket_uuid})` +
+                            `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             '\n' +
                             getSessionReplayLink() +
                             '\n' +
-                            getDjangoAdminLink(userLogic.values.user) +
+                            getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
                             '\n' +
-                            getSentryLinks(userLogic.values.user),
+                            getSentryLink(userLogic.values.user, cloudRegion)
+                        ).trim(),
                     },
                 },
             }

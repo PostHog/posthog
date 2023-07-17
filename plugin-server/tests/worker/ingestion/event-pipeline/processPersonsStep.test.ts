@@ -1,54 +1,70 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 
+import { Hub } from '../../../../src/types'
+import { createHub } from '../../../../src/utils/db/hub'
+import { UUIDT } from '../../../../src/utils/utils'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
-import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
-import { updatePersonState } from '../../../../src/worker/ingestion/person-state'
-
-jest.mock('../../../../src/utils/status')
-jest.mock('../../../../src/worker/ingestion/person-state')
-
-const pluginEvent: PluginEvent = {
-    distinct_id: 'my_id',
-    ip: '127.0.0.1',
-    site_url: 'http://localhost',
-    team_id: 2,
-    now: '2020-02-23T02:15:00Z',
-    timestamp: '2020-02-23T02:15:00Z',
-    event: 'default event',
-    properties: {},
-    uuid: '017ef865-19da-0000-3b60-1506093bf40f',
-}
+import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
 
 describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
     let runner: any
-    let personContainer: any
+    let hub: Hub
+    let closeHub: () => Promise<void>
 
-    beforeEach(() => {
+    let uuid: string
+    let teamId: number
+    let pluginEvent: PluginEvent
+
+    beforeEach(async () => {
+        await resetTestDatabase()
+        ;[hub, closeHub] = await createHub()
         runner = {
             nextStep: (...args: any[]) => args,
-            hub: {
-                db: 'hub.db',
-                statsd: 'hub.statsd',
-                personManager: 'hub.personManager',
-                kafkaProducer: {
-                    producer: {
-                        send: jest.fn(),
-                    },
-                },
-            },
+            hub: hub,
             poEEmbraceJoin: poEEmbraceJoin,
         }
-        personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
+        const organizationId = await createOrganization(runner.hub.db.postgres)
+        teamId = await createTeam(runner.hub.db.postgres, organizationId)
+        uuid = new UUIDT().toString()
 
-        jest.mocked(updatePersonState).mockResolvedValue(personContainer)
+        pluginEvent = {
+            distinct_id: 'my_id',
+            ip: '127.0.0.1',
+            site_url: 'http://localhost',
+            team_id: teamId,
+            now: '2020-02-23T02:15:00Z',
+            timestamp: '2020-02-23T02:15:00Z',
+            event: 'default event',
+            properties: {
+                $set: {
+                    a: 5,
+                },
+            },
+            uuid: uuid,
+        }
+    })
+    afterEach(async () => {
+        await closeHub?.()
     })
 
-    it('forwards event to `prepareEventStep`', async () => {
-        const response = await processPersonsStep(runner, pluginEvent, personContainer)
+    it('creates person', async () => {
+        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent)
 
-        expect(response).toEqual([pluginEvent, personContainer])
-        expect(jest.mocked(updatePersonState)).toHaveBeenCalled()
+        expect(resEvent).toEqual(pluginEvent)
+        expect(resPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: { a: 5, $creator_event_uuid: expect.any(String) },
+                version: 0,
+                is_identified: false,
+                team_id: teamId,
+            })
+        )
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson])
     })
 
     it('re-normalizes the event with properties set by plugins', async () => {
@@ -61,45 +77,32 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
                 someProp: 'value',
             },
         }
-        const updatedContainer = new LazyPersonContainer(2, 'my_id2', runner.hub)
-        jest.mocked(updatePersonState).mockResolvedValue(updatedContainer)
+        const [resEvent, resPerson] = await processPersonsStep(runner, event)
 
-        const response = await processPersonsStep(runner, event, personContainer)
-
-        expect(response).toEqual([
-            {
-                ...event,
-                properties: {
-                    $browser: 'Chrome',
-                    $set: {
-                        someProp: 'value',
-                    },
-                    $set_once: {
-                        $initial_browser: 'Chrome',
-                    },
+        expect(resEvent).toEqual({
+            ...event,
+            properties: {
+                $browser: 'Chrome',
+                $set: {
+                    someProp: 'value',
+                },
+                $set_once: {
+                    $initial_browser: 'Chrome',
                 },
             },
-            updatedContainer,
-        ])
-    })
-
-    it('updates person', async () => {
-        const updatedContainer = new LazyPersonContainer(2, 'my_id2', runner.hub)
-        jest.mocked(updatePersonState).mockResolvedValue(updatedContainer)
-
-        const response = await processPersonsStep(runner, pluginEvent, personContainer)
-
-        expect(updatePersonState).toHaveBeenCalledWith(
-            pluginEvent,
-            2,
-            'my_id',
-            expect.any(DateTime),
-            'hub.db',
-            'hub.statsd',
-            'hub.personManager',
-            personContainer,
-            runner.poEEmbraceJoin
+        })
+        expect(resPerson).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: expect.any(String),
+                properties: { $initial_browser: 'Chrome', someProp: 'value', $creator_event_uuid: expect.any(String) },
+                version: 0,
+                is_identified: false,
+            })
         )
-        expect(response).toEqual([pluginEvent, updatedContainer])
+
+        // Check PG state
+        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+        expect(persons).toEqual([resPerson])
     })
 })

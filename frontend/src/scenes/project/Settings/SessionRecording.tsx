@@ -10,7 +10,7 @@ export function SessionRecording(): JSX.Element {
             </h2>
             <p>
                 Watch recordings of how users interact with your web app to see what can be improved. Recordings are
-                found in the <Link to={urls.sessionRecordings()}>recordings page</Link>.
+                found in the <Link to={urls.replay()}>recordings page</Link>.
             </p>
 
             <SessionRecordingSettings />

@@ -15,12 +15,10 @@ const makePropertyDefinition = (name: string, propertyType: PropertyType | undef
     name: name,
     property_type: propertyType,
     description: '',
-    volume_30_day: null,
-    query_usage_30_day: null,
 })
 
 const props = (type?: PropertyType | undefined): OperatorValueSelectProps => ({
-    type: '',
+    type: undefined,
     propkey: 'the_property',
     onChange: () => {},
     propertyDefinitions: [makePropertyDefinition('the_property', type)],

@@ -32,4 +32,34 @@ describe('property definitions auto discovery', () => {
             expect(detectPropertyDefinitionTypes('9.7.0', '$app_version')).toEqual(PropertyType.String)
         })
     })
+
+    describe('can detect feature flag properties', () => {
+        it('detects regular feature flag properties as string', () => {
+            expect(detectPropertyDefinitionTypes('10', '$feature/my-feature')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('true', '$feature/my-feature')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('false', '$feature/my-feature')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes(12, '$feature/my-feature')).toEqual(PropertyType.String)
+        })
+
+        it('doesnt detect $feature_interaction properties as string', () => {
+            expect(detectPropertyDefinitionTypes('true', '$feature_interaction/my-feature')).toEqual(
+                PropertyType.Boolean
+            )
+            expect(detectPropertyDefinitionTypes('true', '$$feature/my-feature')).toEqual(PropertyType.Boolean)
+            expect(detectPropertyDefinitionTypes('true', ' $feature/my-feature')).toEqual(PropertyType.Boolean)
+            expect(detectPropertyDefinitionTypes('true', '$feat/$feature/my-feature')).toEqual(PropertyType.Boolean)
+            expect(detectPropertyDefinitionTypes('true', '$features/my-feature')).toEqual(PropertyType.Boolean)
+            expect(detectPropertyDefinitionTypes('["a","b","c"]', '$active_feature_flags')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes(12, 'feature_flag')).toEqual(PropertyType.Numeric)
+        })
+    })
+
+    describe('can detect $feature_flag_response properties', () => {
+        it('detects regular feature flag response properties as string', () => {
+            expect(detectPropertyDefinitionTypes('10', '$feature_flag_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('true', '$feature_flag_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('false', '$feature_flag_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes(12, '$feature_flag_response')).toEqual(PropertyType.String)
+        })
+    })
 })

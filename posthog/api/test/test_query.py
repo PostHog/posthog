@@ -1,10 +1,14 @@
+import json
 from unittest.mock import patch
+from urllib.parse import quote
 
 from dateutil.parser import isoparse
 from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.query import process_query
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
 from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
@@ -60,7 +64,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         ["test_val2", "sign out", "2", "sign out test_val2"],
                         ["test_val3", "sign out", "2", "sign out test_val3"],
                     ],
-                    "types": ["Nullable(String)", "String", "String", "Nullable(String)"],
+                    "types": ["Nullable(String)", "String", "String", "String"],
                 },
             )
 
@@ -238,6 +242,45 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    def test_safe_clickhouse_error_passed_through(self):
+        query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
+
+        # Safe errors are passed through in GET requests
+        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
+        self.assertEqual(response_get.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_get.json(),
+            self.validation_error_response(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
+                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                "illegal_type_of_argument",
+            ),
+        )
+
+        # Safe errors are passed through in POST requests too
+        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response_post.json(),
+            self.validation_error_response(
+                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
+                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                "illegal_type_of_argument",
+            ),
+        )
+
+    @patch("sqlparse.format", return_value="SELECT 1&&&")  # Erroneously constructed SQL
+    def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
+        query = {"kind": "EventsQuery", "select": ["timestamp"]}
+
+        # Unsafe errors are swallowed in GET requests (in this case we should not expose malformed SQL)
+        response_get = self.client.get(f"/api/projects/{self.team.id}/query/?query={quote(json.dumps(query))}")
+        self.assertEqual(response_get.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Unsafe errors are swallowed in POST requests too
+        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
     def test_property_filter_aggregations(self):
@@ -374,6 +417,56 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ["sign out", "4", "test_val3"],
                 ],
             )
+
+    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    def test_full_hogql_query_limit(self, DEFAULT_RETURNED_ROWS=10):
+        random_uuid = str(UUIDT())
+        with freeze_time("2020-01-10 12:00:00"):
+            for _ in range(20):
+                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id='{random_uuid}'",
+                },
+            )
+            self.assertEqual(len(response.get("results", [])), 10)
+
+    @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
+    def test_full_events_query_limit(self, DEFAULT_RETURNED_ROWS=10):
+        random_uuid = str(UUIDT())
+        with freeze_time("2020-01-10 12:00:00"):
+            for _ in range(20):
+                _create_event(team=self.team, event="sign up", distinct_id=random_uuid, properties={"key": "test_val1"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
+            )
+
+        self.assertEqual(len(response.get("results", [])), 10)
+
+    def test_property_definition_annotation_does_not_break_things(self):
+        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "EventsQuery",
+                    "select": ["event"],
+                    # This used to cause query failure when tried to add an annotation for a node without location
+                    # (which properties.$browser is in this case)
+                    "properties": [{"type": "event", "key": "$browser", "operator": "is_not", "value": "Foo"}],
+                },
+            )
+        self.assertEqual(response.get("columns"), ["event"])
 
     def test_invalid_recent_performance_pageviews(self):
         api_response = self.client.post(

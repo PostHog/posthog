@@ -39,9 +39,6 @@ class PropertyDefinition(UUIDModel):
     is_numerical: models.BooleanField = models.BooleanField(
         default=False
     )  # whether the property can be interpreted as a number, and therefore used for math aggregation operations
-    query_usage_30_day: models.IntegerField = models.IntegerField(
-        default=None, null=True
-    )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
 
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
@@ -58,6 +55,10 @@ class PropertyDefinition(UUIDModel):
     # DEPRECATED
     volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
 
+    # DEPRECATED
+    # Number of times an insight has been saved with this property in its filter in the last 30 rolling days (computed asynchronously when stars align)
+    query_usage_30_day: models.IntegerField = models.IntegerField(default=None, null=True)
+
     class Meta:
         indexes = [
             # This indexes the query in api/property_definition.py
@@ -69,7 +70,10 @@ class PropertyDefinition(UUIDModel):
                 F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
                 F("name").asc(),  # type: ignore
                 name="index_property_def_query",
-            )
+            ),
+            # creates an index pganalyze identified as missing
+            # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
+            models.Index(fields=["team_id", "type", "is_numerical"]),
         ] + [
             GinIndex(
                 name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]

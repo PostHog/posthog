@@ -4,8 +4,13 @@ import fetch from 'node-fetch'
 
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
+import { convertToIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
+import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
+import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
@@ -15,26 +20,31 @@ jest.mock('../../../../src/utils/status')
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
+    let actionManager: ActionManager
+    let actionMatcher: ActionMatcher
+    let hookCannon: HookCommander
     let closeServer: () => Promise<void>
 
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        // TODO: update runEventPipeline to return ClickHouseRawEvent with all the person info
-        const person = await hub.db.fetchPerson(result.args[1].teamId, result.args[1].distinctId)
-        const postIngestionEvent = {
-            ...result.args[0],
-            person_id: person?.uuid,
-            person_properties: person?.properties,
-            person_created_at: person?.created_at,
-        }
-        return runner.runAsyncHandlersEventPipeline(postIngestionEvent)
+        const postIngestionEvent = convertToIngestionEvent(result.args[0])
+        return Promise.all([
+            runner.runAppsOnEventPipeline(postIngestionEvent),
+            processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
+        ])
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse()
+        process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
+
+        actionManager = new ActionManager(hub.db.postgres)
+        await actionManager.prepare()
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
+        hookCannon = new HookCommander(hub.db.postgres, hub.teamManager, hub.organizationManager)
 
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'createPerson')
@@ -127,10 +137,10 @@ describe('Event Pipeline integration test', () => {
             team_id: 2,
             distinct_id: 'abc',
             ip: null,
-            site_url: 'https://example.com',
+            site_url: 'not-used-anymore',
             uuid: new UUIDT().toString(),
         }
-        await hub.actionManager.reloadAllActions()
+        await actionManager.reloadAllActions()
 
         await ingestEvent(event)
 
@@ -172,7 +182,7 @@ describe('Event Pipeline integration test', () => {
             site_url: 'https://example.com',
             uuid: new UUIDT().toString(),
         }
-        await hub.actionManager.reloadAllActions()
+        await actionManager.reloadAllActions()
 
         await ingestEvent(event)
 
@@ -191,7 +201,6 @@ describe('Event Pipeline integration test', () => {
                 timestamp,
                 teamId: 2,
                 distinctId: 'abc',
-                ip: null,
                 elementsList: [],
                 person: {
                     created_at: expect.any(String),
@@ -228,11 +237,11 @@ describe('Event Pipeline integration test', () => {
 
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
-        expect(hub.db.fetchPerson).not.toHaveBeenCalled()
 
         // second time single fetch
         await new EventPipelineRunner(hub, event).runEventPipeline(event)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })
