@@ -9,6 +9,7 @@ import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/Pl
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookNodeType } from '~/types'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -39,6 +40,24 @@ export function PlayerMetaLinks(): JSX.Element {
         })
     }
 
+    const onComment = (): void => {
+        const logic = notebookLogic.findMounted({ shortId: logicProps.notebookShortId })
+        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+
+        logic?.values.editor?.insertNodeAfter('ph-recording', [
+            {
+                type: 'paragraph',
+                content: [
+                    {
+                        type: NotebookNodeType.Timestamp,
+                        attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
+                    },
+                    { type: 'text', text: ' ' },
+                ],
+            },
+        ])
+    }
+
     const commonProps: Partial<LemonButtonProps> = {
         size: 'small',
     }
@@ -54,7 +73,7 @@ export function PlayerMetaLinks(): JSX.Element {
             {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     {isInNotebook && (
-                        <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
+                        <LemonButton icon={<IconLink />} onClick={onComment} {...commonProps}>
                             <span>Comment</span>
                         </LemonButton>
                     )}

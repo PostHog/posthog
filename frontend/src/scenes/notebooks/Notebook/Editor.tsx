@@ -20,6 +20,7 @@ import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
+import { NotebookNodeTimestamp } from '../Nodes/NotebookNodeTimestamp'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -30,13 +31,11 @@ export function Editor({
     onCreate,
     onUpdate,
     placeholder,
-    notebookId,
 }: {
     initialContent: JSONContent
     onCreate: (editor: NotebookEditor) => void
     onUpdate: () => void
     placeholder: ({ node }: { node: any }) => string
-    notebookId: string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
 
@@ -77,6 +76,7 @@ export function Editor({
             NotebookNodeFlag,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
+            NotebookNodeTimestamp,
         ],
         content: initialContent,
         editorProps: {
@@ -140,6 +140,12 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
+                insertNodeAfter: (nodeId: string, content: JSONContent) => {
+                    const position = findPositionAfterNode(editor, nodeId)
+                    if (position != null) {
+                        editor.chain().focus().insertContentAt(position, content).run()
+                    }
+                },
             })
         },
         onUpdate: onUpdate,
@@ -152,4 +158,16 @@ export function Editor({
             {_editor && <FloatingSlashCommands editor={_editor} />}
         </>
     )
+}
+
+function findPositionAfterNode(editor: TTEditor, name: string): number | null {
+    let position: number | null = null
+
+    editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === name && !position) {
+            position = pos + node.nodeSize
+        }
+    })
+
+    return position
 }

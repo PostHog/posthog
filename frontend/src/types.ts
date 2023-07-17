@@ -2986,6 +2986,7 @@ export enum NotebookNodeType {
     Person = 'ph-person',
     Link = 'ph-link',
     Backlink = 'ph-backlink',
+    Timestamp = 'ph-timestamp',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
