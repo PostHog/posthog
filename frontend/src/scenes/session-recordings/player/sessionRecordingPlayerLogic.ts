@@ -274,28 +274,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (playingState, isBuffering, isErrored, isScrubbing, isSkippingInactivity, snapshotsLoaded) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
-                    console.log('setting state: ', playingState)
                     return playingState
                 }
 
                 if (!snapshotsLoaded) {
-                    console.log('setting state: ', SessionPlayerState.READY)
                     return SessionPlayerState.READY
                 }
                 if (isErrored) {
-                    console.log('setting state: ', SessionPlayerState.ERROR)
                     return SessionPlayerState.ERROR
                 }
                 if (isBuffering) {
-                    console.log('setting state: ', SessionPlayerState.BUFFER)
                     return SessionPlayerState.BUFFER
                 }
                 if (isSkippingInactivity && playingState !== SessionPlayerState.PAUSE) {
-                    console.log('setting state: ', SessionPlayerState.SKIP)
                     return SessionPlayerState.SKIP
                 }
 
-                console.log('setting state: ', playingState)
                 return playingState
             },
         ],
@@ -372,7 +366,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
     listeners(({ props, values, actions, cache }) => ({
         skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
-            console.log('skipping', values.timestampChangeTracking)
             // if the player has got stuck on the same timestamp for several animation frames
             // then we skip ahead a little to get past the blockage
             // this is a KLUDGE to get around what might be a bug in rrweb
