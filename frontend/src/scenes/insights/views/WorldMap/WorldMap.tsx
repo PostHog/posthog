@@ -35,6 +35,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
 
         if (tooltipCoordinates) {
+            // TODO: Migrate this to createRoot
             ReactDOM.render(
                 <>
                     {currentTooltip && (

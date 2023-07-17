@@ -44,6 +44,7 @@ function useBoldNumberTooltip({
 
         const seriesResult = insightData?.result?.[0]
 
+        // TODO: Migrate this to createRoot
         ReactDOM.render(
             <InsightTooltip
                 renderCount={(value: number) => <>{formatAggregationAxisValue(trendsFilter, value)}</>}
