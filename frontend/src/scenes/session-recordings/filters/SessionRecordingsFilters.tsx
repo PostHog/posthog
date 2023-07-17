@@ -5,14 +5,12 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import {
-    AvailableFeature,
     EntityTypes,
     FilterableLogLevel,
     FilterType,
     LocalRecordingFilters,
     RecordingDurationFilter,
     RecordingFilters,
-    ReplayTabs,
 } from '~/types'
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
@@ -24,11 +22,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useActions, useValues } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -36,7 +29,6 @@ interface SessionRecordingsFiltersProps {
     showPropertyFilters?: boolean
     onReset?: () => void
     usesListingV3?: boolean
-    filtersHaveChanged?: boolean
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
@@ -128,22 +120,11 @@ export function SessionRecordingsFilters({
     showPropertyFilters,
     onReset,
     usesListingV3,
-    filtersHaveChanged,
 }: SessionRecordingsFiltersProps): JSX.Element {
-    const { guardAvailableFeature } = useActions(sceneLogic)
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
-    const { playlists } = useValues(playlistsLogic)
-
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
     const { durationTypeToShow } = useValues(playerSettingsLogic)
     const { setDurationTypeToShow } = useActions(playerSettingsLogic)
-
-    const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ filters }, true)
-        reportRecordingPlaylistCreated('filters')
-    })
 
     // We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
@@ -269,29 +250,6 @@ export function SessionRecordingsFilters({
                     }
                 />
             </FlaggedFeature>
-
-            <div className={'flex flex-row justify-end'}>
-                <LemonButton
-                    className={'mt-2'}
-                    fullWidth={false}
-                    data-attr={'session-recordings-filters-save-as-playlist'}
-                    type="secondary"
-                    size={'small'}
-                    onClick={(e) =>
-                        guardAvailableFeature(
-                            AvailableFeature.RECORDINGS_PLAYLISTS,
-                            'recording playlists',
-                            "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
-                            () => newPlaylistHandler.onEvent?.(e),
-                            undefined,
-                            playlists.count
-                        )
-                    }
-                    disabledReason={filtersHaveChanged ? undefined : 'No changes to save'}
-                >
-                    Save these filters as a playlist
-                </LemonButton>
-            </div>
 
             <div className={'flex flex-col py-1 px-2 '}>
                 <LemonDivider />
