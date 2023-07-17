@@ -648,6 +648,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 rrwebPlayerTime !== undefined &&
                 newTimestamp !== undefined &&
+                values.currentPlayerState === SessionPlayerState.PLAY &&
                 values.timestampChangeTracking.timestampMatchesPrevious
             ) {
                 // if the player has got stuck on the same timestamp
