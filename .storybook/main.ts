@@ -1,6 +1,5 @@
 import type { StorybookConfig } from '@storybook/react/types'
 import { createEntry } from '../webpack.config'
-
 const config: StorybookConfig = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
     addons: [
@@ -17,6 +16,7 @@ const config: StorybookConfig = {
         '@storybook/addon-storysource',
         '@storybook/addon-a11y',
         'storybook-addon-pseudo-states',
+        '@storybook/addon-mdx-gfm',
     ],
     staticDirs: ['public'],
     webpackFinal: (config) => {
@@ -26,7 +26,10 @@ const config: StorybookConfig = {
             resolve: {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
-                alias: { ...config.resolve!.alias, ...mainConfig.resolve.alias },
+                alias: {
+                    ...config.resolve!.alias,
+                    ...mainConfig.resolve.alias,
+                },
             },
             module: {
                 ...config.module,
@@ -38,7 +41,9 @@ const config: StorybookConfig = {
                         use: [
                             {
                                 loader: require.resolve('@storybook/source-loader'),
-                                options: { parser: 'typescript' },
+                                options: {
+                                    parser: 'typescript',
+                                },
                             },
                         ],
                         enforce: 'pre',
@@ -50,6 +55,12 @@ const config: StorybookConfig = {
     features: {
         postcss: false,
     },
+    framework: {
+        name: '@storybook/react-webpack5',
+        options: {},
+    },
+    docs: {
+        autodocs: true,
+    },
 }
-
 export default config
