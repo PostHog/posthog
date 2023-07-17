@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { funnelsCueLogicType } from './funnelsCueLogicType'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightVizNode, NodeKind } from '~/queries/schema'
 
 export const funnelsCueLogic = kea<funnelsCueLogicType>([
@@ -53,6 +53,10 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
             actions.setPermanentOptOut()
         },
         setQuery: ({ query }) => {
+            if (!isInsightVizNode(query)) {
+                return
+            }
+
             if (!values.isFirstLoad && isTrendsQuery(query?.source) && (query.source.series || []).length >= 3) {
                 actions.setShouldShow(true)
                 !values.permanentOptOut &&
