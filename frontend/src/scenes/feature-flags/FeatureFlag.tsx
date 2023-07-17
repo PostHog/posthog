@@ -640,13 +640,21 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     )
 }
 
+function variantConcatWithPunctuation(phrases: string[]): string {
+    if (phrases === null || phrases.length < 3) {
+        return concatWithPunctuation(phrases)
+    } else {
+        return `${phrases[0]} and ${phrases.length - 1} more sets`
+    }
+}
+
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
 }
 
-function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JSX.Element {
+function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -663,9 +671,7 @@ function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JS
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
 
-    const _filter_groups: FeatureFlagGroupType[] = isSuper
-        ? featureFlag.filters.super_groups || []
-        : featureFlag.filters.groups
+    const _filter_groups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
     return (
         <>
@@ -947,11 +953,15 @@ function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JS
                                                     {_filter_groups.filter((g) => g.variant == variant.key).length >
                                                         0 && (
                                                         <span style={{ fontSize: 11 }} className="text-muted">
-                                                            Override for{' '}
+                                                            Overridden by{' '}
                                                             <strong>
-                                                                {concatWithPunctuation(
+                                                                {variantConcatWithPunctuation(
                                                                     _filter_groups
-                                                                        .filter((g) => g.variant == variant.key)
+                                                                        .filter(
+                                                                            (g) =>
+                                                                                g.variant != null &&
+                                                                                g.variant == variant.key
+                                                                        )
                                                                         .map(
                                                                             (variant) =>
                                                                                 'Set ' +
@@ -968,7 +978,7 @@ function FeatureFlagRollout({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JS
                                             )}
                                         </Field>
                                     </Col>
-                                    <Col span={2}>
+                                    <Col span={2} style={{ paddingTop: 8 }}>
                                         <Row>
                                             {variants.length > 1 && (
                                                 <LemonButton
@@ -1413,8 +1423,8 @@ export function FeatureFlagReleaseConditions({
                                 _filter_groups.filter((g) => g.variant == group.variant && g.variant != null).length < 2
                         ) && (
                             <LemonBanner type="info" className="mt-3 mb-3">
-                                More than one set override is assigned to the same variant. The earlier release
-                                condition override trumps any override in following sets.
+                                Multiple variant overrides detected. We use the variant override for the first condition
+                                set that matches.
                             </LemonBanner>
                         )}
                 </div>
