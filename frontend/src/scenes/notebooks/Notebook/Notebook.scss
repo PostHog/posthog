@@ -60,21 +60,33 @@
             padding: 0.2rem;
         }
 
-        .node-phBacklink {
-            padding: 2px 4px;
+        .backlink {
+            padding: 0.125rem 0.25rem;
             border: 1px solid var(--border);
             border-radius: var(--radius);
             background-color: var(--white);
+
+            &.selected {
+                outline-style: solid;
+                outline-color: var(--primary-bg-active);
+            }
+
+            &.active {
+                border: 1px solid var(--brand-blue);
+                background: var(--brand-blue);
+                color: var(--white);
+
+                & .label,
+                & svg {
+                    color: var(--white);
+                }
+            }
 
             &:hover {
                 background-color: var(--side);
             }
 
-            & a svg {
-                vertical-align: bottom;
-            }
-
-            & a .label {
+            & .label {
                 color: var(--black);
             }
         }

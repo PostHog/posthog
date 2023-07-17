@@ -8,13 +8,14 @@ import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
+import clsx from 'clsx'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
     insights: <IconBarChart />,
     feature_flags: <IconFlag />,
     experiments: <IconExperiment />,
-    events: <IconLive />,
+    events: <IconLive width="1em" height="1em" />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
 }
@@ -27,8 +28,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const href: string | undefined = backlinkHref(props.node.attrs.id, type)
     const title: string = props.node.attrs.title
 
+    const isViewing = window.location.pathname === href
+
+    console.log(href)
+
     return (
-        <NodeViewWrapper as="span">
+        <NodeViewWrapper as="span" class={clsx('backlink', isViewing && 'active', props.selected && 'selected')}>
             <Link to={href} onClick={() => notebookLinkClicked(shortId)} target={undefined} className="space-x-1">
                 <span>{ICON_MAP[type]}</span>
                 <span className="label">{title}</span>
