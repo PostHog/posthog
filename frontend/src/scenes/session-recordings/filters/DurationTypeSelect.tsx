@@ -1,16 +1,28 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { DurationType } from '~/types'
+import { posthog } from 'posthog-js'
 
 interface DurationTypeFilterProps {
+    // what to call this when reporting analytics to PostHog
+    onChangeEventDescription?: string
     onChange: (newFilter: DurationType) => void
     value?: DurationType
 }
 
-export function DurationTypeSelect({ onChange, value }: DurationTypeFilterProps): JSX.Element {
+export function DurationTypeSelect({
+    onChange,
+    value,
+    onChangeEventDescription,
+}: DurationTypeFilterProps): JSX.Element {
     return (
         <LemonSelect
             data-attr="duration-type-selector"
-            onChange={(v) => onChange((v || 'all') as DurationType)}
+            onChange={(v) => {
+                posthog.capture(onChangeEventDescription || 'session recording duration type filter changed', {
+                    durationChoice: v,
+                })
+                onChange((v || 'all') as DurationType)
+            }}
             options={[
                 {
                     label: 'total duration',

@@ -256,7 +256,11 @@ export function SessionRecordingsFilters({
 
                 <div className={'flex flex-row items-center justify-end space-x-2'}>
                     <span>Show</span>
-                    <DurationTypeSelect value={durationTypeToShow} onChange={(value) => setDurationTypeToShow(value)} />
+                    <DurationTypeSelect
+                        value={durationTypeToShow}
+                        onChange={(value) => setDurationTypeToShow(value)}
+                        onChangeEventDescription={'session recording list duration type to show selected'}
+                    />
                 </div>
             </div>
         </div>
