@@ -84,12 +84,7 @@ export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode
 ): Partial<InsightModel> | undefined => {
-    if (
-        !cachedInsight ||
-        cachedInsight.result === null ||
-        cachedInsight.result === undefined ||
-        cachedInsight.filters === undefined
-    ) {
+    if (!cachedInsight || cachedInsight.filters === undefined) {
         return undefined
     }
 

@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -27,8 +27,8 @@ dependencies:
     specifier: ^2.1.2
     version: 2.1.2(react@16.14.0)
   '@rrweb/types':
-    specifier: ^2.0.0-alpha.8
-    version: 2.0.0-alpha.8
+    specifier: ^2.0.0-alpha.9
+    version: 2.0.0-alpha.9
   '@sentry/react':
     specifier: 7.22.0
     version: 7.22.0(react@16.14.0)
@@ -43,9 +43,6 @@ dependencies:
     version: 2.0.3(@tiptap/core@2.0.3)
   '@tiptap/extension-floating-menu':
     specifier: ^2.0.3
-    version: 2.0.3(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3)
-  '@tiptap/extension-link':
-    specifier: 2.0.3
     version: 2.0.3(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3)
   '@tiptap/extension-placeholder':
     specifier: 2.0.3
@@ -186,8 +183,8 @@ dependencies:
     specifier: ^0.39.0
     version: 0.39.0
   posthog-js:
-    specifier: 1.70.0
-    version: 1.70.0
+    specifier: 1.71.0
+    version: 1.71.0
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -276,8 +273,8 @@ dependencies:
     specifier: ^1.5.1
     version: 1.5.1
   rrweb:
-    specifier: ^2.0.0-alpha.8
-    version: 2.0.0-alpha.8
+    specifier: ^2.0.0-alpha.9
+    version: 2.0.0-alpha.9
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -3241,10 +3238,10 @@ packages:
       type-fest: 2.19.0
     dev: false
 
-  /@rrweb/types@2.0.0-alpha.8:
-    resolution: {integrity: sha512-yAr6ZQrgmr7+qZU5DMGqYXnVsolC5epftmZtkOtgFD/bbvCWflNnl09M32hUjttlKCV1ohhmQGioXkCQ37IF7A==}
+  /@rrweb/types@2.0.0-alpha.9:
+    resolution: {integrity: sha512-yS2KghLSmSSxo6H7tHrJ6u+nWJA9zCXaKFyc79rUSX8RHHSImRqocTqJ8jz794kCIWA90rvaQayRONdHO+vB0Q==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.8
+      rrweb-snapshot: 2.0.0-alpha.9
     dev: false
 
   /@sentry/browser@7.22.0:
@@ -4988,17 +4985,6 @@ packages:
       '@tiptap/core': ^2.0.0
     dependencies:
       '@tiptap/core': 2.0.3(@tiptap/pm@2.0.3)
-    dev: false
-
-  /@tiptap/extension-link@2.0.3(@tiptap/core@2.0.3)(@tiptap/pm@2.0.3):
-    resolution: {integrity: sha512-H72tXQ5rkVCkAhFaf08fbEU7EBUCK0uocsqOF+4th9sOlrhfgyJtc8Jv5EXPDpxNgG5jixSqWBo0zKXQm9s9eg==}
-    peerDependencies:
-      '@tiptap/core': ^2.0.0
-      '@tiptap/pm': ^2.0.0
-    dependencies:
-      '@tiptap/core': 2.0.3(@tiptap/pm@2.0.3)
-      '@tiptap/pm': 2.0.3(@tiptap/core@2.0.3)
-      linkifyjs: 4.1.1
     dev: false
 
   /@tiptap/extension-list-item@2.0.3(@tiptap/core@2.0.3):
@@ -13584,10 +13570,6 @@ packages:
       uc.micro: 1.0.6
     dev: false
 
-  /linkifyjs@4.1.1:
-    resolution: {integrity: sha512-zFN/CTVmbcVef+WaDXT63dNzzkfRBKT1j464NJQkV7iSgJU0sLBus9W0HBwnXK13/hf168pbrx/V/bjEHOXNHA==}
-    dev: false
-
   /lint-staged@10.2.13:
     resolution: {integrity: sha512-conwlukNV6aL9SiMWjFtDp5exeDnTMekdNPDZsKGnpfQuHcO0E3L3Bbf58lcR+M7vk6LpCilxDAVks/DDVBYlA==}
     hasBin: true
@@ -15624,8 +15606,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.70.0:
-    resolution: {integrity: sha512-g3j9tXVC+cbD1a7yX+hI4i5/WksvxiSFTLXnsPaYECjz93LtovBtpQA2DFxZiB2gWPPnt7DNz6VokRKof/7VMw==}
+  /posthog-js@1.71.0:
+    resolution: {integrity: sha512-Qs7lIBivj993apV17x8krEy46SKzSYCwMq4hihkNJ01U6ZltrIx0piYfKCC2pmiBgCaJG7Hjn0iTLy5evntdEw==}
     dependencies:
       fflate: 0.4.8
     dev: false
@@ -17440,27 +17422,27 @@ packages:
     resolution: {integrity: sha512-85aZYCxweiD5J8yTEbw+E6A27zSnLPNDL0WfPdw3YYodq7WjnTKo0q4dtyQ2gz23iPT8Q9CUyJtAaUNcTxRf5Q==}
     dev: false
 
-  /rrdom@2.0.0-alpha.8:
-    resolution: {integrity: sha512-rUyeS9fSOO6uSxCdeY5bQkKQTPECIgxsOCb/WR7eA/UsVkVpdDOyCV43wxm92V2JOtqMuv+36rUpEDFW+YFjOw==}
+  /rrdom@2.0.0-alpha.9:
+    resolution: {integrity: sha512-jfaZ8tHi098P4GpPEtkOwnkucyKA5eGanAVHGPklzCqAeEq1Yx+9/y8AeOtF3yiobqKKkW8lLvFH2KrBH1CZlQ==}
     dependencies:
-      rrweb-snapshot: 2.0.0-alpha.8
+      rrweb-snapshot: 2.0.0-alpha.9
     dev: false
 
-  /rrweb-snapshot@2.0.0-alpha.8:
-    resolution: {integrity: sha512-3Rb7c+mnDEADQ8N9qn9SDH5PzCyHlZ1cwZC932qRyt9O8kJWLM11JLYqqEyQCa2FZVQbzH2iAaCgnyM7A32p7A==}
+  /rrweb-snapshot@2.0.0-alpha.9:
+    resolution: {integrity: sha512-mHg1uUE2iUf0MXLE//4r5cMynkbduwmaOEis4gC7EuqkUAC1pYoLpcYYVt9lD6dgYIF6BmK6dgLLzMpD/tTyyA==}
     dev: false
 
-  /rrweb@2.0.0-alpha.8:
-    resolution: {integrity: sha512-JtJCeUjZ91/qJ6gvLmZw/1Bxuddt06pD887shIYzGhKuOgjtvkUdhBtB5uXrV7Bvi3WELYGZr1stqBugWa9MXg==}
+  /rrweb@2.0.0-alpha.9:
+    resolution: {integrity: sha512-8E2yiLY7IrFjDcVUZ7AcQtdBNFuTIsBrlCMpbyLua6X64dGRhOZ+IUDXLnAbNj5oymZgFtZu2UERG9rmV2VAng==}
     dependencies:
-      '@rrweb/types': 2.0.0-alpha.8
+      '@rrweb/types': 2.0.0-alpha.9
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
       fflate: 0.4.8
       mitt: 3.0.0
-      rrdom: 2.0.0-alpha.8
-      rrweb-snapshot: 2.0.0-alpha.8
+      rrdom: 2.0.0-alpha.9
+      rrweb-snapshot: 2.0.0-alpha.9
     dev: false
 
   /rsvp@4.8.5:

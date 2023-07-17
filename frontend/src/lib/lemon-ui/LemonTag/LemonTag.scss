@@ -49,6 +49,11 @@
         background: none;
     }
 
+    &.LemonTag--size-small {
+        font-size: 0.625rem;
+        padding: 0.0625rem 0.1875rem;
+    }
+
     .LemonTag__icon {
         font-size: 0.875rem;
         margin-right: 0.125rem;
@@ -59,9 +64,5 @@
         margin-left: 0.25rem;
         min-height: 1.5rem;
         padding: 0.125rem 0.125rem;
-    }
-
-    &.clickable {
-        cursor: pointer;
     }
 }

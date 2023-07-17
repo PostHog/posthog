@@ -36,7 +36,7 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
             {
                 loadEventDefinitions: async ({ startIndex, stopIndex }) => {
                     if (!startIndex) {
-                        cache.requestedEventDefinitions.length = 0 // Clear cache
+                        cache.requestedEventDefinitions = []
                     }
                     for (let i = startIndex; i < stopIndex; i++) {
                         cache.requestedEventDefinitions[i] = true
@@ -59,7 +59,7 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
             {
                 loadPropertyDefinitions: async ({ startIndex, stopIndex }) => {
                     if (!startIndex) {
-                        cache.requestedPropertyDefinitions.length = 0 // Clear cache
+                        cache.requestedPropertyDefinitions = []
                     }
                     for (let i = startIndex; i < stopIndex; i++) {
                         cache.requestedPropertyDefinitions[i] = true

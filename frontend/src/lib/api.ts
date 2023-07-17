@@ -1,49 +1,49 @@
 import posthog from 'posthog-js'
 import {
     ActionType,
-    RawAnnotationType,
     CohortType,
-    EventDefinitionType,
     DashboardCollaboratorType,
+    DashboardTemplateEditorType,
+    DashboardTemplateListParams,
+    DashboardTemplateType,
     DashboardType,
+    DataWarehouseTable,
+    EarlyAccessFeatureType,
     EventDefinition,
+    EventDefinitionType,
+    EventsListQueryParams,
     EventType,
     ExportedAssetType,
+    FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     InsightModel,
     IntegrationType,
+    MediaUploadResponse,
+    NewEarlyAccessFeatureType,
+    NotebookType,
+    OrganizationResourcePermissionType,
     OrganizationType,
+    PerformanceEvent,
     PersonListParams,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
+    PropertyDefinitionType,
+    RawAnnotationType,
+    RecentPerformancePageView,
+    RoleMemberType,
+    RolesListParams,
+    RoleType,
+    SessionRecordingPlaylistType,
+    SessionRecordingSnapshotResponse,
+    SessionRecordingsResponse,
+    SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
+    Survey,
     TeamType,
     UserType,
-    MediaUploadResponse,
-    SessionRecordingsResponse,
-    EventsListQueryParams,
-    SessionRecordingPlaylistType,
-    RoleType,
-    RoleMemberType,
-    OrganizationResourcePermissionType,
-    RolesListParams,
-    FeatureFlagAssociatedRoleType,
-    SessionRecordingType,
-    PerformanceEvent,
-    RecentPerformancePageView,
-    DashboardTemplateType,
-    DashboardTemplateEditorType,
-    EarlyAccessFeatureType,
-    NewEarlyAccessFeatureType,
-    SessionRecordingSnapshotResponse,
-    Survey,
-    NotebookType,
-    DashboardTemplateListParams,
-    PropertyDefinitionType,
-    DataWarehouseTable,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -261,6 +261,19 @@ class ApiRequest {
         return this.projectsDetail(teamId)
             .addPathComponent('property_definitions')
             .addPathComponent(propertyDefinitionId)
+    }
+
+    public propertyDefinitionSeenTogether(
+        eventNames: string[],
+        propertyDefinitionName: PropertyDefinition['name'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
+
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent('seen_together')
+            .withQueryString(queryParams)
     }
 
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
@@ -752,6 +765,15 @@ const api = {
             propertyDefinitionId: PropertyDefinition['id']
         }): Promise<PropertyDefinition> {
             return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
+        },
+        async seenTogether({
+            eventNames,
+            propertyDefinitionName,
+        }: {
+            eventNames: string[]
+            propertyDefinitionName: PropertyDefinition['name']
+        }): Promise<Record<string, boolean>> {
+            return new ApiRequest().propertyDefinitionSeenTogether(eventNames, propertyDefinitionName).get()
         },
         async update({
             propertyDefinitionId,
@@ -1407,7 +1429,13 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal: options?.signal })
+            response = await fetch(url, {
+                signal: options?.signal,
+                headers: {
+                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                },
+            })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -1430,6 +1458,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1461,6 +1491,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1486,6 +1518,8 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })
 

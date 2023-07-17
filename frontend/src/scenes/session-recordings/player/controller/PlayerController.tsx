@@ -5,13 +5,13 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
-import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
+import { Seekbar } from './Seekbar'
+import { SeekSkip } from './PlayerControllerTime'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
-import { playerSettingsLogic } from './playerSettingsLogic'
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,9 +27,9 @@ export function PlayerController(): JSX.Element {
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
-        <div className="p-3 bg-bg-light flex flex-col select-none">
+        <div className="bg-bg-light flex flex-col select-none">
             <Seekbar />
-            <div className="flex justify-between items-center h-8 gap-2">
+            <div className="flex justify-between items-center h-8 gap-2 m-2">
                 <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />

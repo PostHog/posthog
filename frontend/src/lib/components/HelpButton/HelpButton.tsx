@@ -7,7 +7,6 @@ import {
     IconArrowDropDown,
     IconArticle,
     IconHelpOutline,
-    IconQuestionAnswer,
     IconMessages,
     IconFlare,
     IconLive,
@@ -110,23 +109,13 @@ export function HelpButton({
                                     reportHelpButtonUsed(HelpType.Updates)
                                     hideHelp()
                                 },
-                                to: 'https://posthog.com/blog/categories/posthog-news',
+                                to: 'https://posthog.com/changelog',
                                 targetBlank: true,
                             },
                         ],
                     },
                     showSupportOptions && {
                         items: [
-                            {
-                                label: 'Ask on the forum',
-                                icon: <IconQuestionAnswer />,
-                                onClick: () => {
-                                    reportHelpButtonUsed(HelpType.Slack)
-                                    hideHelp()
-                                },
-                                to: `https://posthog.com/questions${HELP_UTM_TAGS}`,
-                                targetBlank: true,
-                            },
                             {
                                 label: 'Report a bug',
                                 icon: <IconBugReport />,

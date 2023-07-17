@@ -11,14 +11,14 @@ from posthog.test.base import APIBaseTest, BaseTest
 class TestPropertyDefinitionAPI(APIBaseTest):
 
     EXPECTED_PROPERTY_DEFINITIONS: List[Dict[str, Union[str, Optional[int], bool]]] = [
-        {"name": "$browser", "query_usage_30_day": None, "is_numerical": False},
-        {"name": "$current_url", "query_usage_30_day": 3, "is_numerical": False},
-        {"name": "is_first_movie", "query_usage_30_day": None, "is_numerical": False},
-        {"name": "app_rating", "query_usage_30_day": 1, "is_numerical": True},
-        {"name": "plan", "query_usage_30_day": 1, "is_numerical": False},
-        {"name": "purchase", "query_usage_30_day": None, "is_numerical": True},
-        {"name": "purchase_value", "query_usage_30_day": None, "is_numerical": True},
-        {"name": "first_visit", "query_usage_30_day": None, "is_numerical": False},
+        {"name": "$browser", "is_numerical": False},
+        {"name": "$current_url", "is_numerical": False},
+        {"name": "is_first_movie", "is_numerical": False},
+        {"name": "app_rating", "is_numerical": True},
+        {"name": "plan", "is_numerical": False},
+        {"name": "purchase", "is_numerical": True},
+        {"name": "purchase_value", "is_numerical": True},
+        {"name": "first_visit", "is_numerical": False},
     ]
 
     def setUp(self) -> None:
@@ -26,16 +26,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         EventDefinition.objects.get_or_create(team=self.team, name="$pageview")
 
-        PropertyDefinition.objects.get_or_create(
-            team=self.team, name="$current_url", defaults={"query_usage_30_day": 3}
-        )
+        PropertyDefinition.objects.get_or_create(team=self.team, name="$current_url")
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
         PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
         PropertyDefinition.objects.get_or_create(team=self.team, name="is_first_movie")
-        PropertyDefinition.objects.get_or_create(
-            team=self.team, name="app_rating", defaults={"query_usage_30_day": 1, "is_numerical": True}
-        )
-        PropertyDefinition.objects.get_or_create(team=self.team, name="plan", defaults={"query_usage_30_day": 1})
+        PropertyDefinition.objects.get_or_create(team=self.team, name="app_rating", defaults={"is_numerical": True})
+        PropertyDefinition.objects.get_or_create(team=self.team, name="plan")
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", defaults={"is_numerical": True})
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase", defaults={"is_numerical": True})
         PropertyDefinition.objects.create(
@@ -63,7 +59,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
-            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
 
     def test_list_numerical_property_definitions(self):
@@ -85,8 +80,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 308)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
+        self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(
-            response.json()["results"][0]["name"], "$current_url", [r["name"] for r in response.json()["results"]]
+            response.json()["results"][1]["name"], "$current_url", [r["name"] for r in response.json()["results"]]
         )
 
         property_checkpoints = [
@@ -333,6 +329,38 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.item_id == str(property_definition.id)
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
+
+    def test_can_report_event_property_coexistence_when_custom_event_has_no_session_id(self) -> None:
+        EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"custom_event": False, "$pageview": True}
+
+    def test_can_report_event_property_coexistence_when_custom_event_has_session_id(self) -> None:
+        EventProperty.objects.create(team=self.team, event="custom_event", property="$session_id")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"custom_event": True, "$pageview": False}
+
+    def test_cannot_search_other_teams_properties(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Another Team")
+
+        EventProperty.objects.create(team=other_team, event="custom_event", property="$session_id")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"custom_event": False, "$pageview": False}
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):

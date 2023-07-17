@@ -68,7 +68,7 @@ By default, plugin-server is responsible for and executes all of the following:
 1. Ingestion (calling plugins and writing event and person data to ClickHouse and Postgres, buffering events)
 2. Scheduled tasks (runEveryX type plugin tasks)
 3. Processing plugin jobs
-4. Async plugin tasks (onEvent, onSnapshot plugin tasks)
+4. Async plugin tasks (onEvent plugin tasks)
 
 Ingestion can be split into its own process at higher scales. To do so, you need to run two different instances of
 plugin-server, with the following environment variables set:
@@ -179,7 +179,7 @@ New functions called here are:
 2. `createTaskRunner` – Creates a Piscina task runner that allows to operate on plugin VMs.
 
 > Note:
-> An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config)
+> An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
 
 ## Questions?
 
