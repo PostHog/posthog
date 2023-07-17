@@ -139,18 +139,21 @@ export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaC
     // Get the offsets for the last message for each partition, from
     // messages
     const offsets = messages.reduce((acc, message) => {
-        if (!acc[message.topic]) {
-            acc[message.topic] = {}
+        const topic = message.topic
+        const partition = message.partition
+
+        if (!acc[topic]) {
+            acc[topic] = {}
         }
 
-        if (!acc[message.topic][message.partition.toString()]) {
-            acc[message.topic][message.partition.toString()] = message.offset
-        } else if (message.offset > acc[message.topic][message.partition.toString()]) {
-            acc[message.topic][message.partition.toString()] = message.offset
+        if (!acc[topic][partition]) {
+            acc[topic][partition] = message.offset
+        } else if (message.offset > acc[topic][partition]) {
+            acc[topic][partition] = message.offset
         }
 
         return acc
-    }, {} as { [topic: string]: { [partition: string]: number } })
+    }, {} as { [topic: string]: { [partition: number]: number } })
 
     const topicPartitionOffsets = Object.entries(offsets).flatMap(([topic, partitions]) => {
         return Object.entries(partitions).map(([partition, offset]) => {
