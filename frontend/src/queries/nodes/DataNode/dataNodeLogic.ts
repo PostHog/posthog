@@ -31,7 +31,7 @@ import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export interface DataNodeLogicProps {
     key: string
-    query?: DataNode
+    query: DataNode
     /** Cached results when fetching nodes in bulk (list endpoint), sharing or exporting. */
     cachedResults?: AnyResponseType
     /** Disabled data fetching and only allow cached results. */

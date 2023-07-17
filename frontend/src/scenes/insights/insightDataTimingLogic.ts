@@ -1,5 +1,5 @@
 import { kea, props, key, path, connect, listeners, reducers, actions } from 'kea'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from './sharedUtils'
@@ -16,11 +16,11 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
-            dataNodeLogic({ key: insightVizDataNodeKey(props) }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['query', 'response'],
         ],
         actions: [
-            dataNodeLogic({ key: insightVizDataNodeKey(props) }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'abortQuery as loadDataCancellation'],
         ],
     })),

@@ -10,7 +10,7 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { isInsightVizNode } from '~/queries/utils'
 import { cleanFilters } from './utils/cleanFilters'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
@@ -37,7 +37,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['filters', 'insight', 'savedInsight'],
-            dataNodeLogic({ key: insightVizDataNodeKey(props) }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             [
                 'query as insightQuery',
                 'response as insightData',
@@ -51,7 +51,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
-            dataNodeLogic({ key: insightVizDataNodeKey(props) }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
         logic: [insightDataTimingLogic(props)],
