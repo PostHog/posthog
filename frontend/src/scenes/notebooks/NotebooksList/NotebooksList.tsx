@@ -40,8 +40,10 @@ export function NotebooksTable(): JSX.Element {
                         to={urls.notebook(short_id)}
                         className="font-semibold flex items-center gap-2"
                     >
-                        {title || 'Untitled'}
-                        {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
+                        <>
+                            {title || 'Untitled'}
+                            {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
+                        </>
                     </Link>
                 )
             },
