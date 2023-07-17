@@ -165,6 +165,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        breakpoint()
         recording = self.get_object()
 
         # Optimisation step if passed to speed up retrieval of CH data
