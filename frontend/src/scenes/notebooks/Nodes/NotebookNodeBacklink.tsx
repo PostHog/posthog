@@ -9,6 +9,7 @@ import { useActions, useValues } from 'kea'
 import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
+import { router } from 'kea-router'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -28,15 +29,16 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const href: string | undefined = backlinkHref(props.node.attrs.id, type)
     const title: string = props.node.attrs.title
 
-    const isViewing = window.location.pathname === href
-
-    console.log(href)
+    const isViewing = router.values.location.pathname === href
 
     return (
-        <NodeViewWrapper as="span" class={clsx('backlink', isViewing && 'active', props.selected && 'selected')}>
+        <NodeViewWrapper
+            as="span"
+            class={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
+        >
             <Link to={href} onClick={() => notebookLinkClicked(shortId)} target={undefined} className="space-x-1">
                 <span>{ICON_MAP[type]}</span>
-                <span className="label">{title}</span>
+                <span className="Backlink__label">{title}</span>
             </Link>
         </NodeViewWrapper>
     )
