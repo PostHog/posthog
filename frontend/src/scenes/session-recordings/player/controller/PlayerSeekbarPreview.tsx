@@ -3,6 +3,8 @@ import { Ref, RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { PlayerFrame } from '../PlayerFrame'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerSeekbarPreview({
     minMs,
@@ -84,11 +86,13 @@ export function PlayerSeekbarPreview({
                 }}
             >
                 <div className="PlayerSeekBarPreview__tooltip__content">
-                    <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
-                        <div className="bg-red w-60 h-40">
-                            <PlayerFrame />
-                        </div>
-                    </BindLogic>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_PLAYER_PREVIEW} match>
+                        <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
+                            <div className="bg-red w-60 h-40">
+                                <PlayerFrame />
+                            </div>
+                        </BindLogic>
+                    </FlaggedFeature>
                     <div className="text-center p-2">{content}</div>
                 </div>
             </div>
