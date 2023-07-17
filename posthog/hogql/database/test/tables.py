@@ -31,3 +31,29 @@ def create_aapl_stock_table_view() -> View:
             "Low": FloatDatabaseField(name="Low"),
         },
     )
+
+
+def create_nested_aapl_stock_view() -> View:
+    return View(
+        name="aapl_stock_nested_view",
+        query="SELECT * FROM aapl_stock_view",
+        fields={
+            "Date": DateDatabaseField(name="Date"),
+            "Open": FloatDatabaseField(name="Open"),
+            "High": FloatDatabaseField(name="High"),
+            "Low": FloatDatabaseField(name="Low"),
+        },
+    )
+
+
+def create_aapl_stock_table_self_referencing() -> View:
+    return View(
+        name="aapl_stock_self",
+        query="SELECT * FROM aapl_stock_self",
+        fields={
+            "Date": DateDatabaseField(name="Date"),
+            "Open": FloatDatabaseField(name="Open"),
+            "High": FloatDatabaseField(name="High"),
+            "Low": FloatDatabaseField(name="Low"),
+        },
+    )

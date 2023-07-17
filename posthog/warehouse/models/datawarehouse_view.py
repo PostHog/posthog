@@ -6,7 +6,7 @@ from posthog.hogql.database.models import View
 
 
 class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-    name: models.CharField = models.CharField(max_length=128)
+    name: models.CharField = models.CharField(max_length=128, unique=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns: models.JSONField = models.JSONField(
         default=dict, null=True, blank=True, help_text="Dict of all columns with Clickhouse type (including Nullable())"

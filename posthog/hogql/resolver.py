@@ -210,8 +210,8 @@ class Resolver(CloningVisitor):
 
                 if isinstance(database_table, View):
                     node.table = parse_select(str(database_table.query))
-                    node.alias = database_table.name
-                    node = super().visit(node)
+                    node.alias = table_alias or database_table.name
+                    node = self.visit(node)
                     return node
 
                 if isinstance(database_table, LazyTable):
