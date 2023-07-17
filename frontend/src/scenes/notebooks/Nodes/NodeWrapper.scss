@@ -12,6 +12,8 @@
 
     transition: outline 150ms ease-out, outline-offset 150ms ease-out;
 
+    margin: 0.5rem 0px;
+
     &--selected {
         outline: 2px solid var(--accent-3000-light);
         outline-offset: 0.25rem;

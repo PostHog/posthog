@@ -9,6 +9,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
+import clsx from 'clsx'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const playbackTime = props.node.attrs.playbackTime
@@ -21,7 +22,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
 
-    return <NodeViewWrapper as="span">{formatTimestamp(playbackTime, currentPlayerTime)}</NodeViewWrapper>
+    return (
+        <NodeViewWrapper as="span" class={clsx('Timestamp', props.selected && 'Timestamp--selected')}>
+            {formatTimestamp(playbackTime, currentPlayerTime)}
+        </NodeViewWrapper>
+    )
 }
 
 function formatTimestamp(nodeTime: number | null, playerTime: number): string {
