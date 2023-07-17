@@ -81,7 +81,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            ['fullLoad', 'sessionPlayerData', 'sessionPlayerSnapshotDataLoading', 'sessionPlayerMetaDataLoading'],
+            [
+                'snapshotsLoaded',
+                'sessionPlayerData',
+                'sessionPlayerSnapshotDataLoading',
+                'sessionPlayerMetaDataLoading',
+            ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
             userLogic,
@@ -90,11 +95,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions: [
             sessionRecordingDataLogic(props),
             [
-                'loadRecording',
+                'maybeLoadRecordingMeta',
+                'loadRecordingSnapshots',
                 'loadRecordingSnapshotsSuccess',
-                'loadRecordingSnapshotsV2Success',
                 'loadRecordingSnapshotsFailure',
-                'loadRecordingSnapshotsV2Failure',
                 'loadRecordingMetaSuccess',
             ],
             playerSettingsLogic,
@@ -248,13 +252,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
 
         currentPlayerState: [
-            (s) => [s.playingState, s.fullLoad, s.isBuffering, s.isErrored, s.isScrubbing, s.isSkippingInactivity],
-            (playingState, fullLoad, isBuffering, isErrored, isScrubbing, isSkippingInactivity) => {
+            (s) => [
+                s.playingState,
+                s.isBuffering,
+                s.isErrored,
+                s.isScrubbing,
+                s.isSkippingInactivity,
+                s.snapshotsLoaded,
+            ],
+            (playingState, isBuffering, isErrored, isScrubbing, isSkippingInactivity, snapshotsLoaded) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
                 }
-                if (!fullLoad) {
+
+                if (!snapshotsLoaded) {
                     return SessionPlayerState.READY
                 }
                 if (isErrored) {
@@ -478,24 +490,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: async () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.updateFromMetadata()
+            if (props.autoPlay) {
+                // Autoplay assumes we are playing immediately so lets go ahead and load more data
+                actions.loadRecordingSnapshots()
+            }
         },
 
         loadRecordingSnapshotsSuccess: async () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.updateFromMetadata()
         },
-        loadRecordingSnapshotsV2Success: async () => {
-            // As the connected data logic may be preloaded we call a shared function here and on mount
-            actions.updateFromMetadata()
-        },
 
         loadRecordingSnapshotsFailure: () => {
-            if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
-                console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setErrorPlayerState(true)
-            }
-        },
-        loadRecordingSnapshotsV2Failure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setErrorPlayerState(true)
@@ -557,7 +563,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setCurrentSegment(segment)
             }
 
-            if (values.currentPlayerState === SessionPlayerState.READY) {
+            if (!values.snapshotsLoaded) {
                 // We haven't started properly loading yet so nothing to do
             } else if (!values.sessionPlayerSnapshotDataLoading && segment?.kind === 'buffer') {
                 // If not currently loading anything and part of the recording hasn't loaded, set error state
@@ -617,7 +623,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         togglePlayPause: () => {
             if (values.currentPlayerState === SessionPlayerState.READY) {
-                actions.loadRecording(true)
+                actions.loadRecordingSnapshots()
                 return
             }
             // If buffering, toggle is a noop
@@ -819,7 +825,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         document.addEventListener('fullscreenchange', cache.fullScreenListener)
 
         if (props.sessionRecordingId) {
-            actions.loadRecording(props.autoPlay)
+            actions.maybeLoadRecordingMeta()
         }
 
         cache.openTime = performance.now()
