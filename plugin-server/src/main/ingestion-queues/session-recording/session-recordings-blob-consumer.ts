@@ -145,7 +145,7 @@ export class SessionRecordingBlobIngester {
         // lag does not distribute evenly across partitions, so track timestamps per partition
         this.partitionNow[partition] = timestamp
         // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
+        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset - 1
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
