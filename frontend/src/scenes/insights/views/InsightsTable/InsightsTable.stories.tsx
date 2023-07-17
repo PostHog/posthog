@@ -10,6 +10,7 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { BaseMathType, InsightLogicProps } from '~/types'
 
 import { InsightsTable } from './InsightsTable'
+import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 
 export default {
     title: 'Insights/InsightsTable',
@@ -23,19 +24,16 @@ const Template: ComponentStory<typeof InsightsTable> = (props, { parameters }) =
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const insight = require('../../__mocks__/trendsLineBreakdown.json')
-
-    const insightProps = { dashboardItemId, doNotLoad: true } as InsightLogicProps
     const filters = { ...insight.filters, ...parameters.mergeFilters }
-    const query = filtersToQueryNode(filters)
+    const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
+
+    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+    const querySource = filtersToQueryNode(filters)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query,
+        query: querySource,
         key: insightVizDataNodeKey(insightProps),
-        cachedResults: {
-            ...insight,
-            short_id: dashboardItemId,
-            filters,
-        },
+        cachedResults: getCachedResults(insightProps.cachedInsight, querySource),
         doNotLoad: insightProps.doNotLoad,
     }
 
