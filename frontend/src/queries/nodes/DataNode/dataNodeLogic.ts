@@ -96,7 +96,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     ) {
                         const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
                         const fetchResponse = await api.getResponse(url)
-                        return await getJSONOrThrow(fetchResponse)
+                        const data = await getJSONOrThrow(fetchResponse)
+                        breakpoint()
+                        return data
                     }
 
                     if (props.cachedResults && !refresh) {
