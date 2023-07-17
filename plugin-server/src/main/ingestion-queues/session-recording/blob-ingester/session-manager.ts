@@ -51,6 +51,7 @@ type SessionBuffer = {
     id: string
     oldestKafkaTimestamp: number | null
     newestKafkaTimestamp: number | null
+    sizeEstimate: number
     count: number
     file: string
     fileStream: WriteStream
@@ -113,6 +114,11 @@ export class SessionManager {
         }
 
         this.addToBuffer(message)
+
+        // NOTE: This is uncompressed size estimate but thats okay as we currently want to over-flush to see if we can shake out a bug
+        if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+            void this.flush('buffer_size')
+        }
     }
 
     public get isEmpty(): boolean {
@@ -284,6 +290,7 @@ export class SessionManager {
                 id,
                 createdAt: now(),
                 count: 0,
+                sizeEstimate: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
                 file,
@@ -322,6 +329,7 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
+            this.buffer.sizeEstimate += content.length
             this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
             this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 
