@@ -73,11 +73,13 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
             }
         },
         displayAsFunnel: () => {
-            if (isTrendsQuery(values.query?.source)) {
-                const query = JSON.parse(JSON.stringify(values.query)) as InsightVizNode
-                query.source.kind = NodeKind.FunnelsQuery
-                actions.setQuery(query)
+            if (!isInsightVizNode(values.query) || !isTrendsQuery(values.query?.source)) {
+                return
             }
+
+            const query = JSON.parse(JSON.stringify(values.query)) as InsightVizNode
+            query.source.kind = NodeKind.FunnelsQuery
+            actions.setQuery(query)
         },
     })),
     selectors({
