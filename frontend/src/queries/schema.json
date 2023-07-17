@@ -1274,6 +1274,9 @@
                 "showLastComputation": {
                     "type": "boolean"
                 },
+                "showLastComputationRefresh": {
+                    "type": "boolean"
+                },
                 "showLegendButton": {
                     "type": "boolean"
                 },

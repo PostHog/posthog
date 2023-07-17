@@ -22,7 +22,7 @@ async function deleteKeysWithPrefix(hub: Hub, keyPrefix: string) {
     await hub.redisPool.release(redisClient)
 }
 
-const mockCommitSync = jest.fn()
+const mockCommit = jest.fn()
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -34,7 +34,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                 stop: jest.fn(),
                 consumer: {
                     on: jest.fn(),
-                    commitSync: mockCommitSync,
+                    commitSync: mockCommit,
                 },
             })
         ),
@@ -84,11 +84,11 @@ describe('ingester', () => {
     // these tests assume that a flush won't run while they run
     beforeEach(async () => {
         ingester = new SessionRecordingBlobIngester(
-            hub.teamManager,
             {
                 ...defaultConfig,
                 SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: keyPrefix,
             },
+            hub.postgres,
             hub.objectStorage,
             hub.redisPool
         )
@@ -99,8 +99,8 @@ describe('ingester', () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
         await waitForExpect(() => {
-            expect(ingester.sessions.size).toBe(1)
-            expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+            expect(Object.keys(ingester.sessions).length).toBe(1)
+            expect(ingester.sessions['1-session_id_1']).toBeDefined()
         })
     })
 
@@ -108,14 +108,14 @@ describe('ingester', () => {
         await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_1' }))
         await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
 
-        expect(ingester.sessions.size).toBe(2)
-        expect(ingester.sessions.has('2-session_id_1')).toEqual(true)
-        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['2-session_id_1']).toBeDefined()
+        expect(ingester.sessions['2-session_id_2']).toBeDefined()
 
-        await ingester.destroySessions([['2-session_id_1', ingester.sessions.get('2-session_id_1')!]])
+        await ingester.destroySessions([['2-session_id_1', ingester.sessions['2-session_id_1']]])
 
-        expect(ingester.sessions.size).toBe(1)
-        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+        expect(Object.keys(ingester.sessions).length).toBe(1)
+        expect(ingester.sessions['2-session_id_2']).toBeDefined()
     })
 
     it('handles multiple incoming sessions', async () => {
@@ -124,20 +124,20 @@ describe('ingester', () => {
             session_id: 'session_id_2',
         })
         await Promise.all([ingester.consume(event), ingester.consume(event2)])
-        expect(ingester.sessions.size).toBe(2)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        expect(ingester.sessions.has('1-session_id_2')).toEqual(true)
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['1-session_id_1']).toBeDefined()
+        expect(ingester.sessions['1-session_id_2']).toBeDefined()
     })
 
     it('destroys a session manager if finished', async () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
+        expect(ingester.sessions['1-session_id_1']).toBeDefined()
+        await ingester.sessions['1-session_id_1']?.flush('buffer_age')
 
         jest.runOnlyPendingTimers() // flush timer
 
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
+        expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
     })
 
     describe('offset committing', () => {
@@ -158,12 +158,39 @@ describe('ingester', () => {
         it('should commit offsets in simple cases', async () => {
             await ingester.consume(addMessage('sid1'))
             await ingester.consume(addMessage('sid1'))
-            await ingester.sessions.get('1-sid1')?.flush('buffer_age')
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
 
-            expect(mockCommitSync).toHaveBeenCalledTimes(1)
-            expect(mockCommitSync).toHaveBeenCalledWith({
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 3,
+            })
+        })
+
+        it('should commit higher values but not lower', async () => {
+            await ingester.consume(addMessage('sid1'))
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith({
+                ...metadata,
+                offset: 2,
+            })
+
+            const olderOffsetSomehow = addMessage('sid1')
+            olderOffsetSomehow.metadata.offset = 1
+
+            await ingester.consume(olderOffsetSomehow)
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+
+            await ingester.consume(addMessage('sid1'))
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+
+            expect(mockCommit).toHaveBeenCalledTimes(2)
+            expect(mockCommit).toHaveBeenLastCalledWith({
+                ...metadata,
+                offset: 4,
             })
         })
 
@@ -172,13 +199,13 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
             await ingester.consume(addMessage('sid2')) // 4
-            await ingester.sessions.get('1-sid2')?.flush('buffer_age')
+            await ingester.sessions['1-sid2']?.flush('buffer_age')
 
             // No offsets are below the blocking one
-            expect(mockCommitSync).not.toHaveBeenCalled()
-            await ingester.sessions.get('1-sid1')?.flush('buffer_age')
+            expect(mockCommit).not.toHaveBeenCalled()
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
             // We can only commit up to 2 because we don't track the other removed offsets - no biggy as this is super edge casey
-            expect(mockCommitSync).toHaveBeenLastCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 2,
             })
@@ -189,14 +216,14 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
             await ingester.consume(addMessage('sid2')) // 4
-            await ingester.sessions.get('1-sid2')?.flush('buffer_age')
+            await ingester.sessions['1-sid2']?.flush('buffer_age')
 
             // No offsets are below the blocking one
-            expect(mockCommitSync).not.toHaveBeenCalled()
+            expect(mockCommit).not.toHaveBeenCalled()
             await ingester.consume(addMessage('sid2')) // 5
-            await ingester.sessions.get('1-sid1')?.flush('buffer_age')
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
 
-            expect(mockCommitSync).toHaveBeenLastCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 5, // Same as the blocking session and more than the highest commitable for sid1 (1)
             })
@@ -207,9 +234,9 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
 
-            await ingester.sessions.get('1-sid2')?.flush('buffer_age')
+            await ingester.sessions['1-sid2']?.flush('buffer_age')
 
-            expect(mockCommitSync).toHaveBeenLastCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 4,
             })

@@ -1,11 +1,11 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, writeFileSync } from 'fs'
-import { appendFile, readFile, unlink } from 'fs/promises'
+import { createReadStream, createWriteStream, WriteStream } from 'fs'
+import { readFile, stat, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
@@ -16,35 +16,34 @@ import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage, now } from './utils'
 
-export const counterRealtimeSnapshotSubscriptionStarted = new Counter({
-    name: 'realtime_snapshots_subscription_started_counter',
-    help: 'Indicates that this consumer received a request to subscribe to provide realtime snapshots for a session',
-    labelNames: ['team_id'],
-})
-
-export const counterS3FilesWritten = new Counter({
+const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
     labelNames: ['flushReason'],
 })
 
-export const counterS3WriteErrored = new Counter({
+const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3FilesBytesWritten = new Gauge({
-    name: 'recording_s3_bytes_written',
-    help: 'Number of bytes flushed to S3, not strictly accurate as we gzip while uploading',
-    labelNames: ['team'],
+const histogramS3LinesWritten = new Histogram({
+    name: 'recording_s3_lines_written_histogram',
+    help: 'The number of lines in a file we send to s3',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
 })
 
-export const gaugeS3LinesWritten = new Gauge({
-    name: 'recording_s3_lines_written',
-    help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
+const histogramSessionAgeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_age_seconds',
+    help: 'The age of current sessions in seconds',
+    buckets: [0, 60, 60 * 2, 60 * 5, 60 * 8, 60 * 10, 60 * 12, 60 * 15, 60 * 20, Infinity],
 })
 
-const ESTIMATED_GZIP_COMPRESSION_RATIO = 0.1
+const histogramSessionSize = new Histogram({
+    name: 'recording_blob_ingestion_session_lines',
+    help: 'The size of sessions in numbers of lines',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+})
 
 // The buffer is a list of messages grouped
 type SessionBuffer = {
@@ -52,9 +51,12 @@ type SessionBuffer = {
     oldestKafkaTimestamp: number | null
     newestKafkaTimestamp: number | null
     count: number
-    size: number
     file: string
-    offsets: number[]
+    fileStream: WriteStream
+    offsets: {
+        lowest: number
+        highest: number
+    }
     eventsRange: {
         firstTimestamp: number
         lastTimestamp: number
@@ -86,11 +88,6 @@ export class SessionManager {
         void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
         this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
-            status.info('🔌', 'blob_ingester_session_manager RealtimeManager subscribed to realtime snapshots', {
-                teamId,
-                sessionId,
-            })
-            counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
             void this.startRealtime()
         })
     }
@@ -109,55 +106,16 @@ export class SessionManager {
         }
     }
 
-    private async deleteFile(file: string, context: string) {
-        try {
-            await unlink(file)
-        } catch (err) {
-            if (err && err.code === 'ENOENT') {
-                // could not delete file because it doesn't exist, so what?!
-                return
-            }
-            status.error('🧨', `blob_ingester_session_manager failed deleting file ${context}path: ${file}`, {
-                err,
-                file,
-                context,
-            })
-            captureException(err)
-            throw err
-        }
-    }
-
-    public async add(message: IncomingRecordingMessage): Promise<void> {
+    public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
         }
 
-        await this.addToBuffer(message)
-        await this.flushIfBufferExceedsCapacity()
+        this.addToBuffer(message)
     }
 
     public get isEmpty(): boolean {
-        return this.buffer.count === 0
-    }
-
-    public async flushIfBufferExceedsCapacity(): Promise<void> {
-        if (this.destroying) {
-            return
-        }
-
-        const bufferSizeKb = this.buffer.size / 1024
-        const gzipSizeKb = bufferSizeKb * ESTIMATED_GZIP_COMPRESSION_RATIO
-        const gzippedCapacity = gzipSizeKb / this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB
-
-        if (gzippedCapacity > 1) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to size`, {
-                gzippedCapacity,
-                gzipSizeKb,
-                ...this.logContext(),
-            })
-            // return the promise and let the caller decide whether to await
-            return this.flush('buffer_size')
-        }
+        return !this.buffer.count && !this.flushBuffer?.count
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
@@ -187,17 +145,23 @@ export class SessionManager {
         const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
-        const sessionAgeIsOverThreshold = bufferAgeInMemory >= flushThresholdMillis * 2
+        const sessionAgeIsOverThreshold =
+            bufferAgeInMemory >=
+            flushThresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
         logContext['bufferAgeInMemory'] = bufferAgeInMemory
         logContext['bufferAgeFromReference'] = bufferAgeFromReference
         logContext['bufferAgeIsOverThreshold'] = bufferAgeIsOverThreshold
         logContext['sessionAgeIsOverThreshold'] = sessionAgeIsOverThreshold
 
+        histogramSessionAgeSeconds.observe(bufferAgeInMemory / 1000)
+        histogramSessionSize.observe(this.buffer.count)
+
         if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
+
             // return the promise and let the caller decide whether to await
             return this.flush(bufferAgeIsOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
@@ -223,6 +187,7 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
+        const { offsets, fileStream, file } = this.flushBuffer
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -239,24 +204,32 @@ export class SessionManager {
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
-            const fileStream = createReadStream(this.flushBuffer.file).pipe(zlib.createGzip())
+            await new Promise<void>((resolve, reject) => {
+                // We need to safely end the file before reading from it
+                fileStream.end(async () => {
+                    try {
+                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
 
-            this.inProgressUpload = new Upload({
-                client: this.s3Client,
-                params: {
-                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                    Key: dataKey,
-                    Body: fileStream,
-                },
+                        this.inProgressUpload = new Upload({
+                            client: this.s3Client,
+                            params: {
+                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                                Key: dataKey,
+                                Body: fileStream,
+                            },
+                        })
+
+                        await this.inProgressUpload.done()
+                        fileStream.close()
+                        resolve()
+                    } catch (error) {
+                        reject(error)
+                    }
+                })
             })
 
-            await this.inProgressUpload.done()
-
-            fileStream.close()
-
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3FilesBytesWritten.labels({ team: this.teamId }).set(this.flushBuffer.size)
-            gaugeS3LinesWritten.set(this.flushBuffer.count)
+            histogramS3LinesWritten.observe(this.flushBuffer.count)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
@@ -275,34 +248,34 @@ export class SessionManager {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
             this.realtime = false
-            const { file, offsets } = this.flushBuffer
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
+            await this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
-            this.onFinish(offsets)
-            await this.deleteFile(file, 'on s3 flush')
+            this.onFinish([offsets.lowest, offsets.highest])
         }
     }
 
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
+            const file = path.join(
+                bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
+                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+            )
             const buffer: SessionBuffer = {
                 id,
                 createdAt: now(),
                 count: 0,
-                size: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
-                file: path.join(
-                    bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                    `${this.teamId}.${this.sessionId}.${id}.jsonl`
-                ),
-                offsets: [],
+                file,
+                fileStream: createWriteStream(file, 'utf-8'),
+                offsets: {
+                    lowest: Infinity,
+                    highest: -Infinity,
+                },
                 eventsRange: null,
             }
-
-            // NOTE: We can't do this easily async as we would need to handle the race condition of multiple events coming in at once.
-            writeFileSync(buffer.file, '', 'utf-8')
 
             return buffer
         } catch (error) {
@@ -314,7 +287,7 @@ export class SessionManager {
     /**
      * Full messages (all chunks) are added to the buffer directly
      */
-    private async addToBuffer(message: IncomingRecordingMessage): Promise<void> {
+    private addToBuffer(message: IncomingRecordingMessage): void {
         try {
             this.buffer.oldestKafkaTimestamp = Math.min(
                 this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
@@ -331,17 +304,15 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
-            this.buffer.size += Buffer.byteLength(content)
-            this.buffer.offsets.push(message.metadata.offset)
-            // It is important that we sort the offsets as the parent expects these to be sorted
-            this.buffer.offsets.sort((a, b) => a - b)
+            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
                 void this.realtimeManager.addMessage(message)
             }
 
-            await appendFile(this.buffer.file, content, 'utf-8')
+            this.buffer.fileStream.write(content)
         } catch (error) {
             captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
             throw error
@@ -401,25 +372,41 @@ export class SessionManager {
         this.destroying = true
         this.unsubscribe()
         if (this.inProgressUpload !== null) {
-            await this.inProgressUpload.abort()
+            await this.inProgressUpload.abort().catch((error) => {
+                status.error('🧨', 'blob_ingester_session_manager failed to abort in progress upload', {
+                    ...this.logContext(),
+                    error,
+                })
+                captureException(error, { tags: this.logContext() })
+            })
             this.inProgressUpload = null
         }
 
-        const filePromises: Promise<void>[] = [this.flushBuffer?.file, this.buffer.file]
-            .filter((x): x is string => x !== undefined)
-            .map((x) =>
-                this.deleteFile(x, 'on destroy').catch((error) => {
-                    captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
-                    throw error
-                })
-            )
-        await Promise.allSettled(filePromises)
+        if (this.flushBuffer) {
+            await this.destroyBuffer(this.flushBuffer)
+        }
+        await this.destroyBuffer(this.buffer)
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.offsets.length === 0) {
+        if (this.buffer.count === 0) {
             return null
         }
-        return Math.min(this.buffer.offsets[0], this.flushBuffer?.offsets[0] ?? Infinity)
+        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
+    }
+
+    private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
+        await new Promise<void>((resolve) => {
+            buffer.fileStream.close(async () => {
+                try {
+                    await stat(buffer.file)
+                    await unlink(buffer.file)
+                } catch (error) {
+                    // Indicates the file was already deleted (i.e. if there was never any data in the buffer)
+                }
+
+                resolve()
+            })
+        })
     }
 }

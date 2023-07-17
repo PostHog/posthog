@@ -11,7 +11,7 @@ import {
     IconPublic,
 } from 'lib/lemon-ui/icons'
 
-import { ChartDisplayType, FilterType } from '~/types'
+import { ChartDisplayType, FilterType, TrendsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -96,8 +96,7 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
                     tooltip: 'Visualize data by country.',
                     disabledReason:
                         trendsOnlyDisabledReason ||
-                        singleSeriesOnlyDisabledReason ||
-                        (isTrends && filters.formula
+                        ((filters as TrendsFilterType).formula
                             ? "This type isn't available, because it doesn't support formulas."
                             : !!filters.breakdown &&
                               filters.breakdown !== '$geoip_country_code' &&

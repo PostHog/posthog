@@ -61,6 +61,16 @@ export const urls = {
             ...(filters ? { filters } : {}),
             ...(query ? { q: query } : {}),
         }).url,
+    insightNewHogQL: (query: string): string =>
+        urls.insightNew(
+            undefined,
+            undefined,
+            JSON.stringify({
+                kind: 'DataTableNode',
+                full: true,
+                source: { kind: 'HogQLQuery', query },
+            })
+        ),
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
@@ -123,6 +133,7 @@ export const urls = {
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',
+    site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
     // Onboarding / setup routes
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',

@@ -41,7 +41,7 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 }
 
 export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
-    const { sendSupportRequest, isSupportFormOpen } = useValues(supportLogic)
+    const { sendSupportRequest, isSupportFormOpen, sendSupportLoggedOutRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue, closeSupportForm } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
 
@@ -81,6 +81,7 @@ export function SupportModal({ loggedIn = true }: { loggedIn?: boolean }): JSX.E
                     </LemonButton>
                 </div>
             }
+            hasUnsavedInput={loggedIn ? !!sendSupportRequest.message : !!sendSupportLoggedOutRequest.message}
         >
             <Form
                 logic={supportLogic}

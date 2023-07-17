@@ -3,16 +3,16 @@
 <meta charset="utf-8">
 
 <!-- Favicons & OS-theme configurations -->
-<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2023-07-07">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2023-07-07">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
 {% if not debug %}
-    <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+    <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2023-07-07">
 {% else %}
-    <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
+    <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2023-07-07">
 {% endif %}
-<link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2021-04-29" color="#FF053C">
-<link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
+<link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2023-07-07" color="#FF053C">
+<link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 
@@ -23,6 +23,7 @@
         window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
         window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
         window.IMPERSONATED_SESSION = {{impersonated_session | yesno:"true,false"}};
+        window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
     </script>
 {% endif %}
 {% if sentry_dsn %}

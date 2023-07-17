@@ -319,7 +319,7 @@ def render_template(
 
     template = get_template(template_name)
 
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["impersonated_session"] = is_impersonated_session(request)
     context["self_capture"] = settings.SELF_CAPTURE
 
@@ -335,8 +335,9 @@ def render_template(
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-
-    if settings.SELF_CAPTURE:
+        context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
+        context["js_posthog_host"] = "'https://app.posthog.com'"
+    elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request)
 
         if api_token:
@@ -434,6 +435,8 @@ def render_template(
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
+
+    context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     html = template.render(context, request=request)
     return HttpResponse(html)
