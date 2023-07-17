@@ -4,7 +4,6 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
-    DataNode,
     DateRange,
     InsightFilter,
     InsightQueryNode,
@@ -40,8 +39,6 @@ import {
     getShownAs,
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -59,20 +56,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightVizDataLogic', key]),
 
-    connect((props: InsightLogicProps) => ({
+    connect(() => ({
         values: [
             insightLogic,
             ['insight'],
             insightDataLogic,
-            ['query'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            [
-                'response as insightData',
-                'dataLoading as insightDataLoading',
-                'responseErrorObject as insightDataError',
-                'query as insightQuery',
-            ],
+            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
@@ -80,10 +69,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             insightLogic,
             ['setFilters', 'setInsight'],
             insightDataLogic,
-            ['setQuery'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
+            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure'],
         ],
     })),
 

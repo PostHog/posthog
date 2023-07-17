@@ -18,7 +18,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     }),
 
     selectors: {
-        chartFilter: [(s) => [s.display], (display): ChartDisplayType | null => display],
+        chartFilter: [(s) => [s.display], (display): ChartDisplayType | null | undefined => display],
     },
 
     listeners: ({ actions, values }) => ({

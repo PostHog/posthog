@@ -40,6 +40,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             [
+                'query as insightQuery',
+                'response as insightData',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
@@ -52,7 +54,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData'],
+            ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
         logic: [insightDataTimingLogic(props)],
     })),
