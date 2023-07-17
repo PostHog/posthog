@@ -1,5 +1,6 @@
 from posthog.hogql.database.models import DateDatabaseField, IntegerDatabaseField, FloatDatabaseField
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.models import View
 
 
 def create_aapl_stock_s3_table(name="aapl_stock") -> S3Table:
@@ -15,5 +16,18 @@ def create_aapl_stock_s3_table(name="aapl_stock") -> S3Table:
             "Close": FloatDatabaseField(name="Close"),
             "Volume": FloatDatabaseField(name="Volume"),
             "OpenInt": IntegerDatabaseField(name="OpenInt"),
+        },
+    )
+
+
+def create_aapl_stock_table_view() -> View:
+    return View(
+        name="aapl_stock_view",
+        query="SELECT * FROM aapl_stock",
+        fields={
+            "Date": DateDatabaseField(name="Date"),
+            "Open": FloatDatabaseField(name="Open"),
+            "High": FloatDatabaseField(name="High"),
+            "Low": FloatDatabaseField(name="Low"),
         },
     )

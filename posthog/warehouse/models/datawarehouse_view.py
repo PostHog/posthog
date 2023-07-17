@@ -2,7 +2,7 @@ from posthog.models.utils import UUIDModel, CreatedMetaFields, DeletedMetaFields
 from django.db import models
 from posthog.models.team import Team
 
-from posthog.hogql.database.view import View
+from posthog.hogql.database.models import View
 
 
 class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -14,7 +14,7 @@ class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
 
     def hogql_definition(self) -> View:
-        from posthog.warehouse.models.datawarehouse_view import ClickhouseHogqlMapping
+        from posthog.warehouse.models.table import ClickhouseHogqlMapping
 
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")

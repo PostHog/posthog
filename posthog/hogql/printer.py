@@ -20,7 +20,7 @@ from posthog.hogql.functions import (
     HOGQL_POSTHOG_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table, FunctionCallTable
+from posthog.hogql.database.models import Table, FunctionCallTable, View
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import HogQLException
@@ -76,7 +76,6 @@ def prepare_ast_for_printing(
     if dialect == "clickhouse":
         node = resolve_property_types(node, context)
         resolve_lazy_tables(node, stack, context)
-
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -260,7 +259,11 @@ class _Printer(Visitor):
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             # Skip function call tables like numbers(), s3(), etc.
-            if self.dialect == "clickhouse" and not isinstance(table_type.table, FunctionCallTable):
+            if (
+                self.dialect == "clickhouse"
+                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, View)
+            ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
             if self.dialect == "clickhouse":
