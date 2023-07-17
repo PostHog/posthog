@@ -99,6 +99,7 @@ describe('session-manager', () => {
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
+            sizeEstimate: 4139,
             oldestKafkaTimestamp: timestamp,
             newestKafkaTimestamp: timestamp,
             file: expect.any(String),
