@@ -49,7 +49,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         noInspector = false,
         autoPlay = true,
         nextSessionRecording,
-        notebookShortId,
+        notebookNodeId,
         mode = SessionRecordingPlayerMode.Standard,
     } = props
 
@@ -57,7 +57,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         sessionRecordingId,
-        notebookShortId,
+        notebookNodeId,
         playerKey,
         matching,
         sessionRecordingData,

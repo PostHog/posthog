@@ -9,7 +9,8 @@ import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/Pl
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { NotebookNodeType } from '~/types'
+import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeTimestamp'
+import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -41,21 +42,18 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onComment = (): void => {
-        const logic = notebookLogic.findMounted({ shortId: logicProps.notebookShortId })
-        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        const nodeLogic = notebookNodeLogic.findMounted({ nodeId: logicProps.notebookNodeId })
+        if (nodeLogic) {
+            const logic = notebookLogic.findMounted({ shortId: nodeLogic.props.notebookShortId })
+            const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
 
-        logic?.values.editor?.insertNodeAfter('ph-recording', [
-            {
-                type: 'paragraph',
-                content: [
-                    {
-                        type: NotebookNodeType.Timestamp,
-                        attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
-                    },
-                    { type: 'text', text: ' ' },
-                ],
-            },
-        ])
+            if (logic) {
+                logic?.values.editor?.insertContentAfterNode(
+                    nodeLogic.props.nodeId,
+                    buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
+                )
+            }
+        }
     }
 
     const commonProps: Partial<LemonButtonProps> = {
@@ -63,10 +61,7 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-
-    const isInNotebook = notebookLogic.isMounted({ shortId: logicProps.notebookShortId })
-
-    console.log(isInNotebook)
+    const isInNotebook = notebookNodeLogic.isMounted({ nodeId: logicProps.notebookNodeId })
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">

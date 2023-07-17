@@ -20,7 +20,7 @@ export interface NotebookEditor {
     setContent: (content: JSONContent) => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
-    insertNodeAfter: (nodeId: string, content: JSONContent) => void
+    insertContentAfterNode: (nodeId: string, content: JSONContent) => void
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4
@@ -42,6 +42,7 @@ const textContent = (node: any): string => {
         blockSeparator: ' ',
         textSerializers: {
             [NotebookNodeType.Link]: ({ node }) => node.attrs.href,
+            [NotebookNodeType.Timestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
         },
     })
 }

@@ -7,6 +7,8 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { dayjs } from 'lib/dayjs'
+import { JSONContent } from '../Notebook/utils'
+import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const playbackTime = props.node.attrs.playbackTime
@@ -19,10 +21,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
 
-    return <NodeViewWrapper as="span">{formatTimestamp(playbackTime || currentPlayerTime)}</NodeViewWrapper>
+    return <NodeViewWrapper as="span">{formatTimestamp(playbackTime, currentPlayerTime)}</NodeViewWrapper>
 }
 
-function formatTimestamp(time: number): string {
+function formatTimestamp(nodeTime: number | null, playerTime: number): string {
+    const time = nodeTime === null ? playerTime : nodeTime
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
 }
 
@@ -51,7 +54,51 @@ export const NotebookNodeTimestamp = Node.create({
         return [NotebookNodeType.Timestamp, mergeAttributes(HTMLAttributes)]
     },
 
+    addKeyboardShortcuts() {
+        return {
+            Enter: ({ editor }) => {
+                const selectedNode = editor.state.selection.$head.parent
+
+                if (selectedNode.type.name === 'paragraph') {
+                    const possibleTimestamp = selectedNode.firstChild
+
+                    if (possibleTimestamp && possibleTimestamp.type.name === NotebookNodeType.Timestamp) {
+                        const sessionRecordingId = possibleTimestamp.attrs.sessionRecordingId
+
+                        const currentPlayerTime =
+                            sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))
+                                ?.values.currentPlayerTime || 0
+
+                        return editor.commands.insertContent(
+                            buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
+                        )
+                    }
+                }
+
+                return false
+            },
+        }
+    },
+
     addNodeView() {
         return ReactNodeViewRenderer(Component)
     },
 })
+
+export function buildTimestampCommentContent(
+    currentPlayerTime: number | null,
+    sessionRecordingId: string
+): JSONContent {
+    return [
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: NotebookNodeType.Timestamp,
+                    attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
+                },
+                { type: 'text', text: ' ' },
+            ],
+        },
+    ]
+}

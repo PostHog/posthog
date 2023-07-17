@@ -140,9 +140,9 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
-                insertNodeAfter: (nodeId: string, content: JSONContent) => {
-                    const position = findPositionAfterNode(editor, nodeId)
-                    if (position != null) {
+                insertContentAfterNode: (nodeId: string, content: JSONContent) => {
+                    const position = findEndPositionOfNode(editor, nodeId)
+                    if (position) {
                         editor.chain().focus().insertContentAt(position, content).run()
                     }
                 },
@@ -160,11 +160,11 @@ export function Editor({
     )
 }
 
-function findPositionAfterNode(editor: TTEditor, name: string): number | null {
+function findEndPositionOfNode(editor: TTEditor, nodeId: string): number | null {
     let position: number | null = null
 
     editor.state.doc.descendants((node, pos) => {
-        if (node.type.name === name && !position) {
+        if (node.attrs.nodeId === nodeId && !position) {
             position = pos + node.nodeSize
         }
     })

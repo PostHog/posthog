@@ -11,6 +11,8 @@ import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { uuid } from 'lib/utils'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
@@ -32,6 +34,7 @@ export function NodeWrapper({
     node,
     updateAttributes,
 }: NodeWrapperProps): JSX.Element {
+    useValues(notebookNodeLogic({ nodeId: node.attrs.nodeId || uuid(), notebookShortId: node.attrs.notebookShortId }))
     const { shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
