@@ -80,7 +80,7 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, number] | null => {
                 return activeScene === Scene.Cohort && sceneParams.params.id
                     ? ['cohorts', parseInt(sceneParams.params.id)]
                     : null

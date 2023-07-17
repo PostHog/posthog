@@ -78,7 +78,7 @@ export const experimentsSidebarLogic = kea<experimentsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, number] | null => {
                 return activeScene === Scene.Experiment && sceneParams.params.id
                     ? ['experiments', parseInt(sceneParams.params.id)]
                     : null

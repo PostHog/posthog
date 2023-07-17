@@ -149,7 +149,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, number] | null => {
                 return activeScene === Scene.FeatureFlag && sceneParams.params.id
                     ? ['feature-flags', parseInt(sceneParams.params.id)]
                     : null

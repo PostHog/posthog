@@ -130,7 +130,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, string] | null => {
                 return activeScene === Scene.Insight && sceneParams.params.shortId
                     ? ['insights', sceneParams.params.shortId]
                     : null

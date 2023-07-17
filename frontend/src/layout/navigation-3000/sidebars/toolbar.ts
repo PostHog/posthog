@@ -111,7 +111,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, string] | null => {
                 return activeScene === Scene.Site ? ['sites', decodeURIComponent(sceneParams.params.url)] : null
             },
         ],

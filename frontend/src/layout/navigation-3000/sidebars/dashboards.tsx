@@ -133,7 +133,7 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, number] | null => {
                 return activeScene === Scene.Dashboard && sceneParams.params.id
                     ? ['dashboards', parseInt(sceneParams.params.id)]
                     : null
