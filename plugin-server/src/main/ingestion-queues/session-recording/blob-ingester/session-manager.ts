@@ -9,6 +9,7 @@ import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
+import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
@@ -187,7 +188,8 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
-        const { offsets, fileStream, file } = this.flushBuffer
+        const { fileStream, file } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -245,13 +247,29 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
+            clearTimeout(timeout)
+            this.endFlush()
+        }
+    }
+
+    private endFlush(): void {
+        if (!this.flushBuffer) {
+            return
+        }
+        const { offsets } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.endFlush delayed. Waiting over 30 seconds.`)
+        try {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
             this.realtime = false
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
-            await this.destroyBuffer(this.flushBuffer)
+            void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
             this.onFinish([offsets.lowest, offsets.highest])
+        } catch (error) {
+            captureException(error)
+        } finally {
+            clearTimeout(timeout)
         }
     }
 
