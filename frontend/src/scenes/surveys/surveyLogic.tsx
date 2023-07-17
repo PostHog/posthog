@@ -101,8 +101,8 @@ export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
 }
 
 export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+    const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,

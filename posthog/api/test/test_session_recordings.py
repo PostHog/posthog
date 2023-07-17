@@ -281,6 +281,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "keypress_count": 0,
             "start_url": None,
             "matching_events": None,
+            "mouse_activity_count": None,
+            "inactive_seconds": None,
+            "active_seconds": None,
+            "console_error_count": None,
+            "console_log_count": None,
+            "console_warn_count": None,
             "person": {
                 "id": p.id,
                 "name": "bob@bob.com",
