@@ -32,11 +32,21 @@ class SessionRecording(UUIDModel):
     object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
     duration: models.IntegerField = models.IntegerField(blank=True, null=True)
+    active_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
+    inactive_seconds: models.IntegerField = models.IntegerField(blank=True, null=True)
     start_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     end_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+
     click_count: models.IntegerField = models.IntegerField(blank=True, null=True)
     keypress_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    mouse_activity_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+
+    console_log_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    console_warn_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
 
     # DYNAMIC FIELDS
@@ -186,16 +196,19 @@ class SessionRecording(UUIDModel):
                 session_id=ch_recording["session_id"], team=team
             )
 
+            recording.distinct_id = ch_recording["distinct_id"]
             recording.start_time = ch_recording["start_time"]
             recording.end_time = ch_recording["end_time"]
+            recording.duration = ch_recording["duration"]
+            recording.active_seconds = ch_recording.get("active_seconds", 0)
+            recording.inactive_seconds = ch_recording.get("inactive_seconds", 0)
             recording.click_count = ch_recording["click_count"]
             recording.keypress_count = ch_recording["keypress_count"]
-            recording.duration = ch_recording["duration"]
-            recording.distinct_id = ch_recording["distinct_id"]
+            recording.mouse_activity_count = ch_recording.get("mouse_activity_count", 0)
             recording.matching_events = ch_recording.get("matching_events", None)
-            # TODO add these new fields when we can add postgres migrations again
-            # recording.mouse_activity_count = ch_recording.get('mouse_activity_count', 0)
-            # recording.active_time = ch_recording.get('active_time', 0)
+            recording.console_log_count = ch_recording.get("console_log_count", None)
+            recording.console_warn_count = ch_recording.get("console_warn_count", None)
+            recording.console_error_count = ch_recording.get("console_error_count", None)
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recordings.append(recording)
 

@@ -20,8 +20,8 @@ jest.mock('fs', () => {
             return {
                 write: jest.fn(),
                 pipe: () => ({ close: jest.fn() }),
+                close: jest.fn((cb) => cb?.()),
                 end: jest.fn((cb) => cb?.()),
-                destroy: jest.fn((cb) => cb?.()),
             }
         }),
     }
@@ -30,6 +30,7 @@ jest.mock('fs', () => {
 jest.mock('@aws-sdk/lib-storage', () => {
     const mockUpload = jest.fn().mockImplementation(() => {
         return {
+            abort: jest.fn().mockResolvedValue(undefined),
             done: jest.fn().mockResolvedValue(undefined),
         }
     })
@@ -245,7 +246,7 @@ describe('session-manager', () => {
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
         expect(mockFinish).toBeCalledTimes(1)
-        expect(fileStream.destroy).toBeCalledTimes(1)
+        expect(fileStream.close).toBeCalledTimes(1)
     })
 
     it('flushes messages and whilst collecting new ones', async () => {

@@ -61,17 +61,12 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 // For the map, make sure we are breaking down by country
                 if (isTrends && newDisplay === ChartDisplayType.WorldMap) {
                     const math = series?.[0].math
-                    const math_group_type_index = series?.[0].math_group_type_index
 
                     actions.updateBreakdown({
                         breakdown: '$geoip_country_code',
-                        breakdown_type:
-                            (math === 'unique_group'
-                                ? 'group'
-                                : ['dau', 'weekly_active', 'monthly_active'].includes(math || '')
-                                ? 'person'
-                                : null) || 'event',
-                        breakdown_group_type_index: math_group_type_index,
+                        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '')
+                            ? 'person'
+                            : 'event',
                     })
                 }
             }

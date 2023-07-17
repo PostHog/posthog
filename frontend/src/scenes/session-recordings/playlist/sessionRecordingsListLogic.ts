@@ -159,6 +159,22 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadPrev: true,
     }),
     loaders(({ props, values, actions }) => ({
+        eventsHaveSessionId: [
+            {} as Record<string, boolean>,
+            {
+                loadEventsHaveSessionId: async () => {
+                    const events = values.filters.events
+                    if (events === undefined || events.length === 0) {
+                        return {}
+                    }
+
+                    return await api.propertyDefinitions.seenTogether({
+                        eventNames: events.map((event) => event.name),
+                        propertyDefinitionName: '$session_id',
+                    })
+                },
+            },
+        ],
         sessionRecordingsResponse: [
             {
                 results: [],
@@ -226,6 +242,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        unusableEventsInFilter: [
+            [] as string[],
+            {
+                loadEventsHaveSessionIdSuccess: (_, { eventsHaveSessionId }) => {
+                    return Object.entries(eventsHaveSessionId)
+                        .filter(([, hasSessionId]) => !hasSessionId)
+                        .map(([eventName]) => eventName)
+                },
+            },
+        ],
         customFilters: [
             (props.filters ?? null) as RecordingFilters | null,
             {
@@ -319,6 +345,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 return acc
             }, {})
             posthog.capture('recording list filters changed', { ...partialFilters })
+
+            actions.loadEventsHaveSessionId()
         },
 
         resetFilters: () => {

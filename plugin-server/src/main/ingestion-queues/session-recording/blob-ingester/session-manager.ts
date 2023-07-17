@@ -2,13 +2,14 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { readFile, unlink } from 'fs/promises'
+import { readFile, stat, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
+import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
@@ -16,26 +17,33 @@ import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage, now } from './utils'
 
-export const counterRealtimeSnapshotSubscriptionStarted = new Counter({
-    name: 'realtime_snapshots_subscription_started_counter',
-    help: 'Indicates that this consumer received a request to subscribe to provide realtime snapshots for a session',
-    labelNames: ['team_id'],
-})
-
-export const counterS3FilesWritten = new Counter({
+const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
     labelNames: ['flushReason'],
 })
 
-export const counterS3WriteErrored = new Counter({
+const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3LinesWritten = new Gauge({
-    name: 'recording_s3_lines_written',
-    help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
+const histogramS3LinesWritten = new Histogram({
+    name: 'recording_s3_lines_written_histogram',
+    help: 'The number of lines in a file we send to s3',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+})
+
+const histogramSessionAgeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_age_seconds',
+    help: 'The age of current sessions in seconds',
+    buckets: [0, 60, 60 * 2, 60 * 5, 60 * 8, 60 * 10, 60 * 12, 60 * 15, 60 * 20, Infinity],
+})
+
+const histogramSessionSize = new Histogram({
+    name: 'recording_blob_ingestion_session_lines',
+    help: 'The size of sessions in numbers of lines',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
 })
 
 // The buffer is a list of messages grouped
@@ -81,11 +89,6 @@ export class SessionManager {
         void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
         this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
-            status.info('🔌', 'blob_ingester_session_manager RealtimeManager subscribed to realtime snapshots', {
-                teamId,
-                sessionId,
-            })
-            counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
             void this.startRealtime()
         })
     }
@@ -113,7 +116,7 @@ export class SessionManager {
     }
 
     public get isEmpty(): boolean {
-        return this.buffer.count === 0
+        return !this.buffer.count && !this.flushBuffer?.count
     }
 
     public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
@@ -143,17 +146,23 @@ export class SessionManager {
         const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
-        const sessionAgeIsOverThreshold = bufferAgeInMemory >= flushThresholdMillis * 2
+        const sessionAgeIsOverThreshold =
+            bufferAgeInMemory >=
+            flushThresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
         logContext['bufferAgeInMemory'] = bufferAgeInMemory
         logContext['bufferAgeFromReference'] = bufferAgeFromReference
         logContext['bufferAgeIsOverThreshold'] = bufferAgeIsOverThreshold
         logContext['sessionAgeIsOverThreshold'] = sessionAgeIsOverThreshold
 
+        histogramSessionAgeSeconds.observe(bufferAgeInMemory / 1000)
+        histogramSessionSize.observe(this.buffer.count)
+
         if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
+
             // return the promise and let the caller decide whether to await
             return this.flush(bufferAgeIsOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
@@ -179,7 +188,8 @@ export class SessionManager {
         // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
         this.flushBuffer = this.buffer
         this.buffer = this.createBuffer()
-        const { offsets, fileStream, file } = this.flushBuffer
+        const { fileStream, file } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
 
         try {
             if (this.flushBuffer.count === 0) {
@@ -196,28 +206,32 @@ export class SessionManager {
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
-            await new Promise<void>((resolve) => {
+            await new Promise<void>((resolve, reject) => {
                 // We need to safely end the file before reading from it
                 fileStream.end(async () => {
-                    const fileStream = createReadStream(file).pipe(zlib.createGzip())
+                    try {
+                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
 
-                    this.inProgressUpload = new Upload({
-                        client: this.s3Client,
-                        params: {
-                            Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                            Key: dataKey,
-                            Body: fileStream,
-                        },
-                    })
+                        this.inProgressUpload = new Upload({
+                            client: this.s3Client,
+                            params: {
+                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                                Key: dataKey,
+                                Body: fileStream,
+                            },
+                        })
 
-                    await this.inProgressUpload.done()
-                    fileStream.close()
-                    resolve()
+                        await this.inProgressUpload.done()
+                        fileStream.close()
+                        resolve()
+                    } catch (error) {
+                        reject(error)
+                    }
                 })
             })
 
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3LinesWritten.set(this.flushBuffer.count)
+            histogramS3LinesWritten.observe(this.flushBuffer.count)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
@@ -233,13 +247,29 @@ export class SessionManager {
             captureException(error)
             counterS3WriteErrored.inc()
         } finally {
+            clearTimeout(timeout)
+            this.endFlush()
+        }
+    }
+
+    private endFlush(): void {
+        if (!this.flushBuffer) {
+            return
+        }
+        const { offsets } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.endFlush delayed. Waiting over 30 seconds.`)
+        try {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
             this.realtime = false
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
-            await this.destroyBuffer(this.flushBuffer)
+            void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
             this.onFinish([offsets.lowest, offsets.highest])
+        } catch (error) {
+            captureException(error)
+        } finally {
+            clearTimeout(timeout)
         }
     }
 
@@ -384,11 +414,16 @@ export class SessionManager {
     }
 
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
-        buffer.fileStream.destroy()
-        await unlink(buffer.file).catch((error) => {
-            status.error('🧨', 'blob_ingester_session_manager failed to unlink buffer file', {
-                ...this.logContext(),
-                error,
+        await new Promise<void>((resolve) => {
+            buffer.fileStream.close(async () => {
+                try {
+                    await stat(buffer.file)
+                    await unlink(buffer.file)
+                } catch (error) {
+                    // Indicates the file was already deleted (i.e. if there was never any data in the buffer)
+                }
+
+                resolve()
             })
         })
     }
