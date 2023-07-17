@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { objectClean, toParams } from 'lib/utils'
 import {
     AnyPropertyFilter,
-    DurationType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -158,7 +157,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
-        setDurationTypeToShow: (type: DurationType) => ({ type }),
     }),
     loaders(({ props, values, actions }) => ({
         eventsHaveSessionId: [
@@ -244,13 +242,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        durationTypeToShow: [
-            'duration' as DurationType,
-            { persist: true },
-            {
-                setDurationTypeToShow: (_, { type }) => type,
-            },
-        ],
         unusableEventsInFilter: [
             [] as string[],
             {

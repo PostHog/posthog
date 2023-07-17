@@ -4,7 +4,7 @@ import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
 import React, { Fragment, useEffect, useRef } from 'react'
-import { DurationType, SessionRecordingType } from '~/types'
+import { SessionRecordingType } from '~/types'
 import {
     SessionRecordingPlaylistItem,
     SessionRecordingPlaylistItemProps,
@@ -38,7 +38,6 @@ export type SessionRecordingsListProps = {
     onScrollToStart?: () => void
     onScrollToEnd?: () => void
     draggableHref?: string
-    durationType?: DurationType
 }
 
 export function SessionRecordingsList({
@@ -61,7 +60,6 @@ export function SessionRecordingsList({
     onScrollToStart,
     onScrollToEnd,
     draggableHref,
-    durationType,
 }: SessionRecordingsListProps): JSX.Element {
     const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
     const lastScrollPositionRef = useRef(0)
@@ -161,7 +159,6 @@ export function SessionRecordingsList({
                                         onClick={() => onRecordingClick(rec)}
                                         onPropertyClick={onPropertyClick}
                                         isActive={activeRecordingId === rec.id}
-                                        durationType={durationType}
                                     />
                                 </Fragment>
                             ))}

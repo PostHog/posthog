@@ -10,6 +10,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urls } from 'scenes/urls'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { useValues } from 'kea'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
@@ -18,7 +20,6 @@ export interface SessionRecordingPlaylistItemProps {
     onPropertyClick: (property: string, value?: string) => void
     isActive: boolean
     onClick: () => void
-    durationType?: DurationType
 }
 
 function RecordingDuration({
@@ -176,8 +177,9 @@ export function SessionRecordingPlaylistItem({
     onPropertyClick,
     recordingProperties,
     recordingPropertiesLoading,
-    durationType = 'duration',
 }: SessionRecordingPlaylistItemProps): JSX.Element {
+    const { durationTypeToShow } = useValues(playerSettingsLogic)
+
     const iconClassnames = clsx(
         'SessionRecordingsPlaylist__list-item__property-icon text-base text-muted-alt',
         !isActive && 'opacity-75'
@@ -209,7 +211,7 @@ export function SessionRecordingPlaylistItem({
 
                         <RecordingDuration
                             iconClassNames={iconClassnames}
-                            recordingDuration={durationToShow(recording, durationType)}
+                            recordingDuration={durationToShow(recording, durationTypeToShow)}
                         />
                     </div>
 
