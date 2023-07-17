@@ -2042,7 +2042,7 @@ export interface Survey {
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: SurveyQuestion[]
+    questions: (SurveyQuestion | SurveyQuestionLink | SurveyQuestionRating)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2071,8 +2071,21 @@ export interface SurveyQuestion {
     question: string
     description?: string | null
     required?: boolean
+}
+
+export interface SurveyQuestionLink extends SurveyQuestion {
+    type: SurveyQuestionType.Link
     link: string | null
-    choices?: string[] | null
+}
+
+export interface SurveyQuestionRating extends SurveyQuestion {
+    type: SurveyQuestionType.Rating
+    display: 'number' | 'emoji'
+    scale: number
+}
+
+export interface SurveyQuestionMultiple extends SurveyQuestion {
+    choices: string[]
 }
 
 export enum SurveyQuestionType {

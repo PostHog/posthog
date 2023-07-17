@@ -8,7 +8,14 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyQuestion, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    SurveyQuestion,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+    SurveyQuestionLink,
+    SurveyQuestionRating,
+} from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
@@ -96,29 +103,54 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         />
                     </Field>
                     <LemonDivider />
-                    {survey.questions.map((question: SurveyQuestion, index: number) => (
-                        <Group name={`questions.${index}`} key={index}>
-                            <Field name="type" label="Type">
-                                <LemonSelect
-                                    options={[
-                                        { label: 'Open text', value: SurveyQuestionType.Open },
-                                        { label: 'Link', value: SurveyQuestionType.Link },
-                                    ]}
-                                />
-                            </Field>
-                            <Field name="question" label="Question">
-                                <LemonInput value={question.question} />
-                            </Field>
-                            <Field name="description" label="Question description (optional)">
-                                <LemonTextArea value={question.description || ''} />
-                            </Field>
-                            {question.type === SurveyQuestionType.Link && (
-                                <Field name="link" label="Link" info="Make sure to include https:// in the url.">
-                                    <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                    {survey.questions.map(
+                        (question: SurveyQuestionLink | SurveyQuestion | SurveyQuestionRating, index: number) => (
+                            <Group name={`questions.${index}`} key={index}>
+                                <Field name="type" label="Type">
+                                    <LemonSelect
+                                        options={[
+                                            { label: 'Open text', value: SurveyQuestionType.Open },
+                                            { label: 'Link', value: SurveyQuestionType.Link },
+                                            { label: 'Rating', value: SurveyQuestionType.Rating },
+                                        ]}
+                                    />
                                 </Field>
-                            )}
-                        </Group>
-                    ))}
+                                {question.type === SurveyQuestionType.Rating && (
+                                    <div>
+                                        <Field name="display" label="Display type">
+                                            <LemonSelect
+                                                options={[
+                                                    { label: 'Number', value: 'number' },
+                                                    { label: 'Emoji', value: 'emoji' },
+                                                ]}
+                                            />
+                                        </Field>
+                                        <Field name="scale" label="Scale">
+                                            <LemonSelect
+                                                options={[
+                                                    { label: '5 stars', value: 5 },
+                                                    ...(question.display === 'number'
+                                                        ? { label: '10 stars', value: 10 }
+                                                        : {}),
+                                                ]}
+                                            />
+                                        </Field>
+                                    </div>
+                                )}
+                                <Field name="question" label="Question">
+                                    <LemonInput value={question.question} />
+                                </Field>
+                                <Field name="description" label="Question description (optional)">
+                                    <LemonTextArea value={question.description || ''} />
+                                </Field>
+                                {question.type === SurveyQuestionType.Link && (
+                                    <Field name="link" label="Link" info="Make sure to include https:// in the url.">
+                                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                                    </Field>
+                                )}
+                            </Group>
+                        )
+                    )}
                     <LemonDivider className="my-2" />
                     <PureField label="Targeting (optional)">
                         <span className="text-muted">

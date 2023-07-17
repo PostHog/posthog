@@ -55,7 +55,7 @@ const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    questions: [{ type: SurveyQuestionType.Open, question: '', link: null }],
+    questions: [{ type: SurveyQuestionType.Open, question: '' }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
