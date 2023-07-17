@@ -1677,14 +1677,3 @@ export function shouldCancelQuery(error: any): boolean {
     // the query will continue running in ClickHouse
     return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
 }
-
-export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
-    func: F,
-    waitFor: number
-): (...args: Parameters<F>) => void {
-    let timeout: ReturnType<typeof setTimeout>
-    return (...args: Parameters<F>): void => {
-        clearTimeout(timeout)
-        timeout = setTimeout(() => func(...args), waitFor)
-    }
-}

@@ -1,10 +1,11 @@
-import { colonDelimitedDuration, debounce } from 'lib/utils'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { colonDelimitedDuration } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 import { PlayerFrame } from '../PlayerFrame'
 import { BindLogic, useActions, useValues } from 'kea'
 import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useDebouncedCallback } from 'use-debounce'
 
 export type PlayerSeekbarPreviewProps = {
     minMs: number
@@ -26,13 +27,15 @@ const PlayerSeekbarPreviewFrame = ({
 
     const { setPause, seekToTime } = useActions(sessionRecordingPlayerLogic(seekPlayerLogicProps))
 
-    const debouncedSeekToTime = useMemo(
-        () =>
-            debounce((time: number) => {
-                setPause()
-                seekToTime(time)
-            }, 100),
-        [seekToTime]
+    const debouncedSeekToTime = useDebouncedCallback(
+        (time: number) => {
+            setPause()
+            seekToTime(time)
+        },
+        200,
+        {
+            maxWait: 500,
+        }
     )
 
     useEffect(() => {
