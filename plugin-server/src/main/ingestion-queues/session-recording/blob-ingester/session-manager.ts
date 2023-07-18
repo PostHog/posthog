@@ -34,10 +34,22 @@ const histogramS3LinesWritten = new Histogram({
     buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
 })
 
+const histogramS3KbWritten = new Histogram({
+    name: 'recording_blob_ingestion_s3_kb_written',
+    help: 'The uncompressed size of file we send to S3',
+    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+})
+
 const histogramSessionAgeSeconds = new Histogram({
     name: 'recording_blob_ingestion_session_age_seconds',
     help: 'The age of current sessions in seconds',
     buckets: [0, 60, 60 * 2, 60 * 5, 60 * 8, 60 * 10, 60 * 12, 60 * 15, 60 * 20, Infinity],
+})
+
+const histogramSessionSizeKb = new Histogram({
+    name: 'recording_blob_ingestion_session_size_kb',
+    help: 'The size of current sessions in kb',
+    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
 })
 
 const histogramSessionSize = new Histogram({
@@ -163,6 +175,7 @@ export class SessionManager {
 
         histogramSessionAgeSeconds.observe(bufferAgeInMemory / 1000)
         histogramSessionSize.observe(this.buffer.count)
+        histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
@@ -238,6 +251,7 @@ export class SessionManager {
 
             counterS3FilesWritten.labels(reason).inc(1)
             histogramS3LinesWritten.observe(this.flushBuffer.count)
+            histogramS3KbWritten.observe(this.flushBuffer.sizeEstimate / 1024)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
