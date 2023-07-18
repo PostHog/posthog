@@ -1,5 +1,5 @@
 import { kea, props, key, path } from 'kea'
-import { notebookNodeLogicType } from './notebookNodeLogicType'
+import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export type NotebookNodeLogicProps = {
     nodeId: string
