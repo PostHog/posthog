@@ -617,7 +617,7 @@ def get_all_feature_flags(
         # So, if an extra query check helps us avoid the write path, it's worth it.
 
         try:
-            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS) as cursor:
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
                 distinct_ids = [distinct_id, str(hash_key_override)]
 
                 query = """
