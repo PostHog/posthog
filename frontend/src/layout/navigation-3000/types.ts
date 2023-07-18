@@ -56,7 +56,7 @@ export interface SidebarCategory {
      */
     onAdd?: string | (() => void) | ListItemSaveHandler
     /**
-     * Name validation. Returns a messag string in case of error, otherwise null.
+     * Name validation. Returns a message string in case of an error, otherwise null.
      * This is relevant if the category has `onAdd` or items have `onRename`.
      */
     validateName?: (name: string) => string | null
