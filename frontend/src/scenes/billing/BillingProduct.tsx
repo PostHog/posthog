@@ -492,7 +492,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <p className="mt-4 ml-0 text-sm text-muted italic">
                                             <IconInfo className="mr-1" />
                                             Using local evaluation? Here's{' '}
-                                            <Link className="italic">how we calculate usage</Link>.
+                                            <Link to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation" className="italic">how we calculate usage</Link>.
                                         </p>
                                     )}
                                 </>
