@@ -42,6 +42,7 @@ import { wrapConsole } from 'lib/utils/wrapConsole'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { RefObject } from 'react'
+import posthog from 'posthog-js'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -156,6 +157,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         closeExplorer: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
+        skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -179,15 +181,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         timestampChangeTracking: [
             // if the player gets stuck on the same timestamp we shouldn't appear to pause the replay
             // better for the replay to not get stuck but...
-            { timestamp: null, timestampMatchesPrevious: false } as {
+            { timestamp: null, timestampMatchesPrevious: 0 } as {
                 timestamp: number | null
-                timestampMatchesPrevious: boolean
+                timestampMatchesPrevious: number
             },
             {
                 setCurrentTimestamp: (state, { timestamp }) => {
                     return {
                         timestamp,
-                        timestampMatchesPrevious: state.timestamp !== null && state.timestamp === timestamp,
+                        timestampMatchesPrevious:
+                            state.timestamp !== null && state.timestamp === timestamp
+                                ? state.timestampMatchesPrevious + 1
+                                : 0,
+                    }
+                },
+                skipPlayerForward: () => {
+                    return {
+                        timestamp: null,
+                        timestampMatchesPrevious: 0,
                     }
                 },
             },
@@ -278,6 +289,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (isSkippingInactivity && playingState !== SessionPlayerState.PAUSE) {
                     return SessionPlayerState.SKIP
                 }
+
                 return playingState
             },
         ],
@@ -353,6 +365,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
+        skipPlayerForward: ({ rrWebPlayerTime, skip }) => {
+            // if the player has got stuck on the same timestamp for several animation frames
+            // then we skip ahead a little to get past the blockage
+            // this is a KLUDGE to get around what might be a bug in rrweb
+            values.player?.replayer?.play(rrWebPlayerTime + skip)
+            posthog.capture('stuck session player skipped forward', {
+                sessionId: values.sessionRecordingId,
+                rrWebTime: rrWebPlayerTime,
+            })
+        },
         setRootFrame: () => {
             actions.tryInitReplayer()
         },
@@ -648,11 +670,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 rrwebPlayerTime !== undefined &&
                 newTimestamp !== undefined &&
-                values.timestampChangeTracking.timestampMatchesPrevious
+                (values.currentPlayerState === SessionPlayerState.PLAY ||
+                    values.currentPlayerState === SessionPlayerState.SKIP) &&
+                values.timestampChangeTracking.timestampMatchesPrevious > 10
             ) {
-                // if the player has got stuck on the same timestamp
-                // then we skip ahead a little to get past the blockage
-                values.player?.replayer?.play(rrwebPlayerTime + skip)
+                actions.skipPlayerForward(rrwebPlayerTime, skip)
                 newTimestamp = newTimestamp + skip
             }
 

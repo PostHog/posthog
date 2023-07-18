@@ -1,10 +1,12 @@
-import { kea, props, key, path, connect, selectors } from 'kea'
+import { kea, props, key, path, connect, selectors, actions, reducers, listeners } from 'kea'
 import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import api from 'lib/api'
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { dayjs } from 'lib/dayjs'
 
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
@@ -12,8 +14,45 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     path((key) => ['scenes', 'trends', 'trendsDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['insightData', 'display', 'lifecycleFilter']],
+        values: [
+            insightVizDataLogic(props),
+            [
+                'insightData',
+                'insightDataLoading',
+                'series',
+                'formula',
+                'display',
+                'compare',
+                'interval',
+                'breakdown',
+                'shownAs',
+                'showValueOnSeries',
+                'trendsFilter',
+                'lifecycleFilter',
+                'isTrends',
+                'isLifecycle',
+                'isStickiness',
+                'isNonTimeSeriesDisplay',
+                'isSingleSeries',
+                'hasLegend',
+            ],
+        ],
+        actions: [insightVizDataLogic(props), ['setInsightData']],
     })),
+
+    actions({
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+    }),
+
+    reducers({
+        breakdownValuesLoading: [
+            false,
+            {
+                setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
+    }),
 
     selectors({
         results: [
@@ -24,6 +63,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 } else {
                     return []
                 }
+            },
+        ],
+
+        loadMoreBreakdownUrl: [
+            (s) => [s.insightData, s.isTrends],
+            (insightData, isTrends) => {
+                return isTrends ? insightData?.next : null
             },
         ],
 
@@ -45,5 +91,53 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 return indexedResults.map((result, index) => ({ ...result, id: index }))
             },
         ],
+
+        labelGroupType: [
+            (s) => [s.series],
+            (series): 'people' | 'none' | number => {
+                // Find the commonly shared aggregation group index if there is one.
+                const firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
+                return series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
+                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
+                    : 'none' // mixed group types
+            },
+        ],
+
+        incompletenessOffsetFromEnd: [
+            (s) => [s.results, s.interval],
+            (results, interval) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (results[0]?.days === undefined) {
+                    return 0
+                }
+                const startDate = dayjs().startOf(interval ?? 'd')
+                const startIndex = results[0].days.findIndex((day: string) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - results[0].days.length
+                } else {
+                    return 0
+                }
+            },
+        ],
     }),
+
+    listeners(({ actions, values }) => ({
+        loadMoreBreakdownValues: async () => {
+            if (!values.loadMoreBreakdownUrl) {
+                return
+            }
+            actions.setBreakdownValuesLoading(true)
+
+            const response = await api.get(values.loadMoreBreakdownUrl)
+
+            actions.setInsightData({
+                ...values.insightData,
+                result: [...values.insightData?.result, ...(response.result ? response.result : [])],
+                next: response.next,
+            })
+
+            actions.setBreakdownValuesLoading(false)
+        },
+    })),
 ])

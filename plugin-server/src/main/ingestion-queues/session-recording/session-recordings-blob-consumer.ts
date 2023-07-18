@@ -433,27 +433,24 @@ export class SessionRecordingBlobIngester {
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const referenceTime = this.partitionNow[sessionManager.partition]
                 if (!referenceTime) {
-                    throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                    status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
+                        partition: sessionManager.partition,
+                    })
+                    continue
                 }
 
-                void sessionManager
-                    .flushIfSessionBufferIsOld(
-                        referenceTime,
-                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+                void sessionManager.flushIfSessionBufferIsOld(referenceTime).catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
                     )
-                    .catch((err) => {
-                        status.error(
-                            '🚽',
-                            'blob_ingester_consumer - failed trying to flush on idle session: ' +
-                                sessionManager.sessionId,
-                            {
-                                err,
-                                session_id: sessionManager.sessionId,
-                            }
-                        )
-                        captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                        throw err
-                    })
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
 
                 // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
                 if (sessionManager.isEmpty) {

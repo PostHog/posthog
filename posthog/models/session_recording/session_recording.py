@@ -15,6 +15,7 @@ from posthog.models.session_recording.metadata import (
 from posthog.models.session_recording_event.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
+from posthog.queries.session_recordings.session_replay_events import SessionReplayEvents
 
 
 class SessionRecording(UUIDModel):
@@ -61,8 +62,6 @@ class SessionRecording(UUIDModel):
     _snapshots: Optional[DecompressedRecordingData] = None
 
     def load_metadata(self) -> bool:
-        from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
-
         if self._metadata:
             return True
 
@@ -71,11 +70,11 @@ class SessionRecording(UUIDModel):
             pass
         else:
             # Try to load from Clickhouse
-            metadata = SessionRecordingEvents(
+            metadata = SessionReplayEvents().get_metadata(
                 team=self.team,
-                session_recording_id=self.session_id,
+                session_id=self.session_id,
                 recording_start_time=self.start_time,
-            ).get_metadata()
+            )
 
             if not metadata:
                 return False
@@ -83,13 +82,14 @@ class SessionRecording(UUIDModel):
             self._metadata = metadata
 
             # Some fields of the metadata are persisted fully in the model
+            # TODO there are more fields that can be stored on the model here
             self.distinct_id = metadata["distinct_id"]
             self.start_time = metadata["start_time"]
             self.end_time = metadata["end_time"]
             self.duration = metadata["duration"]
             self.click_count = metadata["click_count"]
             self.keypress_count = metadata["keypress_count"]
-            self.set_start_url_from_urls(metadata["urls"])
+            self.set_start_url_from_urls(first_url=metadata["first_url"])
 
         return True
 
