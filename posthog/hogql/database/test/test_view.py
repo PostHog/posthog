@@ -63,6 +63,3 @@ class TestView(BaseTest):
             clickhouse,
             "SELECT some_alias.Date, some_alias.Open, some_alias.High, some_alias.Low, some_alias.Close, some_alias.Volume, some_alias.OpenInt FROM (WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM aapl_stock) AS some_alias LIMIT 10",
         )
-
-    def test_cycle_error(self):
-        pass

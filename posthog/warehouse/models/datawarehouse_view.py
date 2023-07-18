@@ -3,6 +3,7 @@ from django.db import models
 from posthog.models.team import Team
 
 from posthog.hogql.database.models import View
+from typing import Dict
 
 
 class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -12,6 +13,14 @@ class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         default=dict, null=True, blank=True, help_text="Dict of all columns with Clickhouse type (including Nullable())"
     )
     query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
+
+    def get_columns(self) -> Dict[str, str]:
+        from posthog.api.query import process_query
+
+        # TODO: catch and raise error
+        response = process_query(self.team, self.query)
+        types = response.get("types", {})
+        return dict(types)
 
     def hogql_definition(self) -> View:
         from posthog.warehouse.models.table import ClickhouseHogqlMapping
@@ -34,6 +43,6 @@ class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return View(
             name=self.name,
-            query=self.query,
+            query=self.query["query"],
             fields=fields,
         )

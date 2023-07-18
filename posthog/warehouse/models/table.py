@@ -16,6 +16,7 @@ from posthog.hogql.database.s3_table import S3Table
 import re
 
 ClickhouseHogqlMapping = {
+    "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
