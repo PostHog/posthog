@@ -21,6 +21,7 @@ import { AggregationColumnItem, AggregationColumnTitle } from './columns/Aggrega
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { GeoMapColumnItem, GeoMapColumnTitle } from 'scenes/insights/views/InsightsTable/columns/GeoMapColumn'
 
 export interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -160,6 +161,16 @@ export function InsightsTable({
                     const labelA = countryCodeToName[a.breakdown_value as string]
                     const labelB = countryCodeToName[b.breakdown_value as string]
                     return labelA.localeCompare(labelB)
+                },
+            })
+        }
+        if (isTrends && display === ChartDisplayType.GeoMap) {
+            columns.push({
+                title: <GeoMapColumnTitle />,
+                render: (_, item: IndexedTrendResult) => <GeoMapColumnItem item={item} />,
+                key: 'breakdown_addendum',
+                sorter: (a, b) => {
+                    return String(a.breakdown_value).localeCompare(String(b.breakdown_value))
                 },
             })
         }

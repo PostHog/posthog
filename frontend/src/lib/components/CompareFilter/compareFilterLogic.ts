@@ -31,6 +31,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
                 !canEditInsight ||
                 isLifecycle ||
                 display === ChartDisplayType.WorldMap ||
+                display === ChartDisplayType.GeoMap ||
                 dateRange?.date_from === 'all',
         ],
     },

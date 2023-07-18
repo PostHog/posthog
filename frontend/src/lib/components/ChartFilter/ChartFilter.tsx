@@ -97,8 +97,25 @@ export function ChartFilter(): JSX.Element {
                             ? "This type isn't available, because it doesn't support formulas."
                             : !!breakdown?.breakdown &&
                               breakdown.breakdown !== '$geoip_country_code' &&
-                              breakdown.breakdown !== '$geoip_country_name'
+                              breakdown.breakdown !== '$geoip_country_name' &&
+                              !String(breakdown.breakdown).includes('geohashEncode')
                             ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                            : undefined),
+                },
+                {
+                    value: ChartDisplayType.GeoMap,
+                    icon: <IconPublic />,
+                    label: 'Geo Map',
+                    tooltip: 'Visualize data by coordinates.',
+                    disabledReason:
+                        trendsOnlyDisabledReason ||
+                        (formula
+                            ? "This type isn't available, because it doesn't support formulas."
+                            : !!breakdown?.breakdown &&
+                              breakdown.breakdown !== '$geoip_country_code' &&
+                              breakdown.breakdown !== '$geoip_country_name' &&
+                              !String(breakdown.breakdown).includes('geohashEncode')
+                            ? "This type isn't available, because there's a breakdown."
                             : undefined),
                 },
             ],

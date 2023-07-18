@@ -1,5 +1,6 @@
 import {
     AnyFilterType,
+    BreakdownType,
     ChartDisplayType,
     Entity,
     EntityTypes,
@@ -31,6 +32,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import { geoMapBreakdown } from 'scenes/insights/views/GeoMap/geoMapBreakdown'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -43,11 +45,9 @@ export function getDefaultEvent(): Entity {
 }
 
 /** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
-const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
+const mostRelevantBreakdownType = (filters: Partial<FilterType>): BreakdownType => {
     const series: LocalFilter | undefined = toLocalFilters(filters)[0]
-    cleanedParams['breakdown_type'] = ['dau', 'weekly_active', 'monthly_active'].includes(series?.math || '')
-        ? 'person'
-        : 'event'
+    return ['dau', 'weekly_active', 'monthly_active'].includes(series?.math || '') ? 'person' : 'event'
 }
 
 function cleanBreakdownNormalizeURL(
@@ -73,11 +73,18 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
     cleanedParams['breakdown_type'] = undefined
     cleanedParams['breakdown_group_type_index'] = undefined
     cleanedParams['breakdown_normalize_url'] = undefined
-    if (isTrends && filters.display === ChartDisplayType.WorldMap) {
+    if (isTrends && (filters.display === ChartDisplayType.WorldMap || filters.display === ChartDisplayType.GeoMap)) {
         // For the map, make sure we are breaking down by country
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
-        cleanedParams['breakdown'] = '$geoip_country_code'
-        useMostRelevantBreakdownType(cleanedParams, filters)
+        cleanedParams['breakdown_type'] = mostRelevantBreakdownType(filters)
+
+        if (filters.display === ChartDisplayType.GeoMap) {
+            cleanedParams['breakdown'] = geoMapBreakdown(cleanedParams['breakdown_type'])
+            cleanedParams['breakdown_type'] = 'hogql'
+        } else {
+            cleanedParams['breakdown'] = '$geoip_country_code'
+        }
+
         return
     }
     if (canBreakdown) {

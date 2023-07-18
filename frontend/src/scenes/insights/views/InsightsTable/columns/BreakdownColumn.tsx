@@ -3,10 +3,14 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { formatBreakdownType } from 'scenes/insights/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 type BreakdownColumnTitleProps = { breakdownFilter: BreakdownFilter }
 
 export function BreakdownColumnTitle({ breakdownFilter }: BreakdownColumnTitleProps): JSX.Element {
+    if (breakdownFilter?.breakdown_type === 'hogql') {
+        return <>{extractExpressionComment(String(breakdownFilter.breakdown))}</>
+    }
     return <PropertyKeyInfo disableIcon disablePopover value={formatBreakdownType(breakdownFilter)} />
 }
 

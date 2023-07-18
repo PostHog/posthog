@@ -7,16 +7,22 @@ export const NON_TIME_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.WorldMap,
+    ChartDisplayType.GeoMap,
     ChartDisplayType.BoldNumber,
 ]
 /** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
 export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
-export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
+export const SINGLE_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.GeoMap,
+    ChartDisplayType.BoldNumber,
+]
 
 export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,
+    ChartDisplayType.GeoMap,
     ChartDisplayType.BoldNumber,
 ]
 export enum OrganizationMembershipLevel {

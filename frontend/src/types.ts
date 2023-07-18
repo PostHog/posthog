@@ -1537,10 +1537,11 @@ export enum ChartDisplayType {
     ActionsBar = 'ActionsBar',
     ActionsBarValue = 'ActionsBarValue',
     WorldMap = 'WorldMap',
+    GeoMap = 'GeoMap',
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 

@@ -2,6 +2,7 @@ import { ChartDisplayType } from '~/types'
 
 export const DISPLAY_TYPES_WITHOUT_LEGEND = [
     ChartDisplayType.WorldMap,
+    ChartDisplayType.GeoMap,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
     ChartDisplayType.ActionsBarValue,

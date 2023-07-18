@@ -52,6 +52,7 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { GeoMap } from 'scenes/insights/views/GeoMap/GeoMap'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -105,6 +106,10 @@ const displayMap: Record<
     WorldMap: {
         className: 'world-map',
         element: WorldMap,
+    },
+    GeoMap: {
+        className: 'geo-map',
+        element: GeoMap,
     },
     BoldNumber: {
         className: 'bold-number',

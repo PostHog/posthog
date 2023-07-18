@@ -144,7 +144,11 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                 })
 
                 // Make sure we are no longer in map view after removing the Country Code breakdown
-                if (props.isDataExploration && props.isTrends && props.display === ChartDisplayType.WorldMap) {
+                if (
+                    props.isDataExploration &&
+                    props.isTrends &&
+                    (props.display === ChartDisplayType.WorldMap || props.display === ChartDisplayType.GeoMap)
+                ) {
                     props.updateDisplay?.(undefined)
                 }
             }

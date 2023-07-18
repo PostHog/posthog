@@ -3,6 +3,7 @@ import type { chartFilterLogicType } from './chartFilterLogicType'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { geoMapBreakdown } from 'scenes/insights/views/GeoMap/geoMapBreakdown'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -30,15 +31,21 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 actions.updateInsightFilter({ display: newDisplay })
 
                 // For the map, make sure we are breaking down by country
-                if (isTrends && newDisplay === ChartDisplayType.WorldMap) {
+                if (isTrends && (newDisplay === ChartDisplayType.WorldMap || newDisplay === ChartDisplayType.GeoMap)) {
                     const math = series?.[0].math
+                    const type = ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event'
 
-                    actions.updateBreakdown({
-                        breakdown: '$geoip_country_code',
-                        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '')
-                            ? 'person'
-                            : 'event',
-                    })
+                    if (newDisplay === ChartDisplayType.GeoMap) {
+                        actions.updateBreakdown({
+                            breakdown: geoMapBreakdown(type),
+                            breakdown_type: 'hogql',
+                        })
+                    } else {
+                        actions.updateBreakdown({
+                            breakdown: '$geoip_country_code',
+                            breakdown_type: type,
+                        })
+                    }
                 }
             }
         },

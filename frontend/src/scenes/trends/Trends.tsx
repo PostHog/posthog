@@ -8,6 +8,7 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
 import { trendsDataLogic } from './trendsDataLogic'
+import { GeoMap } from 'scenes/insights/views/GeoMap/GeoMap'
 
 interface Props {
     view: InsightType
@@ -55,6 +56,9 @@ export function TrendInsight({ view }: Props): JSX.Element {
         if (display === ChartDisplayType.WorldMap) {
             return <WorldMap />
         }
+        if (display === ChartDisplayType.GeoMap) {
+            return <GeoMap />
+        }
     }
 
     return (
@@ -64,6 +68,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     className={
                         display !== ChartDisplayType.ActionsTable &&
                         display !== ChartDisplayType.WorldMap &&
+                        display !== ChartDisplayType.GeoMap &&
                         display !== ChartDisplayType.BoldNumber
                             ? 'trends-insights-container'
                             : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
