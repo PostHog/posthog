@@ -11,21 +11,18 @@ import {
     IconPublic,
 } from 'lib/lemon-ui/icons'
 
-import { ChartDisplayType, FilterType } from '~/types'
+import { ChartDisplayType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-interface ChartFilterProps {
-    filters: FilterType
-}
-
-export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
-    const { insightProps, isSingleSeries } = useValues(insightLogic)
+export function ChartFilter(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const isTrends = isTrendsFilter(filters)
+    const { isTrends, isSingleSeries, formula, breakdown } = useValues(insightVizDataLogic(insightProps))
+
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeries
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -96,12 +93,11 @@ export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
                     tooltip: 'Visualize data by country.',
                     disabledReason:
                         trendsOnlyDisabledReason ||
-                        singleSeriesOnlyDisabledReason ||
-                        (isTrends && filters.formula
+                        (formula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : !!filters.breakdown &&
-                              filters.breakdown !== '$geoip_country_code' &&
-                              filters.breakdown !== '$geoip_country_name'
+                            : !!breakdown?.breakdown &&
+                              breakdown.breakdown !== '$geoip_country_code' &&
+                              breakdown.breakdown !== '$geoip_country_name'
                             ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
                             : undefined),
                 },

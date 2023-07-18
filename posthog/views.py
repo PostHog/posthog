@@ -121,7 +121,6 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
             "posthog_version": VERSION,
             "is_debug": settings.DEBUG or settings.E2E_TESTING,
-            "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
             "licensed_users_available": get_licensed_users_available() if not is_cloud() else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "site_url": settings.SITE_URL,

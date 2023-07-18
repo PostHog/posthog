@@ -53,7 +53,9 @@ export function PieChart({
     type,
     onClick,
     ['data-attr']: dataAttr,
-    filters,
+    trendsFilter,
+    formula,
+    showValueOnSeries,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
@@ -130,7 +132,7 @@ export function PieChart({
                                 0
                             ) as number
                             const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
-                            return filters?.show_values_on_series !== false && // show if true or unset
+                            return showValueOnSeries !== false && // show if true or unset
                                 context.dataset.data.length > 1 &&
                                 percentage > 5
                                 ? 'auto'
@@ -143,7 +145,7 @@ export function PieChart({
                             const paddingX = value < 10 ? 5 : 4
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
                         },
-                        formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                        formatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
                         font: {
                             weight: 500,
                         },
@@ -167,7 +169,7 @@ export function PieChart({
                             const tooltipEl = ensureTooltipElement()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
-                                if (filters?.show_legend) {
+                                if (trendsFilter?.show_legend) {
                                     highlightSeries(null)
                                 }
                                 tooltipEl.style.opacity = '0'
@@ -200,7 +202,7 @@ export function PieChart({
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
                                             return (
                                                 <div className="datum-label-column">
-                                                    {!filters?.formula && (
+                                                    {!formula && (
                                                         <SeriesLetter
                                                             className="mr-2"
                                                             hasBreakdown={hasBreakdown}
@@ -208,7 +210,7 @@ export function PieChart({
                                                         />
                                                     )}
                                                     <div className="flex flex-col">
-                                                        {hasBreakdown && !filters?.formula && datum.breakdown_value}
+                                                        {hasBreakdown && !formula && datum.breakdown_value}
                                                         {value}
                                                     </div>
                                                 </div>
@@ -222,7 +224,7 @@ export function PieChart({
                                                     ((value / total) * 100).toFixed(1)
                                                 )
                                                 return `${formatAggregationAxisValue(
-                                                    filters,
+                                                    trendsFilter,
                                                     value
                                                 )} (${percentageLabel}%)`
                                             })

@@ -3,33 +3,39 @@ import { DateTime } from 'luxon'
 import {
     Action,
     ActionStep,
+    Cohort,
     Element,
     Hub,
     ISOTimestamp,
+    Person,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
     StringMatching,
-    StringMatching,
+    Team,
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
+import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
 import { commonUserId } from '../../helpers/plugins'
-import { insertRow, resetTestDatabase } from '../../helpers/sql'
+import { getFirstTeam, insertRow, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 
 describe('ActionMatcher', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
+    let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let actionCounter: number
 
     beforeEach(async () => {
         await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
         ;[hub, closeServer] = await createHub()
-        actionMatcher = hub.actionMatcher
+        actionManager = new ActionManager(hub.db.postgres)
+        await actionManager.prepare()
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         actionCounter = 0
     })
 
@@ -74,7 +80,7 @@ describe('ActionMatcher', () => {
         )
         await insertRow(hub.db.postgres, 'posthog_action', action)
         await Promise.all(steps.map((step) => insertRow(hub.db.postgres, 'posthog_actionstep', step)))
-        await hub.actionManager.reloadAction(action.team_id, action.id)
+        await actionManager.reloadAction(action.team_id, action.id)
         return { ...action, steps, hooks: [] }
     }
 
@@ -1246,6 +1252,60 @@ describe('ActionMatcher', () => {
             expect(
                 actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')
             ).toBeFalsy()
+        })
+    })
+
+    describe('doesPersonBelongToCohort()', () => {
+        let team: Team
+        let cohort: Cohort
+        let person: Person
+        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            cohort = await hub.db.createCohort({
+                name: 'testCohort',
+                description: '',
+                team_id: team.id,
+                version: 10,
+            })
+            person = await hub.db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
+        })
+
+        it('returns false if person does not belong to cohort', async () => {
+            const cohort2 = await hub.db.createCohort({
+                name: 'testCohort2',
+                description: '',
+                team_id: team.id,
+            })
+            await hub.db.addPersonToCohort(cohort2.id, person.id, cohort.version)
+
+            expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
+        })
+
+        it('returns true if person belongs to cohort', async () => {
+            await hub.db.addPersonToCohort(cohort.id, person.id, cohort.version)
+
+            expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(true)
+        })
+
+        it('returns false if person does not belong to current version of the cohort', async () => {
+            await hub.db.addPersonToCohort(cohort.id, person.id, -1)
+
+            expect(await actionMatcher.doesPersonBelongToCohort(cohort.id, person.uuid, person.team_id)).toEqual(false)
+        })
+
+        it('handles NULL version cohorts', async () => {
+            const cohort2 = await hub.db.createCohort({
+                name: 'null_cohort',
+                description: '',
+                team_id: team.id,
+                version: null,
+            })
+            expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(false)
+
+            await hub.db.addPersonToCohort(cohort2.id, person.id, null)
+            expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
         })
     })
 })

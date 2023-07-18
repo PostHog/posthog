@@ -2,17 +2,19 @@ from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
-import posthoganalytics
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
+from prometheus_client import Counter
+
 
 from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_project_id, get_token
@@ -23,6 +25,13 @@ from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
+
+
+FLAG_EVALUATION_COUNTER = Counter(
+    "flag_evaluation_total",
+    "Successful decide requests per team.",
+    labelnames=[LABEL_TEAM_ID, "errors_computing"],
+)
 
 
 def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
@@ -57,6 +66,29 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname
 
 def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
+
+
+def label_for_team_id_to_track(team_id: int) -> str:
+    team_id_filter = settings.DECIDE_TRACK_TEAM_IDS
+
+    team_id_as_string = str(team_id)
+
+    if "all" in team_id_filter:
+        return team_id_as_string
+
+    if team_id_as_string in team_id_filter:
+        return team_id_as_string
+
+    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
+    for range in team_id_ranges:
+        try:
+            start, end = range.split(":")
+            if int(start) <= team_id <= int(end):
+                return team_id_as_string
+        except Exception:
+            pass
+
+    return "unknown"
 
 
 @csrf_exempt
@@ -135,53 +167,63 @@ def get_decide(request: HttpRequest):
         if team:
             structlog.contextvars.bind_contextvars(team_id=team.id)
 
-            distinct_id = data.get("distinct_id")
-            if distinct_id is None:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        "Decide requires a distinct_id.",
-                        code="missing_distinct_id",
-                        type="validation_error",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    ),
+            disable_flags = process_bool(data.get("disable_flags")) is True
+            feature_flags = None
+            if not disable_flags:
+
+                distinct_id = data.get("distinct_id")
+                if distinct_id is None:
+                    return cors_response(
+                        request,
+                        generate_exception_response(
+                            "decide",
+                            "Decide requires a distinct_id.",
+                            code="missing_distinct_id",
+                            type="validation_error",
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                        ),
+                    )
+                else:
+                    distinct_id = str(distinct_id)
+
+                property_overrides = {}
+                geoip_enabled = process_bool(data.get("geoip_disable")) is False
+
+                if geoip_enabled:
+                    property_overrides = get_geoip_properties(get_ip_address(request))
+
+                all_property_overrides: Dict[str, Union[str, int]] = {
+                    **property_overrides,
+                    **(data.get("person_properties") or {}),
+                }
+
+                feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+                    team.pk,
+                    distinct_id,
+                    data.get("groups") or {},
+                    hash_key_override=data.get("$anon_distinct_id"),
+                    property_value_overrides=all_property_overrides,
+                    group_property_value_overrides=(data.get("group_properties") or {}),
                 )
+
+                active_flags = {key: value for key, value in feature_flags.items() if value}
+
+                if api_version == 2:
+                    response["featureFlags"] = active_flags
+                elif api_version >= 3:
+                    # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
+                    response["featureFlags"] = feature_flags
+                    response["errorsWhileComputingFlags"] = errors
+                    response["featureFlagPayloads"] = feature_flag_payloads
+                else:
+                    # default v1
+                    response["featureFlags"] = list(active_flags.keys())
+
+                # metrics for feature flags
+                team_id_label = label_for_team_id_to_track(team.pk)
+                FLAG_EVALUATION_COUNTER.labels(team_id=team_id_label, errors_computing=errors).inc()
             else:
-                distinct_id = str(distinct_id)
-
-            property_overrides = {}
-            geoip_enabled = process_bool(data.get("geoip_disable")) is False
-
-            if geoip_enabled:
-                property_overrides = get_geoip_properties(get_ip_address(request))
-
-            all_property_overrides: Dict[str, Union[str, int]] = {
-                **property_overrides,
-                **(data.get("person_properties") or {}),
-            }
-
-            feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
-                distinct_id,
-                data.get("groups") or {},
-                hash_key_override=data.get("$anon_distinct_id"),
-                property_value_overrides=all_property_overrides,
-                group_property_value_overrides=(data.get("group_properties") or {}),
-            )
-
-            active_flags = {key: value for key, value in feature_flags.items() if value}
-
-            if api_version == 2:
-                response["featureFlags"] = active_flags
-            elif api_version >= 3:
-                # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
-                response["featureFlags"] = feature_flags
-                response["errorsWhileComputingFlags"] = errors
-                response["featureFlagPayloads"] = feature_flag_payloads
-            else:
-                # default v1
-                response["featureFlags"] = list(active_flags.keys())
+                response["featureFlags"] = {}
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
@@ -225,24 +267,6 @@ def get_decide(request: HttpRequest):
                     count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
                     increment_request_count(team.pk, count)
 
-            # Analytics for decide requests with feature flags
-            # Only send once flag definitions are loaded
-            # don't block on loading flag definitions
-            if posthoganalytics.feature_flag_definitions() and posthoganalytics.feature_enabled(
-                "decide-analytics", distinct_id, only_evaluate_locally=True, send_feature_flag_events=False
-            ):
-                posthoganalytics.capture(
-                    team.id,
-                    "decide request",
-                    {
-                        "team_id": team.id,
-                        "flags": len(feature_flags),
-                        "captured_distinct_id": distinct_id,
-                    },
-                    groups={
-                        "project": str(team.uuid),
-                    },
-                )
         else:
             # no auth provided
             return cors_response(

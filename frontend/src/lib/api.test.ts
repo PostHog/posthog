@@ -1,5 +1,6 @@
 import api from 'lib/api'
 import { PropertyFilterType, PropertyOperator } from '~/types'
+import posthog from 'posthog-js'
 
 describe('API helper', () => {
     let fakeFetch: jest.Mock<any, any>
@@ -10,6 +11,9 @@ describe('API helper', () => {
         fakeFetch = jest.fn()
         fakeFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve(FAKE_FETCH_RESULT) })
         window.fetch = fakeFetch
+
+        jest.spyOn(posthog, 'capture').mockImplementation(() => {})
+        jest.spyOn(posthog, 'get_session_id').mockReturnValue('fake-session-id')
     })
 
     describe('events', () => {
@@ -31,7 +35,13 @@ describe('API helper', () => {
 
             expect(fakeFetch).toHaveBeenCalledWith(
                 '/api/projects/2/events?properties=%5B%7B%22key%22%3A%22something%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D&limit=10&orderBy=%5B%22-timestamp%22%5D',
-                { signal: undefined }
+                {
+                    signal: undefined,
+                    headers: {
+                        // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                        // 'X-POSTHOG-SESSION-ID': 'fake-session-id'
+                    },
+                }
             )
         })
     })

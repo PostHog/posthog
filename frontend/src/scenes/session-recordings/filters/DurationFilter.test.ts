@@ -1,4 +1,4 @@
-import { DurationTypeFilter, PropertyFilterType, PropertyOperator, RecordingDurationFilter } from '~/types'
+import { DurationType, PropertyFilterType, PropertyOperator, RecordingDurationFilter } from '~/types'
 import { humanFriendlyDurationFilter } from './DurationFilter'
 
 describe('DurationFilter', () => {
@@ -40,7 +40,7 @@ describe('DurationFilter', () => {
                 value,
                 operator,
             }
-            expect(humanFriendlyDurationFilter(filter, durationType as DurationTypeFilter)).toEqual(expectation)
+            expect(humanFriendlyDurationFilter(filter, durationType as DurationType)).toEqual(expectation)
         })
     })
 })

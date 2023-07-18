@@ -92,7 +92,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <Tooltip title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>
+            <Tooltip
+                isDefaultTooltip
+                title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
+            >
                 <span>
                     <button
                         ref={ref as any}
