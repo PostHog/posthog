@@ -78,7 +78,7 @@ type SessionBuffer = {
     createdAt: number
 }
 
-const MAX_FLUSH_TIME_MS = 30 * 1000
+const MAX_FLUSH_TIME_MS = 60 * 1000
 
 export class SessionManager {
     buffer: SessionBuffer
