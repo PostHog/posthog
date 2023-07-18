@@ -139,7 +139,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     searchedFeatureFlags?.length == 0 &&
                     !featureFlagsLoading &&
                     !searchTerm &&
-                    (filters.active === 'all' || !filters.active)
+                    !filters.active
                 )
             },
         ],
