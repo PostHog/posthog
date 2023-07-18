@@ -108,17 +108,6 @@ export function addSentryBreadcrumbsEventListeners(consumer: KafkaConsumer): voi
             },
         })
     })
-
-    consumer.on('partition.eof', (topicPartitionOffset) => {
-        Sentry.addBreadcrumb({
-            category: 'kafka_lifecycle',
-            message: 'partition.eof',
-            level: 'info',
-            data: {
-                topicPartitionOffset,
-            },
-        })
-    })
 }
 
 export async function emitConsumerGroupMetrics(

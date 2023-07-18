@@ -266,6 +266,8 @@ def action_to_expr(action: Action) -> ast.Expr:
             or_queries.append(exprs[0])
         elif len(exprs) > 1:
             or_queries.append(ast.And(exprs=exprs))
+        else:
+            or_queries.append(ast.Constant(value=True))
 
     if len(or_queries) == 1:
         return or_queries[0]

@@ -9,7 +9,7 @@ import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
-import { timeoutGuard } from '../../../../utils/db/utils'
+import { asyncTimeoutGuard, timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
@@ -31,13 +31,13 @@ const counterS3WriteErrored = new Counter({
 const histogramS3LinesWritten = new Histogram({
     name: 'recording_s3_lines_written_histogram',
     help: 'The number of lines in a file we send to s3',
-    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+    buckets: [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity],
 })
 
 const histogramS3KbWritten = new Histogram({
     name: 'recording_blob_ingestion_s3_kb_written',
     help: 'The uncompressed size of file we send to S3',
-    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, 102400, Infinity],
 })
 
 const histogramSessionAgeSeconds = new Histogram({
@@ -50,6 +50,12 @@ const histogramSessionSizeKb = new Histogram({
     name: 'recording_blob_ingestion_session_size_kb',
     help: 'The size of current sessions in kb',
     buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+})
+
+const histogramFlushTimeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_flush_time_seconds',
+    help: 'The time taken to flush a session in seconds',
+    buckets: [0, 1, 2, 5, 10, 20, 30, 60, 120, Infinity],
 })
 
 const histogramSessionSize = new Histogram({
@@ -77,6 +83,8 @@ type SessionBuffer = {
     } | null
     createdAt: number
 }
+
+const MAX_FLUSH_TIME_MS = 60 * 1000
 
 export class SessionManager {
     buffer: SessionBuffer
@@ -127,6 +135,14 @@ export class SessionManager {
     private captureException(error: Error, extra: Record<string, any> = {}): void {
         const context = this.logContext()
         captureException(error, {
+            extra: { ...context, ...extra },
+            tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
+        })
+    }
+
+    private captureMessage(message: string, extra: Record<string, any> = {}): void {
+        const context = this.logContext()
+        captureMessage(message, {
             extra: { ...context, ...extra },
             tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
         })
@@ -213,27 +229,42 @@ export class SessionManager {
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
-        const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
+        // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
+        if (this.flushBuffer) {
+            status.warn('🚽', 'blob_ingester_session_manager flush called but we already have a flush buffer', {
+                ...this.logContext(),
+            })
+            return
+        }
+
+        if (this.destroying) {
+            status.warn('🚽', 'blob_ingester_session_manager flush called but we are in a destroying state', {
+                ...this.logContext(),
+            })
+            return
+        }
+
+        const flushTimeout = setTimeout(() => {
+            status.error('🧨', 'blob_ingester_session_manager flush timed out', {
+                ...this.logContext(),
+            })
+
+            this.captureMessage('blob_ingester_session_manager flush timed out')
+            this.endFlush()
+        }, MAX_FLUSH_TIME_MS)
+
+        const endFlushTimer = histogramFlushTimeSeconds.startTimer()
 
         try {
-            // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
-            if (this.flushBuffer) {
-                throw new Error('Flush called but already flushing!')
-            }
-
-            if (this.destroying) {
-                throw new Error('Flush called but destroying!')
-            }
-
             // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
             this.flushBuffer = this.buffer
             this.buffer = this.createBuffer()
-            const { fileStream, file } = this.flushBuffer
-            if (this.flushBuffer.count === 0) {
+            const { fileStream, file, count, eventsRange, sizeEstimate } = this.flushBuffer
+
+            if (count === 0) {
                 throw new Error("Can't flush empty buffer")
             }
 
-            const eventsRange = this.flushBuffer.eventsRange
             if (!eventsRange) {
                 throw new Error("Can't flush buffer due to missing eventRange")
             }
@@ -243,34 +274,46 @@ export class SessionManager {
             const timeRange = `${firstTimestamp}-${lastTimestamp}`
             const dataKey = `${baseKey}/data/${timeRange}`
 
-            await new Promise<void>((resolve, reject) => {
-                // We need to safely end the file before reading from it
-                fileStream.end(async () => {
-                    try {
-                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
-
-                        this.inProgressUpload = new Upload({
-                            client: this.s3Client,
-                            params: {
-                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                                Key: dataKey,
-                                Body: fileStream,
-                            },
-                        })
-
-                        await this.inProgressUpload.done()
-                        fileStream.close()
-                        resolve()
-                    } catch (error) {
-                        reject(error)
-                    }
-                })
+            // We want to ensure the writeStream has ended before we read from it
+            await asyncTimeoutGuard({ message: 'session-manager.flush ending write stream delayed.' }, async () => {
+                await new Promise((r) => fileStream.end(r))
             })
 
+            const readStream = createReadStream(file, 'utf-8')
+            const gzippedStream = readStream.pipe(zlib.createGzip())
+
+            readStream.on('error', (err) => {
+                // TODO: What should we do here?
+                status.error('🧨', 'blob_ingester_session_manager readstream errored', {
+                    ...this.logContext(),
+                    error: err,
+                })
+
+                this.captureException(err)
+            })
+
+            const inProgressUpload = (this.inProgressUpload = new Upload({
+                client: this.s3Client,
+                params: {
+                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                    Key: dataKey,
+                    Body: gzippedStream,
+                },
+            }))
+
+            await asyncTimeoutGuard({ message: 'session-manager.flush uploading file to S3 delayed.' }, async () => {
+                await inProgressUpload.done()
+            })
+
+            readStream.close()
+
             counterS3FilesWritten.labels(reason).inc(1)
-            histogramS3LinesWritten.observe(this.flushBuffer.count)
-            histogramS3KbWritten.observe(this.flushBuffer.sizeEstimate / 1024)
-        } catch (error) {
+            histogramS3LinesWritten.observe(count)
+            histogramS3KbWritten.observe(sizeEstimate / 1024)
+        } catch (error: any) {
+            // TRICKY: error can for some reason sometimes be undefined...
+            error = error || new Error('Unknown Error')
+
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
                 return
@@ -285,7 +328,8 @@ export class SessionManager {
             this.captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            clearTimeout(timeout)
+            clearTimeout(flushTimeout)
+            endFlushTimer()
             this.endFlush()
         }
     }
@@ -333,6 +377,16 @@ export class SessionManager {
                 },
                 eventsRange: null,
             }
+
+            buffer.fileStream.on('error', (err) => {
+                // TODO: What should we do here?
+                status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                    ...this.logContext(),
+                    error: err,
+                })
+
+                this.captureException(err)
+            })
 
             return buffer
         } catch (error) {
