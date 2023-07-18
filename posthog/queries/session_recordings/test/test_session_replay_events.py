@@ -53,6 +53,10 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "start_time": self.base_time,
         }
 
+    def test_get_nonexistent_metadata(self) -> None:
+        metadata = SessionReplayEvents().get_metadata(session_id="not a session", team=self.team)
+        assert metadata is None
+
     def test_get_metadata_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization, name="Another Team")
         metadata = SessionReplayEvents().get_metadata(session_id="1", team=another_team)

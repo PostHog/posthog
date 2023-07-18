@@ -89,7 +89,7 @@ class SessionRecording(UUIDModel):
             self.duration = metadata["duration"]
             self.click_count = metadata["click_count"]
             self.keypress_count = metadata["keypress_count"]
-            self.set_start_url_from_urls([metadata["first_url"]])
+            self.set_start_url_from_urls(first_url=metadata["first_url"])
 
         return True
 
