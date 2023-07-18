@@ -388,6 +388,14 @@ class TestProperty(BaseTest):
             ),
         )
 
+        action4 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$pageview", action=action4)
+        ActionStep.objects.create(event=None, action=action4)
+        self.assertEqual(
+            clear_locations(action_to_expr(action4)),
+            self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
+        )
+
     def test_cohort_filter_static(self):
         cohort = Cohort.objects.create(
             team=self.team,
