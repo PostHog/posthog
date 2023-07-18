@@ -15,7 +15,7 @@ import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
-import { SurveyQuestionType, SurveyType } from '~/types'
+import { SurveyQuestionLink, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -162,7 +162,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             {survey.questions[0].type === SurveyQuestionType.Link && (
                                                 <>
                                                     <span className="card-secondary mt-4">Link url</span>
-                                                    <span>{survey.questions[0].link}</span>
+                                                    <span>{(survey.questions[0] as SurveyQuestionLink).link}</span>
                                                 </>
                                             )}
                                             <div className="flex flex-row gap-8">
@@ -234,7 +234,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         appearance={survey.appearance || defaultSurveyAppearance}
                                                         question={survey.questions[0].question}
                                                         description={survey.questions[0].description}
-                                                        link={survey.questions[0].link}
+                                                        link={(survey.questions[0] as SurveyQuestionLink).link}
                                                         readOnly={true}
                                                         onAppearanceChange={() => {}}
                                                     />
