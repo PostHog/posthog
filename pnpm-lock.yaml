@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -183,8 +183,8 @@ dependencies:
     specifier: ^0.39.0
     version: 0.39.0
   posthog-js:
-    specifier: 1.71.0
-    version: 1.71.0
+    specifier: 1.72.0
+    version: 1.72.0
   posthog-js-lite:
     specifier: 2.0.0-alpha5
     version: 2.0.0-alpha5
@@ -13319,7 +13319,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.10
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
@@ -15606,8 +15606,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js@1.71.0:
-    resolution: {integrity: sha512-Qs7lIBivj993apV17x8krEy46SKzSYCwMq4hihkNJ01U6ZltrIx0piYfKCC2pmiBgCaJG7Hjn0iTLy5evntdEw==}
+  /posthog-js@1.72.0:
+    resolution: {integrity: sha512-ERgeUnhIzliNVMYUAz1CD9tTLvHI1lOYVOxNkdAdJ//NT1z3tX/CrS1Wbozae9PcqVOJgfINnOVrhDayV5eKkQ==}
     dependencies:
       fflate: 0.4.8
     dev: false
