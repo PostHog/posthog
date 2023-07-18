@@ -110,7 +110,7 @@ export class SessionManager {
         this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
     }
 
-    private logContext = (): Record<string, any> => {
+    private logContext = () => {
         return {
             sessionId: this.sessionId,
             partition: this.partition,
@@ -122,6 +122,14 @@ export class SessionManager {
                 : undefined,
             bufferCount: this.buffer.count,
         }
+    }
+
+    private captureException(error: Error, extra: Record<string, any> = {}): void {
+        const context = this.logContext()
+        captureException(error, {
+            extra: { ...context, ...extra },
+            tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
+        })
     }
 
     public add(message: IncomingRecordingMessage): void {
@@ -187,7 +195,7 @@ export class SessionManager {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+            status.info('🚽', `blob_ingester_session_manager attempting to flushing buffer due to age`, {
                 ...logContext,
             })
 
@@ -205,21 +213,22 @@ export class SessionManager {
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
-        if (this.flushBuffer) {
-            return
-        }
-
-        if (this.destroying) {
-            return
-        }
-
-        // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
-        this.flushBuffer = this.buffer
-        this.buffer = this.createBuffer()
-        const { fileStream, file } = this.flushBuffer
         const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
 
         try {
+            // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
+            if (this.flushBuffer) {
+                throw new Error('Flush called but already flushing!')
+            }
+
+            if (this.destroying) {
+                throw new Error('Flush called but destroying!')
+            }
+
+            // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
+            this.flushBuffer = this.buffer
+            this.buffer = this.createBuffer()
+            const { fileStream, file } = this.flushBuffer
             if (this.flushBuffer.count === 0) {
                 throw new Error("Can't flush empty buffer")
             }
@@ -273,7 +282,7 @@ export class SessionManager {
                 ...this.logContext(),
                 reason,
             })
-            captureException(error)
+            this.captureException(error)
             counterS3WriteErrored.inc()
         } finally {
             clearTimeout(timeout)
@@ -296,7 +305,7 @@ export class SessionManager {
             this.flushBuffer = undefined
             this.onFinish([offsets.lowest, offsets.highest])
         } catch (error) {
-            captureException(error)
+            this.captureException(error)
         } finally {
             clearTimeout(timeout)
         }
@@ -327,7 +336,7 @@ export class SessionManager {
 
             return buffer
         } catch (error) {
-            captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+            this.captureException(error)
             throw error
         }
     }
@@ -363,7 +372,7 @@ export class SessionManager {
 
             this.buffer.fileStream.write(content)
         } catch (error) {
-            captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
+            this.captureException(error, { message })
             throw error
         }
     }
@@ -413,7 +422,7 @@ export class SessionManager {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
-            captureException(e)
+            this.captureException(e)
         }
     }
 
@@ -426,7 +435,7 @@ export class SessionManager {
                     ...this.logContext(),
                     error,
                 })
-                captureException(error, { tags: this.logContext() })
+                this.captureException(error)
             })
             this.inProgressUpload = null
         }
