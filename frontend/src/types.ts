@@ -2089,6 +2089,8 @@ export interface SurveyQuestionRating extends SurveyQuestion {
     type: SurveyQuestionType.Rating
     display: 'number' | 'emoji'
     scale: number
+    lowerBoundLabel: string
+    upperBoundLabel: string
 }
 
 export interface SurveyQuestionMultiple extends SurveyQuestion {

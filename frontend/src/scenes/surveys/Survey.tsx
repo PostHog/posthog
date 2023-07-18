@@ -106,7 +106,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     {survey.questions.map(
                         (question: SurveyQuestionLink | SurveyQuestion | SurveyQuestionRating, index: number) => (
                             <Group name={`questions.${index}`} key={index}>
-                                <Field name="type" label="Type">
+                                <Field name="type" label="Question type" className="max-w-150">
                                     <LemonSelect
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
@@ -115,38 +115,66 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         ]}
                                     />
                                 </Field>
-                                {question.type === SurveyQuestionType.Rating && (
-                                    <div>
-                                        <Field name="display" label="Display type">
-                                            <LemonSelect
-                                                options={[
-                                                    { label: 'Number', value: 'number' },
-                                                    { label: 'Emoji', value: 'emoji' },
-                                                ]}
-                                            />
-                                        </Field>
-                                        <Field name="scale" label="Scale">
-                                            <LemonSelect
-                                                options={[
-                                                    { label: '5 stars', value: 5 },
-                                                    ...(question.display === 'number'
-                                                        ? { label: '10 stars', value: 10 }
-                                                        : {}),
-                                                ]}
-                                            />
-                                        </Field>
-                                    </div>
-                                )}
                                 <Field name="question" label="Question">
                                     <LemonInput value={question.question} />
                                 </Field>
+                                {question.type === SurveyQuestionType.Link && (
+                                    <Field name="link" label="Link" info="Make sure to include https:// in the url.">
+                                        <LemonInput
+                                            value={(question as SurveyQuestionLink).link || ''}
+                                            placeholder="https://posthog.com"
+                                        />
+                                    </Field>
+                                )}
                                 <Field name="description" label="Question description (optional)">
                                     <LemonTextArea value={question.description || ''} />
                                 </Field>
-                                {question.type === SurveyQuestionType.Link && (
-                                    <Field name="link" label="Link" info="Make sure to include https:// in the url.">
-                                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
-                                    </Field>
+                                {question.type === SurveyQuestionType.Rating && (
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex flex-row gap-4">
+                                            <Field name="display" label="Display type" className="max-w-100">
+                                                <LemonSelect
+                                                    options={[
+                                                        { label: 'Number', value: 'number' },
+                                                        { label: 'Emoji', value: 'emoji' },
+                                                    ]}
+                                                />
+                                            </Field>
+                                            <Field name="scale" label="Scale" className="max-w-100">
+                                                <LemonSelect
+                                                    options={[
+                                                        ...((question as SurveyQuestionRating).display === 'emoji'
+                                                            ? [{ label: '1 - 3', value: 3 }]
+                                                            : []),
+                                                        { label: '1 - 5', value: 5 },
+                                                        ...((question as SurveyQuestionRating).display === 'number'
+                                                            ? [{ label: '1 - 10', value: 10 }]
+                                                            : []),
+                                                    ]}
+                                                />
+                                            </Field>
+                                        </div>
+                                        <div className="flex flex-row gap-4">
+                                            <Field
+                                                name="lowerBoundLabel"
+                                                label="Lower bound label"
+                                                className="max-w-150"
+                                            >
+                                                <LemonInput
+                                                    value={(question as SurveyQuestionRating).lowerBoundLabel || ''}
+                                                />
+                                            </Field>
+                                            <Field
+                                                name="upperBoundLabel"
+                                                label="Upper bound label"
+                                                className="max-w-150"
+                                            >
+                                                <LemonInput
+                                                    value={(question as SurveyQuestionRating).upperBoundLabel || ''}
+                                                />
+                                            </Field>
+                                        </div>
+                                    </div>
                                 )}
                             </Group>
                         )
@@ -243,12 +271,13 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             {({ value, onChange }) => (
                                 <SurveyAppearance
                                     type={survey.questions[0].type}
+                                    surveyQuestionItem={survey.questions[0]}
                                     question={survey.questions[0].question}
                                     description={survey.questions[0].description}
                                     onAppearanceChange={(appearance) => {
                                         onChange(appearance)
                                     }}
-                                    link={survey.questions[0].link}
+                                    link={(survey.questions[0] as SurveyQuestionLink).link}
                                     appearance={value || defaultSurveyAppearance}
                                 />
                             )}

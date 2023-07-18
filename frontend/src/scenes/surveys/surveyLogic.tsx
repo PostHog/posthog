@@ -48,7 +48,7 @@ export const defaultSurveyAppearance = {
     submitButtonColor: '#2C2C2C',
     textColor: 'black',
     submitButtonText: 'Submit',
-    descriptionTextColor: 'black',
+    descriptionTextColor: '#4b4b52',
 }
 
 const NEW_SURVEY: NewSurvey = {
@@ -281,9 +281,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => ({
                     question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Link
-                        ? { link: !question.link && 'Please enter a url for the link.' }
-                        : {}),
                 })),
             }),
             submit: async (surveyPayload) => {
