@@ -78,6 +78,8 @@ type SessionBuffer = {
     createdAt: number
 }
 
+const MAX_FLUSH_TIME_MS = 30 * 1000
+
 export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
@@ -215,68 +217,90 @@ export class SessionManager {
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
         // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
-            this.captureException(new Error("Flush called but we're already flushing!"))
+            status.warn('🚽', 'blob_ingester_session_manager flush called but we already have a flush buffer', {
+                ...this.logContext(),
+            })
             return
         }
 
         if (this.destroying) {
-            this.captureException(new Error("Flush called but we're destroying!"))
+            status.warn('🚽', 'blob_ingester_session_manager flush called but we are in a destroying state', {
+                ...this.logContext(),
+            })
             return
         }
 
-        const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
-
         try {
-            // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
+            // Minimal things we want to do outside of the promise to make sure we block subsequent calls
             this.flushBuffer = this.buffer
             this.buffer = this.createBuffer()
-            const { fileStream, file } = this.flushBuffer
-            if (this.flushBuffer.count === 0) {
-                throw new Error("Can't flush empty buffer")
-            }
-
-            const eventsRange = this.flushBuffer.eventsRange
-            if (!eventsRange) {
-                throw new Error("Can't flush buffer due to missing eventRange")
-            }
-
-            const { firstTimestamp, lastTimestamp } = eventsRange
-            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const timeRange = `${firstTimestamp}-${lastTimestamp}`
-            const dataKey = `${baseKey}/data/${timeRange}`
+            const { fileStream, file, count, eventsRange } = this.flushBuffer
 
             await new Promise<void>((resolve, reject) => {
-                // We need to safely end the file before reading from it
-                fileStream.end(async () => {
-                    try {
-                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
+                try {
+                    // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
+                    if (count === 0) {
+                        return reject("Can't flush empty buffer")
+                    }
 
-                        fileStream.on('error', (err) => {
-                            // TODO: What should we do here?
-                            status.error('🧨', 'blob_ingester_session_manager readstream errored', {
-                                ...this.logContext(),
-                                error: err,
-                            })
+                    if (!eventsRange) {
+                        return reject("Can't flush buffer due to missing eventRange")
+                    }
 
-                            this.captureException(err)
+                    const flushTimeout = setTimeout(() => {
+                        status.error('🧨', 'blob_ingester_session_manager flush timed out', {
+                            ...this.logContext(),
                         })
 
-                        this.inProgressUpload = new Upload({
-                            client: this.s3Client,
-                            params: {
-                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                                Key: dataKey,
-                                Body: fileStream,
+                        captureMessage('blob_ingester_session_manager flush timed out', {
+                            extra: {
+                                ...this.logContext(),
                             },
                         })
 
-                        await this.inProgressUpload.done()
-                        fileStream.close()
-                        resolve()
-                    } catch (error) {
-                        reject(error)
-                    }
-                })
+                        reject()
+                    }, MAX_FLUSH_TIME_MS)
+
+                    const { firstTimestamp, lastTimestamp } = eventsRange
+                    const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
+                    const timeRange = `${firstTimestamp}-${lastTimestamp}`
+                    const dataKey = `${baseKey}/data/${timeRange}`
+
+                    // We need to safely end the file before reading from it
+                    fileStream.end(async () => {
+                        try {
+                            const fileStream = createReadStream(file).pipe(zlib.createGzip())
+
+                            fileStream.on('error', (err) => {
+                                // TODO: What should we do here?
+                                status.error('🧨', 'blob_ingester_session_manager readstream errored', {
+                                    ...this.logContext(),
+                                    error: err,
+                                })
+
+                                this.captureException(err)
+                            })
+
+                            this.inProgressUpload = new Upload({
+                                client: this.s3Client,
+                                params: {
+                                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                                    Key: dataKey,
+                                    Body: fileStream,
+                                },
+                            })
+
+                            await this.inProgressUpload.done()
+                            fileStream.close()
+                            clearTimeout(flushTimeout)
+                            resolve()
+                        } catch (error) {
+                            reject(error)
+                        }
+                    })
+                } catch (error) {
+                    reject(error)
+                }
             })
 
             counterS3FilesWritten.labels(reason).inc(1)
@@ -297,7 +321,6 @@ export class SessionManager {
             this.captureException(error)
             counterS3WriteErrored.inc()
         } finally {
-            clearTimeout(timeout)
             this.endFlush()
         }
     }
