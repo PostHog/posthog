@@ -21,8 +21,9 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -51,6 +52,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
@@ -111,7 +113,9 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
                                             { label: 'Link', value: SurveyQuestionType.Link },
-                                            { label: 'Rating', value: SurveyQuestionType.Rating },
+                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_RATING_TYPE]
+                                                ? [{ label: 'Rating', value: SurveyQuestionType.Rating }]
+                                                : []),
                                         ]}
                                     />
                                 </Field>
