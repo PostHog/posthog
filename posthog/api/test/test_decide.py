@@ -65,6 +65,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         groups={},
         geoip_disable=False,
         ip="127.0.0.1",
+        disable_flags=False,
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
@@ -76,6 +77,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         "distinct_id": distinct_id,
                         "groups": groups,
                         "geoip_disable": geoip_disable,
+                        "disable_flags": disable_flags,
                     },
                 )
             },
@@ -1702,6 +1704,62 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
         self.assertEqual(geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True})
+
+    def test_disable_flags(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$geoip_country_name": "India"})
+
+        australia_ip = "13.106.122.3"
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 1",
+            key="australia-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "Australia", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 2",
+            key="india-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "India", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        with self.assertNumQueries(0):
+            flag_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags=True)
+            self.assertEqual(flag_disabled_res.json()["featureFlags"], {})
+
+        # test for falsy/truthy values
+        flags_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="0")
+        flags_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="yes")
+
+        # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+        self.assertEqual(
+            flags_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+        )
+        # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+        self.assertEqual(flags_disabled_res.json()["featureFlags"], {})
 
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self, *args):
