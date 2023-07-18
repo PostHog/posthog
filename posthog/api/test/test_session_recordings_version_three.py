@@ -200,7 +200,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team_id=self.team.pk,
             first_timestamp=base_time.isoformat(),
             last_timestamp=base_time.isoformat(),
-            distinct_id="u1",
+            distinct_id=distinct_id,
         )
         produce_replay_summary(
             session_id=session_id,
