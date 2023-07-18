@@ -195,7 +195,7 @@ export class SessionManager {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+            status.info('🚽', `blob_ingester_session_manager attempting to flushing buffer due to age`, {
                 ...logContext,
             })
 
@@ -213,21 +213,22 @@ export class SessionManager {
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
-        if (this.flushBuffer) {
-            return
-        }
-
-        if (this.destroying) {
-            return
-        }
-
-        // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
-        this.flushBuffer = this.buffer
-        this.buffer = this.createBuffer()
-        const { fileStream, file } = this.flushBuffer
         const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
 
         try {
+            // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
+            if (this.flushBuffer) {
+                throw new Error('Flush called but already flushing!')
+            }
+
+            if (this.destroying) {
+                throw new Error('Flush called but destroying!')
+            }
+
+            // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
+            this.flushBuffer = this.buffer
+            this.buffer = this.createBuffer()
+            const { fileStream, file } = this.flushBuffer
             if (this.flushBuffer.count === 0) {
                 throw new Error("Can't flush empty buffer")
             }
