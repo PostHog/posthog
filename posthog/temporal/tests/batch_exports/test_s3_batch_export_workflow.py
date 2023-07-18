@@ -442,7 +442,7 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(clie
     In this scenario we assert that when inserted_at is NULL, we default to _timestamp.
     This scenario is relevant values inserted before the migration happened.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
