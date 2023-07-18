@@ -213,18 +213,20 @@ export class SessionManager {
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
+        // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
+        if (this.flushBuffer) {
+            this.captureException(new Error("Flush called but we're already flushing!"))
+            return
+        }
+
+        if (this.destroying) {
+            this.captureException(new Error("Flush called but we're destroying!"))
+            return
+        }
+
         const timeout = timeoutGuard(`session-manager.flush delayed. Waiting over 30 seconds.`)
 
         try {
-            // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
-            if (this.flushBuffer) {
-                throw new Error('Flush called but already flushing!')
-            }
-
-            if (this.destroying) {
-                throw new Error('Flush called but destroying!')
-            }
-
             // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
             this.flushBuffer = this.buffer
             this.buffer = this.createBuffer()
