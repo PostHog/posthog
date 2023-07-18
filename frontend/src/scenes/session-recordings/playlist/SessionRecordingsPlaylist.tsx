@@ -160,7 +160,9 @@ export function RecordingsLists({
                                         </>
                                     }
                                 >
-                                    <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                    <span>
+                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                    </span>
                                 </Tooltip>
                             ) : null}
 
