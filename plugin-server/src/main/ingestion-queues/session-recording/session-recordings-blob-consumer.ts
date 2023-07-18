@@ -52,7 +52,7 @@ const gaugeSessionsRevoked = new Gauge({
     help: 'A gauge of the number of sessions being revoked when partitions are revoked when a re-balance occurs',
 })
 
-export const gaugeRealtimeSessions = new Gauge({
+const gaugeRealtimeSessions = new Gauge({
     name: 'recording_realtime_sessions',
     help: 'Number of real time sessions being handled by this blob ingestion consumer',
 })
@@ -144,6 +144,8 @@ export class SessionRecordingBlobIngester {
         // track the latest message timestamp seen so, we can use it to calculate a reference "now"
         // lag does not distribute evenly across partitions, so track timestamps per partition
         this.partitionNow[partition] = timestamp
+        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset - 1
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
@@ -385,14 +387,16 @@ export class SessionRecordingBlobIngester {
 
                 gaugeSessionsRevoked.set(sessionsToDrop.length)
                 gaugeSessionsHandled.remove()
-                revokedPartitions.forEach((partition) => {
+
+                topicPartitions.forEach((topicPartition: TopicPartition) => {
+                    const partition = topicPartition.partition
+
                     gaugeLagMilliseconds.remove({ partition })
                     gaugeOffsetCommitted.remove({ partition })
                     gaugeOffsetCommitFailed.remove({ partition })
-                })
-
-                topicPartitions.forEach((topicPartition: TopicPartition) => {
                     this.sessionOffsetHighWaterMark.revoke(topicPartition)
+                    this.partitionNow[partition] = null
+                    this.partitionLastKnownCommit[partition] = null
                 })
 
                 return
@@ -429,27 +433,24 @@ export class SessionRecordingBlobIngester {
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const referenceTime = this.partitionNow[sessionManager.partition]
                 if (!referenceTime) {
-                    throw new Error('No latestKafkaMessageTimestamp for partition ' + sessionManager.partition)
+                    status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
+                        partition: sessionManager.partition,
+                    })
+                    continue
                 }
 
-                void sessionManager
-                    .flushIfSessionBufferIsOld(
-                        referenceTime,
-                        this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+                void sessionManager.flushIfSessionBufferIsOld(referenceTime).catch((err) => {
+                    status.error(
+                        '🚽',
+                        'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
+                        {
+                            err,
+                            session_id: sessionManager.sessionId,
+                        }
                     )
-                    .catch((err) => {
-                        status.error(
-                            '🚽',
-                            'blob_ingester_consumer - failed trying to flush on idle session: ' +
-                                sessionManager.sessionId,
-                            {
-                                err,
-                                session_id: sessionManager.sessionId,
-                            }
-                        )
-                        captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                        throw err
-                    })
+                    captureException(err, { tags: { session_id: sessionManager.sessionId } })
+                    throw err
+                })
 
                 // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
                 if (sessionManager.isEmpty) {
@@ -548,7 +549,7 @@ export class SessionRecordingBlobIngester {
         void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
-            this.batchConsumer?.consumer.commitSync({
+            this.batchConsumer?.consumer.commit({
                 topic,
                 partition,
                 // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example

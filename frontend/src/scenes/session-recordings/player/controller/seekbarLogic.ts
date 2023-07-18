@@ -7,7 +7,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
 
-import { getXPos, InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE } from './utils/playerUtils'
+import { getXPos, InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE } from '../utils/playerUtils'
 
 export const seekbarLogic = kea<seekbarLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key]),

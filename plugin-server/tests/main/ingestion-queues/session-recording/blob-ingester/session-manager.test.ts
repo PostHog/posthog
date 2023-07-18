@@ -64,11 +64,8 @@ describe('session-manager', () => {
         addMessagesFromBuffer: jest.fn(),
     }
 
-    beforeEach(() => {
-        // it's always May 25
-        Settings.now = () => new Date(2018, 4, 25).valueOf()
-
-        sessionManager = new SessionManager(
+    const createSessionManager = () => {
+        return new SessionManager(
             defaultConfig,
             mockS3Client,
             mockRealtimeManager,
@@ -78,6 +75,15 @@ describe('session-manager', () => {
             'topic',
             mockFinish
         )
+    }
+
+    const flushThreshold = defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+
+    beforeEach(() => {
+        // it's always May 25
+        Settings.now = () => new Date(2018, 4, 25).valueOf()
+
+        sessionManager = createSessionManager()
         mockFinish.mockClear()
     })
 
@@ -99,6 +105,7 @@ describe('session-manager', () => {
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
+            sizeEstimate: 4139,
             oldestKafkaTimestamp: timestamp,
             newestKafkaTimestamp: timestamp,
             file: expect.any(String),
@@ -120,28 +127,26 @@ describe('session-manager', () => {
     })
 
     it('does not flush if it has received a message recently', async () => {
-        const flushThreshold = 2500 // any value here...
         const now = DateTime.now()
 
         const event = createIncomingRecordingMessage({
             metadata: {
                 timestamp: now
                     .minus({
-                        milliseconds: flushThreshold - 10, // less than the threshold
+                        milliseconds: flushThreshold * 0.5, // less than the threshold
                     })
                     .toMillis(),
             } as any,
         })
 
         sessionManager.add(event)
-        await sessionManager.flushIfSessionBufferIsOld(now.toMillis(), flushThreshold)
+        await sessionManager.flushIfSessionBufferIsOld(now.toMillis())
 
         // as a proxy for flush having been called or not
         expect(createReadStream).not.toHaveBeenCalled()
     })
 
     it('does flush if it has not received a message recently', async () => {
-        const flushThreshold = 2500 // any value here...
         const firstTimestamp = 1679568043305
         const lastTimestamp = 1679568043305 + 4000
 
@@ -176,7 +181,7 @@ describe('session-manager', () => {
         sessionManager.add(eventOne)
         sessionManager.add(eventTwo)
 
-        await sessionManager.flushIfSessionBufferIsOld(now(), flushThreshold)
+        await sessionManager.flushIfSessionBufferIsOld(now())
 
         // as a proxy for flush having been called or not
         expect(createReadStream).toHaveBeenCalled()
@@ -206,7 +211,7 @@ describe('session-manager', () => {
 
         sessionManager.add(event)
 
-        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis())
 
         // as a proxy for flush having been called or not
         expect(createReadStream).not.toHaveBeenCalled()
@@ -216,6 +221,7 @@ describe('session-manager', () => {
         const aDayInMilliseconds = 24 * 60 * 60 * 1000
         const now = DateTime.now()
 
+        // Create an event that is a little more than a day old
         const event = createIncomingRecordingMessage({
             metadata: {
                 timestamp: now.minus({ milliseconds: aDayInMilliseconds - 3500 }).toMillis(),
@@ -223,12 +229,15 @@ describe('session-manager', () => {
         })
 
         sessionManager.add(event)
-        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis())
         expect(createReadStream).not.toHaveBeenCalled()
 
         // Manually modify the date to simulate this being idle for too long
-        sessionManager.buffer.createdAt = now.minus({ milliseconds: 6000 }).toMillis()
-        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis(), 2500)
+        // This triggers the "memory" flush
+        sessionManager.buffer.createdAt = now
+            .minus({ milliseconds: flushThreshold * defaultConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER })
+            .toMillis()
+        await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis())
         expect(createReadStream).toHaveBeenCalled()
     })
 
@@ -312,5 +321,14 @@ describe('session-manager', () => {
             highest: 10,
             lowest: 2,
         })
+    })
+
+    it('has a fixed jitter based on the serverConfig', () => {
+        const minJitter = 1 - defaultConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
+        for (const _ of Array(100).keys()) {
+            const sm = createSessionManager()
+            expect(sm.flushJitterMultiplier).toBeGreaterThanOrEqual(minJitter)
+            expect(sm.flushJitterMultiplier).toBeLessThanOrEqual(1)
+        }
     })
 })
