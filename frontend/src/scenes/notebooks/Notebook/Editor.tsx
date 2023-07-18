@@ -149,7 +149,7 @@ export function Editor({
                 },
                 findNode: (position: number) => findNode(editor, position),
                 nextNode: (position: number) => nextNode(editor, position),
-                hasChildOfType: (node: Node, type: string) => hasChild(node, type),
+                hasChildOfType: (node: Node, type: string) => hasDirectChildOfType(node, type),
             })
         },
         onUpdate: onUpdate,
@@ -182,11 +182,22 @@ function nextNode(editor: TTEditor, position: number): { node: Node; position: n
     return result.node ? { node: result.node, position: result.offset } : null
 }
 
-function hasChild(node: Node, type: string): boolean {
+function hasDirectChildOfType(node: Node, type: string, direct: boolean = true): boolean {
     const types: string[] = []
     node.descendants((child) => {
         types.push(child.type.name)
-        return false
+        return !direct
     })
     return types.includes(type)
+}
+
+export function lastChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
+    let latestNode: Node | null = null
+    node.descendants((child) => {
+        if (child.type.name === type) {
+            latestNode = child
+        }
+        return !direct
+    })
+    return latestNode
 }

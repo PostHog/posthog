@@ -84,6 +84,5 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
     return {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
-        autoPlay: false,
     }
 }

@@ -4,7 +4,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 export type NotebookNodeLogicProps = {
     nodeId: string
     notebookShortId?: string
-    position?: number
+    getPos?: () => number
 }
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([

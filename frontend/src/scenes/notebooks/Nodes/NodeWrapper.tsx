@@ -76,7 +76,7 @@ export function NodeWrapper({
             props={{
                 nodeId: node.attrs.nodeId || uuid(),
                 notebookShortId: node.attrs.notebookShortId,
-                position: getPos(),
+                getPos: getPos,
             }}
         >
             <NodeViewWrapper

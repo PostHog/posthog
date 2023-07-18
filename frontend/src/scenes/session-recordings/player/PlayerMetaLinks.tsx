@@ -49,8 +49,8 @@ export function PlayerMetaLinks(): JSX.Element {
             const logic = notebookLogic.findMounted({ shortId: nodeLogic.props.notebookShortId })
             const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
 
-            if (logic && nodeLogic.props.position) {
-                let insertionPosition = nodeLogic.props.position
+            if (logic && nodeLogic.props.getPos) {
+                let insertionPosition = nodeLogic.props.getPos()
                 let nextNode = logic?.values.editor?.nextNode(insertionPosition)
 
                 while (nextNode && logic.values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.Timestamp)) {

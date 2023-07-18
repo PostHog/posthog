@@ -1,36 +1,24 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
-import { useValues } from 'kea'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import clsx from 'clsx'
+import { lastChildOfType } from '../Notebook/Editor'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const playbackTime = props.node.attrs.playbackTime
-    const sessionRecordingId = props.node.attrs.sessionRecordingId
-
-    const recordingLogicProps: SessionRecordingPlayerLogicProps = {
-        sessionRecordingId,
-        playerKey: `notebook-${sessionRecordingId}`,
-    }
-
-    const { currentPlayerTime } = useValues(sessionRecordingPlayerLogic(recordingLogicProps))
+    const playbackTime: number = props.node.attrs.playbackTime
 
     return (
         <NodeViewWrapper as="span" class={clsx('Timestamp', props.selected && 'Timestamp--selected')}>
-            {formatTimestamp(playbackTime, currentPlayerTime)}
+            {formatTimestamp(playbackTime)}
         </NodeViewWrapper>
     )
 }
 
-function formatTimestamp(nodeTime: number | null, playerTime: number): string {
-    const time = nodeTime === null ? playerTime : nodeTime
+function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
 }
 
@@ -48,11 +36,7 @@ export const NotebookNodeTimestamp = Node.create({
     },
 
     parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Timestamp,
-            },
-        ]
+        return [{ tag: NotebookNodeType.Timestamp }]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -63,21 +47,18 @@ export const NotebookNodeTimestamp = Node.create({
         return {
             Enter: ({ editor }) => {
                 const selectedNode = editor.state.selection.$head.parent
+                const timestampChild = lastChildOfType(selectedNode, NotebookNodeType.Timestamp)
 
-                if (selectedNode.type.name === 'paragraph') {
-                    const possibleTimestamp = selectedNode.firstChild
+                if (selectedNode.type.name === 'paragraph' && timestampChild) {
+                    const sessionRecordingId = timestampChild.attrs.sessionRecordingId
 
-                    if (possibleTimestamp && possibleTimestamp.type.name === NotebookNodeType.Timestamp) {
-                        const sessionRecordingId = possibleTimestamp.attrs.sessionRecordingId
+                    const currentPlayerTime =
+                        sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
+                            .currentPlayerTime || 0
 
-                        const currentPlayerTime =
-                            sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))
-                                ?.values.currentPlayerTime || 0
-
-                        return editor.commands.insertContent(
-                            buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
-                        )
-                    }
+                    return editor.commands.insertContent(
+                        buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
+                    )
                 }
 
                 return false
