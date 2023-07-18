@@ -31,13 +31,13 @@ const counterS3WriteErrored = new Counter({
 const histogramS3LinesWritten = new Histogram({
     name: 'recording_s3_lines_written_histogram',
     help: 'The number of lines in a file we send to s3',
-    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+    buckets: [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity],
 })
 
 const histogramS3KbWritten = new Histogram({
     name: 'recording_blob_ingestion_s3_kb_written',
     help: 'The uncompressed size of file we send to S3',
-    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, 102400, Infinity],
 })
 
 const histogramSessionAgeSeconds = new Histogram({
