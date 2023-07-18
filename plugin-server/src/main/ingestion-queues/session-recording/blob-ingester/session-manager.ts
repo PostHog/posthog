@@ -9,7 +9,7 @@ import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
-import { timeoutGuard } from '../../../../utils/db/utils'
+import { asyncTimeoutGuard, timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
@@ -50,6 +50,12 @@ const histogramSessionSizeKb = new Histogram({
     name: 'recording_blob_ingestion_session_size_kb',
     help: 'The size of current sessions in kb',
     buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+})
+
+const histogramFlushTimeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_flush_time_seconds',
+    help: 'The time taken to flush a session in seconds',
+    buckets: [0, 1, 2, 5, 10, 20, 30, 60, 120, Infinity],
 })
 
 const histogramSessionSize = new Histogram({
@@ -247,6 +253,8 @@ export class SessionManager {
             this.endFlush()
         }, MAX_FLUSH_TIME_MS)
 
+        const endFlushTimer = histogramFlushTimeSeconds.startTimer()
+
         try {
             // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
             this.flushBuffer = this.buffer
@@ -267,7 +275,9 @@ export class SessionManager {
             const dataKey = `${baseKey}/data/${timeRange}`
 
             // We want to ensure the writeStream has ended before we read from it
-            await new Promise((r) => fileStream.end(r))
+            await asyncTimeoutGuard({ message: 'session-manager.flush ending write stream delayed.' }, async () => {
+                await new Promise((r) => fileStream.end(r))
+            })
 
             const readStream = createReadStream(file, 'utf-8')
             const gzippedStream = readStream.pipe(zlib.createGzip())
@@ -282,16 +292,19 @@ export class SessionManager {
                 this.captureException(err)
             })
 
-            this.inProgressUpload = new Upload({
+            const inProgressUpload = (this.inProgressUpload = new Upload({
                 client: this.s3Client,
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
                     Body: gzippedStream,
                 },
+            }))
+
+            await asyncTimeoutGuard({ message: 'session-manager.flush uploading file to S3 delayed.' }, async () => {
+                await inProgressUpload.done()
             })
 
-            await this.inProgressUpload.done()
             readStream.close()
 
             counterS3FilesWritten.labels(reason).inc(1)
@@ -313,6 +326,7 @@ export class SessionManager {
             counterS3WriteErrored.inc()
         } finally {
             clearTimeout(flushTimeout)
+            endFlushTimer()
             this.endFlush()
         }
     }
