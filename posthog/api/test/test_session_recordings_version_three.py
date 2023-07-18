@@ -164,22 +164,30 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_listing_recordings_is_not_nplus1_for_persons(self):
         with freeze_time("2022-06-03T12:00:00.000Z"):
             # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
-            self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+            zeroth_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+            assert zeroth_load.status_code == status.HTTP_200_OK
+            assert len(zeroth_load.json()["results"]) == 0
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = FuzzyInt(12, 15)  # PoE on or off adds queries here :shrug:
+            num_queries = FuzzyInt(12, 16)  # PoE on or off adds queries here :shrug:
 
             self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
             with self.assertNumQueries(num_queries):
-                self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+                first_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+                assert first_load.status_code == status.HTTP_200_OK
+                assert len(first_load.json()["results"]) == 1
 
             self._person_with_snapshots(base_time=base_time, distinct_id="user2", session_id="2")
             with self.assertNumQueries(num_queries):
-                self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+                second_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+                assert second_load.status_code == status.HTTP_200_OK
+                assert len(second_load.json()["results"]) == 2
 
             self._person_with_snapshots(base_time=base_time, distinct_id="user3", session_id="3")
             with self.assertNumQueries(num_queries):
-                self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+                third_load = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+                assert third_load.status_code == status.HTTP_200_OK
+                assert len(third_load.json()["results"]) == 3
 
     def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
         Person.objects.create(
@@ -187,6 +195,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         self.create_snapshot(distinct_id, session_id, base_time)
         self.create_snapshot(distinct_id, session_id, base_time + relativedelta(seconds=10))
+        produce_replay_summary(
+            session_id="1",
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+        )
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=10)).isoformat(),
+            distinct_id=distinct_id,
+        )
+
         flush_persons_and_events()
 
     def test_session_recordings_dont_leak_teams(self):
