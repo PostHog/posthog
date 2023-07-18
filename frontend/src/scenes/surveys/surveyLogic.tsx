@@ -93,7 +93,6 @@ export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
         propertiesViaUrl: true,
         showExport: true,
         showReload: true,
-        showColumnConfigurator: true,
         showEventFilter: true,
         showPropertyFilter: true,
     }
