@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey, AvailableFeature } from '~/types'
+import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     defaultPageviewPropertyEntityFilter,
@@ -30,14 +30,9 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
-    <span className="rounded py-1 px-2 text-xs bg-border-light font-semibold select-none">{children}</span>
+    <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
 )
 
 function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
@@ -59,79 +54,6 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
             </p>
         </LemonBanner>
     )
-}
-
-function ResultsCountBadge({
-    count,
-    totalFiltersCount,
-    filters,
-}: {
-    count: number
-    totalFiltersCount: number
-    filters: RecordingFilters
-}): JSX.Element | null {
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
-    const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
-    const { playlists } = useValues(playlistsLogic)
-
-    const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ filters }, true)
-        reportRecordingPlaylistCreated('filters')
-    })
-
-    const counterBadge = (
-        <>
-            <CounterBadge>{Math.min(999, count)}+</CounterBadge>
-        </>
-    )
-
-    return count ? (
-        <Tooltip
-            placement="bottom"
-            title={
-                <>
-                    Showing {count} results.
-                    <br />
-                    Scrolling to the bottom or the top of the list will load older or newer recordings respectively.
-                    {totalFiltersCount > 0 ? (
-                        <>
-                            <br />
-                            Click to save these filters as a new playlist
-                        </>
-                    ) : null}
-                </>
-            }
-        >
-            <span className={'mr-1'}>
-                <div className={'flex flex-row justify-end'}>
-                    {totalFiltersCount > 0 ? (
-                        <LemonButton
-                            fullWidth={false}
-                            data-attr={'session-recordings-filters-save-as-playlist'}
-                            type="tertiary"
-                            status="primary-alt"
-                            size={'small'}
-                            onClick={(e) =>
-                                guardAvailableFeature(
-                                    AvailableFeature.RECORDINGS_PLAYLISTS,
-                                    'recording playlists',
-                                    "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
-                                    () => newPlaylistHandler.onEvent?.(e),
-                                    undefined,
-                                    playlists.count
-                                )
-                            }
-                            noPadding
-                            icon={counterBadge}
-                        />
-                    ) : (
-                        counterBadge
-                    )}
-                </div>
-            </span>
-        </Tooltip>
-    ) : null
 }
 
 export function RecordingsLists({
@@ -190,9 +112,7 @@ export function RecordingsLists({
                         title="Pinned Recordings"
                         titleRight={
                             pinnedRecordingsResponse?.results?.length ? (
-                                <span className={'mr-1'}>
-                                    <CounterBadge>{pinnedRecordingsResponse.results.length}</CounterBadge>
-                                </span>
+                                <CounterBadge>{pinnedRecordingsResponse.results.length}</CounterBadge>
                             ) : null
                         }
                         onRecordingClick={onRecordingClick}
@@ -228,11 +148,21 @@ export function RecordingsLists({
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
                         <>
-                            <ResultsCountBadge
-                                filters={filters}
-                                totalFiltersCount={totalFiltersCount}
-                                count={sessionRecordings.length}
-                            />
+                            {sessionRecordings.length ? (
+                                <Tooltip
+                                    placement="bottom"
+                                    title={
+                                        <>
+                                            Showing {sessionRecordings.length} results.
+                                            <br />
+                                            Scrolling to the bottom or the top of the list will load older or newer
+                                            recordings respectively.
+                                        </>
+                                    }
+                                >
+                                    <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                </Tooltip>
+                            ) : null}
 
                             <Tooltip
                                 title={

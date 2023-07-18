@@ -20,6 +20,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -35,6 +36,13 @@ export function SessionsRecordings(): JSX.Element {
         reportRecordingPlaylistCreated('new')
     })
 
+    // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
+    const { filters, totalFiltersCount } = useValues(sessionRecordingsListLogic({ updateSearchParams: true }))
+    const saveFiltersPlaylistHandler = useAsyncHandler(async () => {
+        await createPlaylist({ filters }, true)
+        reportRecordingPlaylistCreated('filters')
+    })
+
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
         <div className="-mb-16">
@@ -43,13 +51,39 @@ export function SessionsRecordings(): JSX.Element {
                 buttons={
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconSettings />}
-                                onClick={() => openSessionRecordingSettingsDialog()}
-                            >
-                                Configure
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    fullWidth={false}
+                                    data-attr={'session-recordings-filters-save-as-playlist'}
+                                    type="primary"
+                                    status="primary"
+                                    onClick={(e) =>
+                                        guardAvailableFeature(
+                                            AvailableFeature.RECORDINGS_PLAYLISTS,
+                                            'recording playlists',
+                                            "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
+                                            () => {
+                                                // choose the type of playlist handler so that analytics correctly report
+                                                // whether filters have been changed before saving
+                                                totalFiltersCount === 0
+                                                    ? newPlaylistHandler.onEvent?.(e)
+                                                    : saveFiltersPlaylistHandler.onEvent?.(e)
+                                            },
+                                            undefined,
+                                            playlists.count
+                                        )
+                                    }
+                                >
+                                    Save as playlist
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconSettings />}
+                                    onClick={() => openSessionRecordingSettingsDialog()}
+                                >
+                                    Configure
+                                </LemonButton>
+                            </>
                         )}
 
                         {tab === ReplayTabs.Playlists && (
