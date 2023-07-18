@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { Breadcrumb, MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
+import { MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
 import { urlToAction } from 'kea-router'
@@ -293,22 +293,10 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
             pageview,
         }),
         clearDisplayedPageView: true,
-        setCurrentPage: (page: WebPerformancePage) => ({ page }),
         highlightPointInTime: (markerName: string | null) => ({ markerName }),
     }),
     reducers({
         highlightedPointInTime: [null as string | null, { highlightPointInTime: (_, { markerName }) => markerName }],
-        currentPageView: [
-            null as PerformancePageView | null,
-            {
-                pageViewToDisplay: (_, { pageview }) => pageview,
-                clearDisplayedPageView: () => null,
-                setCurrentPage: (state, { page }) => {
-                    return page === WebPerformancePage.TABLE ? null : state
-                },
-            },
-        ],
-        currentPage: [WebPerformancePage.TABLE as WebPerformancePage, { setCurrentPage: (_, { page }) => page }],
         pageviewEventsFailed: [
             false,
             {
@@ -318,14 +306,6 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
         ],
     }),
     loaders(() => ({
-        recentPageViews: [
-            [] as RecentPerformancePageView[],
-            {
-                loadRecentPageViews: async (): Promise<RecentPerformancePageView[]> => {
-                    return (await api.performanceEvents.recentPageViews()).results
-                },
-            },
-        ],
         pageviewEvents: [
             null as PerformanceEvent[] | null,
             {
@@ -362,33 +342,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
                     ? ([{ session_id: currentEvent.session_id, events: [] }] as MatchedRecording[])
                     : [],
         ],
-        breadcrumbs: [
-            (s) => [s.currentPageView, s.currentPage],
-            (currentPageView, currentPage): Breadcrumb[] => {
-                const baseCrumb = [
-                    {
-                        name: 'Web Performance',
-                        path: urls.webPerformance(),
-                    },
-                ]
-                if (currentPage === WebPerformancePage.WATERFALL_CHART) {
-                    // need all the info in the url
-                    baseCrumb.push({
-                        name: 'Waterfall Chart',
-                        path: urls.webPerformanceWaterfall(currentPageView ?? undefined),
-                    })
-                }
-                return baseCrumb
-            },
-        ],
     })),
     urlToAction(({ values, actions }) => ({
-        [urls.webPerformance()]: () => {
-            if (values.currentPage !== WebPerformancePage.TABLE) {
-                actions.setCurrentPage(WebPerformancePage.TABLE)
-                actions.loadRecentPageViews()
-            }
-        },
         [urls.webPerformanceWaterfall()]: (_, { sessionId, pageviewId, timestamp }) => {
             if (values.currentPage !== WebPerformancePage.WATERFALL_CHART) {
                 actions.setCurrentPage(WebPerformancePage.WATERFALL_CHART)
