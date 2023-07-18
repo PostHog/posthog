@@ -41,7 +41,7 @@ EventValues = TypedDict(
         "event": str,
         "_timestamp": str,
         "timestamp": str,
-        "inserted_at": str,
+        "inserted_at": str | None,
         "created_at": str,
         "distinct_id": str,
         "person_id": str,
@@ -384,6 +384,121 @@ async def test_s3_export_workflow_with_minio_bucket(client: HttpClient, s3_clien
             "timestamp": "2023-04-25 14:29:00.000000",
             "created_at": "2023-04-25 14:29:00.000000",
             "inserted_at": "2023-04-25 14:29:00.000000",
+            "_timestamp": "2023-04-25 14:29:00",
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "distinct_id": str(uuid4()),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+        },
+    ]
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=ch_client,
+        events=events,
+    )
+
+    workflow_id = str(uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_end="2023-04-25 14:30:00.000000",
+        **batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    assert_events_in_s3(s3_client, bucket_name, prefix, events)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(client: HttpClient, s3_client, bucket_name):
+    """Test the full S3 workflow targetting a MinIO bucket.
+
+    In this scenario we assert that when inserted_at is NULL, we default to _timestamp.
+    This scenario is relevant values inserted before the migration happened.
+    """
+    ch_client = ChClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    prefix = f"posthog-events-{str(uuid4())}"
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": bucket_name,
+            "region": "us-east-1",
+            "prefix": prefix,
+            "batch_window_size": 3600,
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": "2023-04-25 13:30:00.000000",
+            "created_at": "2023-04-25 13:30:00.000000",
+            "inserted_at": None,
+            "_timestamp": "2023-04-25 13:30:00",
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "distinct_id": str(uuid4()),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+        },
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": "2023-04-25 14:29:00.000000",
+            "created_at": "2023-04-25 14:29:00.000000",
+            "inserted_at": None,
             "_timestamp": "2023-04-25 14:29:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
