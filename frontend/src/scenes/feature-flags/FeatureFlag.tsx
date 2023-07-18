@@ -999,7 +999,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                         </Row>
                                     </Col>
                                 </Row>
-                                filterGroups
                             </Group>
                         ))}
                         {variants.length > 0 && !areVariantRolloutsValid && (
