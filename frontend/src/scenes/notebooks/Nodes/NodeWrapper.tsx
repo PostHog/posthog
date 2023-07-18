@@ -5,7 +5,7 @@ import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
@@ -34,7 +34,6 @@ export function NodeWrapper({
     node,
     updateAttributes,
 }: NodeWrapperProps): JSX.Element {
-    useValues(notebookNodeLogic({ nodeId: node.attrs.nodeId || uuid(), notebookShortId: node.attrs.notebookShortId }))
     const { shortId } = useValues(notebookLogic)
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -71,59 +70,64 @@ export function NodeWrapper({
     }, [resizeable, updateAttributes])
 
     return (
-        <NodeViewWrapper
-            ref={ref}
-            as="div"
-            className={clsx(nodeType, 'NotebookNode flex flex-col gap-1 overflow-hidden', {
-                'NotebookNode--selected': selected,
-            })}
+        <BindLogic
+            logic={notebookNodeLogic}
+            props={{ nodeId: node.attrs.nodeId || uuid(), notebookShortId: node.attrs.notebookShortId }}
         >
-            <ErrorBoundary>
-                {!inView ? (
-                    <>
-                        <div className="h-4" /> {/* Placeholder for the drag handle */}
-                        <div style={{ height: heightEstimate }}>
-                            <LemonSkeleton className="h-full" />
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <div
-                            className={clsx(
-                                'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
-                                {
-                                    'font-semibold': selected,
-                                }
-                            )}
-                            data-drag-handle
-                        >
-                            <div className="shrink-0">
-                                <IconDragHandle className="cursor-move text-base shrink-0" />
-                                <span>{title}</span>
+            <NodeViewWrapper
+                ref={ref}
+                as="div"
+                className={clsx(nodeType, 'NotebookNode flex flex-col gap-1 overflow-hidden', {
+                    'NotebookNode--selected': selected,
+                })}
+            >
+                <ErrorBoundary>
+                    {!inView ? (
+                        <>
+                            <div className="h-4" /> {/* Placeholder for the drag handle */}
+                            <div style={{ height: heightEstimate }}>
+                                <LemonSkeleton className="h-full" />
                             </div>
-                            <div className="shrink-0 flex gap-4">
-                                {href && (
-                                    <Link to={href}>
-                                        <IconLink /> Link
-                                    </Link>
+                        </>
+                    ) : (
+                        <>
+                            <div
+                                className={clsx(
+                                    'NotebookNode__meta flex items-center justify-between text-xs truncate text-muted-alt',
+                                    {
+                                        'font-semibold': selected,
+                                    }
                                 )}
+                                data-drag-handle
+                            >
+                                <div className="shrink-0">
+                                    <IconDragHandle className="cursor-move text-base shrink-0" />
+                                    <span>{title}</span>
+                                </div>
+                                <div className="shrink-0 flex gap-4">
+                                    {href && (
+                                        <Link to={href}>
+                                            <IconLink /> Link
+                                        </Link>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                        <div
-                            ref={contentRef}
-                            className={clsx(
-                                'flex flex-col relative z-0 overflow-hidden min-h-40',
-                                resizeable && 'resize-y'
-                            )}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ height }}
-                            onMouseDown={onResizeStart}
-                        >
-                            {children}
-                        </div>
-                    </>
-                )}
-            </ErrorBoundary>
-        </NodeViewWrapper>
+                            <div
+                                ref={contentRef}
+                                className={clsx(
+                                    'flex flex-col relative z-0 overflow-hidden min-h-40',
+                                    resizeable && 'resize-y'
+                                )}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height }}
+                                onMouseDown={onResizeStart}
+                            >
+                                {children}
+                            </div>
+                        </>
+                    )}
+                </ErrorBoundary>
+            </NodeViewWrapper>
+        </BindLogic>
     )
 }

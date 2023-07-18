@@ -16,6 +16,8 @@ export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
 
+    const nodeLogic = notebookNodeLogic.findMounted({ nodeId: logicProps.notebookNodeId })
+
     const onShare = (): void => {
         setPause()
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
@@ -42,7 +44,6 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onComment = (): void => {
-        const nodeLogic = notebookNodeLogic.findMounted({ nodeId: logicProps.notebookNodeId })
         if (nodeLogic) {
             const logic = notebookLogic.findMounted({ shortId: nodeLogic.props.notebookShortId })
             const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
@@ -61,7 +62,7 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const isInNotebook = notebookNodeLogic.isMounted({ nodeId: logicProps.notebookNodeId })
+    const isInNotebook = !!nodeLogic
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
