@@ -124,7 +124,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         viewPathToFunnel: ({ pathItemCard }) => {
             const events = []
             let currentItemCard = pathItemCard
-            while (currentItemCard.targetLinks.length > 0) {
+            while (currentItemCard) {
                 const name = currentItemCard.name.includes('http')
                     ? '$pageview'
                     : currentItemCard.name.replace(/(^[0-9]+_)/, '')
@@ -144,15 +144,17 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         ],
                     }),
                 })
-                currentItemCard = currentItemCard.targetLinks[0].source
+                currentItemCard = currentItemCard.targetLinks[0]?.source
             }
-            router.actions.push(
-                urls.insightNew({
-                    insight: InsightType.FUNNELS,
-                    events,
-                    date_from: values.dateRange?.date_from,
-                })
-            )
+            if (events.length > 0) {
+                router.actions.push(
+                    urls.insightNew({
+                        insight: InsightType.FUNNELS,
+                        events,
+                        date_from: values.dateRange?.date_from,
+                    })
+                )
+            }
         },
     })),
 ])
