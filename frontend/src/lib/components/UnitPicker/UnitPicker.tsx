@@ -2,18 +2,12 @@ import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/i
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
-import { ItemMode, TrendsFilterType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-interface UnitPickerProps {
-    filters: TrendsFilterType
-    setFilters: (filters: Partial<TrendsFilterType>, insightMode?: ItemMode | undefined) => void
-}
 
 const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce((acc, option) => {
     acc[option.value] = option.label
@@ -27,12 +21,15 @@ export interface HandleUnitChange {
     close?: boolean
 }
 
-export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Element {
+export function UnitPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { trendsFilter, display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
+
     const [isVisible, setIsVisible] = useState(false)
-    const [localAxisFormat, setLocalAxisFormat] = useState(filters.aggregation_axis_format || undefined)
+    const [localAxisFormat, setLocalAxisFormat] = useState(trendsFilter?.aggregation_axis_format || undefined)
     const [customUnitModal, setCustomUnitModal] = useState<'prefix' | 'postfix' | null>(null)
 
     const customUnitModalRef = useRef<HTMLDivElement | null>(null)
@@ -52,13 +49,6 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
     const handleChange = ({ format, prefix, postfix }: HandleUnitChange): void => {
         setLocalAxisFormat(format)
 
-        setFilters({
-            ...filters,
-            aggregation_axis_format: format,
-            aggregation_axis_prefix: prefix,
-            aggregation_axis_postfix: postfix,
-        })
-
         updateInsightFilter({
             aggregation_axis_format: format,
             aggregation_axis_prefix: prefix,
@@ -69,7 +59,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
             format,
             prefix,
             postfix,
-            display: filters.display,
+            display,
             unitIsSet: !!prefix || !!postfix || (format && format !== 'numeric'),
         })
 
@@ -77,28 +67,28 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
         setCustomUnitModal(null)
     }
 
-    const display = useMemo(() => {
+    const displayValue = useMemo(() => {
         let displayValue = 'None'
         if (localAxisFormat) {
             displayValue = aggregationDisplayMap[localAxisFormat]
         }
-        if (filters.aggregation_axis_prefix?.length) {
-            displayValue = `Prefix: ${filters.aggregation_axis_prefix}`
+        if (trendsFilter?.aggregation_axis_prefix?.length) {
+            displayValue = `Prefix: ${trendsFilter?.aggregation_axis_prefix}`
         }
-        if (filters.aggregation_axis_postfix?.length) {
-            displayValue = `Postfix: ${filters.aggregation_axis_postfix}`
+        if (trendsFilter?.aggregation_axis_postfix?.length) {
+            displayValue = `Postfix: ${trendsFilter?.aggregation_axis_postfix}`
         }
         return displayValue
-    }, [localAxisFormat, filters])
+    }, [localAxisFormat, trendsFilter])
 
     return (
         <>
-            <span>{axisLabel(filters.display)}</span>
+            <span>{axisLabel(display)}</span>
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
                 onSave={handleChange}
-                filters={filters}
+                trendsFilter={trendsFilter}
                 onClose={() => setCustomUnitModal(null)}
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
@@ -131,23 +121,23 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('prefix')}
                                     status="stealth"
-                                    active={!!filters.aggregation_axis_prefix}
+                                    active={!!trendsFilter?.aggregation_axis_prefix}
                                     fullWidth
                                 >
                                     Custom prefix
-                                    {!!filters.aggregation_axis_prefix
-                                        ? `: ${filters.aggregation_axis_prefix}...`
+                                    {!!trendsFilter?.aggregation_axis_prefix
+                                        ? `: ${trendsFilter?.aggregation_axis_prefix}...`
                                         : '...'}
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('postfix')}
                                     status="stealth"
-                                    active={!!filters.aggregation_axis_postfix}
+                                    active={!!trendsFilter?.aggregation_axis_postfix}
                                     fullWidth
                                 >
                                     Custom postfix
-                                    {!!filters.aggregation_axis_postfix
-                                        ? `: ${filters.aggregation_axis_postfix}...`
+                                    {!!trendsFilter?.aggregation_axis_postfix
+                                        ? `: ${trendsFilter?.aggregation_axis_postfix}...`
                                         : '...'}
                                 </LemonButton>
                             </>
@@ -158,7 +148,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                     closeOnClickInside: false,
                 }}
             >
-                {display}
+                {displayValue}
             </LemonButtonWithDropdown>
         </>
     )
