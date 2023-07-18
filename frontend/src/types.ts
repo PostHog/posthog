@@ -2502,7 +2502,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface KeyMapping {
     label: string
     description?: string | JSX.Element
-    examples?: string[]
+    examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
 }
