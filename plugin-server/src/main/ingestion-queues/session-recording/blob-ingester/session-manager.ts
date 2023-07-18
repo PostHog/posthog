@@ -311,7 +311,7 @@ export class SessionManager {
             histogramS3LinesWritten.observe(count)
             histogramS3KbWritten.observe(sizeEstimate / 1024)
         } catch (error: any) {
-            if ('name' in error && error.name === 'AbortError' && this.destroying) {
+            if (error !== undefined && 'name' in error && error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
                 return
             }
