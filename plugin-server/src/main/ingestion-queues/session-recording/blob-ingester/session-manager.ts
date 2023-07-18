@@ -110,7 +110,7 @@ export class SessionManager {
         this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
     }
 
-    private logContext = (): Record<string, any> => {
+    private logContext = () => {
         return {
             sessionId: this.sessionId,
             partition: this.partition,
@@ -122,6 +122,14 @@ export class SessionManager {
                 : undefined,
             bufferCount: this.buffer.count,
         }
+    }
+
+    private captureException(error: Error, extra: Record<string, any> = {}): void {
+        const context = this.logContext()
+        captureException(error, {
+            extra: { ...context, ...extra },
+            tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
+        })
     }
 
     public add(message: IncomingRecordingMessage): void {
@@ -273,7 +281,7 @@ export class SessionManager {
                 ...this.logContext(),
                 reason,
             })
-            captureException(error)
+            this.captureException(error)
             counterS3WriteErrored.inc()
         } finally {
             clearTimeout(timeout)
@@ -296,7 +304,7 @@ export class SessionManager {
             this.flushBuffer = undefined
             this.onFinish([offsets.lowest, offsets.highest])
         } catch (error) {
-            captureException(error)
+            this.captureException(error)
         } finally {
             clearTimeout(timeout)
         }
@@ -327,7 +335,7 @@ export class SessionManager {
 
             return buffer
         } catch (error) {
-            captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+            this.captureException(error)
             throw error
         }
     }
@@ -363,7 +371,7 @@ export class SessionManager {
 
             this.buffer.fileStream.write(content)
         } catch (error) {
-            captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
+            this.captureException(error, { message })
             throw error
         }
     }
@@ -413,7 +421,7 @@ export class SessionManager {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
-            captureException(e)
+            this.captureException(e)
         }
     }
 
@@ -426,7 +434,7 @@ export class SessionManager {
                     ...this.logContext(),
                     error,
                 })
-                captureException(error, { tags: this.logContext() })
+                this.captureException(error)
             })
             this.inProgressUpload = null
         }
