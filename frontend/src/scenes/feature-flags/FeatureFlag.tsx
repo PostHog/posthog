@@ -671,7 +671,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
 
-    const _filter_groups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
+    const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
     return (
         <>
@@ -950,23 +950,23 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                             }
                                                         }}
                                                     />
-                                                    {_filter_groups.filter((g) => g.variant == variant.key).length >
-                                                        0 && (
+                                                    {filterGroups.filter((group) => group.variant === variant.key)
+                                                        .length > 0 && (
                                                         <span style={{ fontSize: 11 }} className="text-muted">
                                                             Overridden by{' '}
                                                             <strong>
                                                                 {variantConcatWithPunctuation(
-                                                                    _filter_groups
+                                                                    filterGroups
                                                                         .filter(
-                                                                            (g) =>
-                                                                                g.variant != null &&
-                                                                                g.variant == variant.key
+                                                                            (group) =>
+                                                                                group.variant != null &&
+                                                                                group.variant === variant.key
                                                                         )
                                                                         .map(
                                                                             (variant) =>
                                                                                 'Set ' +
-                                                                                (_filter_groups.findIndex(
-                                                                                    (gf) => gf == variant
+                                                                                (filterGroups.findIndex(
+                                                                                    (group) => group === variant
                                                                                 ) +
                                                                                     1)
                                                                         )
@@ -999,6 +999,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                         </Row>
                                     </Col>
                                 </Row>
+                                filterGroups
                             </Group>
                         ))}
                         {variants.length > 0 && !areVariantRolloutsValid && (
@@ -1059,7 +1060,7 @@ export function FeatureFlagReleaseConditions({
     const { cohortsById } = useValues(cohortsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
 
-    const _filter_groups: FeatureFlagGroupType[] = isSuper
+    const filterGroups: FeatureFlagGroupType[] = isSuper
         ? featureFlag.filters.super_groups || []
         : featureFlag.filters.groups
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
@@ -1080,7 +1081,7 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
+            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
                     <Row align="middle" justify="space-between">
@@ -1114,7 +1115,7 @@ export function FeatureFlagReleaseConditions({
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
-                                {!isEarlyAccessFeatureCondition(group) && _filter_groups.length > 1 && (
+                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
                                         icon={<IconDelete />}
                                         status="muted"
@@ -1193,7 +1194,7 @@ export function FeatureFlagReleaseConditions({
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`feature-flag-${featureFlag.id}-${index}-${_filter_groups.length}-${
+                                pageKey={`feature-flag-${featureFlag.id}-${index}-${filterGroups.length}-${
                                     featureFlag.filters.aggregation_group_type_index ?? ''
                                 }`}
                                 propertyFilters={group?.properties}
@@ -1230,7 +1231,7 @@ export function FeatureFlagReleaseConditions({
                     {readOnly ? (
                         <LemonTag
                             type={
-                                _filter_groups.length == 1
+                                filterGroups.length == 1
                                     ? group.rollout_percentage == null || group.rollout_percentage == 100
                                         ? 'highlight'
                                         : group.rollout_percentage == 0
@@ -1337,7 +1338,7 @@ export function FeatureFlagReleaseConditions({
         }
 
         return (
-            <Col span={24} md={24} key={`${index}-${_filter_groups.length}`}>
+            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
                 <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
                     <Row align="middle" justify="space-between">
@@ -1418,9 +1419,9 @@ export function FeatureFlagReleaseConditions({
                         </>
                     )}
                     {!readOnly &&
-                        !_filter_groups.every(
+                        !filterGroups.every(
                             (group) =>
-                                _filter_groups.filter((g) => g.variant == group.variant && g.variant != null).length < 2
+                                filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
                         ) && (
                             <LemonBanner type="info" className="mt-3 mb-3">
                                 Multiple variant overrides detected. We use the variant override for the first condition
@@ -1463,7 +1464,7 @@ export function FeatureFlagReleaseConditions({
                 )}
             </div>
             <Row className="FeatureConditionCard" gutter={16}>
-                {_filter_groups.map((group, index) =>
+                {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
             </Row>
