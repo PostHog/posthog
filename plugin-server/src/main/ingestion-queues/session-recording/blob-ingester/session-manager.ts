@@ -251,6 +251,16 @@ export class SessionManager {
                     try {
                         const fileStream = createReadStream(file).pipe(zlib.createGzip())
 
+                        fileStream.on('error', (err) => {
+                            // TODO: What should we do here?
+                            status.error('🧨', 'blob_ingester_session_manager readstream errored', {
+                                ...this.logContext(),
+                                error: err,
+                            })
+
+                            this.captureException(err)
+                        })
+
                         this.inProgressUpload = new Upload({
                             client: this.s3Client,
                             params: {
@@ -335,6 +345,16 @@ export class SessionManager {
                 },
                 eventsRange: null,
             }
+
+            buffer.fileStream.on('error', (err) => {
+                // TODO: What should we do here?
+                status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                    ...this.logContext(),
+                    error: err,
+                })
+
+                this.captureException(err)
+            })
 
             return buffer
         } catch (error) {

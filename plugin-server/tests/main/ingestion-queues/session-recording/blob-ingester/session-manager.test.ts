@@ -7,23 +7,22 @@ import { SessionManager } from '../../../../../src/main/ingestion-queues/session
 import { now } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
 import { createIncomingRecordingMessage } from '../fixtures'
 
+const createMockStream = () => {
+    return {
+        write: jest.fn(),
+        pipe: jest.fn(() => createMockStream()),
+        close: jest.fn((cb) => cb?.()),
+        end: jest.fn((cb) => cb?.()),
+        on: jest.fn(),
+    }
+}
+
 jest.mock('fs', () => {
     return {
         ...jest.requireActual('fs'),
         writeFileSync: jest.fn(),
-        createReadStream: jest.fn().mockImplementation(() => {
-            return {
-                pipe: () => ({ close: jest.fn() }),
-            }
-        }),
-        createWriteStream: jest.fn().mockImplementation(() => {
-            return {
-                write: jest.fn(),
-                pipe: () => ({ close: jest.fn() }),
-                close: jest.fn((cb) => cb?.()),
-                end: jest.fn((cb) => cb?.()),
-            }
-        }),
+        createReadStream: jest.fn(() => createMockStream()),
+        createWriteStream: jest.fn(() => createMockStream()),
     }
 })
 
