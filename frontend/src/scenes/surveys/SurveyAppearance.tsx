@@ -200,7 +200,7 @@ function SurveyRatingAppearance({
                         {ratingSurveyQuestion.display === 'emoji' && (
                             <div className="rating-options-emoji">
                                 {(ratingSurveyQuestion.scale === 3 ? threeEmojis : fiveEmojis).map((emoji, idx) => (
-                                    <button className="ratings-emoji" key={idx}>
+                                    <button className="ratings-emoji" type="button" key={idx}>
                                         {emoji}
                                     </button>
                                 ))}
@@ -219,7 +219,7 @@ function SurveyRatingAppearance({
                                             : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
                                         ).map((num, idx) => {
                                             return (
-                                                <button className="ratings-number" key={idx}>
+                                                <button className="ratings-number" type="button" key={idx}>
                                                     {num}
                                                 </button>
                                             )
