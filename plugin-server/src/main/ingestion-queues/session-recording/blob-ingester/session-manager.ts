@@ -134,6 +134,14 @@ export class SessionManager {
         })
     }
 
+    private captureMessage(message: string, extra: Record<string, any> = {}): void {
+        const context = this.logContext()
+        captureMessage(message, {
+            extra: { ...context, ...extra },
+            tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
+        })
+    }
+
     public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
@@ -252,7 +260,7 @@ export class SessionManager {
                             ...this.logContext(),
                         })
 
-                        captureMessage('blob_ingester_session_manager flush timed out', {
+                        this.captureMessage('blob_ingester_session_manager flush timed out', {
                             extra: {
                                 ...this.logContext(),
                             },
