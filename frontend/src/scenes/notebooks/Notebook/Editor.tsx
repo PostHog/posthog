@@ -21,6 +21,7 @@ import { JSONContent, NotebookEditor } from './utils'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeTimestamp } from '../Nodes/NotebookNodeTimestamp'
+import { Node } from '@tiptap/pm/model'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -140,12 +141,15 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
-                insertContentAfterNode: (nodeId: string, content: JSONContent) => {
-                    const position = findEndPositionOfNode(editor, nodeId)
-                    if (position) {
-                        editor.chain().focus().insertContentAt(position, content).run()
+                insertContentAfterNode: (position: number, content: JSONContent) => {
+                    const endPosition = findEndPositionOfNode(editor, position)
+                    if (endPosition) {
+                        editor.chain().focus().insertContentAt(endPosition, content).run()
                     }
                 },
+                findNode: (position: number) => findNode(editor, position),
+                nextNode: (position: number) => nextNode(editor, position),
+                hasChildOfType: (node: Node, type: string) => hasChild(node, type),
             })
         },
         onUpdate: onUpdate,
@@ -160,14 +164,29 @@ export function Editor({
     )
 }
 
-function findEndPositionOfNode(editor: TTEditor, nodeId: string): number | null {
-    let position: number | null = null
+function findEndPositionOfNode(editor: TTEditor, position: number): number | null {
+    const node = findNode(editor, position)
+    return !node ? null : position + node.nodeSize
+}
 
-    editor.state.doc.descendants((node, pos) => {
-        if (node.attrs.nodeId === nodeId && !position) {
-            position = pos + node.nodeSize
-        }
+function findNode(editor: TTEditor, position: number): Node | null {
+    return editor.state.doc.nodeAt(position)
+}
+
+function nextNode(editor: TTEditor, position: number): { node: Node; position: number } | null {
+    const endPosition = findEndPositionOfNode(editor, position)
+    if (!endPosition) {
+        return null
+    }
+    const result = editor.state.doc.childAfter(endPosition)
+    return result.node ? { node: result.node, position: result.offset } : null
+}
+
+function hasChild(node: Node, type: string): boolean {
+    const types: string[] = []
+    node.descendants((child) => {
+        types.push(child.type.name)
+        return false
     })
-
-    return position
+    return types.includes(type)
 }

@@ -11,6 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeTimestamp'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { NotebookNodeType } from '~/types'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -48,9 +49,17 @@ export function PlayerMetaLinks(): JSX.Element {
             const logic = notebookLogic.findMounted({ shortId: nodeLogic.props.notebookShortId })
             const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
 
-            if (logic) {
+            if (logic && nodeLogic.props.position) {
+                let insertionPosition = nodeLogic.props.position
+                let nextNode = logic?.values.editor?.nextNode(insertionPosition)
+
+                while (nextNode && logic.values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.Timestamp)) {
+                    insertionPosition = nextNode.position
+                    nextNode = logic?.values.editor?.nextNode(insertionPosition)
+                }
+
                 logic?.values.editor?.insertContentAfterNode(
-                    nodeLogic.props.nodeId,
+                    insertionPosition,
                     buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
                 )
             }

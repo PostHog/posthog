@@ -6,6 +6,7 @@ import {
     Range as EditorRange,
     getText,
 } from '@tiptap/core'
+import { Node } from '@tiptap/pm/model'
 import { NotebookNodeType } from '~/types'
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -20,7 +21,10 @@ export interface NotebookEditor {
     setContent: (content: JSONContent) => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
-    insertContentAfterNode: (nodeId: string, content: JSONContent) => void
+    insertContentAfterNode: (position: number, content: JSONContent) => void
+    findNode: (position: number) => Node | null
+    nextNode: (position: number) => { node: Node; position: number } | null
+    hasChildOfType: (node: Node, type: string) => boolean
 }
 
 // Loosely based on https://github.com/ueberdosis/tiptap/blob/develop/packages/extension-floating-menu/src/floating-menu-plugin.ts#LL38C3-L55C4

@@ -32,6 +32,7 @@ export function NodeWrapper({
     heightEstimate = '4rem',
     resizeable = true,
     node,
+    getPos,
     updateAttributes,
 }: NodeWrapperProps): JSX.Element {
     const { shortId } = useValues(notebookLogic)
@@ -72,7 +73,11 @@ export function NodeWrapper({
     return (
         <BindLogic
             logic={notebookNodeLogic}
-            props={{ nodeId: node.attrs.nodeId || uuid(), notebookShortId: node.attrs.notebookShortId }}
+            props={{
+                nodeId: node.attrs.nodeId || uuid(),
+                notebookShortId: node.attrs.notebookShortId,
+                position: getPos(),
+            }}
         >
             <NodeViewWrapper
                 ref={ref}
