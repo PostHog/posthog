@@ -85,6 +85,7 @@ export class SessionManager {
     realtime = false
     inProgressUpload: Upload | null = null
     unsubscribe: () => void
+    flushJitterMultiplier: number
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -104,6 +105,9 @@ export class SessionManager {
         this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
             void this.startRealtime()
         })
+
+        // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
+        this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
     }
 
     private logContext = (): Record<string, any> => {
@@ -137,16 +141,23 @@ export class SessionManager {
         return !this.buffer.count && !this.flushBuffer?.count
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number): Promise<void> {
         if (this.destroying) {
             return
         }
+
+        const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
+        const flushThresholdMemoryMs =
+            flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
         const logContext: Record<string, any> = {
             ...this.logContext(),
             referenceTime: referenceNow,
             referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
-            flushThresholdMillis,
+            flushThresholdMs,
+            flushThresholdJitteredMs,
+            flushThresholdMemoryMs,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -158,32 +169,30 @@ export class SessionManager {
             return
         }
 
-        const bufferAgeInMemory = now() - this.buffer.createdAt
-        const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
+        const bufferAgeInMemoryMs = now() - this.buffer.createdAt
+        const bufferAgeFromReferenceMs = referenceNow - this.buffer.oldestKafkaTimestamp
 
-        const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
-        const sessionAgeIsOverThreshold =
-            bufferAgeInMemory >=
-            flushThresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+        const isSessionAgeOverThreshold = bufferAgeInMemoryMs >= flushThresholdMemoryMs
+        const isBufferAgeOverThreshold = bufferAgeFromReferenceMs >= flushThresholdJitteredMs
 
-        logContext['bufferAgeInMemory'] = bufferAgeInMemory
-        logContext['bufferAgeFromReference'] = bufferAgeFromReference
-        logContext['bufferAgeIsOverThreshold'] = bufferAgeIsOverThreshold
-        logContext['sessionAgeIsOverThreshold'] = sessionAgeIsOverThreshold
+        logContext['bufferAgeInMemoryMs'] = bufferAgeInMemoryMs
+        logContext['bufferAgeFromReferenceMs'] = bufferAgeFromReferenceMs
+        logContext['isBufferAgeOverThreshold'] = isBufferAgeOverThreshold
+        logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
 
-        histogramSessionAgeSeconds.observe(bufferAgeInMemory / 1000)
+        histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
         histogramSessionSize.observe(this.buffer.count)
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
-        if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
+        if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
             status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
                 ...logContext,
             })
 
             // return the promise and let the caller decide whether to await
-            return this.flush(bufferAgeIsOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
+            return this.flush(isBufferAgeOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 ...logContext,
