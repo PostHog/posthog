@@ -58,6 +58,7 @@ jobs:
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max-old-space-size=6144
             JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
+            OPT_OUT_CAPTURE: 1
         outputs:
             # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
             chromium-1-added: ${{ steps.diff.outputs.chromium-1-added }}

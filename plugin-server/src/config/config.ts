@@ -127,13 +127,15 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
+        SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,
+        SESSION_RECORDING_KAFKA_QUEUE_SIZE: 1500,
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
-        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: ['dev', 'test'].includes(process.env.NODE_ENV || 'undefined')
-            ? 1024 // NOTE: ~1MB in dev or test, so that even with gzipped content we still flush pretty frequently
-            : 1024 * 50, // ~50MB after compression in prod
+        SESSION_RECORDING_BUFFER_AGE_JITTER: 0.3,
+        SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER: 1.2,
+        SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024 * 50, // 50MB
         SESSION_RECORDING_REMOTE_FOLDER: 'session_recordings',
         SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: '@posthog/replay/partition-high-water-marks',
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,

@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from typing import List
 from urllib.parse import urlparse
 
@@ -7,7 +7,7 @@ import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, str_to_bool, get_list
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -158,6 +158,14 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
+CLICKHOUSE_OFFLINE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_OFFLINE_CLUSTER_HOST}:{_clickhouse_http_port}/"
+
+if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
+    # When testing, there is no offline cluster.
+    # Also in EU, there is no offline cluster.
+    CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
+
+
 READONLY_CLICKHOUSE_USER = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
@@ -220,6 +228,12 @@ KAFKA_EVENTS_PLUGIN_INGESTION: str = (
 KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
 )
+
+# A list of tokens for which events should be sent to the historical topic
+# TODO: possibly remove this and replace with something that provides the
+# separation of concerns between realtime and historical ingestion but without
+# needing to have a deploy.
+TOKENS_HISTORICAL_DATA = os.getenv("TOKENS_HISTORICAL_DATA", "").split(",")
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:

@@ -449,20 +449,5 @@ ORDER BY count(value) DESC
 LIMIT 20
 """
 
-GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES = """
-    WITH property_tuples AS (
-        SELECT arrayJoin(JSONExtractKeysAndValuesRaw({properties_column})) AS property_key_value_pair FROM {table_name}
-        WHERE team_id = %(team_id)s
-    )
-    SELECT
-        property_key_value_pair.1 AS property_key,
-        anyLast(property_key_value_pair.2) AS sample_json_value
-    FROM property_tuples
-    GROUP BY property_key"""
-
-GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
-    table_name=PERSONS_TABLE, properties_column="properties"
-)
-
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"

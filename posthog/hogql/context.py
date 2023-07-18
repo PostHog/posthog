@@ -42,3 +42,8 @@ class HogQLContext:
         key = f"hogql_val_{len(self.values)}"
         self.values[key] = value
         return f"%({key})s"
+
+    def add_sensitive_value(self, value: Any) -> str:
+        key = f"hogql_val_{len(self.values)}_sensitive"
+        self.values[key] = value
+        return f"%({key})s"

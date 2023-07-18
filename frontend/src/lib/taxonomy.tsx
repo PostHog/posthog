@@ -16,6 +16,12 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: 'Time the event happened.',
             examples: [new Date().toISOString()],
         },
+        $sent_at: {
+            label: 'Sent At',
+            description:
+                'Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.',
+            examples: [new Date().toISOString()],
+        },
         $browser: {
             label: 'Browser',
             description: 'Name of the browser the user has used.',
@@ -97,6 +103,21 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: 'Version of the library used to send the event. Used in combination with Library.',
             examples: ['1.0.3'],
         },
+        $lib_version__major: {
+            label: 'Library Version (Major)',
+            description: 'Major version of the library used to send the event.',
+            examples: [1],
+        },
+        $lib_version__minor: {
+            label: 'Library Version (Minor)',
+            description: 'Minor version of the library used to send the event.',
+            examples: [0],
+        },
+        $lib_version__patch: {
+            label: 'Library Version (Patch)',
+            description: 'Patch version of the library used to send the event.',
+            examples: [3],
+        },
         $referrer: {
             label: 'Referrer URL',
             description: 'URL of where the user came from most recently (last-touch).',
@@ -140,7 +161,13 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $active_feature_flags: {
             label: 'Active Feature Flags',
             description: 'Keys of the feature flags that were active while this event was sent.',
-            examples: ['beta-feature'],
+            examples: ["['beta-feature']"],
+        },
+        $enabled_feature_flags: {
+            label: 'Enabled Feature Flags',
+            description:
+                'Keys and multivariate values of the feature flags that were active while this event was sent.',
+            examples: ['{"flag": "value"}'],
         },
         $feature_flag_response: {
             label: 'Feature Flag Response',
@@ -199,8 +226,19 @@ export const KEY_MAPPING: KeyMappingInterface = {
             examples: ['clicked button'],
         },
         $autocapture_disabled_server_side: {
-            label: 'Autocapture disabled server-side',
+            label: 'Autocapture Disabled Server-Side',
             description: 'If autocapture has been disabled server-side.',
+            system: true,
+        },
+        $console_log_recording_enabled_server_side: {
+            label: 'Console Log Recording Enabled Server-Side',
+            description: 'If console log recording has been enabled server-side.',
+            system: true,
+        },
+        $session_recording_recorder_version_server_side: {
+            label: 'Session Recording Recorder Version Server-Side',
+            description: 'The version of the session recording recorder that is enabled server-side.',
+            examples: ['v2'],
             system: true,
         },
         $screen: {
@@ -219,6 +257,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
                 </>
             ),
             examples: ['beta-feature'],
+        },
+        $feature_flag_payloads: {
+            label: 'Feature Flag Payloads',
+            description: 'Feature flag payloads active in the environment.',
         },
         $feature_view: {
             label: 'Feature View',
@@ -412,8 +454,6 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Page Loaded',
             description: "The time taken until the browser's page load event in milliseconds.",
         },
-
-        // Hidden fields
         $performance_raw: {
             label: 'Browser Performance',
             description:
@@ -593,6 +633,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
         $geoip_subdivision_3_code: {
             label: 'Subdivision 3 Code',
             description: `Code of the third subdivision matched to this event's IP address.`,
+        },
+        $geoip_disable: {
+            label: 'GeoIP Disabled',
+            description: `Whether to skip GeoIP processing for the event.`,
         },
         // NOTE: This is a hack. $session_duration is a session property, not an event property
         // but we don't do a good job of tracking property types, so making it a session property
