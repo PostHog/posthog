@@ -311,7 +311,10 @@ export class SessionManager {
             histogramS3LinesWritten.observe(count)
             histogramS3KbWritten.observe(sizeEstimate / 1024)
         } catch (error: any) {
-            if (error !== undefined && 'name' in error && error.name === 'AbortError' && this.destroying) {
+            // TRICKY: error can for some reason sometimes be undefined...
+            error = error || new Error('Unknown Error')
+
+            if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
                 return
             }
