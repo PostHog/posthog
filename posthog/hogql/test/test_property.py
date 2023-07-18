@@ -328,6 +328,14 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with-dashed-id"),
             self._selector_to_expr("[id='with-dashed-id']"),
         )
+        self.assertEqual(
+            self._selector_to_expr("#with\\slashed\\id"),
+            clear_locations(
+                elements_chain_match(
+                    '.*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
+        )
 
     def test_elements_chain_key_filter(self):
         self.assertEqual(
