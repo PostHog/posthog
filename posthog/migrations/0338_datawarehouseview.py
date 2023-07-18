@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0336_alter_survey_type"),
+        ("posthog", "0337_more_session_recording_fields"),
     ]
 
     operations = [
