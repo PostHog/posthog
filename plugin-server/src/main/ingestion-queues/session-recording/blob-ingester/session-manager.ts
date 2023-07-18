@@ -85,6 +85,7 @@ export class SessionManager {
     realtime = false
     inProgressUpload: Upload | null = null
     unsubscribe: () => void
+    flushJitterMultiplier: number
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -104,6 +105,9 @@ export class SessionManager {
         this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
             void this.startRealtime()
         })
+
+        // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
+        this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
     }
 
     private logContext = (): Record<string, any> => {
@@ -147,6 +151,7 @@ export class SessionManager {
             referenceTime: referenceNow,
             referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
             flushThresholdMillis,
+            flushJitterMultiplier: this.flushJitterMultiplier,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -158,15 +163,15 @@ export class SessionManager {
             return
         }
 
+        const flushThresholdWithJitter = flushThresholdMillis * this.flushJitterMultiplier
         const bufferAgeInMemory = now() - this.buffer.createdAt
         const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
-
-        const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
+        const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdWithJitter
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
         const sessionAgeIsOverThreshold =
             bufferAgeInMemory >=
-            flushThresholdMillis * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
+            flushThresholdWithJitter * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
         logContext['bufferAgeInMemory'] = bufferAgeInMemory
         logContext['bufferAgeFromReference'] = bufferAgeFromReference
