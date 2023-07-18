@@ -143,7 +143,7 @@ export function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-export const sessionRecordingBlobConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
+export const sessionRecordingConsumerConfig = (config: PluginsServerConfig): PluginsServerConfig => {
     // When running the blob consumer we override a bunch of settings to use the session recording ones if available
     return {
         ...config,

@@ -1130,3 +1130,9 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 }
 
 export type RedisPool = GenericPool<Redis>
+
+export type RRWebEvent = Record<string, any> & {
+    timestamp: number
+    type: number
+    data: any
+}

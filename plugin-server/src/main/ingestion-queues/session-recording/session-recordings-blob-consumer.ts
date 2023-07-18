@@ -1,22 +1,15 @@
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
-import {
-    CODES,
-    features,
-    HighLevelProducer as RdKafkaProducer,
-    librdkafkaVersion,
-    Message,
-    TopicPartition,
-} from 'node-rdkafka-acosom'
+import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka-acosom'
 import path from 'path'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { createKafkaProducer, disconnectProducer } from '../../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { status } from '../../../utils/status'
@@ -25,6 +18,7 @@ import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
+import { ReplayEventsIngester } from './blob-ingester/replay-events-ingester'
 import { SessionManager } from './blob-ingester/session-manager'
 import {
     NullSessionOffsetHighWaterMark,
@@ -91,8 +85,8 @@ export class SessionRecordingBlobIngester {
     sessions: Record<string, SessionManager> = {}
     private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
     realtimeManager: RealtimeManager
+    replayEventsIngester: ReplayEventsIngester
     batchConsumer?: BatchConsumer
-    producer?: RdKafkaProducer
     flushInterval: NodeJS.Timer | null = null
     // the time at the most recent message of a particular partition
     partitionNow: Record<number, number | null> = {}
@@ -106,6 +100,7 @@ export class SessionRecordingBlobIngester {
         private redisPool: RedisPool
     ) {
         this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
+        this.replayEventsIngester = new ReplayEventsIngester(this.serverConfig)
 
         this.sessionOffsetHighWaterMark = this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING
             ? new SessionOffsetHighWaterMark(this.redisPool, serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY)
@@ -277,6 +272,7 @@ export class SessionRecordingBlobIngester {
             session_id: event.properties?.$session_id,
             window_id: event.properties?.$window_id,
             events: event.properties.$snapshot_items,
+            replayIngestionConsumer: event.properties?.$snapshot_consumer ?? 'v1',
         }
 
         const consumeSpan = span?.startChild({
@@ -323,11 +319,14 @@ export class SessionRecordingBlobIngester {
         // Load teams into memory
         await this.teamsRefresher.refresh()
 
+        await this.replayEventsIngester.start()
+
         const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-        this.producer = await createKafkaProducer(connectionConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
+
+        const recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
@@ -336,14 +335,14 @@ export class SessionRecordingBlobIngester {
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.serverConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            consumerMaxBytes: recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             // our messages are very big, so we don't want to buffer too many
-            queuedMinMessages: this.serverConfig.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
-            consumerMaxWaitMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.serverConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
-            batchingTimeoutMs: this.serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            queuedMinMessages: recordingConsumerConfig.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
+            consumerMaxWaitMs: recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: recordingConsumerConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            fetchBatchSize: recordingConsumerConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
+            batchingTimeoutMs: recordingConsumerConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)
@@ -408,14 +407,8 @@ export class SessionRecordingBlobIngester {
         })
 
         // Make sure to disconnect the producer after we've finished consuming.
-        this.batchConsumer.join().finally(async () => {
-            if (this.producer && this.producer.isConnected()) {
-                status.debug(
-                    '🔁',
-                    'blob_ingester_consumer disconnecting kafka producer in session recordings batchConsumer finally'
-                )
-                await disconnectProducer(this.producer)
-            }
+        this.batchConsumer.join().finally(() => {
+            status.debug('🔁', 'blob_ingester_consumer - batch consumer has finished')
         })
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
@@ -475,11 +468,7 @@ export class SessionRecordingBlobIngester {
         }
 
         await this.realtimeManager.unsubscribe()
-
-        if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', 'blob_ingester_consumer disconnecting kafka producer in batchConsumer stop')
-            await disconnectProducer(this.producer)
-        }
+        await this.replayEventsIngester.stop()
         await this.batchConsumer?.stop()
 
         // This is inefficient but currently necessary due to new instances restarting from the committed offset point

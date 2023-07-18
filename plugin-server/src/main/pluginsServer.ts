@@ -7,7 +7,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from '../capabilities'
-import { defaultConfig, sessionRecordingBlobConsumerConfig } from '../config/config'
+import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createStatsdClient } from '../utils/db/hub'
 import { captureEventLoopMetrics } from '../utils/metrics'
@@ -408,17 +408,20 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestion) {
-            const blobServerConfig = sessionRecordingBlobConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? createPostgresPool(blobServerConfig.DATABASE_URL)
-            const s3 = hub?.objectStorage ?? getObjectStorage(blobServerConfig)
-            const redisPool = hub?.db.redisPool ?? createRedisPool(blobServerConfig)
+            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(recordingConsumerConfig.DATABASE_URL)
+            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
+            const redisPool = hub?.db.redisPool ?? createRedisPool(recordingConsumerConfig)
 
             if (!s3) {
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
-            const ingester = new SessionRecordingBlobIngester(blobServerConfig, postgres, s3, redisPool)
+            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
+            const ingester = new SessionRecordingBlobIngester(serverConfig, postgres, s3, redisPool)
             await ingester.start()
+
             const batchConsumer = ingester.batchConsumer
+
             if (batchConsumer) {
                 stopSessionRecordingBlobConsumer = async () => {
                     // Tricky - in some cases the hub is responsible, in which case it will drain and clear. Otherwise we are responsible.

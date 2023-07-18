@@ -267,25 +267,34 @@ const eachMessage =
                             drop_cause: 'recordings-consumer-does-not-handle-snapshot-items',
                         })
                         .inc()
+                } else if (event.properties?.['$snapshot_consumer'] ?? 'v1' !== 'v1') {
+                    eventDroppedCounter
+                        .labels({
+                            event_type: 'session_recordings',
+                            drop_cause: 'event-destined-for-v2-consumer',
+                        })
+                        .inc()
                 } else if (event.event === '$snapshot') {
                     const clickHouseRecord = createSessionRecordingEvent(
                         messagePayload.uuid,
                         team.id,
                         messagePayload.distinct_id,
                         parseEventTimestamp(event as PluginEvent),
-                        event.ip,
                         event.properties || {}
                     )
 
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
-                        replayRecord = createSessionReplayEvent(
-                            messagePayload.uuid,
-                            team.id,
-                            messagePayload.distinct_id,
-                            event.ip,
-                            event.properties || {}
-                        )
+                        const properties = event.properties || {}
+                        if (properties.$snapshot_data?.events_summary.length) {
+                            replayRecord = createSessionReplayEvent(
+                                messagePayload.uuid,
+                                team.id,
+                                messagePayload.distinct_id,
+                                properties['$session_id'],
+                                properties.$snapshot_data?.events_summary || []
+                            )
+                        }
                         // the replay record timestamp has to be valid and be within a reasonable diff from now
                         if (replayRecord !== null) {
                             const asDate = DateTime.fromSQL(replayRecord.first_timestamp)
