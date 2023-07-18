@@ -51,17 +51,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (
-            props.query?.kind &&
-            !objectsEqual(props.query, oldProps.query) &&
-            (!props.cachedResults ||
-                (isInsightQueryNode(props.query) &&
-                    (props.cachedResults['result'] === null || props.cachedResults['result'] === undefined)))
-        ) {
-            actions.loadData()
-        }
+
         if (props.cachedResults && !values.response) {
             actions.setResponse(props.cachedResults)
+        } else if (props.query?.kind && !objectsEqual(props.query, oldProps.query)) {
+            actions.loadData()
         }
     }),
     actions({
@@ -459,7 +453,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
+        console.debug('dataNodeLogic.afterMount')
         if (Object.keys(props.query || {}).length > 0) {
+            console.debug('dataNodeLogic.afterMount->loadData()')
             actions.loadData()
         }
     }),
