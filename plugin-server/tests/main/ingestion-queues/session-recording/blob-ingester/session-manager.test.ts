@@ -64,11 +64,8 @@ describe('session-manager', () => {
         addMessagesFromBuffer: jest.fn(),
     }
 
-    beforeEach(() => {
-        // it's always May 25
-        Settings.now = () => new Date(2018, 4, 25).valueOf()
-
-        sessionManager = new SessionManager(
+    const createSessionManager = () => {
+        return new SessionManager(
             defaultConfig,
             mockS3Client,
             mockRealtimeManager,
@@ -78,6 +75,13 @@ describe('session-manager', () => {
             'topic',
             mockFinish
         )
+    }
+
+    beforeEach(() => {
+        // it's always May 25
+        Settings.now = () => new Date(2018, 4, 25).valueOf()
+
+        sessionManager = createSessionManager()
         mockFinish.mockClear()
     })
 
@@ -128,7 +132,7 @@ describe('session-manager', () => {
             metadata: {
                 timestamp: now
                     .minus({
-                        milliseconds: flushThreshold - 10, // less than the threshold
+                        milliseconds: flushThreshold * 0.5, // less than the threshold
                     })
                     .toMillis(),
             } as any,
@@ -313,5 +317,14 @@ describe('session-manager', () => {
             highest: 10,
             lowest: 2,
         })
+    })
+
+    it('has a fixed jitter based on the serverConfig', () => {
+        const minJitter = 1 - defaultConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
+        for (const _ of Array(100).keys()) {
+            const sm = createSessionManager()
+            expect(sm.flushJitterMultiplier).toBeGreaterThanOrEqual(minJitter)
+            expect(sm.flushJitterMultiplier).toBeLessThanOrEqual(1)
+        }
     })
 })
