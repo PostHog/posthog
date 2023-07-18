@@ -394,8 +394,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         nextAllowedRefresh: [
             (s, p) => [p.query, s.response],
             (query, response): string | null => {
-                return isInsightQueryNode(query) && response && 'next_allowed_refresh' in response
-                    ? response.next_allowed_refresh
+                return isInsightQueryNode(query) && response && 'next_allowed_client_refresh' in response
+                    ? response.next_allowed_client_refresh
                     : null
             },
         ],
