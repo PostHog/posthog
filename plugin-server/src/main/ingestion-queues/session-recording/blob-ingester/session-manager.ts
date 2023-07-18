@@ -5,10 +5,11 @@ import { createReadStream, createWriteStream, WriteStream } from 'fs'
 import { readFile, stat, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
-import { Counter, Gauge } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
+import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-blob-consumer'
@@ -16,26 +17,45 @@ import { RealtimeManager } from './realtime-manager'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage, now } from './utils'
 
-export const counterRealtimeSnapshotSubscriptionStarted = new Counter({
-    name: 'realtime_snapshots_subscription_started_counter',
-    help: 'Indicates that this consumer received a request to subscribe to provide realtime snapshots for a session',
-    labelNames: ['team_id'],
-})
-
-export const counterS3FilesWritten = new Counter({
+const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
     labelNames: ['flushReason'],
 })
 
-export const counterS3WriteErrored = new Counter({
+const counterS3WriteErrored = new Counter({
     name: 'recording_s3_write_errored',
     help: 'Indicates that we failed to flush to S3 without recovering',
 })
 
-export const gaugeS3LinesWritten = new Gauge({
-    name: 'recording_s3_lines_written',
-    help: 'Number of lines flushed to S3, which will let us see the human size of blobs - a good way to see how effective bundling is',
+const histogramS3LinesWritten = new Histogram({
+    name: 'recording_s3_lines_written_histogram',
+    help: 'The number of lines in a file we send to s3',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+})
+
+const histogramS3KbWritten = new Histogram({
+    name: 'recording_blob_ingestion_s3_kb_written',
+    help: 'The uncompressed size of file we send to S3',
+    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+})
+
+const histogramSessionAgeSeconds = new Histogram({
+    name: 'recording_blob_ingestion_session_age_seconds',
+    help: 'The age of current sessions in seconds',
+    buckets: [0, 60, 60 * 2, 60 * 5, 60 * 8, 60 * 10, 60 * 12, 60 * 15, 60 * 20, Infinity],
+})
+
+const histogramSessionSizeKb = new Histogram({
+    name: 'recording_blob_ingestion_session_size_kb',
+    help: 'The size of current sessions in kb',
+    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+})
+
+const histogramSessionSize = new Histogram({
+    name: 'recording_blob_ingestion_session_lines',
+    help: 'The size of sessions in numbers of lines',
+    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
 })
 
 // The buffer is a list of messages grouped
@@ -43,6 +63,7 @@ type SessionBuffer = {
     id: string
     oldestKafkaTimestamp: number | null
     newestKafkaTimestamp: number | null
+    sizeEstimate: number
     count: number
     file: string
     fileStream: WriteStream
@@ -57,6 +78,8 @@ type SessionBuffer = {
     createdAt: number
 }
 
+const MAX_FLUSH_TIME_MS = 60 * 1000
+
 export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
@@ -64,6 +87,7 @@ export class SessionManager {
     realtime = false
     inProgressUpload: Upload | null = null
     unsubscribe: () => void
+    flushJitterMultiplier: number
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -81,16 +105,14 @@ export class SessionManager {
         void realtimeManager.clearAllMessages(this.teamId, this.sessionId)
 
         this.unsubscribe = realtimeManager.onSubscriptionEvent(this.teamId, this.sessionId, () => {
-            status.info('🔌', 'blob_ingester_session_manager RealtimeManager subscribed to realtime snapshots', {
-                teamId,
-                sessionId,
-            })
-            counterRealtimeSnapshotSubscriptionStarted.inc({ team_id: teamId.toString() })
             void this.startRealtime()
         })
+
+        // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
+        this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
     }
 
-    private logContext = (): Record<string, any> => {
+    private logContext = () => {
         return {
             sessionId: this.sessionId,
             partition: this.partition,
@@ -104,28 +126,48 @@ export class SessionManager {
         }
     }
 
+    private captureException(error: Error, extra: Record<string, any> = {}): void {
+        const context = this.logContext()
+        captureException(error, {
+            extra: { ...context, ...extra },
+            tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
+        })
+    }
+
     public add(message: IncomingRecordingMessage): void {
         if (this.destroying) {
             return
         }
 
         this.addToBuffer(message)
+
+        // NOTE: This is uncompressed size estimate but thats okay as we currently want to over-flush to see if we can shake out a bug
+        if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+            void this.flush('buffer_size')
+        }
     }
 
     public get isEmpty(): boolean {
         return !this.buffer.count && !this.flushBuffer?.count
     }
 
-    public async flushIfSessionBufferIsOld(referenceNow: number, flushThresholdMillis: number): Promise<void> {
+    public async flushIfSessionBufferIsOld(referenceNow: number): Promise<void> {
         if (this.destroying) {
             return
         }
+
+        const flushThresholdMs = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 1000
+        const flushThresholdJitteredMs = flushThresholdMs * this.flushJitterMultiplier
+        const flushThresholdMemoryMs =
+            flushThresholdJitteredMs * this.serverConfig.SESSION_RECORDING_BUFFER_AGE_IN_MEMORY_MULTIPLIER
 
         const logContext: Record<string, any> = {
             ...this.logContext(),
             referenceTime: referenceNow,
             referenceTimeHumanReadable: DateTime.fromMillis(referenceNow).toISO(),
-            flushThresholdMillis,
+            flushThresholdMs,
+            flushThresholdJitteredMs,
+            flushThresholdMemoryMs,
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -137,25 +179,30 @@ export class SessionManager {
             return
         }
 
-        const bufferAgeInMemory = now() - this.buffer.createdAt
-        const bufferAgeFromReference = referenceNow - this.buffer.oldestKafkaTimestamp
+        const bufferAgeInMemoryMs = now() - this.buffer.createdAt
+        const bufferAgeFromReferenceMs = referenceNow - this.buffer.oldestKafkaTimestamp
 
-        const bufferAgeIsOverThreshold = bufferAgeFromReference >= flushThresholdMillis
         // check the in-memory age against a larger value than the flush threshold,
         // otherwise we'll flap between reasons for flushing when close to real-time processing
-        const sessionAgeIsOverThreshold = bufferAgeInMemory >= flushThresholdMillis * 2
+        const isSessionAgeOverThreshold = bufferAgeInMemoryMs >= flushThresholdMemoryMs
+        const isBufferAgeOverThreshold = bufferAgeFromReferenceMs >= flushThresholdJitteredMs
 
-        logContext['bufferAgeInMemory'] = bufferAgeInMemory
-        logContext['bufferAgeFromReference'] = bufferAgeFromReference
-        logContext['bufferAgeIsOverThreshold'] = bufferAgeIsOverThreshold
-        logContext['sessionAgeIsOverThreshold'] = sessionAgeIsOverThreshold
+        logContext['bufferAgeInMemoryMs'] = bufferAgeInMemoryMs
+        logContext['bufferAgeFromReferenceMs'] = bufferAgeFromReferenceMs
+        logContext['isBufferAgeOverThreshold'] = isBufferAgeOverThreshold
+        logContext['isSessionAgeOverThreshold'] = isSessionAgeOverThreshold
 
-        if (bufferAgeIsOverThreshold || sessionAgeIsOverThreshold) {
-            status.info('🚽', `blob_ingester_session_manager flushing buffer due to age`, {
+        histogramSessionAgeSeconds.observe(bufferAgeInMemoryMs / 1000)
+        histogramSessionSize.observe(this.buffer.count)
+        histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
+
+        if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
+            status.info('🚽', `blob_ingester_session_manager attempting to flushing buffer due to age`, {
                 ...logContext,
             })
+
             // return the promise and let the caller decide whether to await
-            return this.flush(bufferAgeIsOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
+            return this.flush(isBufferAgeOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
             status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 ...logContext,
@@ -168,60 +215,97 @@ export class SessionManager {
      * We then attempt to write the events to S3 and if successful, we clear the flush buffer
      */
     public async flush(reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime'): Promise<void> {
+        // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
+            status.warn('🚽', 'blob_ingester_session_manager flush called but we already have a flush buffer', {
+                ...this.logContext(),
+            })
             return
         }
 
         if (this.destroying) {
+            status.warn('🚽', 'blob_ingester_session_manager flush called but we are in a destroying state', {
+                ...this.logContext(),
+            })
             return
         }
 
-        // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
-        this.flushBuffer = this.buffer
-        this.buffer = this.createBuffer()
-        const { offsets, fileStream, file } = this.flushBuffer
-
         try {
-            if (this.flushBuffer.count === 0) {
-                throw new Error("Can't flush empty buffer")
-            }
-
-            const eventsRange = this.flushBuffer.eventsRange
-            if (!eventsRange) {
-                throw new Error("Can't flush buffer due to missing eventRange")
-            }
-
-            const { firstTimestamp, lastTimestamp } = eventsRange
-            const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
-            const timeRange = `${firstTimestamp}-${lastTimestamp}`
-            const dataKey = `${baseKey}/data/${timeRange}`
+            // Minimal things we want to do outside of the promise to make sure we block subsequent calls
+            this.flushBuffer = this.buffer
+            this.buffer = this.createBuffer()
+            const { fileStream, file, count, eventsRange } = this.flushBuffer
 
             await new Promise<void>((resolve, reject) => {
-                // We need to safely end the file before reading from it
-                fileStream.end(async () => {
-                    try {
-                        const fileStream = createReadStream(file).pipe(zlib.createGzip())
+                try {
+                    // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
+                    if (count === 0) {
+                        return reject("Can't flush empty buffer")
+                    }
 
-                        this.inProgressUpload = new Upload({
-                            client: this.s3Client,
-                            params: {
-                                Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
-                                Key: dataKey,
-                                Body: fileStream,
+                    if (!eventsRange) {
+                        return reject("Can't flush buffer due to missing eventRange")
+                    }
+
+                    const flushTimeout = setTimeout(() => {
+                        status.error('🧨', 'blob_ingester_session_manager flush timed out', {
+                            ...this.logContext(),
+                        })
+
+                        captureMessage('blob_ingester_session_manager flush timed out', {
+                            extra: {
+                                ...this.logContext(),
                             },
                         })
 
-                        await this.inProgressUpload.done()
-                        fileStream.close()
-                        resolve()
-                    } catch (error) {
-                        reject(error)
-                    }
-                })
+                        reject()
+                    }, MAX_FLUSH_TIME_MS)
+
+                    const { firstTimestamp, lastTimestamp } = eventsRange
+                    const baseKey = `${this.serverConfig.SESSION_RECORDING_REMOTE_FOLDER}/team_id/${this.teamId}/session_id/${this.sessionId}`
+                    const timeRange = `${firstTimestamp}-${lastTimestamp}`
+                    const dataKey = `${baseKey}/data/${timeRange}`
+
+                    // We need to safely end the file before reading from it
+                    fileStream.end(async () => {
+                        try {
+                            const fileStream = createReadStream(file).pipe(zlib.createGzip())
+
+                            fileStream.on('error', (err) => {
+                                // TODO: What should we do here?
+                                status.error('🧨', 'blob_ingester_session_manager readstream errored', {
+                                    ...this.logContext(),
+                                    error: err,
+                                })
+
+                                this.captureException(err)
+                            })
+
+                            this.inProgressUpload = new Upload({
+                                client: this.s3Client,
+                                params: {
+                                    Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
+                                    Key: dataKey,
+                                    Body: fileStream,
+                                },
+                            })
+
+                            await this.inProgressUpload.done()
+                            fileStream.close()
+                            clearTimeout(flushTimeout)
+                            resolve()
+                        } catch (error) {
+                            reject(error)
+                        }
+                    })
+                } catch (error) {
+                    reject(error)
+                }
             })
 
             counterS3FilesWritten.labels(reason).inc(1)
-            gaugeS3LinesWritten.set(this.flushBuffer.count)
+            histogramS3LinesWritten.observe(this.flushBuffer.count)
+            histogramS3KbWritten.observe(this.flushBuffer.sizeEstimate / 1024)
         } catch (error) {
             if (error.name === 'AbortError' && this.destroying) {
                 // abort of inProgressUpload while destroying is expected
@@ -234,16 +318,31 @@ export class SessionManager {
                 ...this.logContext(),
                 reason,
             })
-            captureException(error)
+            this.captureException(error)
             counterS3WriteErrored.inc()
         } finally {
+            this.endFlush()
+        }
+    }
+
+    private endFlush(): void {
+        if (!this.flushBuffer) {
+            return
+        }
+        const { offsets } = this.flushBuffer
+        const timeout = timeoutGuard(`session-manager.endFlush delayed. Waiting over 30 seconds.`)
+        try {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
             this.realtime = false
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
-            await this.destroyBuffer(this.flushBuffer)
+            void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
             this.onFinish([offsets.lowest, offsets.highest])
+        } catch (error) {
+            this.captureException(error)
+        } finally {
+            clearTimeout(timeout)
         }
     }
 
@@ -258,6 +357,7 @@ export class SessionManager {
                 id,
                 createdAt: now(),
                 count: 0,
+                sizeEstimate: 0,
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
                 file,
@@ -269,9 +369,19 @@ export class SessionManager {
                 eventsRange: null,
             }
 
+            buffer.fileStream.on('error', (err) => {
+                // TODO: What should we do here?
+                status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                    ...this.logContext(),
+                    error: err,
+                })
+
+                this.captureException(err)
+            })
+
             return buffer
         } catch (error) {
-            captureException(error, { tags: { team_id: this.teamId, session_id: this.sessionId } })
+            this.captureException(error)
             throw error
         }
     }
@@ -296,6 +406,7 @@ export class SessionManager {
 
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
+            this.buffer.sizeEstimate += content.length
             this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
             this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
 
@@ -306,7 +417,7 @@ export class SessionManager {
 
             this.buffer.fileStream.write(content)
         } catch (error) {
-            captureException(error, { extra: { message }, tags: { team_id: this.teamId, session_id: this.sessionId } })
+            this.captureException(error, { message })
             throw error
         }
     }
@@ -356,7 +467,7 @@ export class SessionManager {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
-            captureException(e)
+            this.captureException(e)
         }
     }
 
@@ -369,7 +480,7 @@ export class SessionManager {
                     ...this.logContext(),
                     error,
                 })
-                captureException(error, { tags: this.logContext() })
+                this.captureException(error)
             })
             this.inProgressUpload = null
         }

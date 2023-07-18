@@ -151,10 +151,9 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE: 'data-warehouse', // owner: @timgl
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
-    SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER: 'session-recording-show-console-logs-filter', // owner: #team-monitoring
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
-    REFRESH_BUTTON_ON_INSIGHT: 'refresh-button-on-insight', // owner: @thmsobrmlr
+    SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
