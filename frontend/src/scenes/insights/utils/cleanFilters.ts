@@ -119,6 +119,33 @@ type CommonFiltersType = {
     [K in CommonFiltersTypeKeys]: FilterType[K]
 }
 
+/** Heuristic for determining wether this is a new insight, usually set by url.
+ * In the most basic case something like `/insights/new?insight=TRENDS`. */
+const isNewInsight = (filters: Partial<AnyFilterType>): boolean => {
+    if (Object.keys(filters).length === 0) {
+        return true
+    }
+
+    if (
+        isTrendsFilter(filters) ||
+        isFunnelsFilter(filters) ||
+        isStickinessFilter(filters) ||
+        isLifecycleFilter(filters)
+    ) {
+        return !filters.actions && !filters.events
+    }
+
+    if (isRetentionFilter(filters)) {
+        return !filters.returning_entity && !filters.target_entity
+    }
+
+    if (isPathsFilter(filters)) {
+        return !filters.include_event_types
+    }
+
+    return true
+}
+
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
     // @ts-expect-error
@@ -132,7 +159,7 @@ export function cleanFilters(
     }
 
     // set test account filter default for new insights from team and local storage settings
-    if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
+    if (isNewInsight(filters)) {
         if (localStorage.getItem('default_filter_test_accounts') !== null) {
             // use current user default
             commonFilters.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
