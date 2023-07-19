@@ -723,18 +723,6 @@ describe('insightLogic', () => {
             insightChanged: true,
         })
 
-        // results from search don't change anything
-        await expectLogic(logic, () => {
-            logic.actions.loadResultsSuccess({
-                short_id: Insight42,
-                filters: { insight: InsightType.PATHS },
-            })
-        }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
-            insightChanged: true,
-        })
-
         // results from API GET and POST calls change saved filters
         await expectLogic(logic, () => {
             logic.actions.loadInsightSuccess({
@@ -1335,7 +1323,7 @@ describe('insightLogic', () => {
                 [
                     `api/projects/${MOCK_TEAM_ID}/insights/`,
                     {
-                        derived_name: '',
+                        derived_name: 'DataTableNode query',
                         filters: {},
                         query: {
                             kind: 'DataTableNode',

@@ -29,7 +29,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
     _persons_lookup_cte = """
     distinct_ids_for_person as (
-        SELECT distinct_id, argMax(person_id, version) as person_id
+        SELECT distinct_id, argMax(person_id, version) as person_id {select_person_props_in_cte}
         FROM person_distinct_id2 as pdi
             {filter_persons_clause}
         PREWHERE team_id = %(team_id)s
@@ -96,6 +96,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 groupArray(uuid) as event_ids,
                 `$session_id` as session_id
             FROM events
+            {events_join_person_cte}
             PREWHERE
                 team_id = %(team_id)s
                 {events_timestamp_clause}
@@ -258,6 +259,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 events_timestamp_clause=events_timestamp_clause,
                 duration_clause=duration_clause,
                 person_cte=f"{person_cte}," if person_cte else "",
+                # if the person_cte is present we join events and persons to support querying events by person properties
+                events_join_person_cte=f"join distinct_ids_for_person on events.distinct_id = distinct_ids_for_person.distinct_id"
+                if person_cte
+                else "",
                 person_cte_match_clause=person_cte_match_clause,
                 session_ids_clause=session_ids_clause,
                 session_recordings_base_query=self._session_recordings_base_query.format(
@@ -311,6 +316,9 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 filter_persons_clause=filter_persons_clause,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
                 filter_by_cohort_condition=cohort_filter_condition,
+                select_person_props_in_cte=", argMax(person_props, version) as person_props"
+                if "person_props" in filter_persons_clause
+                else "",
             )
 
             person_cte_match_clause = "AND distinct_id in (select distinct_id from distinct_ids_for_person)"

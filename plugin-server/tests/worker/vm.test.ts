@@ -62,7 +62,6 @@ describe('vm tests', () => {
             'exportEvents',
             'getSettings',
             'onEvent',
-            'onSnapshot',
             'processEvent',
             'setupPlugin',
             'teardownPlugin',

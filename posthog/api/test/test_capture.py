@@ -34,7 +34,11 @@ from posthog.api.capture import (
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.api.test.openapi_validation import validate_response
 from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProducer
-from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+)
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -1316,7 +1320,6 @@ class TestCapture(BaseTest):
         default_kafka_producer_mock: MagicMock,
         session_recording_producer_factory_mock: MagicMock,
     ) -> None:
-
         with self.settings(
             KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
             SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
@@ -1455,3 +1458,31 @@ class TestCapture(BaseTest):
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000})
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_historical_analytics_events(self, kafka_produce) -> None:
+        """
+        Based on an environment variable, TOKENS_HISTORICAL_DATA, we send data
+        to the KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL topic.
+        """
+        with self.settings(TOKENS_HISTORICAL_DATA=[self.team.api_token]):
+            self.client.post(
+                "/e/",
+                data={
+                    "data": json.dumps(
+                        {
+                            "event": "$autocapture",
+                            "properties": {
+                                "distinct_id": 2,
+                                "token": self.team.api_token,
+                                "$elements": [
+                                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
+                                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                                ],
+                            },
+                        }
+                    )
+                },
+            )
+            self.assertEqual(kafka_produce.call_count, 1)
+            self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL)

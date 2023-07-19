@@ -36,7 +36,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import get_and_update_pending_version
+from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -51,9 +51,9 @@ from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
-    calculate_cohort_ch,
     calculate_cohort_from_list,
     insert_cohort_from_insight_filter,
+    update_cohort,
 )
 from posthog.utils import format_query_params_absolute_url
 
@@ -89,11 +89,15 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
         ]
 
-    def _handle_static(self, cohort: Cohort, request: Request):
+    def _handle_static(self, cohort: Cohort, context: Dict) -> None:
+        request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         else:
             filter_data = request.GET.dict()
+            existing_cohort_id = context.get("from_cohort_id")
+            if existing_cohort_id:
+                filter_data = {**filter_data, "from_cohort_id": existing_cohort_id}
             if filter_data:
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data)
 
@@ -106,11 +110,9 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            self._handle_static(cohort, request)
+            self._handle_static(cohort, self.context)
         else:
-            pending_version = get_and_update_pending_version(cohort)
-
-            calculate_cohort_ch.delay(cohort.id, pending_version)
+            update_cohort(cohort)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -130,13 +132,31 @@ class CohortSerializer(serializers.ModelSerializer):
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
                     team_id=self.context["team_id"], active=True, deleted=False
                 )
+                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.cohort_ids]) > 0
+
                 for prop in parsed_filter.property_groups.flat:
                     if prop.type == "behavioral":
-                        if [flag for flag in flags if cohort_id in flag.cohort_ids]:
+                        if cohort_used_in_flags:
                             raise serializers.ValidationError(
                                 detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
                                 code="behavioral_cohort_found",
                             )
+
+                    if prop.type == "cohort":
+                        nested_cohort = Cohort.objects.get(pk=prop.value)
+                        dependent_cohorts = get_dependent_cohorts(nested_cohort)
+                        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
+                            if (
+                                cohort_used_in_flags
+                                and len(
+                                    [prop for prop in dependent_cohort.properties.flat if prop.type == "behavioral"]
+                                )
+                                > 0
+                            ):
+                                raise serializers.ValidationError(
+                                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
+                                    code="behavioral_cohort_found",
+                                )
 
             return request_filters
         else:
@@ -157,7 +177,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if is_deletion_change:
             cohort.deleted = deleted_state
             if cohort.deleted is True:
-                AsyncDeletion.objects.create(
+                AsyncDeletion.objects.get_or_create(
                     deletion_type=DeletionType.Cohort_full,
                     team_id=cohort.team.pk,
                     key=f"{cohort.pk}_{cohort.version}",
@@ -178,10 +198,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                # Increment based on pending versions
-                pending_version = get_and_update_pending_version(cohort)
-
-                calculate_cohort_ch.delay(cohort.id, pending_version)
+                update_cohort(cohort)
 
         report_user_action(
             request.user,
@@ -210,6 +227,30 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             queryset = queryset.filter(deleted=False)
 
         return queryset.prefetch_related("created_by", "team").order_by("-created_at")
+
+    @action(
+        methods=["GET"],
+        detail=True,
+    )
+    def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        team = self.team
+
+        if cohort.is_static:
+            raise ValidationError("Cannot duplicate a static cohort as a static cohort.")
+
+        cohort_serializer = CohortSerializer(
+            data={
+                "name": f"{cohort.name} (static copy)",
+                "is_static": True,
+            },
+            context={"request": request, "from_cohort_id": cohort.pk, "team_id": team.pk},
+        )
+
+        cohort_serializer.is_valid(raise_exception=True)
+        cohort_serializer.save()
+
+        return Response(cohort_serializer.data)
 
     @action(
         methods=["GET"],
@@ -299,46 +340,60 @@ def insert_cohort_people_into_pg(cohort: Cohort):
 
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
-    insight_type = filter_data.get("insight")
-    query_builder: ActorBaseQuery
+    from_existing_cohort_id = filter_data.get("from_cohort_id")
     context: HogQLContext
 
-    if insight_type == INSIGHT_TRENDS:
-        filter = Filter(data=filter_data, team=cohort.team)
-        entity = get_target_entity(filter)
-        query_builder = TrendsActors(cohort.team, entity, filter)
-        context = filter.hogql_context
-    elif insight_type == INSIGHT_STICKINESS:
-        stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
-        entity = get_target_entity(stickiness_filter)
-        query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
-        context = stickiness_filter.hogql_context
-    elif insight_type == INSIGHT_FUNNELS:
-        funnel_filter = Filter(data=filter_data, team=cohort.team)
-        funnel_actor_class = get_funnel_actor_class(funnel_filter)
-        query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
-        context = funnel_filter.hogql_context
-    elif insight_type == INSIGHT_PATHS:
-        path_filter = PathFilter(data=filter_data, team=cohort.team)
-        query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
-        context = path_filter.hogql_context
-    elif insight_type == INSIGHT_LIFECYCLE:
-        lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
-        query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
-        context = lifecycle_filter.hogql_context
+    if from_existing_cohort_id:
+        existing_cohort = Cohort.objects.get(pk=from_existing_cohort_id)
+        query = """
+            SELECT DISTINCT person_id as actor_id
+            FROM cohortpeople
+            WHERE team_id = %(team_id)s AND cohort_id = %(from_cohort_id)s AND version = %(version)s
+            ORDER BY person_id
+        """
+        params = {"team_id": cohort.team.pk, "from_cohort_id": existing_cohort.pk, "version": existing_cohort.version}
+        context = Filter(data=filter_data, team=cohort.team).hogql_context
     else:
-        if settings.DEBUG:
-            raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
-        else:
-            capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
+        insight_type = filter_data.get("insight")
+        query_builder: ActorBaseQuery
 
-    if query_builder.is_aggregating_by_groups:
-        if settings.DEBUG:
-            raise ValueError(f"Query type: Group based queries are not supported for cohort creation")
+        if insight_type == INSIGHT_TRENDS:
+            filter = Filter(data=filter_data, team=cohort.team)
+            entity = get_target_entity(filter)
+            query_builder = TrendsActors(cohort.team, entity, filter)
+            context = filter.hogql_context
+        elif insight_type == INSIGHT_STICKINESS:
+            stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
+            entity = get_target_entity(stickiness_filter)
+            query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
+            context = stickiness_filter.hogql_context
+        elif insight_type == INSIGHT_FUNNELS:
+            funnel_filter = Filter(data=filter_data, team=cohort.team)
+            funnel_actor_class = get_funnel_actor_class(funnel_filter)
+            query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
+            context = funnel_filter.hogql_context
+        elif insight_type == INSIGHT_PATHS:
+            path_filter = PathFilter(data=filter_data, team=cohort.team)
+            query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
+            context = path_filter.hogql_context
+        elif insight_type == INSIGHT_LIFECYCLE:
+            lifecycle_filter = LifecycleFilter(data=filter_data, team=cohort.team)
+            query_builder = LifecycleActors(team=cohort.team, filter=lifecycle_filter)
+            context = lifecycle_filter.hogql_context
+
         else:
-            capture_exception(Exception(f"Query type: Group based queries are not supported for cohort creation"))
-    else:
-        query, params = query_builder.actor_query(limit_actors=False)
+            if settings.DEBUG:
+                raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
+            else:
+                capture_exception(Exception(f"Insight type: {insight_type} not supported for cohort creation"))
+
+        if query_builder.is_aggregating_by_groups:
+            if settings.DEBUG:
+                raise ValueError(f"Query type: Group based queries are not supported for cohort creation")
+            else:
+                capture_exception(Exception(f"Query type: Group based queries are not supported for cohort creation"))
+        else:
+            query, params = query_builder.actor_query(limit_actors=False)
 
     insert_actors_into_cohort_by_query(cohort, query, params, context)
 

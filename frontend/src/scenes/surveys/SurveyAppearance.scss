@@ -44,6 +44,7 @@
         padding-top: 4px;
         padding-bottom: 4px;
         text-align: center;
+        font-size: 16px;
         color: 'black'; //changeable: textColor
     }
 
@@ -121,5 +122,12 @@
 
     .bottom-section {
         padding-bottom: 0.5rem;
+    }
+
+    .description {
+        font-size: 14px;
+        margin-top: 0.75rem;
+        margin-bottom: 0.75rem;
+        text-align: center;
     }
 }

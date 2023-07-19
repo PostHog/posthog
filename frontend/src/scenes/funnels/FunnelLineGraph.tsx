@@ -10,6 +10,7 @@ import { useValues } from 'kea'
 import { funnelDataLogic } from './funnelDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isInsightQueryNode } from '~/queries/utils'
+import { TrendsFilter } from '~/queries/schema'
 
 export function FunnelLineGraph({
     inSharedMode,
@@ -51,7 +52,7 @@ export function FunnelLineGraph({
                     return `${count}%`
                 },
             }}
-            filters={{ aggregation_axis_format: 'percentage' }}
+            trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
             labelGroupType={aggregationGroupTypeIndex ?? 'people'}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={

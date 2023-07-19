@@ -13,7 +13,7 @@ import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sess
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getKeyMapping } from 'lib/taxonomy'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

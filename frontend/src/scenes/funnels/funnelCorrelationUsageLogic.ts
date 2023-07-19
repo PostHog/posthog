@@ -25,8 +25,6 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         values: [insightLogic(props), ['filters', 'isInDashboardContext']],
 
         actions: [
-            insightLogic(props),
-            ['loadResultsSuccess'],
             insightVizDataLogic(props),
             ['loadDataSuccess'],
             funnelPersonsModalLogic(props),
@@ -51,7 +49,6 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         shouldReportCorrelationViewed: [
             true as boolean,
             {
-                loadResultsSuccess: () => true,
                 loadDataSuccess: () => true,
                 reportCorrelationViewed: (current, { propertiesTable }) => {
                     const correlationViewed = !propertiesTable
@@ -62,7 +59,6 @@ export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>(
         shouldReportPropertyCorrelationViewed: [
             true as boolean,
             {
-                loadResultsSuccess: () => true,
                 loadDataSuccess: () => true,
                 reportCorrelationViewed: (current, { propertiesTable }) => {
                     const propertyCorrelationViewed = !!propertiesTable

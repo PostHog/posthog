@@ -21,6 +21,7 @@ from posthog.hogql.database.models import (
     FloatDatabaseField,
     FieldOrTable,
     DatabaseField,
+    StringArrayDatabaseField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -295,6 +296,8 @@ class FieldType(Type):
             raise HogQLException(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
+        if isinstance(database_field, StringArrayDatabaseField):
+            return FieldType(chain=[name], field_type=self)
         raise HogQLException(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )

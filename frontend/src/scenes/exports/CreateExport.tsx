@@ -1,11 +1,14 @@
-import { useCallback, useRef, useState } from 'react'
-import { SceneExport } from '../sceneTypes'
-import { PureField } from '../../lib/forms/Field'
+import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from '../../lib/lemon-ui/LemonInput/LemonInput'
-import { router } from 'kea-router'
-import { LemonButton } from '../../lib/lemon-ui/LemonButton'
-import { useCreateExport, useCurrentTeamId } from './api'
 import { LemonSelect } from '../../lib/lemon-ui/LemonSelect'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { PureField } from '../../lib/forms/Field'
+import { router } from 'kea-router'
+import { SceneExport } from '../sceneTypes'
+import { useCallback, useRef, useState } from 'react'
+import { useCreateExport, useCurrentTeamId } from './api'
 import { urls } from '../urls'
 
 // TODO: rewrite this to not use explicit refs for the form fields. Possibly use
@@ -28,6 +31,10 @@ export function CreateExport(): JSX.Element {
     // At the top level we offer a select to choose the export type, and then
     // render the appropriate component for that export type.
     const [exportType, setExportType] = useState<'S3' | 'Snowflake'>('S3')
+    const [exportStartAt, setExportStartAt] = useState<dayjs.Dayjs | null>(null)
+    const [exportEndAt, setExportEndAt] = useState<dayjs.Dayjs | null>(null)
+    const [startAtSelectVisible, setStartAtSelectVisible] = useState<boolean>(false)
+    const [endAtSelectVisible, setEndAtSelectVisible] = useState<boolean>(false)
 
     return (
         // a form for inputting the config for an export, using aria labels to
@@ -45,13 +52,78 @@ export function CreateExport(): JSX.Element {
                     onChange={(value) => setExportType(value as any)}
                 />
             </PureField>
-            {exportType === 'S3' && <CreateS3Export />}
-            {exportType === 'Snowflake' && <CreateSnowflakeExport />}
+            <PureField htmlFor="type" label="Start date" showOptional={true}>
+                <Popover
+                    actionable
+                    onClickOutside={function onClickOutside() {
+                        setStartAtSelectVisible(false)
+                    }}
+                    visible={startAtSelectVisible}
+                    overlay={
+                        <LemonCalendarSelect
+                            value={exportStartAt}
+                            onChange={(value) => {
+                                setExportStartAt(value)
+                                setStartAtSelectVisible(false)
+                            }}
+                            onClose={function noRefCheck() {
+                                setStartAtSelectVisible(false)
+                            }}
+                        />
+                    }
+                >
+                    <LemonButton
+                        onClick={function onClick() {
+                            setStartAtSelectVisible(!startAtSelectVisible)
+                        }}
+                        type="secondary"
+                    >
+                        {exportStartAt ? exportStartAt.format('MMMM D, YYYY') : 'Select start date (optional)'}
+                    </LemonButton>
+                </Popover>
+            </PureField>
+            <PureField htmlFor="type" label="End date" showOptional={true}>
+                <Popover
+                    actionable
+                    onClickOutside={function onClickOutside() {
+                        setEndAtSelectVisible(false)
+                    }}
+                    visible={endAtSelectVisible}
+                    overlay={
+                        <LemonCalendarSelect
+                            value={exportEndAt}
+                            onChange={(value) => {
+                                setExportEndAt(value)
+                                setEndAtSelectVisible(false)
+                            }}
+                            onClose={function noRefCheck() {
+                                setEndAtSelectVisible(false)
+                            }}
+                        />
+                    }
+                >
+                    <LemonButton
+                        onClick={function onClick() {
+                            setEndAtSelectVisible(!endAtSelectVisible)
+                        }}
+                        type="secondary"
+                    >
+                        {exportEndAt ? exportEndAt.format('MMMM D, YYYY') : 'Select end date (optional)'}
+                    </LemonButton>
+                </Popover>
+            </PureField>
+            {exportType === 'S3' && <CreateS3Export startAt={exportStartAt} endAt={exportEndAt} />}
+            {exportType === 'Snowflake' && <CreateSnowflakeExport startAt={exportStartAt} endAt={exportEndAt} />}
         </form>
     )
 }
 
-export function CreateS3Export(): JSX.Element {
+export interface ExportCommonProps {
+    startAt: dayjs.Dayjs | null
+    endAt: dayjs.Dayjs | null
+}
+
+export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
     // We use references to elements rather than maintaining state for each
@@ -104,6 +176,8 @@ export function CreateS3Export(): JSX.Element {
                 },
             },
             interval: interval || 'hour',
+            start_at: startAt ? startAt.format('YYYY-MM-DDTHH:mm:ss.SSSZ') : null,
+            end_at: endAt ? endAt.format('YYYY-MM-DDTHH:mm:ss.SSSZ') : null,
         } as const
 
         // Create the export.
@@ -111,7 +185,7 @@ export function CreateS3Export(): JSX.Element {
             // Navigate back to the exports list.
             router.actions.push(urls.exports())
         })
-    }, [])
+    }, [startAt, endAt])
 
     return (
         <div>
@@ -195,7 +269,7 @@ export function CreateS3Export(): JSX.Element {
     )
 }
 
-export function CreateSnowflakeExport(): JSX.Element {
+export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
     // Matches up with the backend config schema:
@@ -261,6 +335,8 @@ export function CreateSnowflakeExport(): JSX.Element {
                 },
             },
             interval: interval || 'hour',
+            start_at: startAt ? startAt.format('YYYY-MM-DDTHH:mm:ss.SSSZ') : null,
+            end_at: endAt ? endAt.format('YYYY-MM-DDTHH:mm:ss.SSSZ') : null,
         } as const
 
         // Create the export.
@@ -268,7 +344,7 @@ export function CreateSnowflakeExport(): JSX.Element {
             // Navigate back to the exports list.
             router.actions.push(urls.exports())
         })
-    }, [])
+    }, [startAt, endAt])
 
     return (
         <div>

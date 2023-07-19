@@ -2,6 +2,7 @@ from typing import Dict, List, Optional
 
 import structlog
 from django.db.models import QuerySet
+from django.db import transaction
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, serializers, viewsets
@@ -11,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions import Conflict
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -26,6 +28,7 @@ def log_notebook_activity(
     activity: str,
     notebook_id: str,
     notebook_short_id: str,
+    notebook_name: str,
     organization_id: UUIDT,
     team_id: int,
     user: User,
@@ -38,7 +41,7 @@ def log_notebook_activity(
         item_id=notebook_id,
         scope="Notebook",
         activity=activity,
-        detail=Detail(changes=changes, short_id=notebook_short_id),
+        detail=Detail(changes=changes, short_id=notebook_short_id, name=notebook_name),
     )
 
 
@@ -82,6 +85,7 @@ class NotebookSerializer(serializers.ModelSerializer):
             activity="created",
             notebook_id=notebook.id,
             notebook_short_id=str(notebook.short_id),
+            notebook_name=notebook.title,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
@@ -95,26 +99,29 @@ class NotebookSerializer(serializers.ModelSerializer):
         except Notebook.DoesNotExist:
             before_update = None
 
-        if validated_data.keys():
-            instance.last_modified_at = now()
-            instance.last_modified_by = self.context["request"].user
+        with transaction.atomic():
+            # select_for_update locks the database row so we ensure version updates are atomic
+            locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
 
-        # TODO: This is not atomic meaning we could still end up with race conditions
-        if validated_data.get("content"):
-            if validated_data.get("version") != instance.version:
-                raise serializers.ValidationError(
-                    "Notebook was modified by someone else. Please refresh and try again."
-                )
+            if validated_data.keys():
+                locked_instance.last_modified_at = now()
+                locked_instance.last_modified_by = self.context["request"].user
 
-            validated_data["version"] = instance.version + 1
+                if validated_data.get("content"):
+                    if validated_data.get("version") != locked_instance.version:
+                        raise Conflict("Someone else edited the Notebook")
 
-        updated_notebook = super().update(instance, validated_data)
+                    validated_data["version"] = locked_instance.version + 1
+
+                updated_notebook = super().update(locked_instance, validated_data)
+
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
         log_notebook_activity(
             activity="updated",
             notebook_id=str(updated_notebook.id),
             notebook_short_id=str(updated_notebook.short_id),
+            notebook_name=updated_notebook.title,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,

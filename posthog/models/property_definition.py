@@ -39,9 +39,6 @@ class PropertyDefinition(UUIDModel):
     is_numerical: models.BooleanField = models.BooleanField(
         default=False
     )  # whether the property can be interpreted as a number, and therefore used for math aggregation operations
-    query_usage_30_day: models.IntegerField = models.IntegerField(
-        default=None, null=True
-    )  # Number of times the event has been used in a query in the last 30 rolling days (computed asynchronously)
 
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
@@ -57,6 +54,10 @@ class PropertyDefinition(UUIDModel):
 
     # DEPRECATED
     volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
+
+    # DEPRECATED
+    # Number of times an insight has been saved with this property in its filter in the last 30 rolling days (computed asynchronously when stars align)
+    query_usage_30_day: models.IntegerField = models.IntegerField(default=None, null=True)
 
     class Meta:
         indexes = [

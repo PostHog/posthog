@@ -22,13 +22,20 @@ import './Experiment.scss'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { DEFAULT_DURATION } from './experimentLogic'
 
 export interface MetricSelectorProps {
     dashboardItemId: InsightShortId
     setPreviewInsight: (filters?: Partial<FilterType>) => void
+    showDateRangeBanner?: boolean
 }
 
-export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSelectorProps): JSX.Element {
+export function MetricSelector({
+    dashboardItemId,
+    setPreviewInsight,
+    showDateRangeBanner,
+}: MetricSelectorProps): JSX.Element {
     // insightLogic
     const logic = insightLogic({ dashboardItemId, syncWithUrl: false })
     const { insightProps } = useValues(logic)
@@ -64,6 +71,13 @@ export function MetricSelector({ dashboardItemId, setPreviewInsight }: MetricSel
             </div>
 
             <ExperimentInsightCreator insightProps={insightProps} />
+
+            {showDateRangeBanner && (
+                <LemonBanner type="info" className="mt-3 mb-3">
+                    Preview insights are generated based on {DEFAULT_DURATION} days of data. This can cause a mismatch
+                    between the preview and the actual results.
+                </LemonBanner>
+            )}
 
             <div className="mt-4">
                 <BindLogic logic={insightLogic} props={insightProps}>
