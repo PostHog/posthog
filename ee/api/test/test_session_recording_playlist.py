@@ -9,7 +9,7 @@ from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FE
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
-from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordingPlaylist(APILicensedTest):
@@ -140,20 +140,20 @@ class TestSessionRecordingPlaylist(APILicensedTest):
     def test_get_pinned_recordings_for_playlist(self):
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
-        create_session_recording_events(
-            team_id=self.team.id,
-            distinct_id="123",
-            timestamp=datetime.utcnow(),
+        produce_replay_summary(
             session_id="session1",
-            window_id="1234",
+            team_id=self.team.pk,
+            first_timestamp=(datetime.utcnow()).isoformat(),
+            last_timestamp=(datetime.utcnow()).isoformat(),
+            distinct_id="123",
         )
 
-        create_session_recording_events(
-            team_id=self.team.id,
-            distinct_id="123",
-            timestamp=datetime.utcnow(),
+        produce_replay_summary(
             session_id="session2",
-            window_id="1234",
+            team_id=self.team.pk,
+            first_timestamp=(datetime.utcnow()).isoformat(),
+            last_timestamp=(datetime.utcnow()).isoformat(),
+            distinct_id="123",
         )
 
         # Create playlist items
@@ -188,23 +188,28 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         )
 
         for id in ["session1", "session2"]:
-            create_session_recording_events(
-                team_id=self.team.id,
-                distinct_id="123",
-                timestamp=datetime.utcnow(),
+            produce_replay_summary(
                 session_id=id,
-                window_id="1234",
+                team_id=self.team.pk,
+                first_timestamp=(datetime.utcnow()).isoformat(),
+                last_timestamp=(datetime.utcnow()).isoformat(),
+                distinct_id="123",
             )
 
-        self.client.post(
+        add_one_response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session1",
         )
-        self.client.post(
+        assert add_one_response.status_code == 200
+
+        add_two_response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session2",
         )
-        self.client.post(
+        assert add_two_response.status_code == 200
+
+        add_one_to_playlist_two_response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/session1",
         )
+        assert add_one_to_playlist_two_response.status_code == 200
 
         result = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings",
