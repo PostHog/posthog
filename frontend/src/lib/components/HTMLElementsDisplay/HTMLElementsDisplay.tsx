@@ -127,6 +127,7 @@ export function HTMLElementsDisplay({
                         {hasHiddenElements && (
                             <pre
                                 className="p-0 m-0 italic text-white text-sm opacity-50 cursor-pointer"
+                                data-attr="elements-display-show-more-of-chain"
                                 onClick={showMoreOfElementsChain}
                             >
                                 Show hidden elements
