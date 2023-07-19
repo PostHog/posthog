@@ -39,8 +39,14 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         searchTerm: [null as string | null, { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         isOpen: [false, { showSceneDashboardChoiceModal: () => true, closeSceneDashboardChoiceModal: () => false }],
     }),
-    selectors({
-        currentDashboardId: [(s) => [s.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
+    selectors(({ props }) => ({
+        currentDashboardId: [
+            (s) => [s.currentTeam],
+            (currentTeam) =>
+                props.scene === Scene.ProjectHomepage
+                    ? currentTeam?.primary_dashboard
+                    : currentTeam?.scene_dashboards?.[props.scene] || null,
+        ],
         dashboards: [
             (s) => [s.searchTerm, s.nameSortedDashboards],
             (searchTerm, dashboards) => {
@@ -58,7 +64,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
                     .map((result) => result.item)
             },
         ],
-    }),
+    })),
     listeners(({ actions, props, values }) => ({
         setSceneDashboardChoice: async ({ dashboardId }) => {
             // TODO needs to report scene and dashboard
@@ -67,9 +73,8 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
                 posthog.capture('primary dashboard changed')
             } else {
                 actions.updateCurrentTeam({
-                    scene_dashboard_choices: {
-                        ...(values.currentTeam?.scene_dashboard_choices ||
-                            ({} as Record<DashboardCompatibleScenes, number>)),
+                    scene_dashboards: {
+                        ...(values.currentTeam?.scene_dashboards || ({} as Record<DashboardCompatibleScenes, number>)),
                         [props.scene]: dashboardId,
                     },
                 })

@@ -103,7 +103,7 @@ export function ProjectHomepage(): JSX.Element {
                                 <div className="flex items-center gap-2">
                                     <LemonButton
                                         type="secondary"
-                                        data-attr="project-home-new-insight"
+                                        data-attr="project-home-change-dashboard"
                                         onClick={showSceneDashboardChoiceModal}
                                     >
                                         Change dashboard
