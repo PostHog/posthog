@@ -72,14 +72,24 @@ export function SurveyAppearance({
                         value={appearance?.descriptionTextColor || defaultSurveyAppearance.descriptionTextColor}
                         onChange={(descriptionTextColor) => onAppearanceChange({ ...appearance, descriptionTextColor })}
                     />
-                    {/* {type === SurveyQuestionType.Rating && <>
-                    <div className="mt-2">Rating option color</div>
-                    <LemonInput
-                        value={appearance?.ratingOptionButtonColor}
-                        onChange={(ratingOptionColor) => onAppearanceChange({ ...appearance, ratingOptionButtonColor })}
-                    />
-                    </>
-                    } */}
+                    {type === SurveyQuestionType.Rating && (
+                        <>
+                            <div className="mt-2">Rating button color</div>
+                            <LemonInput
+                                value={appearance?.ratingButtonColor}
+                                onChange={(ratingButtonColor) =>
+                                    onAppearanceChange({ ...appearance, ratingButtonColor })
+                                }
+                            />
+                            <div className="mt-2">Rating button hover color</div>
+                            <LemonInput
+                                value={appearance?.ratingButtonHoverColor}
+                                onChange={(ratingButtonHoverColor) =>
+                                    onAppearanceChange({ ...appearance, ratingButtonHoverColor })
+                                }
+                            />
+                        </>
+                    )}
                     {(type === SurveyQuestionType.Open || type === SurveyQuestionType.Link) && (
                         <>
                             <div className="mt-2">Submit button color</div>

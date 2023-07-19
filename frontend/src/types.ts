@@ -2078,6 +2078,8 @@ export interface SurveyAppearance {
     textColor?: string
     submitButtonText?: string
     descriptionTextColor?: string
+    ratingButtonColor?: string
+    ratingButtonHoverColor?: string
 }
 
 interface SurveyQuestionBase {
