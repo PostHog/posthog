@@ -71,7 +71,7 @@ export function CorrelationMatrix(): JSX.Element {
     return (
         <Modal
             className="correlation-matrix"
-            visible={!!funnelCorrelationDetails}
+            open={!!funnelCorrelationDetails}
             onCancel={dismiss}
             destroyOnClose
             footer={<Button onClick={dismiss}>Dismiss</Button>}

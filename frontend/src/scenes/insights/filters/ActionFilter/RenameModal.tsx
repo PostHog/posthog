@@ -28,7 +28,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
     return (
         <Modal
             data-attr="filter-rename-modal"
-            visible={modalVisible}
+            open={modalVisible}
             title={title}
             footer={
                 <>

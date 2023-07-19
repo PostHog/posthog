@@ -36,7 +36,7 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
                 New property
             </LemonButton>
             <Modal
-                visible={state.creating}
+                open={state.creating}
                 destroyOnClose
                 onCancel={() => setState(initialState)}
                 title="Adding new property"

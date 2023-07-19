@@ -13,7 +13,7 @@ export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Elemen
 
     return (
         <Modal
-            visible
+            open
             title="Split persons"
             onCancel={cancel}
             className="merge-split-person"

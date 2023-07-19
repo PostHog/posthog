@@ -92,7 +92,7 @@ function Prompt({
     return (
         <Modal
             {...modalProps}
-            visible={visible}
+            open={visible}
             onOk={form.submit}
             onCancel={close}
             title={title}
