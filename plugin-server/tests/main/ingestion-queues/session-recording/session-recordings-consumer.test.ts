@@ -104,6 +104,32 @@ describe('session-recordings-consumer', () => {
         expect(producer.produce).toHaveBeenCalledTimes(2)
     })
 
+    test('eachBatch does not emit replay event if set to other consumer', async () => {
+        const organizationId = await createOrganization(postgres)
+        const teamId = await createTeam(postgres, organizationId)
+
+        const eachBachWithDependencies: any = eachBatch({ producer, teamManager })
+
+        await eachBachWithDependencies([
+            {
+                key: 'test',
+                value: JSON.stringify({
+                    team_id: teamId,
+                    data: JSON.stringify({
+                        event: '$snapshot',
+                        properties: {
+                            $snapshot_data: { events_summary: [{ timestamp: now() }] },
+                            $snapshot_consumer: 'v2',
+                        },
+                    }),
+                }),
+                timestamp: 123,
+            },
+        ])
+
+        expect(producer.produce).toHaveBeenCalledTimes(1)
+    })
+
     test('eachBatch does not emit a replay record that is more than a month in the future', async () => {
         const organizationId = await createOrganization(postgres)
         const teamId = await createTeam(postgres, organizationId)

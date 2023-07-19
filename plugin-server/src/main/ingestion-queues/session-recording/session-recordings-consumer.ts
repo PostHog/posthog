@@ -279,7 +279,7 @@ const eachMessage =
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
                         const properties = event.properties || {}
-                        const shouldCreateReplayEvents = properties['$snapshot_consumer'] ?? 'v1' !== 'v1'
+                        const shouldCreateReplayEvents = (properties['$snapshot_consumer'] ?? 'v1') === 'v1'
 
                         if (shouldCreateReplayEvents && properties.$snapshot_data?.events_summary.length) {
                             replayRecord = createSessionReplayEvent(

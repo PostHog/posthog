@@ -1237,7 +1237,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 136,
+            size: 73,
         },
     },
     {
@@ -1253,7 +1253,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 136,
+            size: 73,
         },
     },
     {

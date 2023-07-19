@@ -12,10 +12,10 @@ import {
     PerformanceEventReverseMapping,
     Person,
     PreIngestionEvent,
-    RRWebEvent,
     RawClickHouseEvent,
     RawPerformanceEvent,
     RawSessionRecordingEvent,
+    RRWebEvent,
     Team,
     TimestampFormat,
 } from '../../types'
