@@ -35,8 +35,9 @@ describe('sceneDashboardChoiceModalLogic', () => {
     })
     describe('isOpen', () => {
         it('can be set to true and false', async () => {
-            logic.actions.showSceneDashboardChoiceModal()
-            await expectLogic(logic).toMatchValues({
+            await expectLogic(logic, () => {
+                logic.actions.showSceneDashboardChoiceModal()
+            }).toMatchValues({
                 isOpen: true,
             })
 
@@ -48,12 +49,12 @@ describe('sceneDashboardChoiceModalLogic', () => {
     })
     describe('primary dashboard id', () => {
         it('is set by setSceneDashboardChoice', async () => {
-            logic.actions.setSceneDashboardChoice(12)
-            await expectLogic(logic)
-                .toDispatchActions(['setSceneDashboardChoice'])
+            await expectLogic(logic, () => {
+                logic.actions.setSceneDashboardChoice(12)
+            })
                 .toDispatchActions(teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess'])
                 .toMatchValues({
-                    primaryDashboardId: 12,
+                    currentDashboardId: 12,
                 })
         })
     })
