@@ -263,6 +263,7 @@ def update_batch_export(
     end_at: dt.datetime | None = None,
 ):
     if destination_data:
+        batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
         batch_export.destination.config = {**batch_export.destination.config, **destination_data.get("config", {})}
 
     batch_export.name = name or batch_export.name
@@ -310,6 +311,7 @@ def update_batch_export(
     update_schedule(temporal, schedule_id=str(batch_export.id), schedule=new_schedule)
 
     batch_export.save()
+    batch_export.destination.save()
     return batch_export
 
 
