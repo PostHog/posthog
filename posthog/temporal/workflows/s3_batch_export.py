@@ -28,6 +28,22 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
 
 
+def get_allowed_template_variables(inputs) -> dict[str, str]:
+    """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
+    export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
+    return {
+        "second": f"{export_datetime:%S}",
+        "minute": f"{export_datetime:%M}",
+        "hour": f"{export_datetime:%H}",
+        "day": f"{export_datetime:%d}",
+        "month": f"{export_datetime:%m}",
+        "year": f"{export_datetime:%Y}",
+        "data_interval_start": inputs.data_interval_start,
+        "data_interval_end": inputs.data_interval_end,
+        "table": "events",
+    }
+
+
 @dataclass
 class S3InsertInputs:
     """Inputs for S3 exports."""
@@ -82,7 +98,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        template_variables = get_allowed_template_variables(inputs)
+        key_prefix = inputs.prefix.format(**template_variables)
+        key = f"{key_prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,

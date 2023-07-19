@@ -552,6 +552,113 @@ async def test_s3_export_workflow_defaults_to_timestamp_on_null_inserted_at(clie
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client: HttpClient, s3_client, bucket_name):
+    """Test the S3BatchExport Workflow utilizing a custom key prefix.
+
+    We will be asserting that exported events land in the appropiate S3 key according to the prefix.
+    """
+    ch_client = ChClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    prefix = "posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}"
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": bucket_name,
+            "region": "us-east-1",
+            "prefix": prefix,
+            "batch_window_size": 3600,
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = await acreate_organization("test")
+    team = await acreate_team(organization=organization)
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=batch_export_data["name"],
+        destination_data=batch_export_data["destination"],
+        interval=batch_export_data["interval"],
+    )
+
+    events: list[EventValues] = [
+        {
+            "uuid": str(uuid4()),
+            "event": "test",
+            "timestamp": "2023-04-25 13:30:00.000000",
+            "created_at": "2023-04-25 13:30:00.000000",
+            "_timestamp": "2023-04-25 13:30:00",
+            "person_id": str(uuid4()),
+            "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "team_id": team.pk,
+            "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
+            "distinct_id": str(uuid4()),
+            "elements_chain": "this is a comman, separated, list, of css selectors(?)",
+        },
+    ]
+
+    # Insert some data into the `sharded_events` table.
+    await insert_events(
+        client=ch_client,
+        events=events,
+    )
+
+    workflow_id = str(uuid4())
+    inputs = S3BatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_end="2023-04-25 14:30:00.000000",
+        **batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[S3BatchExportWorkflow],
+            activities=[create_export_run, insert_into_s3_activity, update_export_run_status],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with mock.patch("posthog.temporal.workflows.s3_batch_export.boto3.client", side_effect=create_test_client):
+                await activity_environment.client.execute_workflow(
+                    S3BatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    expected_key_prefix = prefix.format(
+        table="events", year="2023", month="04", day="25", hour="14", minute="30", second="00"
+    )
+    objects = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
+    key = objects["Contents"][0].get("Key")
+    assert len(objects.get("Contents", [])) == 1
+    assert key.startswith(expected_key_prefix)
+
+    assert_events_in_s3(s3_client, bucket_name, expected_key_prefix, events)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
 async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpClient, s3_client, bucket_name):
     """Test that S3 Export Workflow end-to-end by using a local MinIO bucket instead of S3.
 
