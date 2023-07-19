@@ -106,7 +106,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
+    const {
+        showCustomerSuccessDashboards,
+        person,
+        personLoading,
+        currentTab,
+        splitMergeModalShown,
+        urlId,
+        distinctId,
+    } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
@@ -285,7 +293,7 @@ export function Person(): JSX.Element | null {
                             />
                         ),
                     },
-                    {
+                    showCustomerSuccessDashboards && {
                         key: PersonsTabType.DASHBOARD,
                         label: 'Dashboard',
                         content: <PersonDashboard person={person} />,
