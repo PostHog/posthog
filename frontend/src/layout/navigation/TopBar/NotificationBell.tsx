@@ -36,8 +36,8 @@ export function NotificationBell(): JSX.Element {
                         <IconInfo /> Notifications shows you changes others make to{' '}
                         <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
                         <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
-                        <Link to={'https://posthog.com/community'}>our community forum</Link> and tell us what else should
-                        be here!
+                        <Link to={'https://posthog.com/community'}>our community forum</Link> and tell us what else
+                        should be here!
                     </p>
                     <LemonDivider />
                     {hasNotifications ? (
