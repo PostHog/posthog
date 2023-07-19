@@ -98,7 +98,6 @@ export function HTMLElementsDisplay({
         chosenSelector,
         chosenSelectorMatchCount,
         messageStatus,
-        elements,
         hasHiddenElements,
         parsedElements,
     } = useValues(logic)
@@ -106,7 +105,7 @@ export function HTMLElementsDisplay({
 
     return (
         <div className="flex flex-col gap-1">
-            {editable && !!elements.length && (
+            {editable && !!parsedElements.length && (
                 <div>
                     Selector: <CodeSnippet thing={'chosen selector'}>{chosenSelector}</CodeSnippet>
                 </div>
@@ -122,7 +121,7 @@ export function HTMLElementsDisplay({
                 </LemonBanner>
             )}
             <div className="px-4 rounded bg-default">
-                {elements.length ? (
+                {parsedElements.length ? (
                     <>
                         {hasHiddenElements && (
                             <pre
