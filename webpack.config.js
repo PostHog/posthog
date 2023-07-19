@@ -1,5 +1,6 @@
 /* global require, module, process, __dirname */
 const path = require('path')
+const webpack = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
@@ -59,6 +60,7 @@ function createEntry(entry) {
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
+                process: 'process/browser',
             },
         },
         module: {
@@ -204,7 +206,12 @@ function createEntry(entry) {
                       new HtmlWebpackHarddiskPlugin(),
                   ]
                 : entry === 'cypress'
-                ? [new HtmlWebpackHarddiskPlugin()]
+                ? [
+                      new HtmlWebpackHarddiskPlugin(),
+                      new webpack.ProvidePlugin({
+                          process: 'process/browser',
+                      }),
+                  ]
                 : []
         ),
     }
