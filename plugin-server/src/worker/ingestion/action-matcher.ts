@@ -138,8 +138,47 @@ export class ActionMatcher {
         this.statsd = statsd
     }
 
-    /** Get all actions matched to the event. */
     public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
+        const legacyResponse = await this.matchLegacy(event, elements)
+        const hogVMResponse = this.matchBytecode(event, elements)
+
+        if (
+            legacyResponse.length !== hogVMResponse.length ||
+            !legacyResponse.every((action, index) => action.id == hogVMResponse[index]?.id)
+        ) {
+            this.statsd?.increment('action_matches_hogvm_legacy_mismatch')
+        } else {
+            this.statsd?.increment('action_matches_hogvm_legacy_match')
+        }
+        console.log({ hogVM: hogVMResponse.map((a) => a?.id), legacy: legacyResponse.map((a) => a?.id) })
+
+        return legacyResponse
+    }
+
+    /** Get all actions matched to the event. */
+    public matchBytecode(event: PostIngestionEvent, elements?: Element[]): (Action | undefined)[] {
+        const matchingStart = new Date()
+        const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
+        if (!elements) {
+            const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
+            elements = rawElements ? extractElements(rawElements) : []
+        }
+        const teamActionsMatching: (boolean | undefined)[] = teamActions.map((action) =>
+            this.checkActionBytecode(event, elements, action)
+        )
+
+        const matches: Action[] = []
+        for (let i = 0; i < teamActionsMatching.length; i++) {
+            if (teamActionsMatching[i]) {
+                matches.push(teamActions[i])
+            }
+        }
+        this.statsd?.timing('action_matching_for_event_hogvm', matchingStart)
+        this.statsd?.increment('action_matches_found_hogvm', matches.length)
+        return matches
+    }
+
+    public async matchLegacy(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
@@ -147,7 +186,7 @@ export class ActionMatcher {
             elements = rawElements ? extractElements(rawElements) : []
         }
         const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => this.checkAction(event, elements, action))
+            teamActions.map((action) => this.checkActionLegacy(event, elements, action))
         )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
@@ -161,12 +200,47 @@ export class ActionMatcher {
     }
 
     /**
-     * Base level of action matching.
+     * Base level of action matching (HogVM version).
      *
      * Return whether the event is a match for the action.
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
-    public async checkAction(
+    public checkActionBytecode(
+        event: PostIngestionEvent,
+        elements: Element[] | undefined,
+        action: Action
+    ): boolean | undefined {
+        try {
+            if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
+                const eventProxy = new Proxy(event, {
+                    get: (target, prop) => {
+                        return prop === 'person'
+                            ? {
+                                  properties: target['person_properties'],
+                                  id: target['person_id'],
+                                  created_at: target['person_created_at'],
+                              }
+                            : prop === 'elements_chain'
+                            ? target.elementsList?.length
+                                ? elementsToString(target.elementsList)
+                                : ''
+                            : (target as any)[prop]
+                    },
+                })
+                return Boolean(executeHogQLBytecode(action.bytecode, eventProxy))
+            }
+        } catch (error) {
+            console.error(error)
+        }
+    }
+
+    /**
+     * Base level of action matching (legacy version).
+     *
+     * Return whether the event is a match for the action.
+     * The event is considered a match if any of the action's steps (match groups) is a match.
+     */
+    public async checkActionLegacy(
         event: PostIngestionEvent,
         elements: Element[] | undefined,
         action: Action
