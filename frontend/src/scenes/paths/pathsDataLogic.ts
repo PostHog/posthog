@@ -1,5 +1,13 @@
 import { kea, path, props, key, connect, selectors, actions, listeners } from 'kea'
-import { InsightLogicProps, PathType, PathsFilterType, InsightType } from '~/types'
+import {
+    InsightLogicProps,
+    PathType,
+    PathsFilterType,
+    InsightType,
+    ActionFilter,
+    PropertyOperator,
+    PropertyFilterType,
+} from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -122,7 +130,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
         },
         viewPathToFunnel: ({ pathItemCard }) => {
-            const events = []
+            const events: ActionFilter[] = []
             let currentItemCard = pathItemCard
             while (currentItemCard) {
                 const name = currentItemCard.name.includes('http')
@@ -137,8 +145,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                         properties: [
                             {
                                 key: '$current_url',
-                                operator: 'exact',
-                                type: 'event',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
                                 value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
                             },
                         ],
@@ -146,7 +154,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 })
                 currentItemCard = currentItemCard.targetLinks[0]?.source
             }
-            events.sort((a, b) => a.order - b.order)
+            events.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
             if (events.length > 0) {
                 router.actions.push(
