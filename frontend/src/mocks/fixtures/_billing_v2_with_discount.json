@@ -335,16 +335,16 @@
         },
         {
             "key": "community_support",
-            "name": "Slack (community)",
-            "description": "Get help from the PostHog community in our PostHog Users Slack group.",
+            "name": "Community forum",
+            "description": "Get help from the PostHog community in our public forums.",
             "unit": null,
             "limit": null,
             "note": null
         },
         {
             "key": "dedicated_support",
-            "name": "Slack (dedicated channel)",
-            "description": "Get help firectly from our support team in a dedicated Slack channel shared between you and the PostHog team.",
+            "name": "Dedicated Slack channel",
+            "description": "Get help directly in a dedicated Slack channel shared between you and the PostHog team.",
             "unit": null,
             "limit": null,
             "note": "$2k/month spend or above"
@@ -1025,8 +1025,8 @@
                         },
                         {
                             "key": "community_support",
-                            "name": "Slack (community)",
-                            "description": "Get help from the PostHog community in our PostHog Users Slack group.",
+                            "name": "Community forum",
+                            "description": "Get help from the PostHog community in our public forum.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1129,16 +1129,16 @@
                         },
                         {
                             "key": "community_support",
-                            "name": "Slack (community)",
-                            "description": "Get help from the PostHog community in our PostHog Users Slack group.",
+                            "name": "Community forum",
+                            "description": "Get help from the PostHog community in our public forum.",
                             "unit": null,
                             "limit": null,
                             "note": null
                         },
                         {
                             "key": "dedicated_support",
-                            "name": "Slack (dedicated channel)",
-                            "description": "Get help firectly from our support team in a dedicated Slack channel shared between you and the PostHog team.",
+                            "name": "Dedicated Slack channel",
+                            "description": "Get help in a dedicated Slack channel shared between you and the PostHog team.",
                             "unit": null,
                             "limit": null,
                             "note": "$2k/month spend or above"
@@ -1446,8 +1446,8 @@
                             "features": [
                                 {
                                     "key": "community_support",
-                                    "name": "Slack (community)",
-                                    "description": "Get help from the PostHog community in our PostHog Users Slack group.",
+                                    "name": "Community forum",
+                                    "description": "Get help from the PostHog community in our public forum.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -1954,8 +1954,8 @@
                             "features": [
                                 {
                                     "key": "community_support",
-                                    "name": "Slack (community)",
-                                    "description": "Get help from the PostHog community in our PostHog Users Slack group.",
+                                    "name": "Community forum",
+                                    "description": "Get help from the PostHog community in our public forum.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -1963,8 +1963,8 @@
                                 },
                                 {
                                     "key": "dedicated_support",
-                                    "name": "Slack (dedicated channel)",
-                                    "description": "Get help firectly from our support team in a dedicated Slack channel shared between you and the PostHog team.",
+                                    "name": "Dedicated Slack channel",
+                                    "description": "Get help in a dedicated Slack channel shared between you and the PostHog team.",
                                     "unit": null,
                                     "limit": null,
                                     "note": "$2k/month spend or above",
@@ -2507,8 +2507,8 @@
                             "features": [
                                 {
                                     "key": "community_support",
-                                    "name": "Slack (community)",
-                                    "description": "Get help from the PostHog community in our PostHog Users Slack group.",
+                                    "name": "Community forum",
+                                    "description": "Get help from the PostHog community in our public forum.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -2516,8 +2516,8 @@
                                 },
                                 {
                                     "key": "dedicated_support",
-                                    "name": "Slack (dedicated channel)",
-                                    "description": "Get help firectly from our support team in a dedicated Slack channel shared between you and the PostHog team.",
+                                    "name": "Dedicated Slack channel",
+                                    "description": "Get help in a dedicated Slack channel shared between you and the PostHog team.",
                                     "unit": null,
                                     "limit": null,
                                     "note": "$2k/month spend or above",
