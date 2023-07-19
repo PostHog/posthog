@@ -34,6 +34,7 @@ jest.mock('../../../../src/kafka/batch-consumer', () => {
                 stop: jest.fn(),
                 consumer: {
                     on: jest.fn(),
+                    commitSync: mockCommit,
                     commit: mockCommit,
                 },
             })
@@ -99,8 +100,8 @@ describe('ingester', () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
         await waitForExpect(() => {
-            expect(ingester.sessions.size).toBe(1)
-            expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
+            expect(Object.keys(ingester.sessions).length).toBe(1)
+            expect(ingester.sessions['1-session_id_1']).toBeDefined()
         })
     })
 
@@ -108,14 +109,14 @@ describe('ingester', () => {
         await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_1' }))
         await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
 
-        expect(ingester.sessions.size).toBe(2)
-        expect(ingester.sessions.has('2-session_id_1')).toEqual(true)
-        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['2-session_id_1']).toBeDefined()
+        expect(ingester.sessions['2-session_id_2']).toBeDefined()
 
-        await ingester.destroySessions([['2-session_id_1', ingester.sessions.get('2-session_id_1')!]])
+        await ingester.destroySessions([['2-session_id_1', ingester.sessions['2-session_id_1']]])
 
-        expect(ingester.sessions.size).toBe(1)
-        expect(ingester.sessions.has('2-session_id_2')).toEqual(true)
+        expect(Object.keys(ingester.sessions).length).toBe(1)
+        expect(ingester.sessions['2-session_id_2']).toBeDefined()
     })
 
     it('handles multiple incoming sessions', async () => {
@@ -124,20 +125,20 @@ describe('ingester', () => {
             session_id: 'session_id_2',
         })
         await Promise.all([ingester.consume(event), ingester.consume(event2)])
-        expect(ingester.sessions.size).toBe(2)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        expect(ingester.sessions.has('1-session_id_2')).toEqual(true)
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['1-session_id_1']).toBeDefined()
+        expect(ingester.sessions['1-session_id_2']).toBeDefined()
     })
 
     it('destroys a session manager if finished', async () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(true)
-        await ingester.sessions.get('1-session_id_1')?.flush('buffer_age')
+        expect(ingester.sessions['1-session_id_1']).toBeDefined()
+        await ingester.sessions['1-session_id_1']?.flush('buffer_age')
 
         jest.runOnlyPendingTimers() // flush timer
 
-        expect(ingester.sessions.has('1-session_id_1')).toEqual(false)
+        expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
     })
 
     describe('offset committing', () => {
@@ -158,12 +159,39 @@ describe('ingester', () => {
         it('should commit offsets in simple cases', async () => {
             await ingester.consume(addMessage('sid1'))
             await ingester.consume(addMessage('sid1'))
-            await ingester.sessions.get('1-sid1')?.flush('buffer_age')
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
-            expect(mockCommit).toHaveBeenCalledWith({
+            expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
                 offset: 3,
+            })
+        })
+
+        it('should commit higher values but not lower', async () => {
+            await ingester.consume(addMessage('sid1'))
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+            expect(mockCommit).toHaveBeenLastCalledWith({
+                ...metadata,
+                offset: 2,
+            })
+
+            const olderOffsetSomehow = addMessage('sid1')
+            olderOffsetSomehow.metadata.offset = 1
+
+            await ingester.consume(olderOffsetSomehow)
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+            expect(mockCommit).toHaveBeenCalledTimes(1)
+
+            await ingester.consume(addMessage('sid1'))
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
+
+            expect(mockCommit).toHaveBeenCalledTimes(2)
+            expect(mockCommit).toHaveBeenLastCalledWith({
+                ...metadata,
+                offset: 4,
             })
         })
 
@@ -172,11 +200,11 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
             await ingester.consume(addMessage('sid2')) // 4
-            await ingester.sessions.get('1-sid2')?.flush('buffer_age')
+            await ingester.sessions['1-sid2']?.flush('buffer_age')
 
             // No offsets are below the blocking one
             expect(mockCommit).not.toHaveBeenCalled()
-            await ingester.sessions.get('1-sid1')?.flush('buffer_age')
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
             // We can only commit up to 2 because we don't track the other removed offsets - no biggy as this is super edge casey
             expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
@@ -189,12 +217,12 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
             await ingester.consume(addMessage('sid2')) // 4
-            await ingester.sessions.get('1-sid2')?.flush('buffer_age')
+            await ingester.sessions['1-sid2']?.flush('buffer_age')
 
             // No offsets are below the blocking one
             expect(mockCommit).not.toHaveBeenCalled()
             await ingester.consume(addMessage('sid2')) // 5
-            await ingester.sessions.get('1-sid1')?.flush('buffer_age')
+            await ingester.sessions['1-sid1']?.flush('buffer_age')
 
             expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
@@ -207,7 +235,7 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
 
-            await ingester.sessions.get('1-sid2')?.flush('buffer_age')
+            await ingester.sessions['1-sid2']?.flush('buffer_age')
 
             expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,

@@ -465,6 +465,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "greatCircleAngle": HogQLFunctionMeta("greatCircleAngle", 4, 4),
     "pointInEllipses": HogQLFunctionMeta("pointInEllipses", 6, None),
     "pointInPolygon": HogQLFunctionMeta("pointInPolygon", 2, None),
+    "geohashEncode": HogQLFunctionMeta("geohashEncode", 2, 3),
+    "geohashDecode": HogQLFunctionMeta("geohashDecode", 1, 1),
+    "geohashesInBox": HogQLFunctionMeta("geohashesInBox", 5, 5),
     # nullable
     "isNull": HogQLFunctionMeta("isNull", 1, 1),
     "isNotNull": HogQLFunctionMeta("isNotNull", 1, 1),

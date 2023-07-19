@@ -29,7 +29,6 @@ from posthog.test.base import (
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-
     # select all queries for snapshots
     def capture_select_queries(self):
         return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
@@ -348,7 +347,6 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating_with_cycle(self, patch_calculate_cohort, patch_capture):
-
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -407,7 +405,6 @@ email@example.org,
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_creating_update_and_calculating_with_invalid_cohort(self, patch_calculate_cohort, patch_capture):
-
         # Cohort A
         response_a = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -431,7 +428,6 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture):
-
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
@@ -670,7 +666,6 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_duplicating_dynamic_cohort_as_static(self, patch_capture):
-
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
@@ -737,7 +732,6 @@ email@example.org,
     @snapshot_clickhouse_queries
     @patch("posthog.api.cohort.report_user_action")
     def test_async_deletion_of_cohort(self, patch_capture):
-
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)
@@ -840,7 +834,6 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_async_deletion_of_cohort_with_race_condition_multiple_updates(self, patch_capture):
-
         _create_person(distinct_ids=["p1"], team_id=self.team.pk, properties={"$some_prop": "something"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p1", timestamp=datetime.now() - timedelta(hours=12)

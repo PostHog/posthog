@@ -2561,6 +2561,25 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 1)
             self.assertEqual(result[1]["count"], 1)
 
+        def test_funnel_all_events_via_action(self):
+            person_factory(distinct_ids=["user"], team_id=self.team.pk)
+            self._signup_event(distinct_id="user")
+            self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
+
+            action_checkout_all = Action.objects.create(team=self.team, name="user signed up")
+            ActionStep.objects.create(action=action_checkout_all, event="checked out")  # not perormed
+            ActionStep.objects.create(action=action_checkout_all, event=None)  # matches all
+
+            filters = {
+                "events": [{"id": "user signed up", "type": "events", "order": 0}],
+                "actions": [{"id": action_checkout_all.pk, "type": "actions", "order": 1}],
+                "funnel_window_days": 14,
+            }
+
+            result = self._basic_funnel(filters=filters).run()
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+
     return TestGetFunnel
 
 

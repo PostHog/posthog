@@ -215,7 +215,7 @@ export function getFormattedMessage(
         const markdownValues: string[] = []
 
         for (const token of tokens) {
-            const tokenParts = token.match(/\$\w+|\$\$\w+|\w+/g) || []
+            const tokenParts = token.split('.') || []
 
             const [value, markdownValue] = getValueOfToken(action, event, team, siteUrl, webhookType, tokenParts)
             values.push(value)

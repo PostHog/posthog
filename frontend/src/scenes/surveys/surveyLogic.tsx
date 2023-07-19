@@ -93,7 +93,6 @@ export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
         propertiesViaUrl: true,
         showExport: true,
         showReload: true,
-        showColumnConfigurator: true,
         showEventFilter: true,
         showPropertyFilter: true,
     }
@@ -101,8 +100,8 @@ export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
 }
 
 export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+    const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,
@@ -142,7 +141,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [pluginsLogic, ['installedPlugins']],
+        values: [pluginsLogic, ['installedPlugins', 'enabledPlugins']],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -263,6 +262,14 @@ export const surveyLogic = kea<surveyLogicType>([
             (installedPlugins: PluginType[]): PluginType | undefined => {
                 // TODO: add more sturdy check for the survey plugin
                 return installedPlugins.find((plugin) => plugin.name === 'Surveys app')
+            },
+        ],
+        showSurveyAppWarning: [
+            (s) => [s.survey, s.enabledPlugins],
+            (survey: Survey, enabledPlugins: PluginType[]): boolean => {
+                return !!(
+                    survey.type !== SurveyType.API && !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+                )
             },
         ],
     }),
