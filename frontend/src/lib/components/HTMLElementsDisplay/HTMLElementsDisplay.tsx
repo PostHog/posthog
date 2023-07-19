@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import { Fade } from '../Fade/Fade'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -18,10 +19,12 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                 .reverse()
                 .slice(1)
                 .map((element, index) => (
-                    <pre className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm" key={index}>
-                        {indent(elements.length - index - 2)}
-                        &lt;/{element.tag_name}&gt;
-                    </pre>
+                    <Fade key={`${element.tag_name}-closing-${index}`} visible={true}>
+                        <pre className="whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm">
+                            {indent(elements.length - index - 2)}
+                            &lt;/{element.tag_name}&gt;
+                        </pre>
+                    </Fade>
                 ))}
         </>
     )
@@ -43,17 +46,20 @@ function Tags({
     return (
         <>
             {elements.map((element, index) => {
+                const invertedIndex = elements.length - 1 - index
+
                 return (
-                    <SelectableElement
-                        key={`${element.tag_name}-${index}`}
-                        element={element}
-                        isDeepestChild={index === elements.length - 1}
-                        onChange={(s) => (editable ? onChange(index, s) : undefined)}
-                        readonly={!editable}
-                        indent={indent(index)}
-                        highlight={highlight}
-                        parsedCSSSelector={parsedCSSSelectors[index]}
-                    />
+                    <Fade key={`${element.tag_name}-${invertedIndex}`} visible={true}>
+                        <SelectableElement
+                            element={element}
+                            isDeepestChild={index === elements.length - 1}
+                            onChange={(s) => (editable ? onChange(index, s) : undefined)}
+                            readonly={!editable}
+                            indent={indent(index)}
+                            highlight={highlight}
+                            parsedCSSSelector={parsedCSSSelectors[index]}
+                        />
+                    </Fade>
                 )
             })}
         </>
