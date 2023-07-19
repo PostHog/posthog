@@ -103,10 +103,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.WebPerformance]: {
-        projectBased: true,
-        name: 'Web Performance',
-    },
     [Scene.Replay]: {
         projectBased: true,
         name: 'Session Replay',
@@ -383,8 +379,6 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
     [urls.database()]: Scene.Database,
     [urls.events()]: Scene.Events,
-    [urls.webPerformance()]: Scene.WebPerformance,
-    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
