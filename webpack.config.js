@@ -1,5 +1,6 @@
 /* global require, module, process, __dirname */
 const path = require('path')
+const webpack = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
@@ -40,7 +41,6 @@ function createEntry(entry) {
         },
         output: {
             path: path.resolve(__dirname, 'frontend', 'dist'),
-            filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
             publicPath: process.env.JS_URL
                 ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
@@ -60,13 +60,14 @@ function createEntry(entry) {
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
+                process: 'process/browser',
             },
         },
         module: {
             rules: [
                 {
                     test: /\.stories\.[jt]sx?$/,
-                    loaders: [require.resolve('@storybook/source-loader')],
+                    use: [require.resolve('@storybook/source-loader')],
                 },
                 {
                     test: /\.[jt]sx?$/,
@@ -205,7 +206,12 @@ function createEntry(entry) {
                       new HtmlWebpackHarddiskPlugin(),
                   ]
                 : entry === 'cypress'
-                ? [new HtmlWebpackHarddiskPlugin()]
+                ? [
+                      new HtmlWebpackHarddiskPlugin(),
+                      new webpack.ProvidePlugin({
+                          process: 'process/browser',
+                      }),
+                  ]
                 : []
         ),
     }
