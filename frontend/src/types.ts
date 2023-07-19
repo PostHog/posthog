@@ -921,6 +921,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -2257,6 +2258,7 @@ export enum DashboardPlacement {
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
+    Person = 'person', // When the dashboard is being viewed on a person page
 }
 
 export enum DashboardMode { // Default mode is null

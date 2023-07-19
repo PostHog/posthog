@@ -25,6 +25,8 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    // TODO this and filters on DashboardType should have stricter type
+    extraFilters?: DashboardType['filters']
 }
 
 export const scene: SceneExport = {
@@ -36,9 +38,12 @@ export const scene: SceneExport = {
     }),
 }
 
-export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, extraFilters }: DashboardProps = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+        <BindLogic
+            logic={dashboardLogic}
+            props={{ id: id ? parseInt(id) : undefined, placement, dashboard, extraFilters }}
+        >
             <DashboardScene />
         </BindLogic>
     )
@@ -116,6 +121,7 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
+                            DashboardPlacement.Person,
                         ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">

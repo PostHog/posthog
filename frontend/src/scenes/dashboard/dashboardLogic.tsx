@@ -70,6 +70,7 @@ export interface DashboardLogicProps {
     id?: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    extraFilters?: DashboardType['filters']
 }
 
 export interface RefreshStatus {
@@ -638,11 +639,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         apiUrl: [
-            () => [(_, props) => props.id],
-            (id) => {
+            () => [(_, props) => props.id, (_, props) => props.extraFilters],
+            (id, extraFilters) => {
                 return (refresh?: boolean) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
+                        extraFilters,
                     })}`
             },
         ],
