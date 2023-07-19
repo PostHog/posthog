@@ -715,19 +715,41 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
     },
     element: {
-        tag_name: {
-            label: 'Tag Name',
-            description: 'HTML tag name of the element which you want to filter.',
-            examples: ['a', 'button', 'input'],
+        event: {
+            label: 'Event name',
+            description: "Filter on the event's name.",
+            examples: ['watched movie', '$pageview'],
+        },
+        timestamp: {
+            label: 'Timestamp',
+            description: "Filter on the event's timestamp.",
+        },
+        distinct_id: {
+            label: 'Distinct ID',
+            description: 'Filter on the user-provided distinct ID of the person associated with this event.',
+            examples: ['1234'],
+        },
+        person_id: {
+            label: 'Person ID',
+            description: 'Filter on the PostHog-generated UUID of the person associated with this event.',
+            examples: ['00000000-0000-0000-1847-88f0ffa23444'],
         },
         selector: {
             label: 'CSS Selector',
-            description: 'Select any element by CSS selector.',
+            description: "Select autocaptured event by the clicked element's CSS selector.",
             examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
+            sentAs: 'elements_chain',
+        },
+        tag_name: {
+            label: 'Tag Name',
+            description: "Select autocaptured event by the clicked element's tag name.",
+            examples: ['a', 'button', 'input'],
+            sentAs: 'elements_chain',
         },
         text: {
             label: 'Text',
-            description: 'Filter on the inner text of the HTML element.',
+            description: "Select autocaptured event by the clicked element's label.",
+            sentAs: 'elements_chain',
         },
         href: {
             label: 'Target (href)',
@@ -737,6 +759,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
                 </span>
             ),
             examples: ['https://posthog.com/about'],
+            sentAs: 'elements_chain',
         },
     },
 }

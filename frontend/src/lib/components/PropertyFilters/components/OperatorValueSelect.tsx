@@ -67,25 +67,33 @@ export function OperatorValueSelect({
     defaultOpen,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
-
+    const isEventTimestamp = type === PropertyFilterType.Element && propkey === 'timestamp'
     // DateTime properties should not default to Exact
     const startingOperator =
-        propertyDefinition?.property_type == PropertyType.DateTime && (!operator || operator == PropertyOperator.Exact)
+        isEventTimestamp ||
+        (propertyDefinition?.property_type == PropertyType.DateTime &&
+            (!operator || operator == PropertyOperator.Exact))
             ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
     const [validationError, setValidationError] = useState<string | null>(null)
 
+    console.log({ currentOperator, startingOperator, operator })
+
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
         const limitedElementProperty = propkey === 'selector' || propkey === 'tag_name'
         const operatorMapping: Record<string, string> = chooseOperatorMap(
-            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
+            isEventTimestamp
+                ? PropertyType.DateTime
+                : limitedElementProperty
+                ? PropertyType.Selector
+                : propertyDefinition?.property_type
         )
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
         if (currentOperator !== operator) {
-            setCurrentOperator(startingOperator)
+            setCurrentOperator(operator ?? startingOperator)
         } else if (limitedElementProperty && !operators.includes(currentOperator)) {
             setCurrentOperator(PropertyOperator.Exact)
         }

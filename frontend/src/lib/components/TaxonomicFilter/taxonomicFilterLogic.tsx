@@ -183,15 +183,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getIcon: getEventDefinitionIcon,
                     },
                     {
-                        name: 'Autocapture elements',
-                        searchPlaceholder: 'autocapture elements',
+                        name: 'Event metadata',
+                        searchPlaceholder: 'event metadata',
                         type: TaxonomicFilterGroupType.Elements,
-                        options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
+                        options: [
+                            'event',
+                            'timestamp',
+                            'distinct_id',
+                            'person_id',
+                            'selector',
+                            'tag_name',
+                            'text',
+                            'href',
+                        ].map((option) => ({
                             name: option,
                         })) as SimpleOption[],
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => 'Autocapture Element',
+                        getPopoverHeader: () => 'Event Metadata',
                     },
                     {
                         name: 'Event properties',

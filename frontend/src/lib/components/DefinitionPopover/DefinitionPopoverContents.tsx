@@ -7,7 +7,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { useEffect } from 'react'
-import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
+import { getKeyMapping, isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { Link } from 'lib/lemon-ui/Link'
@@ -251,7 +251,11 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Section>
                     <DefinitionPopover.Card
                         title="Sent as"
-                        value={<span className="text-xs font-mono">{_definition.name}</span>}
+                        value={
+                            <span className="text-xs font-mono">
+                                {getKeyMapping(_definition.name, 'element')?.sentAs ?? _definition.name}
+                            </span>
+                        }
                     />
                 </DefinitionPopover.Section>
             </>

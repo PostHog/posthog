@@ -79,7 +79,12 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
 
     if property.type == "hogql":
         return parse_expr(property.key)
-    elif property.type == "event" or cast(Any, property.type) == "feature" or property.type == "person":
+    elif (
+        property.type == "event"
+        or cast(Any, property.type) == "feature"
+        or property.type == "person"
+        or (property.type == "element" and property.key in ["distinct_id", "person_id", "event", "timestamp"])
+    ):
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if isinstance(value, list):
@@ -102,8 +107,13 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        chain = ["person", "properties"] if property.type == "person" else ["properties"]
-        field = ast.Field(chain=chain + [property.key])
+        if property.type == "element":
+            chain = [property.key]
+        elif property.type == "person":
+            chain = ["person", "properties", property.key]
+        else:
+            chain = ["properties", property.key]
+        field = ast.Field(chain=chain)
 
         if operator == PropertyOperator.is_set:
             return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))

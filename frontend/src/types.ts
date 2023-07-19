@@ -2505,6 +2505,7 @@ export interface KeyMapping {
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
+    sentAs?: string | JSX.Element
 }
 
 export interface TileParams {

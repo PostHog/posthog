@@ -73,7 +73,7 @@ export function PropertyKeyInfo({
                     ) : null}
                     <LemonDivider className="my-3" />
                     <div>
-                        Sent as <code>{value}</code>
+                        Sent as <code>{data?.sentAs ?? value}</code>
                     </div>
                 </div>
             }
