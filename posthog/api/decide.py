@@ -2,6 +2,7 @@ from random import random
 import re
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
@@ -169,6 +170,7 @@ def get_decide(request: HttpRequest):
 
             disable_flags = process_bool(data.get("disable_flags")) is True
             feature_flags = None
+            errors = False
             if not disable_flags:
 
                 distinct_id = data.get("distinct_id")
@@ -246,10 +248,11 @@ def get_decide(request: HttpRequest):
                 }
 
             site_apps = []
-            if team.inject_web_apps:
+            # errors mean the database is unavailable, bail in this case
+            if team.inject_web_apps and not errors:
                 try:
-                    with execute_with_timeout(200):
-                        site_apps = get_decide_site_apps(team)
+                    with execute_with_timeout(200, DATABASE_FOR_FLAG_MATCHING):
+                        site_apps = get_decide_site_apps(team, using_database=DATABASE_FOR_FLAG_MATCHING)
                 except Exception:
                     pass
 
