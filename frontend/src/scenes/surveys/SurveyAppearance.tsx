@@ -3,7 +3,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
-    SurveyQuestionRating,
+    RatingSurveyQuestion,
     SurveyQuestionType,
 } from '~/types'
 import { defaultSurveyAppearance } from './surveyLogic'
@@ -20,7 +20,7 @@ interface SurveyAppearanceProps {
     type: SurveyQuestionType
     question: string
     appearance: SurveyAppearanceType
-    surveyQuestionItem: SurveyQuestionRating | SurveyQuestion
+    surveyQuestionItem: RatingSurveyQuestion | SurveyQuestion
     description?: string | null
     link?: string | null
     readOnly?: boolean
@@ -41,7 +41,7 @@ export function SurveyAppearance({
             <h3 className="mb-4 text-center">Preview</h3>
             {type === SurveyQuestionType.Rating ? (
                 <SurveyRatingAppearance
-                    ratingSurveyQuestion={surveyQuestionItem as SurveyQuestionRating}
+                    ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
                     appearance={appearance}
                     question={question}
                     description={description}
@@ -167,7 +167,7 @@ function SurveyRatingAppearance({
     question,
     description,
 }: {
-    ratingSurveyQuestion: SurveyQuestionRating
+    ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
     question: string
     description?: string | null

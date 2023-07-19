@@ -2049,7 +2049,7 @@ export interface Survey {
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: (SurveyQuestion | SurveyQuestionLink | SurveyQuestionRating)[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2073,19 +2073,22 @@ export interface SurveyAppearance {
     descriptionTextColor?: string
 }
 
-export interface SurveyQuestion {
-    type: SurveyQuestionType
+interface SurveyQuestionBase {
     question: string
     description?: string | null
     required?: boolean
 }
 
-export interface SurveyQuestionLink extends SurveyQuestion {
+export interface BasicSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
+}
+
+export interface LinkSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Link
     link: string | null
 }
 
-export interface SurveyQuestionRating extends SurveyQuestion {
+export interface RatingSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Rating
     display: 'number' | 'emoji'
     scale: number
@@ -2093,9 +2096,12 @@ export interface SurveyQuestionRating extends SurveyQuestion {
     upperBoundLabel: string
 }
 
-export interface SurveyQuestionMultiple extends SurveyQuestion {
+export interface MultipleSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
     choices: string[]
 }
+
+export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
 
 export enum SurveyQuestionType {
     Open = 'open',

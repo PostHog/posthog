@@ -13,8 +13,8 @@ import {
     Survey,
     SurveyQuestionType,
     SurveyType,
-    SurveyQuestionLink,
-    SurveyQuestionRating,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
 } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -106,7 +106,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </Field>
                     <LemonDivider />
                     {survey.questions.map(
-                        (question: SurveyQuestionLink | SurveyQuestion | SurveyQuestionRating, index: number) => (
+                        (question: LinkSurveyQuestion | SurveyQuestion | RatingSurveyQuestion, index: number) => (
                             <Group name={`questions.${index}`} key={index}>
                                 <Field name="type" label="Question type" className="max-w-150">
                                     <LemonSelect
@@ -124,10 +124,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 </Field>
                                 {question.type === SurveyQuestionType.Link && (
                                     <Field name="link" label="Link" info="Make sure to include https:// in the url.">
-                                        <LemonInput
-                                            value={(question as SurveyQuestionLink).link || ''}
-                                            placeholder="https://posthog.com"
-                                        />
+                                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
                                     </Field>
                                 )}
                                 <Field name="description" label="Question description (optional)">
@@ -147,11 +144,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             <Field name="scale" label="Scale" className="max-w-100">
                                                 <LemonSelect
                                                     options={[
-                                                        ...((question as SurveyQuestionRating).display === 'emoji'
+                                                        ...(question.display === 'emoji'
                                                             ? [{ label: '1 - 3', value: 3 }]
                                                             : []),
                                                         { label: '1 - 5', value: 5 },
-                                                        ...((question as SurveyQuestionRating).display === 'number'
+                                                        ...(question.display === 'number'
                                                             ? [{ label: '1 - 10', value: 10 }]
                                                             : []),
                                                     ]}
@@ -164,18 +161,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                 label="Lower bound label"
                                                 className="max-w-150"
                                             >
-                                                <LemonInput
-                                                    value={(question as SurveyQuestionRating).lowerBoundLabel || ''}
-                                                />
+                                                <LemonInput value={question.lowerBoundLabel || ''} />
                                             </Field>
                                             <Field
                                                 name="upperBoundLabel"
                                                 label="Upper bound label"
                                                 className="max-w-150"
                                             >
-                                                <LemonInput
-                                                    value={(question as SurveyQuestionRating).upperBoundLabel || ''}
-                                                />
+                                                <LemonInput value={question.upperBoundLabel || ''} />
                                             </Field>
                                         </div>
                                     </div>
@@ -281,7 +274,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     onAppearanceChange={(appearance) => {
                                         onChange(appearance)
                                     }}
-                                    link={(survey.questions[0] as SurveyQuestionLink).link}
+                                    link={(survey.questions[0] as LinkSurveyQuestion).link}
                                     appearance={value || defaultSurveyAppearance}
                                 />
                             )}
