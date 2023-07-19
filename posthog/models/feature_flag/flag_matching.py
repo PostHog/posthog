@@ -630,19 +630,12 @@ def get_all_feature_flags(
                     )
                     SELECT key FROM posthog_featureflag WHERE team_id = %(team_id)s AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
                         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
-                    )
                 """
-                cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids)})  #  type: ignore
-                flags_with_overrides = [row[0] for row in cursor.fetchall()]
-                remaining_flags = [
-                    flag
-                    for flag in all_feature_flags
-                    if flag.key not in flags_with_overrides and flag.ensure_experience_continuity
-                ]
-                should_write_hash_key_override = len(remaining_flags) > 0
-
+                cursor.execute(query, {"team_id": team_id, "distinct_ids": tuple(distinct_ids)})  # type: ignore
+                flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
+                should_write_hash_key_override = len(flags_with_no_overrides) > 0
         except Exception as e:
-            capture_exception(e)
+            handle_feature_flag_exception(e)
 
         if should_write_hash_key_override:
             try:
