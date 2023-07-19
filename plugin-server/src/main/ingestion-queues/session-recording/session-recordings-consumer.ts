@@ -267,13 +267,6 @@ const eachMessage =
                             drop_cause: 'recordings-consumer-does-not-handle-snapshot-items',
                         })
                         .inc()
-                } else if (event.properties?.['$snapshot_consumer'] ?? 'v1' !== 'v1') {
-                    eventDroppedCounter
-                        .labels({
-                            event_type: 'session_recordings',
-                            drop_cause: 'event-destined-for-v2-consumer',
-                        })
-                        .inc()
                 } else if (event.event === '$snapshot') {
                     const clickHouseRecord = createSessionRecordingEvent(
                         messagePayload.uuid,
@@ -286,7 +279,9 @@ const eachMessage =
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
                         const properties = event.properties || {}
-                        if (properties.$snapshot_data?.events_summary.length) {
+                        const shouldCreateReplayEvents = properties['$snapshot_consumer'] ?? 'v1' !== 'v1'
+
+                        if (shouldCreateReplayEvents && properties.$snapshot_data?.events_summary.length) {
                             replayRecord = createSessionReplayEvent(
                                 messagePayload.uuid,
                                 team.id,
