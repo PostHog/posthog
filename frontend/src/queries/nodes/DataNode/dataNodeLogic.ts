@@ -45,7 +45,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     connect({
         values: [userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
-    props({} as DataNodeLogicProps),
+    props({ query: {} } as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
@@ -96,7 +96,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     ) {
                         const url = `api/projects/${values.currentTeamId}/insights/${props.cachedResults['id']}?refresh=true`
                         const fetchResponse = await api.getResponse(url)
-                        return await getJSONOrThrow(fetchResponse)
+                        const data = await getJSONOrThrow(fetchResponse)
+                        breakpoint()
+                        return data
                     }
 
                     if (props.cachedResults && !refresh) {
@@ -108,7 +110,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (Object.keys(props.query).length === 0) {
+                    if (props.query === undefined || Object.keys(props.query).length === 0) {
                         // no need to try and load a query before properly initialized
                         return null
                     }
@@ -233,7 +235,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // store the 'autoload toggle' state in localstorage, separately for each data node kind
             {
                 persist: true,
-                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
+                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query?.kind, {
                     action: isEventsQuery(props.query) && props.query.actionId,
                     person: isEventsQuery(props.query) && props.query.personId,
                 }),
@@ -363,7 +365,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                 }
-                if (isPersonsNode(query) && response && !responseError) {
+                if (isPersonsNode(query) && response && !responseError && response.next) {
                     const personsResults = (response as PersonsNode['response'])?.results
                     const nextQuery: PersonsNode = {
                         ...query,
@@ -392,8 +394,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         nextAllowedRefresh: [
             (s, p) => [p.query, s.response],
             (query, response): string | null => {
-                return isInsightQueryNode(query) && response && 'next_allowed_refresh' in response
-                    ? response.next_allowed_refresh
+                return isInsightQueryNode(query) && response && 'next_allowed_client_refresh' in response
+                    ? response.next_allowed_client_refresh
                     : null
             },
         ],
@@ -456,8 +458,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadData()
+    afterMount(({ actions, props }) => {
+        if (Object.keys(props.query || {}).length > 0) {
+            actions.loadData()
+        }
     }),
     beforeUnmount(({ actions, values }) => {
         if (values.autoLoadRunning) {

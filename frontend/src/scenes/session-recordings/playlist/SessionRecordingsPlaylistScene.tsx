@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -22,6 +23,14 @@ export const scene: SceneExport = {
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+
+    const currentListLogic = sessionRecordingsListLogic({
+        playlistShortId: playlist?.short_id,
+        filters: playlist?.filters,
+        onFiltersChange: setFilters,
+    })
+    const { showFilters } = useValues(currentListLogic)
+    const { setShowFilters } = useActions(currentListLogic)
 
     if (!playlist && playlistLoading) {
         return (
@@ -105,13 +114,13 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         <LemonDivider vertical />
                         <LemonButton
                             type="primary"
-                            disabled={!hasChanges}
+                            disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
                             loading={hasChanges && playlistLoading}
                             onClick={() => {
-                                updatePlaylist()
+                                showFilters ? updatePlaylist() : setShowFilters(!showFilters)
                             }}
                         >
-                            Save changes
+                            {showFilters ? <>Save changes</> : <>Edit</>}
                         </LemonButton>
                     </div>
                 }

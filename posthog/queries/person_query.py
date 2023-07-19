@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from uuid import UUID
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
@@ -280,13 +281,19 @@ class PersonQuery:
             return "", "", {}
 
         if self._filter.search:
-            distinct_id_param = f"distinct_id_{prepend}"
-            distinct_id_clause = f"""
+            id_conditions_param = f"id_conditions_{prepend}"
+            id_conditions_sql = f"""
             id IN (
                 SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)})
-                WHERE distinct_id = %({distinct_id_param})s
+                WHERE distinct_id = %({id_conditions_param})s
             )
             """
+            try:
+                UUID(self._filter.search)
+            except ValueError:
+                pass
+            else:
+                id_conditions_sql = f"(id = %({id_conditions_param})s OR {id_conditions_sql})"
 
             prop_group = PropertyGroup(
                 type=PropertyOperatorType.AND,
@@ -302,7 +309,7 @@ class PersonQuery:
                 _top_level=False,
                 hogql_context=self._filter.hogql_context,
             )
-            finalization_sql = f"AND ({finalization_conditions_sql} OR {distinct_id_clause})"
+            finalization_sql = f"AND ({finalization_conditions_sql} OR {id_conditions_sql})"
 
             prefiltering_conditions_sql, prefiltering_params = parse_prop_grouped_clauses(
                 team_id=self._team_id,
@@ -317,9 +324,9 @@ class PersonQuery:
                 hogql_context=self._filter.hogql_context,
             )
             params.update(prefiltering_params)
-            prefiltering_sql = f"""AND ({prefiltering_conditions_sql} OR {distinct_id_clause})"""
+            prefiltering_sql = f"""AND ({prefiltering_conditions_sql} OR {id_conditions_sql})"""
 
-            params.update({distinct_id_param: self._filter.search})
+            params.update({id_conditions_param: self._filter.search})
 
             return prefiltering_sql, finalization_sql, params
 
