@@ -1,12 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
-import { urls } from 'scenes/urls'
-import { urlToAction } from 'kea-router'
-import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
-import { loaders } from 'kea-loaders'
-import { dayjs } from 'lib/dayjs'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 export enum WebPerformancePage {
@@ -305,29 +300,6 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
             },
         ],
     }),
-    loaders(() => ({
-        pageviewEvents: [
-            null as PerformanceEvent[] | null,
-            {
-                loadEvents: async (payload: {
-                    sessionId: string
-                    pageviewId: string
-                    timestamp: string
-                }): Promise<PerformanceEvent[]> => {
-                    const params = {
-                        session_id: payload.sessionId,
-                        pageview_id: payload.pageviewId,
-                        // sessions are capped to 24 hours, but for the query we only need to restrict
-                        // by some time range so that we reduce how much data ClickHouse tries to load
-                        date_from: dayjs(payload.timestamp).subtract(36, 'hour').toISOString(),
-                        date_to: dayjs(payload.timestamp).add(36, 'hour').toISOString(),
-                    }
-                    const response = await api.performanceEvents.list(params)
-                    return response.results
-                },
-            },
-        ],
-    })),
     selectors(() => ({
         waterfallData: [
             (s) => [s.pageviewEvents],
@@ -342,18 +314,5 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
                     ? ([{ session_id: currentEvent.session_id, events: [] }] as MatchedRecording[])
                     : [],
         ],
-    })),
-    urlToAction(({ values, actions }) => ({
-        [urls.webPerformanceWaterfall()]: (_, { sessionId, pageviewId, timestamp }) => {
-            if (values.currentPage !== WebPerformancePage.WATERFALL_CHART) {
-                actions.setCurrentPage(WebPerformancePage.WATERFALL_CHART)
-            }
-            const noPageViewEvents = values.pageviewEvents === null || !!values.pageviewEvents.length
-            const eventsMatchPageView = values.pageviewEvents?.[0].pageview_id === pageviewId
-            if (noPageViewEvents || !eventsMatchPageView) {
-                actions.pageViewToDisplay({ session_id: sessionId, pageview_id: pageviewId, timestamp: timestamp })
-                actions.loadEvents({ sessionId, pageviewId, timestamp })
-            }
-        },
     })),
 ])
