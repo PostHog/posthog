@@ -4,6 +4,7 @@ from posthog.models.team import Team
 
 from posthog.hogql.database.models import View
 from typing import Dict
+import re
 
 
 class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -46,3 +47,18 @@ class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             query=self.query["query"],
             fields=fields,
         )
+
+    # repeated from table.py
+    def remove_named_tuples(self, type):
+        from posthog.warehouse.models.table import ClickhouseHogqlMapping
+
+        """Remove named tuples from query"""
+        tokenified_type = re.split(r"(\W)", type)
+        filtered_tokens = [
+            token
+            for token in tokenified_type
+            if token == "Nullable"
+            or (len(token) == 1 and not token.isalnum())
+            or token in ClickhouseHogqlMapping.keys()
+        ]
+        return "".join(filtered_tokens)
