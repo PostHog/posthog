@@ -65,7 +65,7 @@ function createEntry(entry) {
             rules: [
                 {
                     test: /\.stories\.[jt]sx?$/,
-                    loaders: [require.resolve('@storybook/source-loader')],
+                    use: [require.resolve('@storybook/source-loader')],
                 },
                 {
                     test: /\.[jt]sx?$/,
