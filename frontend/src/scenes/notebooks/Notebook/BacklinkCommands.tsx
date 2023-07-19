@@ -101,7 +101,7 @@ export const BacklinkCommandsExtension = Extension.create({
             Suggestion({
                 pluginKey: BacklinkCommandsPluginKey,
                 editor: this.editor,
-                char: '#',
+                char: '@',
                 allow: ({ range }) => range.to - range.from === 1,
                 render: () => {
                     let renderer: ReactRenderer
