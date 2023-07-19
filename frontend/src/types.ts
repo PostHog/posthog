@@ -28,6 +28,7 @@ import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -334,6 +335,8 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
+    // Dashboards associated on particular scenes e.g. Persons or Groups
+    scene_dashboard_choices: Record<DashboardCompatibleScenes, number>
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     /** Effective access level of the user in this specific team. Null if user has no access. */

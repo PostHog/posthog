@@ -14,6 +14,12 @@ export interface SceneDashboardChoiceModalProps {
     scene: DashboardCompatibleScenes
 }
 
+export const sceneDescription: Record<DashboardCompatibleScenes, string> = {
+    [Scene.Person]: 'persons',
+    [Scene.Group]: 'groups',
+    [Scene.ProjectHomepage]: 'this project',
+}
+
 export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogicType>([
     path((key) => ['lib', 'components', 'SceneDashboardChoice', 'sceneDashboardChoiceModalLogic', key || 'unknown']),
     props({} as SceneDashboardChoiceModalProps),
@@ -34,7 +40,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         isOpen: [false, { showSceneDashboardChoiceModal: () => true, closeSceneDashboardChoiceModal: () => false }],
     }),
     selectors({
-        primaryDashboardId: [(s) => [s.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
+        currentDashboardId: [(s) => [s.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
         dashboards: [
             (s) => [s.searchTerm, s.nameSortedDashboards],
             (searchTerm, dashboards) => {
@@ -53,15 +59,29 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props, values }) => ({
         setSceneDashboardChoice: async ({ dashboardId }) => {
-            actions.updateCurrentTeam({ primary_dashboard: dashboardId })
             // TODO needs to report scene and dashboard
-            posthog.capture('primary dashboard changed')
+            if (props.scene === Scene.ProjectHomepage) {
+                actions.updateCurrentTeam({ primary_dashboard: dashboardId })
+                posthog.capture('primary dashboard changed')
+            } else {
+                actions.updateCurrentTeam({
+                    scene_dashboard_choices: {
+                        ...(values.currentTeam?.scene_dashboard_choices ||
+                            ({} as Record<DashboardCompatibleScenes, number>)),
+                        [props.scene]: dashboardId,
+                    },
+                })
+                posthog.capture('scene dashboard choice set', { scene: props.scene, dashboardId: dashboardId })
+            }
         },
         showSceneDashboardChoiceModal: async () => {
-            //TODO needs to report scene
-            posthog.capture('primary dashboard modal opened')
+            if (props.scene === Scene.ProjectHomepage) {
+                posthog.capture('primary dashboard modal opened')
+            } else {
+                posthog.capture('scene dashboard choice modal opened', { scene: props.scene })
+            }
         },
     })),
 ])

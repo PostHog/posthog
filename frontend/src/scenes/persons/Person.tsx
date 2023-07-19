@@ -293,11 +293,13 @@ export function Person(): JSX.Element | null {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards && {
-                        key: PersonsTabType.DASHBOARD,
-                        label: 'Dashboard',
-                        content: <PersonDashboard person={person} />,
-                    },
+                    showCustomerSuccessDashboards
+                        ? {
+                              key: PersonsTabType.DASHBOARD,
+                              label: 'Dashboard',
+                              content: <PersonDashboard person={person} />,
+                          }
+                        : false,
                 ]}
             />
 

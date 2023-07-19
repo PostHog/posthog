@@ -24,6 +24,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
+import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
@@ -119,23 +120,12 @@ export function ProjectHomepage(): JSX.Element {
                     />
                 </>
             ) : (
-                <div className="empty-state-container">
-                    <IconCottage className="mb-2 text-warning" style={{ fontSize: '2rem' }} />
-                    <h1>There isn’t a default dashboard set for this project</h1>
-                    <p className="mb-4">
-                        Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
-                        here.
-                    </p>
-                    <LemonButton
-                        type="primary"
-                        data-attr="project-home-new-insight"
-                        onClick={() => {
-                            showSceneDashboardChoiceModal()
-                        }}
-                    >
-                        Select a default dashboard
-                    </LemonButton>
-                </div>
+                <SceneDashboardChoiceRequired
+                    open={() => {
+                        showSceneDashboardChoiceModal()
+                    }}
+                    scene={Scene.ProjectHomepage}
+                />
             )}
             <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
         </div>
