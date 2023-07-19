@@ -464,7 +464,7 @@
                     "8929-insight-editor-panels": false
                 },
                 "$console_log_recording_enabled_server_side": true,
-                "$feature_flag": "hackathon-apm",
+                "$feature_flag": "example-flag",
                 "$feature_flag_response": true,
                 "token": "phc_1xVqdrnef7Sa0UzqpacMkBLKCE2yIoqJ0Y4STVddVCR",
                 "$session_id": "184daa3b4cf1fd0-053cd064009e46-18525635-201b88-184daa3b4d0c12",

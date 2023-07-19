@@ -851,7 +851,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 snapshots_load_time: durations.snapshots?.duration,
                 metadata_load_time: durations.metadata?.duration,
                 events_load_time: durations.events?.duration,
-                performance_events_load_time: durations.performanceEvents?.duration,
                 first_paint_load_time: durations.firstPaint?.duration,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.start?.valueOf() ?? 0,

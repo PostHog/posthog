@@ -80,7 +80,7 @@ const counterKafkaMessageReceived = new Counter({
 
 export class SessionRecordingBlobIngester {
     sessions: Record<string, SessionManager> = {}
-
+    sessionOffsetHighWaterMark?: SessionOffsetHighWaterMark
     realtimeManager: RealtimeManager
     replayEventsIngester: ReplayEventsIngester
     batchConsumer?: BatchConsumer
@@ -89,7 +89,6 @@ export class SessionRecordingBlobIngester {
     partitionNow: Record<number, number | null> = {}
     partitionLastKnownCommit: Record<number, number | null> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
-    sessionOffsetHighWaterMark?: SessionOffsetHighWaterMark
 
     constructor(
         private serverConfig: PluginsServerConfig,
@@ -100,9 +99,12 @@ export class SessionRecordingBlobIngester {
         this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
         this.replayEventsIngester = new ReplayEventsIngester(this.serverConfig)
 
-        this.sessionOffsetHighWaterMark = this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING
-            ? new SessionOffsetHighWaterMark(this.redisPool, serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY)
-            : undefined
+        if (this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING) {
+            this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(
+                this.redisPool,
+                serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+            )
+        }
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {

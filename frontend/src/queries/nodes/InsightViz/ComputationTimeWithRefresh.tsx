@@ -9,8 +9,6 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { Link } from '@posthog/lemon-ui'
 
 export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
-    const showRefreshOnInsight = !disableRefresh
-
     const { lastRefresh, response } = useValues(dataNodeLogic)
 
     const { insightProps } = useValues(insightLogic)
@@ -26,7 +24,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     return (
         <div className="flex items-center text-muted-alt">
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-            {showRefreshOnInsight && (
+            {!disableRefresh && (
                 <>
                     <span className="px-1">•</span>
                     <Link disabledReason={getInsightRefreshButtonDisabledReason()} onClick={() => loadData(true)}>

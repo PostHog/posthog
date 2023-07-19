@@ -28,6 +28,22 @@ if TYPE_CHECKING:
     from mypy_boto3_s3.type_defs import CompletedPartTypeDef
 
 
+def get_allowed_template_variables(inputs) -> dict[str, str]:
+    """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
+    export_datetime = dt.datetime.fromisoformat(inputs.data_interval_end)
+    return {
+        "second": f"{export_datetime:%S}",
+        "minute": f"{export_datetime:%M}",
+        "hour": f"{export_datetime:%H}",
+        "day": f"{export_datetime:%d}",
+        "month": f"{export_datetime:%m}",
+        "year": f"{export_datetime:%Y}",
+        "data_interval_start": inputs.data_interval_start,
+        "data_interval_end": inputs.data_interval_end,
+        "table": "events",
+    }
+
+
 @dataclass
 class S3InsertInputs:
     """Inputs for S3 exports."""
@@ -56,14 +72,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     be a very big date range and time consuming, better to split into multiple
     runs, timing out after say 30 seconds or something and upload multiple
     files.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
     """
     activity.logger.info("Running S3 export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -90,7 +98,9 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         activity.logger.info("BatchExporting %s rows to S3", count)
 
         # Create a multipart upload to S3
-        key = f"{inputs.prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
+        template_variables = get_allowed_template_variables(inputs)
+        key_prefix = inputs.prefix.format(**template_variables)
+        key = f"{key_prefix}/{inputs.data_interval_start}-{inputs.data_interval_end}.jsonl"
         s3_client = boto3.client(
             "s3",
             region_name=inputs.region,
@@ -151,7 +161,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         # We failed right at the beginning
                         new_interval_start = None
                     else:
-                        new_interval_start = result.get("_timestamp", None)
+                        new_interval_start = result.get("inserted_at", None)
 
                     if not isinstance(new_interval_start, str):
                         new_interval_start = inputs.data_interval_start
@@ -172,9 +182,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                     break
 
                 # Write the results to a local file
-                local_results_file.write(
-                    json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
-                )
+                local_results_file.write(json.dumps(result).encode("utf-8"))
                 local_results_file.write("\n".encode("utf-8"))
 
                 # Write results to S3 when the file reaches 50MB and reset the
@@ -193,7 +201,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
                         UploadId=upload_id,
                         Body=local_results_file,
                     )
-                    last_uploaded_part_timestamp = result["_timestamp"]
+                    last_uploaded_part_timestamp = result["inserted_at"]
                     # Record the ETag for the part
                     parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
                     part_number += 1

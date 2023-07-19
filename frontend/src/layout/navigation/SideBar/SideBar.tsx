@@ -6,7 +6,6 @@ import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/Project
 import {
     IconApps,
     IconBarChart,
-    IconCoffee,
     IconCohort,
     IconComment,
     IconDatabase,
@@ -164,13 +163,6 @@ function Pages(): JSX.Element {
                         }}
                     />
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
-                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
-                        <PageButton
-                            icon={<IconCoffee />}
-                            identifier={Scene.WebPerformance}
-                            to={urls.webPerformance()}
-                        />
-                    )}
 
                     {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE] && (
                         <div className="SideBar__heading">Feature Management</div>
