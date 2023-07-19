@@ -5,7 +5,6 @@ import {
     DashboardType,
     FilterType,
     InsightShortId,
-    PerformancePageView,
     ReplayTabs,
 } from '~/types'
 import { combineUrl } from 'kea-router'
@@ -78,14 +77,6 @@ export const urls = {
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
-    webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
-        // KLUDGE: only allow no pageview param for urlToAction in the logic
-        const queryParams = !!pageview
-            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
-            : ''
-        return `/web-performance/waterfall${queryParams}`
-    },
 
     replay: (tab?: ReplayTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/replay/${tab}` : '/replay/recent', filters ? { filters } : {}).url,

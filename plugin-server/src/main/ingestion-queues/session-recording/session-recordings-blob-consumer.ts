@@ -26,10 +26,7 @@ import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { RealtimeManager } from './blob-ingester/realtime-manager'
 import { SessionManager } from './blob-ingester/session-manager'
-import {
-    NullSessionOffsetHighWaterMark,
-    SessionOffsetHighWaterMark,
-} from './blob-ingester/session-offset-high-water-mark'
+import { SessionOffsetHighWaterMark } from './blob-ingester/session-offset-high-water-mark'
 import { IncomingRecordingMessage } from './blob-ingester/types'
 import { now } from './blob-ingester/utils'
 
@@ -89,7 +86,7 @@ const counterKafkaMessageReceived = new Counter({
 
 export class SessionRecordingBlobIngester {
     sessions: Record<string, SessionManager> = {}
-    private sessionOffsetHighWaterMark: SessionOffsetHighWaterMark
+    sessionOffsetHighWaterMark?: SessionOffsetHighWaterMark
     realtimeManager: RealtimeManager
     batchConsumer?: BatchConsumer
     producer?: RdKafkaProducer
@@ -107,15 +104,12 @@ export class SessionRecordingBlobIngester {
     ) {
         this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
 
-        this.sessionOffsetHighWaterMark = this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING
-            ? new SessionOffsetHighWaterMark(this.redisPool, serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY)
-            : // this receives a redis pool but doesn't use it,
-              // it is simpler to override the original like this, but will also let us see if
-              // the redis pool is contributing to RAM troubles
-              new NullSessionOffsetHighWaterMark(
-                  this.redisPool,
-                  serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
-              )
+        if (this.serverConfig.SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING) {
+            this.sessionOffsetHighWaterMark = new SessionOffsetHighWaterMark(
+                this.redisPool,
+                serverConfig.SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY
+            )
+        }
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
@@ -156,7 +150,7 @@ export class SessionRecordingBlobIngester {
             op: 'checkHighWaterMark',
         })
 
-        if (await this.sessionOffsetHighWaterMark.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
+        if (await this.sessionOffsetHighWaterMark?.isBelowHighWaterMark({ topic, partition }, session_id, offset)) {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_blob_ingestion',
@@ -186,7 +180,7 @@ export class SessionRecordingBlobIngester {
 
                     this.commitOffsets(topic, partition, session_id, offsets)
                     // We don't want to block if anything fails here. Watermarks are best effort
-                    void this.sessionOffsetHighWaterMark.add({ topic, partition }, session_id, offsets.slice(-1)[0])
+                    void this.sessionOffsetHighWaterMark?.add({ topic, partition }, session_id, offsets.slice(-1)[0])
                 }
             )
 
@@ -394,7 +388,7 @@ export class SessionRecordingBlobIngester {
                     gaugeLagMilliseconds.remove({ partition })
                     gaugeOffsetCommitted.remove({ partition })
                     gaugeOffsetCommitFailed.remove({ partition })
-                    this.sessionOffsetHighWaterMark.revoke(topicPartition)
+                    this.sessionOffsetHighWaterMark?.revoke(topicPartition)
                     this.partitionNow[partition] = null
                     this.partitionLastKnownCommit[partition] = null
                 })
@@ -546,7 +540,7 @@ export class SessionRecordingBlobIngester {
             offsetToCommit: highestOffsetToCommit,
         })
 
-        void this.sessionOffsetHighWaterMark.onCommit({ topic, partition }, highestOffsetToCommit)
+        void this.sessionOffsetHighWaterMark?.onCommit({ topic, partition }, highestOffsetToCommit)
 
         try {
             this.batchConsumer?.consumer.commit({
