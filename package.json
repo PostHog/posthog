@@ -257,6 +257,7 @@
         "pngjs": "^6.0.0",
         "postcss": "^8.4.14",
         "postcss-loader": "^4.3.0",
+        "process": "^0.11.10",
         "raw-loader": "^4.0.2",
         "sass-loader": "^10.0.1",
         "storybook-addon-pseudo-states": "1.15.1",

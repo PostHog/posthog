@@ -573,6 +573,9 @@ devDependencies:
   postcss-loader:
     specifier: ^4.3.0
     version: 4.3.0(postcss@8.4.18)(webpack@5.88.2)
+  process:
+    specifier: ^0.11.10
+    version: 0.11.10
   raw-loader:
     specifier: ^4.0.2
     version: 4.0.2(webpack@5.88.2)
