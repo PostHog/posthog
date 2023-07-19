@@ -132,7 +132,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     id: name,
                     name: name,
                     type: 'events',
-                    order: currentItemCard.depth - 1,
+                    order: currentItemCard.depth,
                     ...(currentItemCard.name.includes('http') && {
                         properties: [
                             {
@@ -146,6 +146,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 })
                 currentItemCard = currentItemCard.targetLinks[0]?.source
             }
+            events.sort((a, b) => a.order - b.order)
+
             if (events.length > 0) {
                 router.actions.push(
                     urls.insightNew({
