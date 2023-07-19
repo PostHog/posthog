@@ -1374,7 +1374,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
-            size: 496,
+            size: 433,
         },
     },
 ]
