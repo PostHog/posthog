@@ -70,7 +70,6 @@ export interface DashboardLogicProps {
     id?: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
-    extraFilters?: DashboardType['filters']
 }
 
 export interface RefreshStatus {
@@ -81,8 +80,6 @@ export interface RefreshStatus {
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
-
-export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
@@ -639,12 +636,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         apiUrl: [
-            () => [(_, props) => props.id, (_, props) => props.extraFilters],
-            (id, extraFilters) => {
+            () => [(_, props) => props.id],
+            (id) => {
                 return (refresh?: boolean) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
-                        extraFilters,
                     })}`
             },
         ],
