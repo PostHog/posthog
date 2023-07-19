@@ -1,6 +1,19 @@
 # HogQL bytecode changelog 
 
-## 2023-06-30 - 1.0.2 - First version
+## 2023-06-30 - 1.0.2
+
+Rolled back cohort matching instructions.
+
+## 2023-06-28 - 1.0.1
+
+Added cohort matching instructions.
+
+```bash
+IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
+NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
+```
+
+## 2023-06-28 - 1.0.0 - First version
 
 ### Operations added
 
@@ -37,10 +50,6 @@ NULL = 31          # [NULL]                             # null
 STRING = 32        # [STRING, 'text']                   # 'text'
 INTEGER = 33       # [INTEGER, 123]                     # 123
 FLOAT = 34         # [FLOAT, 123.12]                    # 123.01
-
-# Added for completion, but not implemented.
-IN_COHORT = 27     # [val2, val1, IREGEX]               # val1 in cohort val2
-NOT_IN_COHORT = 28 # [val2, val1, NOT_IREGEX]           # val1 not in cohort val2
 ```
 
 ### Functions added
