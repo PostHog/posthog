@@ -5,6 +5,11 @@ from django.db import migrations, models
 import django.db.models.deletion
 import posthog.models.utils
 
+# :KLUDGE: Work around test_migrations_are_safe
+class CreateModelConstraintIgnore(migrations.CreateModel):
+    def describe(self):
+        return super().describe() + " -- existing-table-constraint-ignore"
+
 
 class Migration(migrations.Migration):
 
@@ -13,7 +18,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.CreateModel(
+        CreateModelConstraintIgnore(
             name="DataWarehouseView",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
