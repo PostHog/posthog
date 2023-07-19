@@ -598,6 +598,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client
             "event": "test",
             "timestamp": "2023-04-25 13:30:00.000000",
             "created_at": "2023-04-25 13:30:00.000000",
+            "inserted_at": "2023-04-25 13:31:00.000000",
             "_timestamp": "2023-04-25 13:30:00",
             "person_id": str(uuid4()),
             "person_properties": {"$browser": "Chrome", "$os": "Mac OS X"},
