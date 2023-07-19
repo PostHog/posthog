@@ -66,4 +66,4 @@ class TestBytecode(BaseTest):
 
         with self.assertRaises(NotImplementedException) as e:
             to_bytecode("1 in cohort 2")
-        self.assertEqual(str(e.exception), "Cohort operations not possible")
+        self.assertEqual(str(e.exception), "Cohort operations are not supported")
