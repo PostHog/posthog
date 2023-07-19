@@ -52,7 +52,7 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
     return (
         <Select
             id="funnel-bin-filter"
-            dropdownClassName="funnel-bin-filter-dropdown"
+            popupClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
             defaultValue={BIN_COUNT_AUTO}
             value={funnelsFilter?.bin_count || BIN_COUNT_AUTO}

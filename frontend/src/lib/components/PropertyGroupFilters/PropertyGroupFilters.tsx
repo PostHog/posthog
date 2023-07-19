@@ -184,7 +184,7 @@ export function AndOrFilterSelect({
             <span className="ml-2">{prefix}</span>
             <Select
                 optionLabelProp="label"
-                dropdownClassName="and-or-filter-select"
+                popupClassName="and-or-filter-select"
                 style={{ marginLeft: 8, marginRight: 8 }}
                 value={value}
                 onChange={(type) => onChange(type)}

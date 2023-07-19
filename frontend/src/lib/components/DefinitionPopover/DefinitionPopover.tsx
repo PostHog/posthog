@@ -241,7 +241,7 @@ function OwnerDropdown(): JSX.Element {
             className={'definition-popover-owner-select definition-popover-edit-form-value'}
             placeholder={<Owner user={'owner' in localDefinition ? localDefinition?.owner : null} />}
             style={{ minWidth: 200 }}
-            dropdownClassName="owner-option"
+            popupClassName="owner-option"
             onChange={(val) => {
                 const newOwner = members.find((mem) => mem.user.id === val)?.user
                 if (newOwner) {
