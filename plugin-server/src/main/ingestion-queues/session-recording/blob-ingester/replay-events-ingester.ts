@@ -1,11 +1,12 @@
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
-import { HighLevelProducer as RdKafkaProducer } from 'node-rdkafka-acosom'
+import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
-import { createKafkaProducer, disconnectProducer, produce } from '../../../../kafka/producer'
+import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
+import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
@@ -17,7 +18,51 @@ export class ReplayEventsIngester {
 
     constructor(private readonly serverConfig: PluginsServerConfig) {}
 
-    public consume(event: IncomingRecordingMessage): Promise<any>[] | void {
+    public async consumeBatch(messages: IncomingRecordingMessage[]) {
+        const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
+
+        for (const message of messages) {
+            const results = await retryOnDependencyUnavailableError(() => this.consume(message))
+            if (results) {
+                pendingProduceRequests.push(...results)
+            }
+        }
+
+        // On each loop, we flush the producer to ensure that all messages
+        // are sent to Kafka.
+        try {
+            await flushProducer(this.producer!)
+        } catch (error) {
+            // Rather than handling errors from flush, we instead handle
+            // errors per produce request, which gives us a little more
+            // flexibility in terms of deciding if it is a terminal
+            // error or not.
+        }
+
+        // We wait on all the produce requests to complete. After the
+        // flush they should all have been resolved/rejected already. If
+        // we get an intermittent error, such as a Kafka broker being
+        // unavailable, we will throw. We are relying on the Producer
+        // already having handled retries internally.
+        for (const produceRequest of pendingProduceRequests) {
+            try {
+                await produceRequest
+            } catch (error) {
+                status.error('🔁', 'main_loop_error', { error })
+
+                if (error?.isRetriable) {
+                    // We assume the if the error is retriable, then we
+                    // are probably in a state where e.g. Kafka is down
+                    // temporarily and we would rather simply throw and
+                    // have the process restarted.
+                    throw error
+                }
+            }
+        }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/require-await
+    public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
         const warn = (text: string, labels: Record<string, any> = {}) =>
             status.warn('⚠️', text, {
                 offset: event.metadata.offset,
