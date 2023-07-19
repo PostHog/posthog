@@ -2929,7 +2929,6 @@ export interface RecordingReportLoadTimes {
     metadata: RecordingReportLoadTimeRow
     snapshots: RecordingReportLoadTimeRow
     events: RecordingReportLoadTimeRow
-    performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
 

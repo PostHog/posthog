@@ -28,7 +28,6 @@ import {
     LifecycleQuery,
     NodeKind,
     PathsQuery,
-    RecentPerformancePageViewNode,
     RetentionQuery,
     StickinessQuery,
     TimeToSeeDataWaterfallNode,
@@ -1014,16 +1013,6 @@ describe('summarizing insights', () => {
             const result = summarizeInsight(query, {}, summaryContext)
 
             expect(result).toEqual('person, id, created_at, person.$delete from persons')
-        })
-
-        it('summarizes a recent page views for performance query', () => {
-            const query: RecentPerformancePageViewNode = {
-                kind: NodeKind.RecentPerformancePageViewNode,
-                dateRange: { date_from: '-7d' },
-            }
-            const result = summarizeInsight(query, {}, summaryContext)
-
-            expect(result).toEqual('Recent page views with performance data')
         })
     })
 })

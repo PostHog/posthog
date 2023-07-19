@@ -9,6 +9,8 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from './utils'
 import { AnnotationType } from '~/types'
 import { urls } from '@posthog/apps-common'
+import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
+import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
 
 const fuse = new Fuse<AnnotationType>([], {
     keys: [{ name: 'content', weight: 2 }, 'date_marker'],
@@ -21,7 +23,7 @@ export const annotationsSidebarLogic = kea<annotationsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'annotationsSidebarLogic']),
     connect({
         values: [annotationsModel, ['annotations', 'annotationsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
-        actions: [annotationsModel, ['deleteAnnotation']],
+        actions: [annotationsModel, ['deleteAnnotation'], annotationModalLogic, ['openModalToCreateAnnotation']],
     }),
     selectors(({ actions }) => ({
         contents: [
@@ -29,7 +31,9 @@ export const annotationsSidebarLogic = kea<annotationsSidebarLogicType>([
             (relevantAnnotations, annotationsLoading) => [
                 {
                     key: 'annotations',
-                    title: 'Annotations',
+                    noun: 'annotation',
+                    onAdd: () => actions.openModalToCreateAnnotation(),
+                    modalContent: <AnnotationModal />,
                     items: relevantAnnotations.map(
                         ([annotation, matches]) =>
                             ({
