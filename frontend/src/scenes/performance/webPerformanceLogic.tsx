@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
+import { PerformanceEvent, PerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { getSeriesColor } from 'lib/colors'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -190,7 +190,9 @@ function calculatePerformanceParts(
     return { performanceParts, maxTime }
 }
 
-function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPerformanceData {
+// only exported so it doesn't complain about being unused
+// TODO launch waterfall chart from replay screen
+export function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPerformanceData {
     let maxTime = 0
     const pointsInTime: PointInTimeMarker[] = []
     const resourceTimings: ResourceTiming[] = []
@@ -301,18 +303,11 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
         ],
     }),
     selectors(() => ({
-        waterfallData: [
-            (s) => [s.pageviewEvents],
-            (pageviewEvents) => {
-                return forWaterfallDisplay(pageviewEvents)
-            },
-        ],
-        sessionRecording: [
-            (s) => [s.currentPageView],
-            (currentEvent: RecentPerformancePageView | null) =>
-                currentEvent?.session_id
-                    ? ([{ session_id: currentEvent.session_id, events: [] }] as MatchedRecording[])
-                    : [],
-        ],
+        // waterfallData: [
+        //     (s) => [s.pageviewEvents],
+        //     (pageviewEvents) => {
+        //         return forWaterfallDisplay(pageviewEvents)
+        //     },
+        // ],
     })),
 ])

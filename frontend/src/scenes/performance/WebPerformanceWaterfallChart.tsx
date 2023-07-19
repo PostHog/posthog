@@ -12,8 +12,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import './WebPerformance.scss'
 import { getSeriesColor } from 'lib/colors'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -389,62 +388,58 @@ function ScaleMarkers(props: { markers: number[]; maxTime: number }): JSX.Elemen
 }
 
 export function WebPerformanceWaterfallChart(): JSX.Element {
-    const { pageviewEventsLoading, pageviewEventsFailed, waterfallData, sessionRecording } =
-        useValues(webPerformanceLogic)
+    const { waterfallData, sessionRecording } = useValues(webPerformanceLogic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     return (
         <>
-            {pageviewEventsLoading ? (
-                <div className={'w-full h-full flex flex-row gap-2 justify-center items-center'}>
-                    <Spinner className={'text-2xl'} />
-                    <h1 className={'m-0'}>Loading performance data</h1>
-                </div>
-            ) : pageviewEventsFailed ? (
-                <div className={'w-full h-full flex flex-row gap-2 justify-center items-center'}>
-                    <IconErrorOutline className="text-2xl" />
-                    <h1 className={'m-0'}>There was an unexpected error loading this page's performance events</h1>
-                </div>
-            ) : (
-                <div className={'w-full h-full flex flex-col gap-2 justify-center items-center'}>
-                    <div className={'flex flex-row w-full justify-between items-center'}>
-                        <h1 className="chart-title">
-                            <PropertyKeyInfo value={'$pageview'} />
-                            ,&nbsp;
-                            <TZLabel time={waterfallData.timestamp} />
-                        </h1>
+            {/*{pageviewEventsLoading ? (*/}
+            {/*    <div className={'w-full h-full flex flex-row gap-2 justify-center items-center'}>*/}
+            {/*        <Spinner className={'text-2xl'} />*/}
+            {/*        <h1 className={'m-0'}>Loading performance data</h1>*/}
+            {/*    </div>*/}
+            {/*) : pageviewEventsFailed ? (*/}
+            {/*    <div className={'w-full h-full flex flex-row gap-2 justify-center items-center'}>*/}
+            {/*        <IconErrorOutline className="text-2xl" />*/}
+            {/*        <h1 className={'m-0'}>There was an unexpected error loading this page's performance events</h1>*/}
+            {/*    </div>*/}
+            {/*) : (*/}
+            <div className={'w-full h-full flex flex-col gap-2 justify-center items-center'}>
+                <div className={'flex flex-row w-full justify-between items-center'}>
+                    <h1 className="chart-title">
+                        <PropertyKeyInfo value={'$pageview'} />
+                        ,&nbsp;
+                        <TZLabel time={waterfallData.timestamp} />
+                    </h1>
 
-                        <MultiRecordingButton
-                            sessionRecordings={sessionRecording}
-                            onOpenRecording={(matchedRecording) => {
-                                matchedRecording?.session_id && openSessionPlayer({ id: matchedRecording.session_id })
-                            }}
-                        />
-                        <SessionPlayerModal />
-                    </div>
-                    <div className="py-4 min-h-16 border-t w-full">
-                        <div className="border rounded p-4 waterfall-chart">
-                            <PointsInTime pointsInTime={waterfallData.pointsInTime} />
-                            <div className={'flex flex-row'}>
-                                <div className={'w-1/3'}>
-                                    <ResourceTimingsNames timings={waterfallData.resourceTimings} />
-                                </div>
-                                <div className={'w-2/3 relative'}>
-                                    <EventMarkers
-                                        markers={waterfallData.pointsInTime}
-                                        maxTime={waterfallData.maxTime}
-                                    />
-                                    <ScaleMarkers markers={waterfallData.gridMarkers} maxTime={waterfallData.maxTime} />
-                                    <ResourceTimingSpans
-                                        timings={waterfallData.resourceTimings}
-                                        maxTime={waterfallData.maxTime}
-                                    />
-                                </div>
+                    <MultiRecordingButton
+                        sessionRecordings={sessionRecording}
+                        onOpenRecording={(matchedRecording) => {
+                            matchedRecording?.session_id && openSessionPlayer({ id: matchedRecording.session_id })
+                        }}
+                    />
+                    <SessionPlayerModal />
+                </div>
+                <div className="py-4 min-h-16 border-t w-full">
+                    <div className="border rounded p-4 waterfall-chart">
+                        <PointsInTime pointsInTime={waterfallData.pointsInTime} />
+                        <div className={'flex flex-row'}>
+                            <div className={'w-1/3'}>
+                                <ResourceTimingsNames timings={waterfallData.resourceTimings} />
+                            </div>
+                            <div className={'w-2/3 relative'}>
+                                <EventMarkers markers={waterfallData.pointsInTime} maxTime={waterfallData.maxTime} />
+                                <ScaleMarkers markers={waterfallData.gridMarkers} maxTime={waterfallData.maxTime} />
+                                <ResourceTimingSpans
+                                    timings={waterfallData.resourceTimings}
+                                    maxTime={waterfallData.maxTime}
+                                />
                             </div>
                         </div>
                     </div>
                 </div>
-            )}
+            </div>
+            {/*)}*/}
         </>
     )
 }
