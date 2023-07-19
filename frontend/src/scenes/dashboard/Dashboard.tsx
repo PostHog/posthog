@@ -60,6 +60,8 @@ function DashboardScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    console.log('dashboard placement', placement)
+
     useEffect(() => {
         reportDashboardViewed()
         return () => {
@@ -116,7 +118,6 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
-                            DashboardPlacement.Person,
                         ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">

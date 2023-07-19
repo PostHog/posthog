@@ -2259,6 +2259,7 @@ export enum DashboardPlacement {
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
     Person = 'person', // When the dashboard is being viewed on a person page
+    Group = 'group', // When the dashboard is being viewed on a group page
 }
 
 export enum DashboardMode { // Default mode is null
