@@ -1,6 +1,6 @@
 import { executeHogQLBytecode } from '@posthog/hogvm'
 import { Properties } from '@posthog/plugin-scaffold'
-import { captureException, captureMessage } from '@sentry/node'
+import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
@@ -231,6 +231,10 @@ export class ActionMatcher {
             }
         } catch (error) {
             console.error(error)
+            captureException(error, {
+                tags: { team_id: action.team_id },
+                extra: { event, elements, action },
+            })
         }
     }
 
@@ -245,40 +249,6 @@ export class ActionMatcher {
         elements: Element[] | undefined,
         action: Action
     ): Promise<boolean> {
-        let byteCodeResponse: boolean | undefined = undefined
-        if (Array.isArray(action.bytecode) && action.bytecode.length > 1) {
-            try {
-                const eventProxy = new Proxy(event, {
-                    get: (target, prop) => {
-                        return prop === 'person'
-                            ? {
-                                  properties: target['person_properties'],
-                                  id: target['person_id'],
-                                  created_at: target['person_created_at'],
-                              }
-                            : prop === 'elements_chain'
-                            ? target.elementsList?.length
-                                ? elementsToString(target.elementsList)
-                                : ''
-                            : (target as any)[prop]
-                    },
-                })
-                byteCodeResponse = Boolean(executeHogQLBytecode(action.bytecode, eventProxy))
-            } catch (error) {
-                // log error and fallback to previous matching
-                captureException(error, {
-                    tags: { team_id: action.team_id },
-                    extra: { event, elements, action },
-                })
-            }
-        }
-
-        // If bytecode matching worked, return true
-        if (byteCodeResponse) {
-            return true
-        }
-
-        // If bytecode matching failed, fallback to previous matching
         let response = false
         for (const step of action.steps) {
             try {
@@ -293,14 +263,6 @@ export class ActionMatcher {
                 })
             }
         }
-
-        if (response && byteCodeResponse === false) {
-            captureMessage('Action matched with regular matching, but failed with bytecode', {
-                tags: { team_id: action.team_id },
-                extra: { id: action.id, event, elements, action },
-            })
-        }
-
         return response
     }
 
