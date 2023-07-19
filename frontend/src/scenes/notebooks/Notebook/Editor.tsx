@@ -20,7 +20,7 @@ import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
-import { NotebookNodeTimestamp } from '../Nodes/NotebookNodeTimestamp'
+import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { Node } from '@tiptap/pm/model'
 
 const CustomDocument = ExtensionDocument.extend({
@@ -72,12 +72,12 @@ export function Editor({
             NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
+            NotebookNodeReplayTimestamp,
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
             SlashCommandsExtension,
             BacklinkCommandsExtension,
-            NotebookNodeTimestamp,
         ],
         content: initialContent,
         editorProps: {

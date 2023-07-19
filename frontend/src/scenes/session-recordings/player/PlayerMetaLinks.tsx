@@ -8,7 +8,7 @@ import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeTimestamp'
+import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { NotebookNodeType } from '~/types'
 
@@ -50,7 +50,7 @@ export function PlayerMetaLinks(): JSX.Element {
             const currentPlayerTime = getCurrentPlayerTime()
 
             nodeLogic.actions.insertAfterLastNodeOfType(
-                NotebookNodeType.Timestamp,
+                NotebookNodeType.ReplayTimestamp,
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
             )
         }

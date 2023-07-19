@@ -12,7 +12,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const playbackTime: number = props.node.attrs.playbackTime
 
     return (
-        <NodeViewWrapper as="span" class={clsx('Timestamp', props.selected && 'Timestamp--selected')}>
+        <NodeViewWrapper
+            as="span"
+            class={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
+        >
             {formatTimestamp(playbackTime)}
         </NodeViewWrapper>
     )
@@ -22,8 +25,8 @@ function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
 }
 
-export const NotebookNodeTimestamp = Node.create({
-    name: NotebookNodeType.Timestamp,
+export const NotebookNodeReplayTimestamp = Node.create({
+    name: NotebookNodeType.ReplayTimestamp,
     inline: true,
     group: 'inline',
     atom: true,
@@ -36,18 +39,18 @@ export const NotebookNodeTimestamp = Node.create({
     },
 
     parseHTML() {
-        return [{ tag: NotebookNodeType.Timestamp }]
+        return [{ tag: NotebookNodeType.ReplayTimestamp }]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Timestamp, mergeAttributes(HTMLAttributes)]
+        return [NotebookNodeType.ReplayTimestamp, mergeAttributes(HTMLAttributes)]
     },
 
     addKeyboardShortcuts() {
         return {
             Enter: ({ editor }) => {
                 const selectedNode = editor.state.selection.$head.parent
-                const timestampChild = lastChildOfType(selectedNode, NotebookNodeType.Timestamp)
+                const timestampChild = lastChildOfType(selectedNode, NotebookNodeType.ReplayTimestamp)
 
                 // TODO: There are more edge cases here from a UX perspective to be thought about...
 
@@ -82,7 +85,7 @@ export function buildTimestampCommentContent(
             type: 'paragraph',
             content: [
                 {
-                    type: NotebookNodeType.Timestamp,
+                    type: NotebookNodeType.ReplayTimestamp,
                     attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
                 },
                 { type: 'text', text: ' ' },

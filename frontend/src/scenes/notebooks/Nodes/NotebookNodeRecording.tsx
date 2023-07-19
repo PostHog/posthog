@@ -18,7 +18,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const recordingLogicProps = {
         ...sessionRecordingPlayerProps(id),
         autoPlay: false,
-        notebookNodeId: props.node.attrs.nodeId,
     }
 
     return (

@@ -67,7 +67,6 @@ export interface SessionRecordingLogicProps {
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicProps {
     sessionRecordingData?: SessionPlayerData
     playlistShortId?: string
-    notebookNodeId?: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
     nextSessionRecording?: Partial<SessionRecordingType>
