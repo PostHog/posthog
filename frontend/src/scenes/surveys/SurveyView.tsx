@@ -15,7 +15,7 @@ import { surveysLogic } from './surveysLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SurveyReleaseSummary } from './Survey'
 import { SurveyAppearance } from './SurveyAppearance'
-import { LinkSurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
+import { SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -234,7 +234,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         appearance={survey.appearance || defaultSurveyAppearance}
                                                         question={survey.questions[0].question}
                                                         description={survey.questions[0].description}
-                                                        link={(survey.questions[0] as LinkSurveyQuestion).link}
+                                                        link={
+                                                            survey.questions[0].type === SurveyQuestionType.Link
+                                                                ? survey.questions[0].link
+                                                                : undefined
+                                                        }
                                                         readOnly={true}
                                                         onAppearanceChange={() => {}}
                                                     />

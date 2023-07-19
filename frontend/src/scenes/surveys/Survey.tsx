@@ -274,7 +274,11 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                     onAppearanceChange={(appearance) => {
                                         onChange(appearance)
                                     }}
-                                    link={(survey.questions[0] as LinkSurveyQuestion).link}
+                                    link={
+                                        survey.questions[0].type === SurveyQuestionType.Link
+                                            ? survey.questions[0].link
+                                            : undefined
+                                    }
                                     appearance={value || defaultSurveyAppearance}
                                 />
                             )}
