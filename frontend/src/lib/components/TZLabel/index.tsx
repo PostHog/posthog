@@ -113,7 +113,7 @@ function TZLabelRaw({
         )
 
         return (
-            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} zIndex={styles.zPopover}>
+            <Popover content={PopoverContent} onOpenChange={handleVisibleChange} zIndex={styles.zPopover}>
                 {innerContent}
             </Popover>
         )

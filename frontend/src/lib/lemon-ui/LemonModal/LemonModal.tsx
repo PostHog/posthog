@@ -97,7 +97,7 @@ export function LemonModal({
                     )}
                 >
                     <Tooltip
-                        visible={!!ignoredOverlayClickCount || undefined}
+                        open={!!ignoredOverlayClickCount || undefined}
                         title={
                             ignoredOverlayClickCount ? (
                                 <>

@@ -265,7 +265,7 @@ export function ToolbarButton(): JSX.Element {
                                 y={0}
                                 content={
                                     <Tooltip
-                                        visible={showHeatmapTooltip}
+                                        open={showHeatmapTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
                                         getPopupContainer={getShadowRootPopoverContainer}
@@ -326,7 +326,7 @@ export function ToolbarButton(): JSX.Element {
                                 y={0}
                                 content={
                                     <Tooltip
-                                        visible={showActionsTooltip}
+                                        open={showActionsTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
                                         getPopupContainer={getShadowRootPopoverContainer}

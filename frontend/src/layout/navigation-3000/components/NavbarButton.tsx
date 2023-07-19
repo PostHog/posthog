@@ -22,7 +22,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                     title={title}
                     placement="right"
                     delayMs={0}
-                    visible={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
+                    open={!persistentTooltip && hasBeenClicked ? false : undefined} // Force-hide tooltip after button click
                 >
                     <LemonButton
                         ref={ref}

@@ -19,13 +19,13 @@ export type TooltipProps = AntdTooltipProps & {
 // CAUTION: Any changes here will affect tooltips across the entire app.
 export function Tooltip({
     children,
-    visible,
+    open,
     isDefaultTooltip = false,
     delayMs = DEFAULT_DELAY_MS,
     ...props
 }: TooltipProps): JSX.Element {
-    const [localVisible, setVisible] = useState(!!visible)
-    const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
+    const [localOpen, setOpen] = useState(!!open)
+    const [debouncedlocalOpen] = useDebounce(open ?? localOpen, delayMs)
 
     if (!isDefaultTooltip && !('mouseEnterDelay' in props)) {
         // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
@@ -37,15 +37,15 @@ export function Tooltip({
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
     return props.title ? (
-        <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
+        <AntdTooltip {...props} open={isDefaultTooltip ? open : localOpen && debouncedlocalOpen}>
             {React.cloneElement(child, {
                 onMouseEnter: () => {
                     child.props.onMouseEnter?.()
-                    setVisible(true)
+                    setOpen(true)
                 },
                 onMouseLeave: () => {
                     child.props.onMouseLeave?.()
-                    setVisible(false)
+                    setOpen(false)
                 },
             })}
         </AntdTooltip>
