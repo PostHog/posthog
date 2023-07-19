@@ -49,6 +49,8 @@ export const NotebookNodeTimestamp = Node.create({
                 const selectedNode = editor.state.selection.$head.parent
                 const timestampChild = lastChildOfType(selectedNode, NotebookNodeType.Timestamp)
 
+                // TODO: There are more edge cases here from a UX perspective to be thought about...
+
                 if (selectedNode.type.name === 'paragraph' && timestampChild) {
                     const sessionRecordingId = timestampChild.attrs.sessionRecordingId
 

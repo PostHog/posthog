@@ -8,23 +8,24 @@ import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeTimestamp'
-import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { NotebookNodeType } from '~/types'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const nodeLogic = useNotebookNode()
 
-    const nodeLogic = notebookNodeLogic.findMounted({ nodeId: logicProps.notebookNodeId })
+    const getCurrentPlayerTime = (): number => {
+        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
+        return sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+    }
 
     const onShare = (): void => {
         setPause()
-        // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
-        const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
         openPlayerShareDialog({
-            seconds: Math.floor(currentPlayerTime / 1000),
+            seconds: Math.floor(getCurrentPlayerTime() / 1000),
             id: sessionRecordingId,
         })
     }
@@ -46,23 +47,12 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const onComment = (): void => {
         if (nodeLogic) {
-            const logic = notebookLogic.findMounted({ shortId: nodeLogic.props.notebookShortId })
-            const currentPlayerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+            const currentPlayerTime = getCurrentPlayerTime()
 
-            if (logic && nodeLogic.props.getPos) {
-                let insertionPosition = nodeLogic.props.getPos()
-                let nextNode = logic?.values.editor?.nextNode(insertionPosition)
-
-                while (nextNode && logic.values.editor?.hasChildOfType(nextNode.node, NotebookNodeType.Timestamp)) {
-                    insertionPosition = nextNode.position
-                    nextNode = logic?.values.editor?.nextNode(insertionPosition)
-                }
-
-                logic?.values.editor?.insertContentAfterNode(
-                    insertionPosition,
-                    buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
-                )
-            }
+            nodeLogic.actions.insertAfterLastNodeOfType(
+                NotebookNodeType.Timestamp,
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
+            )
         }
     }
 

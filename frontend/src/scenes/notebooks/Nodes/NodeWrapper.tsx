@@ -1,17 +1,17 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { Link } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { BindLogic, useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { posthog } from 'posthog-js'
 import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
 
 export interface NodeWrapperProps extends NodeViewProps {
@@ -36,6 +36,16 @@ export function NodeWrapper({
     updateAttributes,
 }: NodeWrapperProps): JSX.Element {
     const { shortId } = useValues(notebookLogic)
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const nodeId = useMemo(() => node.attrs.nodeId || uuid(), [node.attrs.nodeId])
+    const nodeLogic = useMountedLogic(
+        notebookNodeLogic({
+            nodeId,
+            notebookLogic: mountedNotebookLogic,
+            getPos: getPos,
+        })
+    )
+
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -71,14 +81,7 @@ export function NodeWrapper({
     }, [resizeable, updateAttributes])
 
     return (
-        <BindLogic
-            logic={notebookNodeLogic}
-            props={{
-                nodeId: node.attrs.nodeId || uuid(),
-                notebookShortId: node.attrs.notebookShortId,
-                getPos: getPos,
-            }}
-        >
+        <NotebookNodeContext.Provider value={nodeLogic}>
             <NodeViewWrapper
                 ref={ref}
                 as="div"
@@ -133,6 +136,6 @@ export function NodeWrapper({
                     )}
                 </ErrorBoundary>
             </NodeViewWrapper>
-        </BindLogic>
+        </NotebookNodeContext.Provider>
     )
 }
