@@ -410,8 +410,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             duration,
             significant,
         }),
-        reportPrimaryDashboardModalOpened: true,
-        reportPrimaryDashboardChanged: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1002,12 +1000,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
             posthog.capture('inner match property group filters type changed', { type, filtersLength })
-        },
-        reportPrimaryDashboardModalOpened: () => {
-            posthog.capture('primary dashboard modal opened')
-        },
-        reportPrimaryDashboardChanged: () => {
-            posthog.capture('primary dashboard changed')
         },
         reportDataManagementDefinitionHovered: ({ type }) => {
             posthog.capture('definition hovered', { type })

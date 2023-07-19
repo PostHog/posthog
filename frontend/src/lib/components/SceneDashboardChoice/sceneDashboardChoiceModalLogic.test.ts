@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
+import { sceneDashboardChoiceModalLogic } from './sceneDashboardChoiceModalLogic'
 import { router } from 'kea-router'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { urls } from 'scenes/urls'
@@ -8,8 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 
-describe('primaryDashboardModalLogic', () => {
-    let logic: ReturnType<typeof primaryDashboardModalLogic.build>
+describe('sceneDashboardChoiceModalLogic', () => {
+    let logic: ReturnType<typeof sceneDashboardChoiceModalLogic.build>
 
     beforeEach(async () => {
         useMocks({
@@ -24,7 +24,7 @@ describe('primaryDashboardModalLogic', () => {
         userLogic.mount()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         router.actions.push(urls.projectHomepage())
-        logic = primaryDashboardModalLogic()
+        logic = sceneDashboardChoiceModalLogic()
         logic.mount()
     })
 
@@ -35,22 +35,22 @@ describe('primaryDashboardModalLogic', () => {
     })
     describe('isOpen', () => {
         it('can be set to true and false', async () => {
-            logic.actions.showPrimaryDashboardModal()
+            logic.actions.showSceneDashboardChoiceModal()
             await expectLogic(logic).toMatchValues({
                 isOpen: true,
             })
 
-            logic.actions.closePrimaryDashboardModal()
+            logic.actions.closeSceneDashboardChoiceModal()
             await expectLogic(logic).toMatchValues({
                 isOpen: false,
             })
         })
     })
     describe('primary dashboard id', () => {
-        it('is set by setPrimaryDashboard', async () => {
-            logic.actions.setPrimaryDashboard(12)
+        it('is set by setSceneDashboardChoice', async () => {
+            logic.actions.setSceneDashboardChoice(12)
             await expectLogic(logic)
-                .toDispatchActions(['setPrimaryDashboard'])
+                .toDispatchActions(['setSceneDashboardChoice'])
                 .toDispatchActions(teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess'])
                 .toMatchValues({
                     primaryDashboardId: 12,

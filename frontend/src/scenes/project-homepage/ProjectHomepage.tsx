@@ -4,12 +4,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { PrimaryDashboardModal } from './PrimaryDashboardModal'
-import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/lemon-ui/icons'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,13 +22,17 @@ import { urls } from 'scenes/urls'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { currentTeam } = useValues(teamLogic)
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
-    const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
+    const { showSceneDashboardChoiceModal } = useActions(
+        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const topListContainerRef = useRef<HTMLDivElement | null>(null)
@@ -101,7 +103,7 @@ export function ProjectHomepage(): JSX.Element {
                                     <LemonButton
                                         type="secondary"
                                         data-attr="project-home-new-insight"
-                                        onClick={showPrimaryDashboardModal}
+                                        onClick={showSceneDashboardChoiceModal}
                                     >
                                         Change dashboard
                                     </LemonButton>
@@ -128,14 +130,14 @@ export function ProjectHomepage(): JSX.Element {
                         type="primary"
                         data-attr="project-home-new-insight"
                         onClick={() => {
-                            showPrimaryDashboardModal()
+                            showSceneDashboardChoiceModal()
                         }}
                     >
                         Select a default dashboard
                     </LemonButton>
                 </div>
             )}
-            <PrimaryDashboardModal />
+            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
         </div>
     )
 }

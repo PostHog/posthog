@@ -1,29 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
+import { sceneDashboardChoiceModalLogic, SceneDashboardChoiceModalProps } from './sceneDashboardChoiceModalLogic'
 import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-export function PrimaryDashboardModal(): JSX.Element {
-    const { isOpen, primaryDashboardId, dashboards, searchTerm } = useValues(primaryDashboardModalLogic)
-    const { closePrimaryDashboardModal, setPrimaryDashboard, setSearchTerm } = useActions(primaryDashboardModalLogic)
+export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalProps): JSX.Element {
+    const modalLogic = sceneDashboardChoiceModalLogic({ scene })
+    const { isOpen, primaryDashboardId, dashboards, searchTerm } = useValues(modalLogic)
+    const { closeSceneDashboardChoiceModal, setSceneDashboardChoice, setSearchTerm } = useActions(modalLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
             isOpen={isOpen}
-            onClose={closePrimaryDashboardModal}
+            onClose={closeSceneDashboardChoiceModal}
             title="Select a default dashboard for the project"
             footer={
                 <>
                     <LemonButton
                         type="secondary"
                         data-attr="close-primary-dashboard-modal"
-                        onClick={closePrimaryDashboardModal}
+                        onClick={closeSceneDashboardChoiceModal}
                     >
                         Close
                     </LemonButton>
@@ -80,9 +81,9 @@ export function PrimaryDashboardModal(): JSX.Element {
                                     fullWidth
                                     className="dashboard-row"
                                     onClick={() => {
-                                        setPrimaryDashboard(dashboard.id)
+                                        setSceneDashboardChoice(dashboard.id)
                                         setSearchTerm('')
-                                        closePrimaryDashboardModal()
+                                        closeSceneDashboardChoiceModal()
                                     }}
                                 >
                                     {rowContents}

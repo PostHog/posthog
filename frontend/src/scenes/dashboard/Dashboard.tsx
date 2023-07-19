@@ -60,8 +60,6 @@ function DashboardScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    console.log('dashboard placement', placement)
-
     useEffect(() => {
         reportDashboardViewed()
         return () => {
