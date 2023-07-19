@@ -2,10 +2,10 @@ import { connect, kea, selectors, path } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardPlacement } from '~/types'
-import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { groupDashboardLogicType } from './groupDashboardLogicType'
+import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 
 export const groupDashboardLogic = kea<groupDashboardLogicType>([
     path(['scenes', 'groups', 'groupDashboardLogic']),

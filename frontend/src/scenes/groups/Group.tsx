@@ -110,11 +110,13 @@ export function Group(): JSX.Element {
                             <RelatedFeatureFlags distinctId={groupData.group_key} groups={{ [groupType]: groupKey }} />
                         ),
                     },
-                    showCustomerSuccessDashboards && {
-                        key: PersonsTabType.DASHBOARD,
-                        label: 'Dashboard',
-                        content: <GroupDashboard groupData={groupData} groupTypeName={groupTypeName} />,
-                    },
+                    showCustomerSuccessDashboards
+                        ? {
+                              key: PersonsTabType.DASHBOARD,
+                              label: 'Dashboard',
+                              content: <GroupDashboard groupData={groupData} />,
+                          }
+                        : null,
                 ]}
             />
         </>

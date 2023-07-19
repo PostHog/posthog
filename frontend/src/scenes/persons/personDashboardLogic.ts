@@ -2,9 +2,13 @@ import { connect, kea, selectors, path } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { personDashboardLogicType } from './personDashboardLogicType'
-import { DashboardPlacement } from '~/types'
+import { DashboardPlacement, PersonType } from '~/types'
 import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
+
+export interface PersonDashboardLogicProps {
+    person: PersonType
+}
 
 export const personDashboardLogic = kea<personDashboardLogicType>([
     path(['scenes', 'persons', 'personDashboardLogic']),
