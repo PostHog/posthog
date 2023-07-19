@@ -140,7 +140,7 @@ export function HTMLElementsDisplay({
                             parsedCSSSelectors={parsedSelectors}
                             onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
                         />
-                        <CloseAllTags elements={elements} />
+                        <CloseAllTags elements={parsedElements} />
                     </>
                 ) : (
                     <div className="text-side">No elements to display</div>
