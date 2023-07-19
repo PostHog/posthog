@@ -40,7 +40,7 @@ export class SessionOffsetHighWaterMark {
         }
     }
 
-    public async getWatermarks(tp: TopicPartition): Promise<SessionOffsetHighWaterMarks> {
+    public async getWaterMarks(tp: TopicPartition): Promise<SessionOffsetHighWaterMarks> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
 
         // If we already have a watermark promise then we return it (i.e. we don't want to load the watermarks twice)
@@ -87,7 +87,7 @@ export class SessionOffsetHighWaterMark {
                 })
             }).then(async () => {
                 // NOTE: We do this in a secondary promise to release the previous redis client
-                const watermarks = await this.getWatermarks(tp)
+                const watermarks = await this.getWaterMarks(tp)
                 watermarks[sessionId] = offset
                 this.watermarks[key] = Promise.resolve(watermarks)
             })
@@ -122,7 +122,7 @@ export class SessionOffsetHighWaterMark {
                     ...tp,
                     offset,
                 })
-                const watermarks = await this.getWatermarks(tp)
+                const watermarks = await this.getWaterMarks(tp)
                 // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
                 Object.entries(watermarks).forEach(([sessionId, value]) => {
                     if (value && value <= offset) {
@@ -156,7 +156,7 @@ export class SessionOffsetHighWaterMark {
      * so that callers are safe to drop messages
      */
     public async isBelowHighWaterMark(tp: TopicPartition, sessionId: string, offset: number): Promise<boolean> {
-        const highWaterMarks = await this.getWatermarks(tp)
+        const highWaterMarks = await this.getWaterMarks(tp)
 
         return offset <= (highWaterMarks[sessionId] ?? -1)
     }

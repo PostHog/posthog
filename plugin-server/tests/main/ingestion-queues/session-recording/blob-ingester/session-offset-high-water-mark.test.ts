@@ -1,8 +1,9 @@
 import { TopicPartition } from 'kafkajs'
+
 import {
+    offsetHighWaterMarkKey,
     SessionOffsetHighWaterMark,
     SessionOffsetHighWaterMarks,
-    offsetHighWaterMarkKey,
 } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-offset-high-water-mark'
 import { Hub } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
@@ -50,7 +51,7 @@ describe('session offset high-water mark', () => {
     })
 
     const expectMemoryAndRedisToEqual = async (tp: TopicPartition, toEqual: any) => {
-        expect(await sessionOffsetHighWaterMark.getWatermarks(tp)).toEqual(toEqual)
+        expect(await sessionOffsetHighWaterMark.getWaterMarks(tp)).toEqual(toEqual)
         expect(await getWaterMarksFromRedis(tp)).toEqual(toEqual)
     }
 
@@ -72,8 +73,8 @@ describe('session offset high-water mark', () => {
 
         it('can get multiple watermarks without clashes', async () => {
             const results = await Promise.all([
-                sessionOffsetHighWaterMark.getWatermarks({ topic: 'topic', partition: 1 }),
-                sessionOffsetHighWaterMark.getWatermarks({ topic: 'topic', partition: 2 }),
+                sessionOffsetHighWaterMark.getWaterMarks({ topic: 'topic', partition: 1 }),
+                sessionOffsetHighWaterMark.getWaterMarks({ topic: 'topic', partition: 2 }),
             ])
 
             expect(results).toEqual([{}, {}])
@@ -106,7 +107,7 @@ describe('session offset high-water mark', () => {
     describe('with existing high-water marks', () => {
         beforeEach(async () => {
             // works even before anything is written to redis
-            expect(await sessionOffsetHighWaterMark.getWatermarks({ topic: 'topic', partition: 1 })).toStrictEqual({})
+            expect(await sessionOffsetHighWaterMark.getWaterMarks({ topic: 'topic', partition: 1 })).toStrictEqual({})
 
             await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'some-session', 123)
             await sessionOffsetHighWaterMark.add({ topic: 'topic', partition: 1 }, 'another-session', 12)
