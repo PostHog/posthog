@@ -25,7 +25,7 @@ export type SessionOffsetHighWaterMarks = Record<string, number | undefined>
 export class SessionOffsetHighWaterMark {
     // Watermarks are held in memory and synced back to redis on commit
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
-    private watermarks: Record<string, Promise<SessionOffsetHighWaterMarks> | undefined> = {}
+    private topicPartitionWaterMarks: Record<string, Promise<SessionOffsetHighWaterMarks> | undefined> = {}
 
     constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
 
@@ -44,8 +44,8 @@ export class SessionOffsetHighWaterMark {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
 
         // If we already have a watermark promise then we return it (i.e. we don't want to load the watermarks twice)
-        if (!this.watermarks[key]) {
-            this.watermarks[key] = this.run(`read all offset high-water mark for ${key} `, (client) =>
+        if (!this.topicPartitionWaterMarks[key]) {
+            this.topicPartitionWaterMarks[key] = this.run(`read all offset high-water mark for ${key} `, (client) =>
                 client.zrange(key, 0, -1, 'WITHSCORES')
             ).then((redisValue) => {
                 // NOTE: We do this in a secondary promise to release the previous redis client
@@ -62,13 +62,13 @@ export class SessionOffsetHighWaterMark {
                     {}
                 )
 
-                this.watermarks[key] = Promise.resolve(highWaterMarks)
+                this.topicPartitionWaterMarks[key] = Promise.resolve(highWaterMarks)
 
                 return highWaterMarks
             })
         }
 
-        return this.watermarks[key]!
+        return this.topicPartitionWaterMarks[key]!
     }
 
     public async add(tp: TopicPartition, sessionId: string, offset: number): Promise<void> {
@@ -89,7 +89,7 @@ export class SessionOffsetHighWaterMark {
                 // NOTE: We do this in a secondary promise to release the previous redis client
                 const watermarks = await this.getWaterMarks(tp)
                 watermarks[sessionId] = offset
-                this.watermarks[key] = Promise.resolve(watermarks)
+                this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
@@ -130,7 +130,7 @@ export class SessionOffsetHighWaterMark {
                     }
                 })
 
-                this.watermarks[key] = Promise.resolve(watermarks)
+                this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
@@ -162,6 +162,6 @@ export class SessionOffsetHighWaterMark {
     }
 
     public revoke(tp: TopicPartition) {
-        delete this.watermarks[offsetHighWaterMarkKey(this.keyPrefix, tp)]
+        delete this.topicPartitionWaterMarks[offsetHighWaterMarkKey(this.keyPrefix, tp)]
     }
 }
