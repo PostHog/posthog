@@ -267,6 +267,8 @@ def update_batch_export(
         batch_export.destination.config = {**batch_export.destination.config, **destination_data.get("config", {})}
 
     batch_export.name = name or batch_export.name
+    batch_export.start_at = start_at or batch_export.start_at
+    batch_export.end_at = end_at or batch_export.end_at
 
     if interval is None:
         interval = batch_export.interval
@@ -301,8 +303,8 @@ def update_batch_export(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
-            start_at=start_at,
-            end_at=end_at,
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
         ),
         state=state,
