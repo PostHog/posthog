@@ -2233,7 +2233,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
         with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
             self
-        ), self.assertNumQueries(4):
+        ), self.assertNumQueries(1):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
