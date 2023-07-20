@@ -164,6 +164,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
             producer = sessionRecordingKafkaProducer()
         else:
             producer = KafkaProducer()
+
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
@@ -373,13 +374,7 @@ def get_event(request):
 
             if len(replay_events) > 0:
                 # Legacy solution stays in place
-                snapshot_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-                snapshot_items_events = preprocess_replay_events_for_blob_ingestion(
-                    replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
-                )
-
-                processed_replay_events = snapshot_events + snapshot_items_events
+                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
 
                 # Mark all events so that they are only consumed by one consumer
                 for event in processed_replay_events:

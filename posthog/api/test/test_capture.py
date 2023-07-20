@@ -1186,7 +1186,7 @@ class TestCapture(BaseTest):
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
         self._send_session_recording_event(session_id=session_id)
-        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(kafka_produce.call_count, 2)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
@@ -1213,7 +1213,7 @@ class TestCapture(BaseTest):
             window_id=window_id,
             event_data=event_data,
         )
-        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(kafka_produce.call_count, 2)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
@@ -1224,6 +1224,7 @@ class TestCapture(BaseTest):
             {
                 "event": "$snapshot",
                 "properties": {
+                    "$snapshot_consumer": "v1",
                     "$snapshot_data": {
                         "chunk_count": 1,
                         "chunk_id": "fake-uuid",
@@ -1252,7 +1253,9 @@ class TestCapture(BaseTest):
         self._send_session_recording_event(event_data=large_data_array)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
-        assert topic_counter == Counter({KAFKA_SESSION_RECORDING_EVENTS: 3})
+        assert topic_counter == Counter(
+            {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
+        )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_to_blob_ingestion_topic_with_usual_size_limit(self, kafka_produce) -> None:
@@ -1389,7 +1392,7 @@ class TestCapture(BaseTest):
         replace_limited_team_tokens(QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000})
         replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
         self._send_session_recording_event()
-        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(kafka_produce.call_count, 2)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
@@ -1414,11 +1417,11 @@ class TestCapture(BaseTest):
 
         with self.settings(QUOTA_LIMITING_ENABLED=True):
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 3)
+            self.assertEqual(kafka_produce.call_count, 4)
 
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
+            self.assertEqual(kafka_produce.call_count, 2)  # Only the recording event
 
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}
@@ -1431,7 +1434,7 @@ class TestCapture(BaseTest):
             )
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000})
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
+            self.assertEqual(kafka_produce.call_count, 4)  # All events as limit-until timestamp is in the past
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_historical_analytics_events(self, kafka_produce) -> None:
