@@ -23,7 +23,6 @@ import {
     isLifecycleQuery,
     isPathsQuery,
     isPersonsNode,
-    isRecentPerformancePageViewNode,
     isRetentionQuery,
     isStickinessQuery,
     isTimeToSeeDataSessionsNode,
@@ -298,12 +297,8 @@ function summarizeQuery(query: Node): string {
         }`
     }
 
-    if (isRecentPerformancePageViewNode(query)) {
-        return 'Recent page views with performance data'
-    }
-
     if (isDataTableNode(query)) {
-        if (isHogQLQuery(query.source) || isRecentPerformancePageViewNode(query)) {
+        if (isHogQLQuery(query.source)) {
             return summarizeQuery(query.source)
         }
 

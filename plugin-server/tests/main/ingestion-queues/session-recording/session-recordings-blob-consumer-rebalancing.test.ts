@@ -11,7 +11,7 @@ import { createIncomingRecordingMessage } from './fixtures'
 
 function assertIngesterHasExpectedPartitions(ingester: SessionRecordingBlobIngester, expectedPartitions: number[]) {
     const partitions: Set<number> = new Set()
-    ingester.sessions.forEach((session) => {
+    Object.values(ingester.sessions).forEach((session) => {
         partitions.add(session.partition)
     })
     expect(Array.from(partitions)).toEqual(expectedPartitions)
@@ -48,7 +48,7 @@ describe('ingester rebalancing tests', () => {
     })
 
     it('rebalances partitions safely from one to two consumers', async () => {
-        ingesterOne = new SessionRecordingBlobIngester(hub.teamManager, config, hub.objectStorage, hub.redisPool)
+        ingesterOne = new SessionRecordingBlobIngester(config, hub.postgres, hub.objectStorage, hub.redisPool)
 
         await ingesterOne.start()
 
@@ -59,7 +59,7 @@ describe('ingester rebalancing tests', () => {
             assertIngesterHasExpectedPartitions(ingesterOne, [1])
         })
 
-        ingesterTwo = new SessionRecordingBlobIngester(hub.teamManager, config, hub.objectStorage, hub.redisPool)
+        ingesterTwo = new SessionRecordingBlobIngester(config, hub.postgres, hub.objectStorage, hub.redisPool)
         await ingesterTwo.start()
 
         await waitForExpect(() => {

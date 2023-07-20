@@ -8,13 +8,14 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { SurveyQuestion, Survey, SurveyQuestionType } from '~/types'
+import { SurveyQuestion, Survey, SurveyQuestionType, SurveyType } from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
 import { SurveyAppearance } from './SurveyAppearance'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -78,16 +79,26 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 max-w-xl">
+                <div className="flex flex-col gap-2 min-w-180">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>
                     <Field name="description" label="Description (optional)">
                         <LemonTextArea data-attr="survey-description" />
                     </Field>
+                    <Field name="type" label="Display mode" className="w-max">
+                        <LemonSelect
+                            data-attr="survey-type"
+                            options={[
+                                { label: 'Popover', value: SurveyType.Popover },
+                                { label: 'API', value: SurveyType.API },
+                            ]}
+                        />
+                    </Field>
+                    <LemonDivider />
                     {survey.questions.map((question: SurveyQuestion, index: number) => (
                         <Group name={`questions.${index}`} key={index}>
-                            <Field name="type" label="Type" className="w-max">
+                            <Field name="type" label="Type">
                                 <LemonSelect
                                     options={[
                                         { label: 'Open text', value: SurveyQuestionType.Open },
@@ -144,7 +155,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="Url contains:">
+                                    <PureField label="URL contains:">
                                         <LemonInput
                                             value={value?.url}
                                             onChange={(urlVal) => onChange({ ...value, url: urlVal })}
@@ -194,21 +205,25 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </PureField>
                 </div>
                 <LemonDivider vertical />
-                <div className="flex flex-col flex-1 items-center">
-                    <Field name="appearance" label="">
-                        {({ value, onChange }) => (
-                            <SurveyAppearance
-                                type={survey.questions[0].type}
-                                question={survey.questions[0].question}
-                                description={survey.questions[0].description}
-                                onAppearanceChange={(appearance) => {
-                                    onChange(appearance)
-                                }}
-                                link={survey.questions[0].link}
-                                appearance={value || defaultSurveyAppearance}
-                            />
-                        )}
-                    </Field>
+                <div className="flex flex-col flex-1 items-center min-w-80">
+                    {survey.type !== SurveyType.API ? (
+                        <Field name="appearance" label="">
+                            {({ value, onChange }) => (
+                                <SurveyAppearance
+                                    type={survey.questions[0].type}
+                                    question={survey.questions[0].question}
+                                    description={survey.questions[0].description}
+                                    onAppearanceChange={(appearance) => {
+                                        onChange(appearance)
+                                    }}
+                                    link={survey.questions[0].link}
+                                    appearance={value || defaultSurveyAppearance}
+                                />
+                            )}
+                        </Field>
+                    ) : (
+                        <SurveyAPIEditor survey={survey} />
+                    )}
                 </div>
             </div>
             <LemonDivider />
@@ -256,7 +271,7 @@ export function SurveyReleaseSummary({
             {survey.conditions?.url && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
-                        <span>Url contains:</span>{' '}
+                        <span>URL contains:</span>{' '}
                         <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
                     </div>
                 </div>

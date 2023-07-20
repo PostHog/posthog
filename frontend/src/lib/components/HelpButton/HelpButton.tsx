@@ -110,7 +110,7 @@ export function HelpButton({
                                     reportHelpButtonUsed(HelpType.Updates)
                                     hideHelp()
                                 },
-                                to: 'https://posthog.com/blog/categories/posthog-news',
+                                to: 'https://posthog.com/changelog',
                                 targetBlank: true,
                             },
                         ],
