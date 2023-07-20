@@ -1,22 +1,39 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import clsx from 'clsx'
-import { lastChildOfType } from '../Notebook/Editor'
+import { lastChildOfType, useNotebookLink } from '../Notebook/Editor'
+import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const sessionRecordingId: string = props.node.attrs.sessionRecordingId
     const playbackTime: number = props.node.attrs.playbackTime
+    const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
+    const logic = sessionRecordingPlayerLogic.findMounted(logicProps)
+
+    const { onClick } = useNotebookLink(urls.replaySingle(sessionRecordingId) + `?timestamp=${playbackTime}`)
+
+    const handleOnClick = (): void => {
+        if (logic) {
+            logic.actions.seekToTime(props.node.attrs.playbackTime, true)
+        } else {
+            onClick()
+        }
+    }
 
     return (
         <NodeViewWrapper
             as="span"
             class={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
-            {formatTimestamp(playbackTime)}
+            <span onClick={handleOnClick}>{formatTimestamp(playbackTime)}</span>
         </NodeViewWrapper>
     )
 }

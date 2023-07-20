@@ -3,7 +3,6 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
 import { posthogNodePasteRule, externalLinkPasteRule } from './utils'
 import { Link } from '@posthog/lemon-ui'
-import { useMemo } from 'react'
 import {
     IconGauge,
     IconBarChart,
@@ -20,9 +19,7 @@ import {
     IconLink,
     IconJournal,
 } from 'lib/lemon-ui/icons'
-import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
-import { useActions, useValues } from 'kea'
-import { notebookLogic } from '../Notebook/notebookLogic'
+import { useNotebookLink } from '../Notebook/Editor'
 
 const ICON_MAP = {
     dashboard: <IconGauge />,
@@ -42,27 +39,11 @@ const ICON_MAP = {
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { shortId } = useValues(notebookLogic)
-    const { notebookLinkClicked } = useActions(notebookSidebarLogic)
-
-    const href: string = props.node.attrs.href
-
-    const [path, pathStart, internal] = useMemo(() => {
-        const path = href.replace(window.location.origin, '')
-        const pathStart = path.split('/')[1]?.toLowerCase()
-        const internal = href.startsWith(window.location.origin)
-
-        return [path, pathStart, internal]
-    }, [href])
+    const { path, pathStart, onClick } = useNotebookLink(props.node.attrs.href)
 
     return (
         <NodeViewWrapper as="span">
-            <Link
-                to={path}
-                onClick={() => notebookLinkClicked(shortId, internal)}
-                target={internal ? undefined : '_blank'}
-                className="p-1 rounded"
-            >
+            <Link onClick={onClick} className="p-1 rounded">
                 <span>{ICON_MAP[pathStart] || <IconLink />}</span>
                 <span>{path}</span>
             </Link>
