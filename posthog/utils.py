@@ -1278,3 +1278,26 @@ class PersonOnEventsMode(str, Enum):
     DISABLED = "disabled"
     V1_ENABLED = "v1_enabled"
     V2_ENABLED = "v2_enabled"
+
+
+def label_for_team_id_to_track(team_id: int) -> str:
+    team_id_filter: List[str] = settings.DECIDE_TRACK_TEAM_IDS
+
+    team_id_as_string = str(team_id)
+
+    if "all" in team_id_filter:
+        return team_id_as_string
+
+    if team_id_as_string in team_id_filter:
+        return team_id_as_string
+
+    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
+    for range in team_id_ranges:
+        try:
+            start, end = range.split(":")
+            if int(start) <= team_id <= int(end):
+                return team_id_as_string
+        except Exception:
+            pass
+
+    return "unknown"

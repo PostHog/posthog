@@ -17,7 +17,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
-        notebookLinkClicked: (shortId: string, internal: boolean) => ({ shortId, internal }),
+        notebookLinkClicked: (shortId: string, internal: boolean = true) => ({ shortId, internal }),
     }),
 
     reducers(() => ({
