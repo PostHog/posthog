@@ -15,6 +15,7 @@ import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-consumer-v2'
 import { IncomingRecordingMessage } from '../types'
 import { convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
+import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
@@ -102,11 +103,11 @@ export class SessionManager {
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
         public readonly realtimeManager: RealtimeManager,
+        public readonly offsetHighWaterMarker: OffsetHighWaterMarker,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
-        public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void
+        public readonly topic: string
     ) {
         this.buffer = this.createBuffer()
 
@@ -350,8 +351,12 @@ export class SessionManager {
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
-            if (offsets.lowest && offsets.highest) {
-                this.onFinish([offsets.lowest, offsets.highest])
+            if (offsets.highest) {
+                void this.offsetHighWaterMarker.add(
+                    { topic: this.topic, partition: this.partition },
+                    this.sessionId,
+                    offsets.highest
+                )
             }
         } catch (error) {
             this.captureException(error)

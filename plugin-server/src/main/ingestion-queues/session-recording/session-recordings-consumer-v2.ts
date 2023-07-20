@@ -163,19 +163,11 @@ export class SessionRecordingIngesterV2 {
                 this.serverConfig,
                 this.objectStorage.s3,
                 this.realtimeManager,
+                this.offsetHighWaterMarker,
                 team_id,
                 session_id,
                 partition,
-                topic,
-                (offsets) => {
-                    if (offsets.length === 0) {
-                        return
-                    }
-
-                    // We don't want to block if anything fails here.
-                    void this.commitOffsets(topic, partition, offsets)
-                    void this.offsetHighWaterMarker.add({ topic, partition }, session_id, offsets.slice(-1)[0])
-                }
+                topic
             )
 
             this.sessions[key] = sessionManager
@@ -282,7 +274,7 @@ export class SessionRecordingIngesterV2 {
             })
 
             await this.consume(message, consumeSpan)
-            await this.commitOffsets(message.metadata.topic, message.metadata.partition, [message.metadata.offset])
+            await this.commitOffset(message.metadata.topic, message.metadata.partition, message.metadata.offset)
 
             consumeSpan?.finish()
         }
@@ -485,7 +477,7 @@ export class SessionRecordingIngesterV2 {
     // Given a topic and partition and a list of offsets, commit the highest offset
     // that is no longer found across any of the existing sessions.
     // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
-    private async commitOffsets(topic: string, partition: number, offsets: number[]): Promise<void> {
+    private async commitOffset(topic: string, partition: number, offset: number): Promise<void> {
         let potentiallyBlockingSession: SessionManager | undefined
 
         for (const sessionManager of Object.values(this.sessions)) {
@@ -500,22 +492,12 @@ export class SessionRecordingIngesterV2 {
         const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
 
         // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
-        const commitableOffsets = potentiallyBlockingOffset
-            ? offsets.filter((offset) => offset < potentiallyBlockingOffset)
-            : offsets
+        const highestOffsetToCommit =
+            potentiallyBlockingOffset && potentiallyBlockingOffset < offset ? potentiallyBlockingOffset : offset
 
-        // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
-        const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
-
-        // Check that we haven't already commited a higher offset
         const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
         if (lastKnownCommit >= highestOffsetToCommit) {
-            status.warn('🚫', `blob_ingester_consumer.commitOffsets - offset already committed`, {
-                partition,
-                offsetToCommit: highestOffsetToCommit,
-                lastKnownCommit,
-            })
-
+            // If we have already commited this offset then we don't need to do it again
             return
         }
 
@@ -526,8 +508,6 @@ export class SessionRecordingIngesterV2 {
             offsetToCommit: highestOffsetToCommit,
         })
 
-        await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
-
         this.batchConsumer?.consumer.commit({
             topic,
             partition,
@@ -535,6 +515,8 @@ export class SessionRecordingIngesterV2 {
             // for some reason you commit the next offset you expect to read and not the one you actually have
             offset: highestOffsetToCommit + 1,
         })
+
+        await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
         gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
     }
 }
