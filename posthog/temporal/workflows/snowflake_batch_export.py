@@ -164,9 +164,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             try:
                 while True:
                     try:
-                        result = await results_iterator.__anext__()
+                        result = results_iterator.__next__()
 
-                    except StopAsyncIteration:
+                    except StopIteration:
                         break
 
                     except json.JSONDecodeError:
