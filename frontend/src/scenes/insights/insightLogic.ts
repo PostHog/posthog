@@ -193,6 +193,10 @@ export const insightLogic = kea<insightLogicType>([
                     const updatedInsight: InsightModel = {
                         ...response,
                         result: response.result || values.insight.result,
+                        filters: cleanFilters(
+                            response.filters || {},
+                            values.currentTeam?.test_account_filters_default_checked
+                        ),
                     }
                     callback?.(updatedInsight)
 
@@ -352,10 +356,7 @@ export const insightLogic = kea<insightLogicType>([
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
                     fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
                 loadInsightSuccess: (_, { insight }) => insight,
-                updateInsightSuccess: (_, { insight }) => ({
-                    ...insight,
-                    filters: cleanFilters(insight.filters || {}),
-                }),
+                updateInsightSuccess: (_, { insight }) => insight,
             },
         ],
         insightLoading: [
