@@ -3,6 +3,7 @@ import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
+import { eachBatchLegacyIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion-kafkajs'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
@@ -24,6 +25,116 @@ const captureEndpointEvent = {
 }
 
 describe('eachBatchParallelIngestion with overflow reroute', () => {
+    let queue: any
+
+    function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
+        return events.map((event) => ({
+            partition: 0,
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+            value: JSON.stringify(event),
+            timestamp,
+            offset: event.offset,
+            key: event.team_id + ':' + event.distinct_id,
+        }))
+    }
+
+    beforeEach(() => {
+        queue = {
+            bufferSleep: jest.fn(),
+            pluginsServer: {
+                INGESTION_CONCURRENCY: 4,
+                statsd: {
+                    timing: jest.fn(),
+                    increment: jest.fn(),
+                    histogram: jest.fn(),
+                    gauge: jest.fn(),
+                },
+                kafkaProducer: {
+                    produce: jest.fn(),
+                },
+                db: 'database',
+            },
+            workerMethods: {
+                runAppsOnEventPipeline: jest.fn(),
+                runWebhooksHandlersEventPipeline: jest.fn(),
+                runEventPipeline: jest.fn(() => Promise.resolve({})),
+            },
+        }
+    })
+
+    it('reroutes events with no key to OVERFLOW topic', async () => {
+        const batch = [
+            {
+                partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                value: JSON.stringify(captureEndpointEvent),
+                timestamp: captureEndpointEvent['timestamp'],
+                offset: captureEndpointEvent['offset'],
+                key: null,
+            },
+        ]
+
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+
+        expect(consume).not.toHaveBeenCalled()
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+            value: JSON.stringify(captureEndpointEvent),
+            timestamp: captureEndpointEvent['timestamp'],
+            offset: captureEndpointEvent['offset'],
+            key: null,
+            waitForAck: true,
+        })
+
+        // Event is not processed here
+        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+    })
+
+    it('reroutes excess events to OVERFLOW topic', async () => {
+        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+
+        expect(consume).toHaveBeenCalledWith(
+            captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
+            1
+        )
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).toHaveBeenCalledWith({
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+            value: JSON.stringify(captureEndpointEvent),
+            timestamp: captureEndpointEvent['timestamp'],
+            offset: captureEndpointEvent['offset'],
+            key: null,
+            waitForAck: true,
+        })
+
+        // Event is not processed here
+        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+    })
+
+    it('does not reroute if not over capacity limit', async () => {
+        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => true)
+
+        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+
+        expect(consume).toHaveBeenCalledWith(
+            captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
+            1
+        )
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
+        expect(queue.pluginsServer.kafkaProducer.produce).not.toHaveBeenCalled()
+        // Event is processed
+        expect(queue.workerMethods.runEventPipeline).toHaveBeenCalled()
+    })
+})
+
+describe('eachBatchLegacyIngestion with overflow reroute', () => {
     let queue: any
 
     function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
@@ -63,7 +174,8 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
                 db: 'database',
             },
             workerMethods: {
-                runAsyncHandlersEventPipeline: jest.fn(),
+                runAppsOnEventPipeline: jest.fn(),
+                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
@@ -91,7 +203,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         }
         const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
-        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+        await eachBatchLegacyIngestion(batch, queue, IngestionOverflowMode.Reroute)
 
         expect(consume).not.toHaveBeenCalled()
         expect(captureIngestionWarning).not.toHaveBeenCalled()
@@ -118,7 +230,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
         const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
-        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+        await eachBatchLegacyIngestion(batch, queue, IngestionOverflowMode.Reroute)
 
         expect(consume).toHaveBeenCalledWith(
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
@@ -148,7 +260,7 @@ describe('eachBatchParallelIngestion with overflow reroute', () => {
         const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
         const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => true)
 
-        await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Reroute)
+        await eachBatchLegacyIngestion(batch, queue, IngestionOverflowMode.Reroute)
 
         expect(consume).toHaveBeenCalledWith(
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],

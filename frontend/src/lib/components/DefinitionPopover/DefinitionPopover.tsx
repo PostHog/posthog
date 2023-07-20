@@ -3,11 +3,10 @@ import clsx from 'clsx'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getKeyMapping } from 'lib/taxonomy'
 import { KeyMapping, UserBasicType, PropertyDefinition } from '~/types'
 import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
 import { Divider, DividerProps, Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { Link } from 'lib/lemon-ui/Link'
@@ -91,7 +90,8 @@ function Header({
                 )}
             </div>
             <div className="definition-popover-title">
-                {icon} {title}
+                {icon}
+                {title}
             </div>
         </div>
     )
@@ -143,11 +143,10 @@ function TimeMeta({
 }): JSX.Element {
     // If updatedAt doesn't exist, fallback on showing creator
     if (updatedAt) {
-        const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(updatedAt))).asSeconds()
         return (
             <span className="definition-popover-timemeta">
                 <span className="definition-popover-timemeta-time">
-                    Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
+                    Last modified {dayjs().to(dayjs.utc(updatedAt))}{' '}
                 </span>
                 {updatedBy && (
                     <span className="definition-popover-timemeta-user">
@@ -162,12 +161,9 @@ function TimeMeta({
         )
     }
     if (createdAt) {
-        const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(createdAt))).asSeconds()
         return (
             <div className="definition-popover-timemeta">
-                <span className="definition-popover-timemeta-time">
-                    Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
-                </span>
+                <span className="definition-popover-timemeta-time">Created {dayjs().to(dayjs.utc(createdAt))} </span>
                 {updatedBy && (
                     <span className="definition-popover-timemeta-user">
                         <span className="definition-popover-timemeta-spacer">by</span>{' '}
@@ -214,13 +210,13 @@ function Card({
     alignItems = 'baseline',
 }: {
     title: string | JSX.Element
-    value: React.ReactNode
+    value: React.ReactNode | null
     alignItems?: 'baseline' | 'center' | 'end'
 }): JSX.Element {
     return (
         <div className="definition-popover-grid-card" style={{ alignItems }}>
             <div className="definition-popover-grid-card-title">{title}</div>
-            <div className="definition-popover-grid-card-content">{value}</div>
+            {value && <div className="definition-popover-grid-card-content">{value}</div>}
         </div>
     )
 }

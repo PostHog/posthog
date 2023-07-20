@@ -19,7 +19,8 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { keyMapping, PropertyKeyInfo } from '../../PropertyKeyInfo'
+import { PropertyKeyInfo } from '../../PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -75,7 +76,7 @@ function CompactPropertyFiltersDisplay({
                                                 {formatPropertyLabel(
                                                     leafFilter,
                                                     cohortsById,
-                                                    keyMapping,
+                                                    KEY_MAPPING,
                                                     (s) =>
                                                         formatPropertyValueForDisplay(leafFilter.key, s)?.toString() ||
                                                         '?'

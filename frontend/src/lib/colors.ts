@@ -52,7 +52,7 @@ export function getColorVar(variable: string): string {
  */
 export function getSeriesColor(
     index: number | undefined = 0,
-    comparePrevious: boolean = false,
+    comparePrevious: boolean | null = false,
     asBackgroundHighlight?: boolean
 ): string {
     const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
@@ -100,7 +100,7 @@ export function gradateColor(
     hsl: [number, number, number],
     strength: number,
     floor: number = 0
-): `hsl(${number} ${number}% ${number}%)` {
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
     const saturation = floor + (1 - floor) * strength
-    return `hsl(${hsl[0]} ${hsl[1]}% ${100 - (100 - hsl[2]) * saturation}%)`
+    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
 }

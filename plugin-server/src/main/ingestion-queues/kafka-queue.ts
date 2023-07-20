@@ -1,8 +1,13 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Consumer, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
+import { Message } from 'node-rdkafka-acosom'
+import { Counter } from 'prom-client'
 
+import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
+import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub, PipelineEvent, PostIngestionEvent, WorkerMethods } from '../../types'
+import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
@@ -14,16 +19,17 @@ type ConsumerManagementPayload = {
     partitions?: number[] | undefined
 }
 
-type EachBatchFunction = (payload: EachBatchPayload, queue: IngestionConsumer) => Promise<void>
+type KafkaJSBatchFunction = (payload: EachBatchPayload, queue: KafkaJSIngestionConsumer) => Promise<void>
 
-export class IngestionConsumer {
+export class KafkaJSIngestionConsumer {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
-    public eachBatch: EachBatchFunction
+    public eachBatch: KafkaJSBatchFunction
     public consumer: Consumer
+    public sessionTimeout: number
     private kafka: Kafka
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
@@ -33,16 +39,18 @@ export class IngestionConsumer {
         piscina: Piscina,
         topic: string,
         consumerGroupId: string,
-        batchHandler: EachBatchFunction
+        batchHandler: KafkaJSBatchFunction
     ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.topic = topic
         this.consumerGroupId = consumerGroupId
-        this.consumer = IngestionConsumer.buildConsumer(
+        this.sessionTimeout = pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS
+        this.consumer = KafkaJSIngestionConsumer.buildConsumer(
             this.kafka,
             consumerGroupId,
-            this.pluginsServer.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS
+            this.pluginsServer.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS,
+            this.sessionTimeout
         )
         this.wasConsumerRan = false
 
@@ -51,10 +59,10 @@ export class IngestionConsumer {
         // references to queue.workerMethods buried deep in the codebase
         // #onestepatatime
         this.workerMethods = {
-            runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => {
+            runAppsOnEventPipeline: (event: PostIngestionEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
-                this.pluginsServer.lastActivityType = 'runAsyncHandlersEventPipeline'
-                return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
+                this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
+                return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
             },
             runEventPipeline: (event: PipelineEvent) => {
                 this.pluginsServer.lastActivity = new Date().valueOf()
@@ -109,7 +117,12 @@ export class IngestionConsumer {
 
     async eachBatchConsumer(payload: EachBatchPayload): Promise<void> {
         const topic = payload.batch.topic
-        await instrumentEachBatch(topic, (payload) => this.eachBatch(payload, this), payload, this.pluginsServer.statsd)
+        await instrumentEachBatchKafkaJS(
+            topic,
+            (payload) => this.eachBatch(payload, this),
+            payload,
+            this.pluginsServer.statsd
+        )
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {
@@ -168,15 +181,104 @@ export class IngestionConsumer {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    private static buildConsumer(kafka: Kafka, groupId: string, rebalanceTimeout: number | null): Consumer {
+    private static buildConsumer(
+        kafka: Kafka,
+        groupId: string,
+        rebalanceTimeout: number | null,
+        sessionTimeout: number
+    ): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
+            sessionTimeout: sessionTimeout,
             readUncommitted: false,
             rebalanceTimeout: rebalanceTimeout ?? undefined,
         })
         setupEventHandlers(consumer)
         return consumer
+    }
+}
+
+type EachBatchFunction = (messages: Message[], queue: IngestionConsumer) => Promise<void>
+
+export class IngestionConsumer {
+    public pluginsServer: Hub
+    public workerMethods: WorkerMethods
+    public consumerReady: boolean
+    public topic: string
+    public consumerGroupId: string
+    public eachBatch: EachBatchFunction
+    public consumer?: BatchConsumer
+
+    constructor(
+        pluginsServer: Hub,
+        piscina: Piscina,
+        topic: string,
+        consumerGroupId: string,
+        batchHandler: EachBatchFunction
+    ) {
+        this.pluginsServer = pluginsServer
+        this.topic = topic
+        this.consumerGroupId = consumerGroupId
+
+        // TODO: remove `this.workerMethods` and just rely on
+        // `this.batchHandler`. At the time of writing however, there are some
+        // references to queue.workerMethods buried deep in the codebase
+        // #onestepatatime
+        this.workerMethods = {
+            runAppsOnEventPipeline: (event: PostIngestionEvent) => {
+                this.pluginsServer.lastActivity = new Date().valueOf()
+                this.pluginsServer.lastActivityType = 'runAppsOnEventPipeline'
+                return piscina.run({ task: 'runAppsOnEventPipeline', args: { event } })
+            },
+            runEventPipeline: (event: PipelineEvent) => {
+                this.pluginsServer.lastActivity = new Date().valueOf()
+                this.pluginsServer.lastActivityType = 'runEventPipeline'
+                return piscina.run({ task: 'runEventPipeline', args: { event } })
+            },
+        }
+        this.consumerReady = false
+
+        this.eachBatch = batchHandler
+    }
+
+    async start(): Promise<BatchConsumer> {
+        this.consumer = await startBatchConsumer({
+            batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
+            topic: this.topic,
+            groupId: this.consumerGroupId,
+            sessionTimeout: 30000,
+            consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            fetchBatchSize: 500,
+            eachBatch: (payload) => this.eachBatchConsumer(payload),
+        })
+        this.consumerReady = true
+        return this.consumer
+    }
+
+    async eachBatchConsumer(messages: Message[]): Promise<void> {
+        await instrumentEachBatch(
+            this.topic,
+            (messages) => this.eachBatch(messages, this),
+            messages,
+            this.pluginsServer.statsd
+        )
+    }
+
+    async stop(): Promise<void> {
+        status.info('⏳', 'Stopping Kafka queue...')
+        try {
+            await this.consumer?.stop()
+            status.info('⏹', 'Kafka consumer stopped!')
+        } catch (error) {
+            status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
+        }
+
+        this.consumerReady = false
     }
 }
 
@@ -223,20 +325,47 @@ export const setupEventHandlers = (consumer: Consumer): void => {
     })
 }
 
+type EachBatchHandler = (messages: Message[]) => Promise<void>
+
 export const instrumentEachBatch = async (
     topic: string,
     eachBatch: EachBatchHandler,
+    messages: Message[],
+    statsd?: StatsD
+): Promise<void> => {
+    try {
+        kafkaConsumerMessagesReadCounter.labels({ topic_name: topic }).inc(messages.length)
+        await eachBatch(messages)
+        kafkaConsumerMessagesProcessedCounter.labels({ topic_name: topic }).inc(messages.length)
+    } catch (error) {
+        const eventCount = messages.length
+        statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
+            topic: topic,
+        })
+        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        throw error
+    }
+}
+
+export const instrumentEachBatchKafkaJS = async (
+    topic: string,
+    eachBatch: (payload: EachBatchPayload) => Promise<void>,
     payload: EachBatchPayload,
     statsd?: StatsD
 ): Promise<void> => {
     try {
+        kafkaConsumerMessagesReadCounter.labels({ topic_name: topic }).inc(payload.batch.messages.length)
         await eachBatch(payload)
+        kafkaConsumerMessagesProcessedCounter.labels({ topic_name: topic }).inc(payload.batch.messages.length)
     } catch (error) {
         const eventCount = payload.batch.messages.length
         statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
             topic: topic,
         })
-        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`, {
+            stack: error.stack,
+            error: error,
+        })
         if (error.type === 'UNKNOWN_MEMBER_ID') {
             status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
         }
@@ -263,3 +392,15 @@ export const instrumentEachBatch = async (
         throw error
     }
 }
+
+export const kafkaConsumerMessagesReadCounter = new Counter({
+    name: 'kafka_consumer_messages_read_total',
+    help: 'Count of messages read Kafka consumer for processing, by source topic.',
+    labelNames: ['topic_name'],
+})
+
+export const kafkaConsumerMessagesProcessedCounter = new Counter({
+    name: 'kafka_consumer_messages_processed_total',
+    help: 'Count of messages successfully processed by Kafka consumer, by source topic.',
+    labelNames: ['topic_name'],
+})

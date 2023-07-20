@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
@@ -10,7 +10,7 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import { isInsightVizNode } from '~/queries/utils'
 import { cleanFilters } from './utils/cleanFilters'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
@@ -36,10 +36,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['filters', 'insight', 'isUsingDashboardQueries', 'savedInsight'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['filters', 'insight', 'savedInsight'],
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             [
+                'query as insightQuery',
+                'response as insightData',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
@@ -49,10 +50,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'loadInsightSuccess', 'loadResultsSuccess', 'saveInsight as insightLogicSaveInsight'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData'],
+            ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
+            ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
         logic: [insightDataTimingLogic(props)],
     })),
@@ -130,11 +130,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
+        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
             } else if (query) {
                 actions.setQuery(query)
+            }
+
+            if (result) {
+                actions.setInsightData({ ...values.insightData, result })
             }
         },
         loadInsightSuccess: ({ insight }) => {
@@ -150,12 +154,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isInsightVizNode(values.query)) {
                 const querySource = values.query.source
                 filters = queryNodeToFilter(querySource)
-            } else if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+            } else if (values.isQueryBasedInsight) {
                 filters = {}
             }
 
             let query = undefined
-            if (values.isUsingDashboardQueries && values.isQueryBasedInsight) {
+            if (values.isQueryBasedInsight) {
                 query = values.query
             }
 

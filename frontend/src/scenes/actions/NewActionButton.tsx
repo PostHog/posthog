@@ -7,7 +7,7 @@ import { IconEdit, IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from '@posthog/lemon-ui'
 
-export function NewActionButton(): JSX.Element {
+export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     const [visible, setVisible] = useState(false)
     const [appUrlsVisible, setAppUrlsVisible] = useState(false)
 
@@ -60,6 +60,7 @@ export function NewActionButton(): JSX.Element {
                             type="secondary"
                             icon={<IconEdit />}
                             onClick={() => {
+                                onSelectOption?.()
                                 router.actions.push(urls.createAction())
                             }}
                             size="large"

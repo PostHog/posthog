@@ -343,6 +343,8 @@ def parse_prop_clauses(
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
         elif prop.type == "hogql":
+            if hogql_context is None:
+                raise ValueError("HogQL is not supported here")
             from posthog.hogql.hogql import translate_hogql
 
             filter_query = translate_hogql(prop.key, hogql_context)
@@ -762,13 +764,13 @@ def build_selector_regex(selector: Selector) -> str:
             if tag.data["tag_name"] == "*":
                 regex += ".+"
             else:
-                regex += tag.data["tag_name"]
+                regex += re.escape(tag.data["tag_name"])
         if tag.data.get("attr_class__contains"):
-            regex += r".*?\.{}".format(r"\..*?".join(sorted(tag.data["attr_class__contains"])))
+            regex += r".*?\.{}".format(r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])]))
         if tag.ch_attributes:
             regex += ".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += '{}="{}".*?'.format(key, value)
+                regex += '{}="{}".*?'.format(re.escape(key), re.escape(str(value)))
         regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += ".*"

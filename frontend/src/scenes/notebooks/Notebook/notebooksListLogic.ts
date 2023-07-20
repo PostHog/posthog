@@ -12,6 +12,7 @@ import { LOCAL_NOTEBOOK_TEMPLATES } from '../NotebookTemplates/notebookTemplates
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
+import { notebookSidebarLogic } from './notebookSidebarLogic'
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<NotebookListItemType> {}
@@ -23,11 +24,21 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
+export const handleNotebookCreation = (notebook: NotebookListItemType): void => {
+    const sidebarLogic = notebookSidebarLogic.findMounted()
+
+    if (sidebarLogic?.values.notebookSideBarShown) {
+        sidebarLogic?.actions.selectNotebook(notebook.short_id)
+    } else {
+        router.actions.push(urls.notebookEdit(notebook.short_id))
+    }
+}
+
 export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
-        createNotebook: (redirect = false) => ({ redirect }),
+        createNotebook: (redirect = true) => ({ redirect }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
@@ -60,7 +71,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const notebook = await api.notebooks.create()
 
                     if (redirect) {
-                        router.actions.push(urls.notebookEdit(notebook.short_id))
+                        handleNotebookCreation(notebook)
                     }
 
                     posthog.capture(`notebook created`, {
@@ -77,10 +88,15 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                         callback: actions.loadNotebooks,
                     })
 
+                    notebookSidebarLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
+
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
+                    if (notebook.is_template) {
+                        return values.notebooks
+                    }
                     return values.notebooks.filter((n) => n.short_id !== notebook.short_id).concat([notebook])
                 },
             },
@@ -92,6 +108,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
             },
         ],
     })),
+
     selectors({
         fuse: [
             (s) => [s.notebooks],

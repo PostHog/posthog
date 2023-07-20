@@ -5,19 +5,21 @@ import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
 import React, { useRef, useState } from 'react'
 import { navigation3000Logic } from '../navigationLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
-import { SidebarAccordion } from './SidebarAccordion'
-import { SidebarList } from './SidebarList'
-import { Accordion, BasicListItem, ExtendedListItem, SidebarLogic } from '../types'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { SidebarAccordion, pluralizeCategory } from './SidebarAccordion'
+import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useDebouncedCallback } from 'use-debounce'
+import { SidebarList } from './SidebarList'
+import { NewItemButton } from './NewItemButton'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 /** A small delay that prevents us from making a search request on each key press. */
 const SEARCH_DEBOUNCE_MS = 300
 
-/** Multi-segment item keys are joined using this separator for easy comparisons. */
-const ITEM_KEY_PART_SEPARATOR = '::'
-
-export function Sidebar(): JSX.Element {
+interface SidebarProps {
+    navbarItem: SidebarNavbarItem // Sidebar can only be rendered if there's an active sidebar navbar item
+}
+export function Sidebar({ navbarItem }: SidebarProps): JSX.Element {
     const inputElementRef = useRef<HTMLInputElement>(null)
 
     const {
@@ -26,10 +28,16 @@ export function Sidebar(): JSX.Element {
         isResizeInProgress,
         sidebarOverslideDirection: overslideDirection,
         isSidebarKeyboardShortcutAcknowledged,
-        activeNavbarItem,
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { beginResize, setIsSearchShown } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
+    const { beginResize } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
+    const { contents } = useValues(navbarItem.logic)
+
+    const onlyCategoryTitle = contents.length === 1 ? capitalizeFirstLetter(pluralizeCategory(contents[0].noun)) : null
+    const title =
+        !onlyCategoryTitle || onlyCategoryTitle.toLowerCase() === navbarItem.label.toLowerCase()
+            ? navbarItem.label
+            : `${navbarItem.label} — ${onlyCategoryTitle}`
 
     return (
         <div
@@ -48,28 +56,21 @@ export function Sidebar(): JSX.Element {
         >
             <div className="Sidebar3000__content">
                 <div className="Sidebar3000__header">
-                    <h3 className="grow">{activeNavbarItem?.label}</h3>
-                    <LemonButton
-                        icon={<IconMagnifier />}
-                        size="small"
-                        noPadding
-                        onClick={() => setIsSearchShown(!isSearchShown)}
-                        active={isSearchShown}
-                        tooltip={
-                            <>
-                                Find <KeyboardShortcut shift command f />
-                            </>
-                        }
-                        tooltipPlacement="bottom"
-                    />
+                    <h3 className="grow">{title}</h3>
+                    <SidebarActions activeSidebarLogic={navbarItem.logic} />
                 </div>
-                {activeNavbarItem?.pointer && isSearchShown && (
-                    <SidebarSearchBar activeSidebarLogic={activeNavbarItem.pointer} inputElementRef={inputElementRef} />
+                {navbarItem?.logic && isSearchShown && (
+                    <SidebarSearchBar activeSidebarLogic={navbarItem.logic} inputElementRef={inputElementRef} />
                 )}
                 <div className="Sidebar3000__lists">
-                    {activeNavbarItem?.pointer && <SidebarContent activeSidebarLogic={activeNavbarItem.pointer} />}
+                    {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
                 </div>
                 {!isSidebarKeyboardShortcutAcknowledged && <SidebarKeyboardShortcut />}
+                {contents
+                    .filter(({ modalContent }) => modalContent)
+                    .map((category) => (
+                        <React.Fragment key={category.key}>{category.modalContent}</React.Fragment>
+                    ))}
             </div>
             <div
                 className="Sidebar3000__slider"
@@ -83,6 +84,34 @@ export function Sidebar(): JSX.Element {
     )
 }
 
+function SidebarActions({ activeSidebarLogic }: { activeSidebarLogic: LogicWrapper<SidebarLogic> }): JSX.Element {
+    const { isSearchShown } = useValues(navigation3000Logic)
+    const { setIsSearchShown } = useActions(navigation3000Logic)
+    const { contents } = useValues(activeSidebarLogic)
+
+    return (
+        <>
+            {contents.length === 1 && (
+                // If there's only one category, show a top level "New" button
+                <NewItemButton category={contents[0]} />
+            )}
+            <LemonButton
+                icon={<IconMagnifier />}
+                size="small"
+                noPadding
+                onClick={() => setIsSearchShown(!isSearchShown)}
+                active={isSearchShown}
+                tooltip={
+                    <>
+                        Find <KeyboardShortcut shift command f />
+                    </>
+                }
+                tooltipPlacement="bottom"
+            />
+        </>
+    )
+}
+
 function SidebarSearchBar({
     activeSidebarLogic,
     inputElementRef,
@@ -92,14 +121,15 @@ function SidebarSearchBar({
 }): JSX.Element {
     const { searchTerm } = useValues(navigation3000Logic)
     const { setIsSearchShown, setSearchTerm, focusNextItem, setLastFocusedItemIndex } = useActions(navigation3000Logic)
-    const { isLoading, debounceSearch } = useValues(activeSidebarLogic)
+    const { contents, debounceSearch } = useValues(activeSidebarLogic)
 
     const [localSearchTerm, setLocalSearchTerm] = useState(searchTerm)
-
     const setSearchTermDebounced = useDebouncedCallback(
         (value: string) => setSearchTerm(value),
         debounceSearch ? SEARCH_DEBOUNCE_MS : undefined
     )
+
+    const isLoading = contents.some((item) => item.loading)
 
     return (
         <div>
@@ -143,46 +173,17 @@ function SidebarContent({
 }: {
     activeSidebarLogic: LogicWrapper<SidebarLogic>
 }): JSX.Element | null {
-    const { accordionCollapseMapping } = useValues(navigation3000Logic)
-    const { toggleAccordion } = useActions(navigation3000Logic)
-    const { contents, activeListItemKey, isLoading } = useValues(activeSidebarLogic)
+    const { contents } = useValues(activeSidebarLogic)
 
-    const normalizedActiveItemKey = Array.isArray(activeListItemKey)
-        ? activeListItemKey.join(ITEM_KEY_PART_SEPARATOR)
-        : activeListItemKey
-
-    return contents.length > 0 ? (
-        'items' in contents[0] ? (
-            <>
-                {(contents as Accordion[]).map((accordion) => (
-                    <SidebarAccordion
-                        key={accordion.key}
-                        title={accordion.title}
-                        items={accordion.items.map((item) => ({
-                            ...item,
-                            // Normalize keys in-place so that item refs can be injected later during rendering
-                            key: Array.isArray(item.key)
-                                ? item.key.map((keyPart) => `${accordion.key}${ITEM_KEY_PART_SEPARATOR}${keyPart}`)
-                                : `${accordion.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`,
-                        }))}
-                        loadMore={accordion.loadMore}
-                        loading={accordion.loading}
-                        collapsed={accordionCollapseMapping[accordion.key]}
-                        toggle={() => toggleAccordion(accordion.key)}
-                        activeItemKey={normalizedActiveItemKey}
-                    />
-                ))}
-            </>
-        ) : (
-            <SidebarList
-                items={contents as BasicListItem[] | ExtendedListItem[]}
-                activeItemKey={normalizedActiveItemKey}
-                loadMore={undefined}
-            />
-        )
-    ) : isLoading ? (
-        <SpinnerOverlay />
-    ) : null
+    return contents.length !== 1 ? (
+        <>
+            {(contents as SidebarCategory[]).map((accordion) => (
+                <SidebarAccordion key={accordion.key} category={accordion} />
+            ))}
+        </>
+    ) : (
+        <SidebarList category={contents[0]} />
+    )
 }
 
 function SidebarKeyboardShortcut(): JSX.Element {

@@ -2,11 +2,11 @@ import json
 from unittest.mock import patch
 from urllib.parse import quote
 
-from dateutil.parser import isoparse
 from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.query import process_query
+from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     EventPropertyFilter,
@@ -63,7 +63,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         ["test_val2", "sign out", "2", "sign out test_val2"],
                         ["test_val3", "sign out", "2", "sign out test_val3"],
                     ],
-                    "types": ["Nullable(String)", "String", "String", "Nullable(String)"],
+                    "types": ["Nullable(String)", "String", "String", "String"],
                 },
             )
 
@@ -448,13 +448,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 query_json={"kind": "EventsQuery", "select": ["event"], "where": [f"distinct_id = '{random_uuid}'"]},
             )
-            self.assertEqual(len(response.get("results", [])), 10)
 
-    def test_invalid_recent_performance_pageviews(self):
-        api_response = self.client.post(
-            f"/api/projects/{self.team.id}/query/", {"kind": "RecentPerformancePageViewNode"}
-        )
-        assert api_response.status_code == 400
+        self.assertEqual(len(response.get("results", [])), 10)
+
+    def test_property_definition_annotation_does_not_break_things(self):
+        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
+
+        with freeze_time("2020-01-10 12:14:00"):
+            response = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "EventsQuery",
+                    "select": ["event"],
+                    # This used to cause query failure when tried to add an annotation for a node without location
+                    # (which properties.$browser is in this case)
+                    "properties": [{"type": "event", "key": "$browser", "operator": "is_not", "value": "Foo"}],
+                },
+            )
+        self.assertEqual(response.get("columns"), ["event"])
 
     def test_invalid_query_kind(self):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
@@ -462,28 +473,3 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert api_response.json()["code"] == "parse_error"
         assert "validation errors for Model" in api_response.json()["detail"]
         assert "type=value_error.const; given=Tomato Soup" in api_response.json()["detail"]
-
-    def test_valid_recent_performance_pageviews(self):
-        api_response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            {"query": {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}}},
-        )
-        assert api_response.status_code == 200
-
-    @patch("ee.api.performance_events.load_performance_events_recent_pageviews")
-    def test_valid_recent_performance_pageviews_defaults_to_the_last_hour(self, patched_load_performance_events):
-        frozen_now = "2020-01-10T12:14:00Z"
-        one_hour_before = "2020-01-10T11:14:00Z"
-
-        with freeze_time(frozen_now):
-            process_query(
-                self.team,
-                {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
-                False,
-            )
-
-            patched_load_performance_events.assert_called_with(
-                team_id=self.team.pk,
-                date_from=isoparse(one_hour_before),
-                date_to=isoparse(frozen_now),
-            )

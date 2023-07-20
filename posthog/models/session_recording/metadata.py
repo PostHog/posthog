@@ -49,14 +49,17 @@ class DecompressedRecordingData(TypedDict):
 
 class RecordingMetadata(TypedDict):
     distinct_id: str
-    segments: List[RecordingSegment]
-    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
     start_time: datetime
     end_time: datetime
     click_count: int
     keypress_count: int
-    urls: List[str]
+    mouse_activity_count: int
+    console_log_count: int
+    console_warn_count: int
+    console_error_count: int
+    first_url: str
     duration: int
+    active_seconds: int
 
 
 class RecordingMatchingEvents(TypedDict):
@@ -67,5 +70,3 @@ class PersistedRecordingV1(TypedDict):
     version: str  # "2022-12-22"
     snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
     distinct_id: str
-    segments: List[RecordingSegment]
-    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]

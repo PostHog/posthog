@@ -195,14 +195,16 @@ export function PersonsModal({
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    <LemonButton
-                        onClick={() => setIsCohortModalOpen(true)}
-                        type="primary"
-                        data-attr="person-modal-save-as-cohort"
-                        disabled={!actors.length}
-                    >
-                        Save as cohort
-                    </LemonButton>
+                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                        <LemonButton
+                            onClick={() => setIsCohortModalOpen(true)}
+                            type="primary"
+                            data-attr="person-modal-save-as-cohort"
+                            disabled={!actors.length}
+                        >
+                            Save as cohort
+                        </LemonButton>
+                    )}
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
@@ -245,7 +247,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-white">
+        <div className="relative border rounded bg-bg-light">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding

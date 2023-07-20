@@ -7,8 +7,10 @@ import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } fro
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
-import { WarningEventsGraph } from './WarningEventsGraph'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ProductKey } from '~/types'
+import { ReadingHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: IngestionWarningsView,
@@ -114,7 +116,7 @@ const WARNING_TYPE_RENDERER = {
 }
 
 export function IngestionWarningsView(): JSX.Element {
-    const { data, dataLoading } = useValues(ingestionWarningsLogic)
+    const { data, dataLoading, summaryDatasets, dates } = useValues(ingestionWarningsLogic)
 
     return (
         <div data-attr="manage-events-table">
@@ -155,7 +157,7 @@ export function IngestionWarningsView(): JSX.Element {
                             {
                                 title: 'Graph',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <WarningEventsGraph summary={summary} />
+                                    return <TableCellSparkline labels={dates} data={summaryDatasets[summary.type]} />
                                 },
                             },
                             {
@@ -185,11 +187,14 @@ export function IngestionWarningsView(): JSX.Element {
                     />
                 </>
             ) : (
-                <ProductEmptyState
+                <ProductIntroduction
                     productName="Ingestion warnings"
                     thingName="ingestion warning"
+                    productKey={ProductKey.INGESTION_WARNINGS}
+                    isEmpty={true}
                     description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
+                    customHog={ReadingHog}
                 />
             )}
         </div>

@@ -5,7 +5,8 @@ from pydantic import BaseModel
 
 from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
-from posthog.hogql.constants import HOGQL_AGGREGATIONS
+from posthog.hogql.base import AST
+from posthog.hogql.functions import HOGQL_AGGREGATIONS
 from posthog.hogql.errors import NotImplementedException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -17,7 +18,7 @@ from posthog.models.property_definition import PropertyType
 from posthog.schema import PropertyOperator
 
 
-def has_aggregation(expr: ast.AST) -> bool:
+def has_aggregation(expr: AST) -> bool:
     finder = AggregationFinder()
     finder.visit(expr)
     return finder.has_aggregation
@@ -46,9 +47,7 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def property_to_expr(
-    property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Optional[Team] = None
-) -> ast.Expr:
+def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list], team: Team) -> ast.Expr:
     if isinstance(property, dict):
         property = Property(**property)
     elif isinstance(property, list):
@@ -59,15 +58,18 @@ def property_to_expr(
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
+        if property.type != PropertyOperatorType.AND and property.type != PropertyOperatorType.OR:
+            raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
+
+        if len(property.values) == 0:
+            return ast.Constant(value=True)
+        if len(property.values) == 1:
+            return property_to_expr(property.values[0], team)
+
         if property.type == PropertyOperatorType.AND:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0], team)
             return ast.And(exprs=[property_to_expr(p, team) for p in property.values])
-        if property.type == PropertyOperatorType.OR:
-            if len(property.values) == 1:
-                return property_to_expr(property.values[0], team)
+        else:
             return ast.Or(exprs=[property_to_expr(p, team) for p in property.values])
-        raise NotImplementedException(f'PropertyGroup of unknown type "{property.type}"')
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
@@ -81,7 +83,9 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
         if isinstance(value, list):
-            if len(value) == 1:
+            if len(value) == 0:
+                return ast.Constant(value=True)
+            elif len(value) == 1:
                 value = value[0]
             else:
                 exprs = [
@@ -130,9 +134,9 @@ def property_to_expr(
         elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
             op = ast.CompareOperationOp.Gt
         elif operator == PropertyOperator.lte:
-            op = ast.CompareOperationOp.LtE
+            op = ast.CompareOperationOp.LtEq
         elif operator == PropertyOperator.gte:
-            op = ast.CompareOperationOp.GtE
+            op = ast.CompareOperationOp.GtEq
         else:
             raise NotImplementedException(f"PropertyOperator {operator} not implemented")
 
@@ -199,18 +203,15 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+
         cohort = Cohort.objects.get(team=team, id=property.value)
+        return ast.CompareOperation(
+            left=ast.Field(chain=["person_id"]),
+            op=ast.CompareOperationOp.InCohort,
+            right=ast.Constant(value=cohort.pk),
+        )
 
-        if cohort.is_static:
-            sql = "person_id in (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
-        else:
-            sql = "person_id in (SELECT person_id FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-
-        return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
-    # "group",
-    # "recording",
-    # "behavioral",
-    # "session",
+    # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
 
     raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
 
@@ -259,12 +260,14 @@ def action_to_expr(action: Action) -> ast.Expr:
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties))
+            exprs.append(property_to_expr(step.properties, action.team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
         elif len(exprs) > 1:
             or_queries.append(ast.And(exprs=exprs))
+        else:
+            or_queries.append(ast.Constant(value=True))
 
     if len(or_queries) == 1:
         return or_queries[0]

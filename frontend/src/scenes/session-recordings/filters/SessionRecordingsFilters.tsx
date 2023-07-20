@@ -4,12 +4,22 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { EntityTypes, FilterType, LocalRecordingFilters, RecordingDurationFilter, RecordingFilters } from '~/types'
+import {
+    EntityTypes,
+    FilterableLogLevel,
+    FilterType,
+    LocalRecordingFilters,
+    RecordingDurationFilter,
+    RecordingFilters,
+} from '~/types'
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { useActions, useValues } from 'kea'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -41,6 +51,67 @@ const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters
     }
 }
 
+function ConsoleFilters({
+    filters,
+    setConsoleFilters,
+}: {
+    filters: RecordingFilters
+    setConsoleFilters: (selection: FilterableLogLevel[]) => void
+}): JSX.Element {
+    function updateChoice(checked: boolean, level: FilterableLogLevel): void {
+        const newChoice = filters.console_logs?.filter((c) => c !== level) || []
+        if (checked) {
+            setConsoleFilters([...newChoice, level])
+        } else {
+            setConsoleFilters(newChoice)
+        }
+    }
+
+    return (
+        <LemonButtonWithDropdown
+            status="stealth"
+            type="secondary"
+            data-attr={'console-filters'}
+            dropdown={{
+                sameWidth: true,
+                closeOnClickInside: false,
+                overlay: [
+                    <>
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('log')}
+                            onChange={(checked) => {
+                                updateChoice(checked, 'log')
+                            }}
+                            label={'log'}
+                        />
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('warn')}
+                            onChange={(checked) => updateChoice(checked, 'warn')}
+                            label={'warn'}
+                        />
+                        <LemonCheckbox
+                            size="small"
+                            fullWidth
+                            checked={!!filters.console_logs?.includes('error')}
+                            onChange={(checked) => updateChoice(checked, 'error')}
+                            label={'error'}
+                        />
+                    </>,
+                ],
+                actionable: true,
+            }}
+        >
+            {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
+                <span className={'text-muted'}>Console types to filter for...</span>
+            )}
+        </LemonButtonWithDropdown>
+    )
+}
+
 export function SessionRecordingsFilters({
     filters,
     setFilters,
@@ -49,6 +120,9 @@ export function SessionRecordingsFilters({
     usesListingV3,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
+
+    const { durationTypeToShow } = useValues(playerSettingsLogic)
+    const { setDurationTypeToShow } = useActions(playerSettingsLogic)
 
     // We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
@@ -120,7 +194,7 @@ export function SessionRecordingsFilters({
                 setFilters={(payload) => {
                     setLocalFilters(payload)
                 }}
-                typeKey={'session-recordings-2'}
+                typeKey={'session-recordings'}
                 mathAvailability={MathAvailability.None}
                 buttonCopy="Filter for events or actions"
                 hideRename
@@ -141,20 +215,50 @@ export function SessionRecordingsFilters({
                 }}
             />
 
-            <LemonLabel info="Show recordings by persons who match the set criteria">
-                Filter by persons and cohorts
-            </LemonLabel>
-
             {showPropertyFilters && (
-                <PropertyFilters
-                    pageKey={'session-recordings'}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
-                    propertyFilters={filters.properties}
-                    onChange={(properties) => {
-                        setFilters({ properties })
-                    }}
-                />
+                <>
+                    <LemonLabel info="Show recordings by persons who match the set criteria">
+                        Filter by persons and cohorts
+                    </LemonLabel>
+
+                    <PropertyFilters
+                        pageKey={'session-recordings'}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.Cohorts,
+                        ]}
+                        propertyFilters={filters.properties}
+                        onChange={(properties) => {
+                            setFilters({ properties })
+                        }}
+                    />
+                </>
             )}
+
+            <LemonLabel info="Show recordings that have captured console log messages">
+                Filter by console logs
+            </LemonLabel>
+            <ConsoleFilters
+                filters={filters}
+                setConsoleFilters={(x) =>
+                    setFilters({
+                        console_logs: x,
+                    })
+                }
+            />
+
+            <div className={'flex flex-col py-1 px-2 '}>
+                <LemonDivider />
+
+                <div className={'flex flex-row items-center justify-end space-x-2'}>
+                    <span>Show</span>
+                    <DurationTypeSelect
+                        value={durationTypeToShow}
+                        onChange={(value) => setDurationTypeToShow(value)}
+                        onChangeEventDescription={'session recording list duration type to show selected'}
+                    />
+                </div>
+            </div>
         </div>
     )
 }

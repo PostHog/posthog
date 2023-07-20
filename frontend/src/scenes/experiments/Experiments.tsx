@@ -4,7 +4,7 @@ import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus } from '~/types'
+import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus, ProductKey } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -18,12 +18,9 @@ import { userLogic } from 'scenes/userLogic'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ExperimentsHog } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -31,18 +28,16 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        shouldShowProductIntroduction,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { reportEmptyStateShown } = useActions(eventUsageLogic)
-
-    useEffect(() => {
-        if (shouldShowEmptyState) {
-            reportEmptyStateShown('experiments')
-        }
-    }, [shouldShowEmptyState])
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
         'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
@@ -185,24 +180,29 @@ export function Experiments(): JSX.Element {
                             { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                         ]}
                     />
-                    {shouldShowEmptyState && featureFlags[FEATURE_FLAGS.NEW_EMPTY_STATES] === 'test' ? (
-                        tab === ExperimentsTabs.Archived ? (
-                            <ProductEmptyState
+                    {(shouldShowEmptyState || shouldShowProductIntroduction) &&
+                        (tab === ExperimentsTabs.Archived ? (
+                            <ProductIntroduction
                                 productName="Experiments"
+                                productKey={ProductKey.EXPERIMENTS}
                                 thingName="archived experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                                 docsURL="https://posthog.com/docs/experiments"
+                                isEmpty={shouldShowEmptyState}
                             />
                         ) : (
-                            <ProductEmptyState
+                            <ProductIntroduction
                                 productName="Experiments"
+                                productKey={ProductKey.EXPERIMENTS}
                                 thingName="experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
                                 docsURL="https://posthog.com/docs/experiments"
                                 action={() => router.actions.push(urls.experiment('new'))}
+                                isEmpty={shouldShowEmptyState}
+                                customHog={ExperimentsHog}
                             />
-                        )
-                    ) : (
+                        ))}
+                    {!shouldShowEmptyState && (
                         <>
                             <div className="flex justify-between mb-4">
                                 <LemonInput
@@ -222,7 +222,7 @@ export function Experiments(): JSX.Element {
                                             }
                                         }}
                                         options={[
-                                            { label: 'All', value: ProgressStatus.All },
+                                            { label: 'All', value: 'all' },
                                             { label: 'Draft', value: ProgressStatus.Draft },
                                             { label: 'Running', value: ProgressStatus.Running },
                                             { label: 'Complete', value: ProgressStatus.Complete },

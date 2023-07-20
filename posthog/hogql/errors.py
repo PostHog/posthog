@@ -1,4 +1,7 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .ast import Expr
 
 
 class HogQLException(Exception):
@@ -7,25 +10,22 @@ class HogQLException(Exception):
     start: Optional[int]
     end: Optional[int]
 
-    def __init__(self, message: str, *, start: Optional[int] = None, end: Optional[int] = None):
+    def __init__(
+        self, message: str, *, start: Optional[int] = None, end: Optional[int] = None, node: Optional["Expr"] = None
+    ):
         super().__init__(message)
-        self.start = start
-        self.end = end
+        if node is not None and node.start is not None and node.end is not None:
+            self.start = node.start
+            self.end = node.end
+        else:
+            self.start = start
+            self.end = end
 
 
 class SyntaxException(HogQLException):
     """Invalid HogQL syntax."""
 
-    line: int
-    column: int
-
-    def __init__(self, message: str, *, line: int, column: int):
-        super().__init__(message)
-        self.line = line
-        self.column = column
-
-    def __str__(self):
-        return f"Syntax error at line {self.line}, column {self.column}: {super().__str__()}"
+    pass
 
 
 class QueryException(HogQLException):

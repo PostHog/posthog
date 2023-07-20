@@ -18,8 +18,12 @@ class BatchExportDestination(UUIDModel):
         """Enumeration of supported destinations for PostHog BatchExports."""
 
         S3 = "S3"
+        SNOWFLAKE = "Snowflake"
 
-    secret_fields = {Destination.S3: {"aws_access_key_id", "aws_secret_access_key"}}
+    secret_fields = {
+        "S3": {"aws_access_key_id", "aws_secret_access_key"},
+        "Snowflake": set("password"),
+    }
 
     type: models.CharField = models.CharField(
         choices=Destination.choices, max_length=64, help_text="A choice of supported BatchExportDestination types."
@@ -110,4 +114,13 @@ class BatchExport(UUIDModel):
     )
     last_updated_at: models.DateTimeField = models.DateTimeField(
         auto_now=True, help_text="The timestamp at which this BatchExport was last updated."
+    )
+    last_paused_at: models.DateTimeField = models.DateTimeField(
+        null=True, default=None, help_text="The timestamp at which this BatchExport was last paused."
+    )
+    start_at: models.DateTimeField = models.DateTimeField(
+        null=True, default=None, help_text="Time before which any Batch Export runs won't be triggered."
+    )
+    end_at: models.DateTimeField = models.DateTimeField(
+        null=True, default=None, help_text="Time after which any Batch Export runs won't be triggered."
     )

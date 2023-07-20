@@ -63,6 +63,7 @@ class TestTeam(BaseTest):
         self.assertEqual(team.timezone, "UTC")
         self.assertEqual(team.data_attributes, ["data-attr"])
         self.assertEqual(team.autocapture_exceptions_opt_in, None)
+        self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
     def test_create_team_with_test_account_filters(self):
         team = Team.objects.create_with_data(organization=self.organization)
@@ -72,8 +73,8 @@ class TestTeam(BaseTest):
                 {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
                 {
                     "key": "$host",
-                    "operator": "is_not",
-                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                    "operator": "not_regex",
+                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
                     "type": "event",
                 },
             ],
@@ -89,8 +90,8 @@ class TestTeam(BaseTest):
             [
                 {
                     "key": "$host",
-                    "operator": "is_not",
-                    "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                    "operator": "not_regex",
+                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
                     "type": "event",
                 }
             ],

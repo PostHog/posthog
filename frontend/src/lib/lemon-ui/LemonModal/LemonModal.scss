@@ -62,11 +62,14 @@
         transform: scale(1);
         opacity: 1;
     }
-    .LemonModal__closebutton {
+    .LemonModal__close {
         position: absolute;
         top: 1.25rem;
         right: 1.25rem;
         z-index: 1;
+        &.LemonModal__close--highlighted {
+            animation: tilt-shake 400ms;
+        }
     }
 
     // We nest the content in layout so that "simple" modal implementations can use this class as well
@@ -84,6 +87,12 @@
         &.LemonModal__content--embedded {
             padding: 0;
         }
+    }
+
+    .LemonModal__container {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
     }
 }
 
@@ -121,4 +130,22 @@
 
 .LemonModal__header + .LemonModal__footer {
     border-top: none;
+}
+
+@keyframes tilt-shake {
+    0% {
+        transform: rotate(0deg);
+    }
+    16.666% {
+        transform: rotate(12deg);
+    }
+    50% {
+        transform: rotate(-10deg);
+    }
+    83.333% {
+        transform: rotate(8deg);
+    }
+    100% {
+        transform: rotate(0deg);
+    }
 }

@@ -26,7 +26,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -68,7 +71,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -111,7 +117,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -154,7 +163,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -188,7 +200,8 @@
     (SELECT groupUniqArray(event) as event_names,
             groupArray(uuid) as event_ids,
             `$session_id` as session_id
-     FROM events PREWHERE team_id = 2
+     FROM events
+     join distinct_ids_for_person on events.distinct_id = distinct_ids_for_person.distinct_id PREWHERE team_id = 2
      AND timestamp >= '2020-12-21 12:00:00'
      AND timestamp <= '2021-01-05 11:59:59'
      and notEmpty(session_id)
@@ -208,7 +221,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -251,7 +267,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -291,7 +310,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -331,7 +353,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -370,7 +395,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -410,7 +438,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -450,7 +481,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -479,7 +513,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -506,7 +543,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -534,7 +574,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -562,7 +605,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -590,7 +636,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -617,7 +666,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -644,7 +696,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -671,7 +726,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2021-01-01 00:00:00'
@@ -698,7 +756,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-30 00:00:00'
@@ -725,7 +786,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 12:46:00'
   AND s.min_first_timestamp >= '2020-12-12 00:00:00'
@@ -752,7 +816,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 12:46:00'
   AND s.min_first_timestamp >= '2020-12-11 00:00:00'
@@ -779,7 +846,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 12:46:00'
   AND s.min_first_timestamp >= '2020-12-10 00:00:00'
@@ -806,7 +876,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -833,7 +906,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -860,7 +936,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -888,7 +967,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -927,7 +1009,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -967,7 +1052,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1007,7 +1095,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1048,7 +1139,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1115,7 +1209,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2021-07-31 20:00:00'
   AND s.min_first_timestamp >= '2021-08-14 00:00:00'
@@ -1124,6 +1221,113 @@
     AND distinct_id in
       (select distinct_id
        from distinct_ids_for_person)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_properties
+  '
+  WITH distinct_ids_for_person as
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id,
+            argMax(person_props, version) as person_props
+     FROM person_distinct_id2 as pdi
+     INNER JOIN
+       (SELECT id,
+               argMax(properties, version) as person_props
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id PREWHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) ,
+       events_session_ids AS
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
+            `$session_id` as session_id
+     FROM events
+     join distinct_ids_for_person on events.distinct_id = distinct_ids_for_person.distinct_id PREWHERE team_id = 2
+     AND timestamp >= '2020-12-24 12:00:00'
+     AND timestamp <= '2021-01-02 01:46:23'
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND (event = '$pageview'
+            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)
+                 AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0)))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
+         any(e.event_ids) as matching_events
+  FROM session_replay_events s
+  JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+  AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+  WHERE 1=1
+    AND distinct_id in
+      (select distinct_id
+       from distinct_ids_for_person)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_properties.1
+  '
+  WITH events_session_ids AS
+    (SELECT groupUniqArray(event) as event_names,
+            groupArray(uuid) as event_ids,
+            `$session_id` as session_id
+     FROM events PREWHERE team_id = 2
+     AND timestamp >= '2020-12-24 12:00:00'
+     AND timestamp <= '2021-01-02 01:46:23'
+     and notEmpty(session_id)
+     WHERE 1=1
+       AND (event = '$pageview'
+            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
+     GROUP BY session_id
+     HAVING hasAll(event_names, ['$pageview']))
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
+         any(e.event_ids) as matching_events
+  FROM session_replay_events s
+  JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-11 13:46:23'
+  AND s.min_first_timestamp >= '2020-12-25 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+  WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1156,7 +1360,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1196,7 +1403,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1242,7 +1452,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'
@@ -1284,7 +1497,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1325,7 +1541,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1366,7 +1585,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1407,7 +1629,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1417,6 +1642,379 @@
   WHERE 1=1
   GROUP BY session_id
   HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_error_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_errors.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_logs.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_console_warns.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_warn_count > 0
+       OR console_error_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_with_mixed_console_counts.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s PREWHERE s.team_id = 2
+  AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+  AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+  AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+  WHERE 1=1
+  GROUP BY session_id
+  HAVING 1=1
+  AND (console_log_count > 0)
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1448,7 +2046,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1489,7 +2090,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds ,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count ,
          any(e.event_ids) as matching_events
   FROM session_replay_events s
   JOIN events_session_ids e ON s.session_id = e.session_id PREWHERE s.team_id = 2
@@ -1530,7 +2134,10 @@
          sum(s.keypress_count),
          sum(s.mouse_activity_count),
          sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s PREWHERE s.team_id = 2
   AND s.min_first_timestamp >= '2020-12-11 13:46:23'
   AND s.min_first_timestamp >= '2020-12-25 00:00:00'

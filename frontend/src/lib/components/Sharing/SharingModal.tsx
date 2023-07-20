@@ -111,7 +111,7 @@ export function SharingModalContent({
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         size={'small'}
-                                        onClick={() => copyToClipboard(shareLink, 'link')}
+                                        onClick={async () => await copyToClipboard(shareLink, 'link')}
                                         icon={<IconLink />}
                                     >
                                         Copy public link

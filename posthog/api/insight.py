@@ -15,7 +15,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -53,6 +53,7 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
+from posthog.hogql.errors import HogQLException
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User, SharingConfiguration
 from posthog.models.activity_logging.activity_log import (
@@ -674,7 +675,16 @@ class InsightViewSet(
             elif key == "date_to":
                 queryset = queryset.filter(last_modified_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
-                queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
+                insight = request.GET[INSIGHT]
+                if insight == "JSON":
+                    queryset = queryset.filter(query__isnull=False)
+                    queryset = queryset.exclude(query__kind="DataTableNode", query__source__kind="HogQLQuery")
+                elif insight == "SQL":
+                    queryset = queryset.filter(query__isnull=False)
+                    queryset = queryset.filter(query__kind="DataTableNode", query__source__kind="HogQLQuery")
+                else:
+                    queryset = queryset.filter(query__isnull=True)
+                    queryset = queryset.filter(filters__insight=insight)
             elif key == "search":
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"])
@@ -783,8 +793,10 @@ Using the correct cache and enriching the response with dashboard specific confi
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
-
-        result = self.calculate_trends(request)
+        try:
+            result = self.calculate_trends(request)
+        except HogQLException as e:
+            raise ValidationError(str(e))
         filter = Filter(request=request, team=self.team)
         next = (
             format_paginated_url(request, filter.offset, BREAKDOWN_VALUES_LIMIT)
@@ -860,8 +872,10 @@ Using the correct cache and enriching the response with dashboard specific confi
             serializer.is_valid(raise_exception=True)
         except Exception as e:
             capture_exception(e)
-
-        funnel = self.calculate_funnel(request)
+        try:
+            funnel = self.calculate_funnel(request)
+        except HogQLException as e:
+            raise ValidationError(str(e))
 
         funnel["result"] = protect_old_clients_from_multi_property_default(request.data, funnel["result"])
 
@@ -897,7 +911,10 @@ Using the correct cache and enriching the response with dashboard specific confi
     # ******************************************
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.calculate_retention(request)
+        try:
+            result = self.calculate_retention(request)
+        except HogQLException as e:
+            raise ValidationError(str(e))
         return Response(result)
 
     @cached_function
@@ -920,7 +937,10 @@ Using the correct cache and enriching the response with dashboard specific confi
     # ******************************************
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.calculate_path(request)
+        try:
+            result = self.calculate_path(request)
+        except HogQLException as e:
+            raise ValidationError(str(e))
         return Response(result)
 
     @cached_function

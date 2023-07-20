@@ -16,26 +16,18 @@ import {
 } from 'scenes/data-management/definition/definitionLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
-import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
-import { humanFriendlyNumber } from 'lib/utils'
-import {
-    ThirtyDayQueryCountTitle,
-    ThirtyDayVolumeTitle,
-} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
-import { EventsTable } from 'scenes/events'
+import { getPropertyLabel } from 'lib/taxonomy'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { combineUrl } from 'kea-router/lib/utils'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { TZLabel } from '@posthog/apps-common'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -56,15 +48,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         mode,
         isEvent,
         isProperty,
-        backDetailUrl,
     } = useValues(logic)
     const { setPageMode, deleteDefinition } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.HOGQL]
 
     if (definitionLoading) {
-        return <SpinnerOverlay />
+        return <SpinnerOverlay sceneLevel />
     }
 
     if (definitionMissing) {
@@ -121,7 +110,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     }
                                 />
                                 <div className="definition-sent-as">
-                                    Raw {singular} name: <pre>{definition.name}</pre>
+                                    Raw {singular} name: <code>{definition.name}</code>
                                 </div>
                             </>
                         }
@@ -208,31 +197,15 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             <>
                                 <DefinitionPopover.Card
                                     title="First seen"
-                                    value={formatTimeFromNow(definition.created_at)}
+                                    value={definition.created_at && <TZLabel time={definition.created_at} />}
                                 />
                                 <DefinitionPopover.Card
                                     title="Last seen"
-                                    value={formatTimeFromNow(definition.last_seen_at)}
-                                />
-                                <DefinitionPopover.Card
-                                    title={<ThirtyDayVolumeTitle />}
-                                    value={
-                                        definition.volume_30_day == null
-                                            ? '-'
-                                            : humanFriendlyNumber(definition.volume_30_day)
-                                    }
+                                    value={definition.last_seen_at && <TZLabel time={definition.last_seen_at} />}
                                 />
                             </>
                         )}
 
-                        <DefinitionPopover.Card
-                            title={<ThirtyDayQueryCountTitle />}
-                            value={
-                                definition.query_usage_30_day == null
-                                    ? '-'
-                                    : humanFriendlyNumber(definition.query_usage_30_day)
-                            }
-                        />
                         {isProperty && (
                             <DefinitionPopover.Card
                                 title="Property Type"
@@ -251,30 +224,18 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     This is the list of recent events that match this definition.
                                 </p>
                                 <div className="pt-4 border-t" />
-                                {featureDataExploration ? (
-                                    <Query
-                                        query={{
-                                            kind: NodeKind.DataTableNode,
-                                            source: {
-                                                kind: NodeKind.EventsQuery,
-                                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                                event: definition.name,
-                                            },
-                                            full: true,
-                                            showEventFilter: false,
-                                        }}
-                                    />
-                                ) : (
-                                    <EventsTable
-                                        sceneUrl={backDetailUrl}
-                                        pageKey={`definition-page-${definition.id}`}
-                                        showEventFilter={false}
-                                        fetchMonths={3}
-                                        fixedFilters={{
-                                            event_filter: definition.name,
-                                        }}
-                                    />
-                                )}
+                                <Query
+                                    query={{
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.EventsQuery,
+                                            select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                            event: definition.name,
+                                        },
+                                        full: true,
+                                        showEventFilter: false,
+                                    }}
+                                />
                             </div>
                         </>
                     )}

@@ -4,7 +4,7 @@ import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { NewActionButton } from './NewActionButton'
-import { ActionType, AvailableFeature, ChartDisplayType, InsightType } from '~/types'
+import { ActionType, AvailableFeature, ChartDisplayType, InsightType, ProductKey } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from '../teamLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,7 +23,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { IconCheckmark, IconPlayCircle } from 'lib/lemon-ui/icons'
-import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 export const scene: SceneExport = {
     component: ActionsTable,
@@ -35,10 +35,12 @@ export function ActionsTable(): JSX.Element {
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions } = useActions(actionsModel)
 
-    const { filterByMe, searchTerm, actionsFiltered } = useValues(actionsLogic)
+    const { filterByMe, searchTerm, actionsFiltered, shouldShowProductIntroduction, shouldShowEmptyState } =
+        useValues(actionsLogic)
     const { setFilterByMe, setSearchTerm } = useActions(actionsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
+    const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     const columns: LemonTableColumns<ActionType> = [
         {
@@ -227,40 +229,53 @@ export function ActionsTable(): JSX.Element {
                 buttons={<NewActionButton />}
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-            <div className="flex items-center justify-between gap-2 mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for actions"
-                    onChange={setSearchTerm}
-                    value={searchTerm}
-                />
-                <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
-                    <Radio.Button value={false}>All actions</Radio.Button>
-                    <Radio.Button value={true}>My actions</Radio.Button>
-                </Radio.Group>
-            </div>
-            {actionsFiltered.length > 0 || actionsLoading || (actionsFiltered.length === 0 && searchTerm.length > 0) ? (
-                <LemonTable
-                    columns={columns}
-                    loading={actionsLoading}
-                    rowKey="id"
-                    pagination={{ pageSize: 100 }}
-                    data-attr="actions-table"
-                    dataSource={actionsFiltered}
-                    defaultSorting={{
-                        columnKey: 'created_by',
-                        order: -1,
-                    }}
-                    emptyState="No results. Create a new action?"
-                />
-            ) : (
-                <ProductEmptyState
+            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
+                <ProductIntroduction
                     productName="Actions"
+                    productKey={ProductKey.ACTIONS}
                     thingName="action"
+                    isEmpty={shouldShowEmptyState}
                     description="Use actions to combine events that you want to have tracked together or to make detailed Autocapture events easier to reuse."
                     docsURL="https://posthog.com/docs/data/actions"
-                    actionElementOverride={<NewActionButton />}
+                    actionElementOverride={
+                        <NewActionButton
+                            onSelectOption={() => updateHasSeenProductIntroFor(ProductKey.ACTIONS, true)}
+                        />
+                    }
                 />
+            )}
+            {!shouldShowEmptyState && (
+                <>
+                    <div className="flex items-center justify-between gap-2 mb-4">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for actions"
+                            onChange={setSearchTerm}
+                            value={searchTerm}
+                        />
+                        <Radio.Group
+                            buttonStyle="solid"
+                            value={filterByMe}
+                            onChange={(e) => setFilterByMe(e.target.value)}
+                        >
+                            <Radio.Button value={false}>All actions</Radio.Button>
+                            <Radio.Button value={true}>My actions</Radio.Button>
+                        </Radio.Group>
+                    </div>
+                    <LemonTable
+                        columns={columns}
+                        loading={actionsLoading}
+                        rowKey="id"
+                        pagination={{ pageSize: 100 }}
+                        data-attr="actions-table"
+                        dataSource={actionsFiltered}
+                        defaultSorting={{
+                            columnKey: 'created_by',
+                            order: -1,
+                        }}
+                        emptyState="No results. Create a new action?"
+                    />
+                </>
             )}
         </div>
     )

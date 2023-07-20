@@ -1,5 +1,8 @@
 from typing import Any, List
 
+from django.conf import settings
+from django.contrib import admin
+from django.urls import include
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
@@ -16,7 +19,6 @@ from .api import (
     hooks,
     license,
     organization_resource_access,
-    performance_events,
     role,
     sentry_stats,
     session_recording_playlist,
@@ -80,15 +82,15 @@ def extend_api_router(
         ["team_id"],
     )
 
-    projects_router.register(
-        r"performance_events",
-        performance_events.PerformanceEventsViewSet,
-        "performance_events",
-        ["team_id"],
-    )
+
+# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
+admin_urlpatterns = (
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)] if settings.ADMIN_PORTAL_ENABLED else []
+)
 
 
 urlpatterns: List[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
+    *admin_urlpatterns,
 ]

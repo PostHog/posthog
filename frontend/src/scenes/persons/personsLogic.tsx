@@ -1,6 +1,6 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import api, { PaginatedResponse } from 'lib/api'
+import { decodeParams, router } from 'kea-router'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
 import {
     PersonPropertyFilter,
@@ -22,12 +22,6 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-
-export interface PersonPaginatedResponse {
-    next: string | null
-    previous: string | null
-    results: PersonType[]
-}
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -61,6 +55,7 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
+        setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
@@ -100,6 +95,7 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
         splitMergeModalShown: [
@@ -247,25 +243,32 @@ export const personsLogic = kea<personsLogicType>({
     }),
     loaders: ({ values, actions, props }) => ({
         persons: [
-            { next: null, previous: null, results: [] } as PaginatedResponse<PersonType>,
+            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
+                offset: number
+            },
             {
-                loadPersons: async ({ url }, breakpoint) => {
-                    let result: PaginatedResponse<PersonType>
+                loadPersons: async ({ url }) => {
+                    let result: CountedPaginatedResponse<PersonType> & { offset: number }
                     if (!url) {
-                        const newFilters = { ...values.listFilters }
+                        const newFilters: PersonListParams = { ...values.listFilters }
                         newFilters.properties = [
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
+                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
+                        }
                         if (props.cohort) {
-                            result = await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)
+                            result = {
+                                ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                offset: 0,
+                            }
                         } else {
-                            result = await api.persons.list(newFilters)
+                            result = { ...(await api.persons.list(newFilters)), offset: 0 }
                         }
                     } else {
-                        result = await api.get(url)
+                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) }
                     }
-                    breakpoint()
                     return result
                 },
             },
@@ -304,11 +307,7 @@ export const personsLogic = kea<personsLogicType>({
         },
         navigateToTab: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
-                const searchParams = { ...router.values.searchParams }
-
-                if (values.activeTab !== PersonsTabType.HISTORY) {
-                    delete searchParams['page']
-                }
+                const searchParams = {}
 
                 return [
                     router.values.location.pathname,
@@ -322,26 +321,16 @@ export const personsLogic = kea<personsLogicType>({
         },
     }),
     urlToAction: ({ actions, values, props }) => ({
-        '/persons': ({}, searchParams) => {
-            const featureDataExploration = values.featureFlags[FEATURE_FLAGS.HOGQL]
-            if (props.syncWithUrl && !featureDataExploration) {
-                actions.setListFilters(searchParams)
-                if (!values.persons.results.length && !values.personsLoading) {
-                    // Initial load
-                    actions.loadPersons()
-                }
-            }
-        },
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
-                if (sessionRecordingId) {
+                if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {
                     actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 
-                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
-                    actions.navigateToTab(PersonsTabType.PROPERTIES)
+                if (!activeTab) {
+                    actions.setActiveTab(PersonsTabType.PROPERTIES)
                 }
 
                 if (rawPersonDistinctId) {

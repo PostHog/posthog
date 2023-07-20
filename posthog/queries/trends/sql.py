@@ -36,7 +36,7 @@ SELECT {aggregate_operation} AS total, date FROM (
         {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
-    GROUP BY sessions.$session_id, date
+    GROUP BY e.$session_id, date
 ) GROUP BY date
 """
 
@@ -44,7 +44,7 @@ SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
-    GROUP BY sessions.$session_id
+    GROUP BY e.$session_id
 )
 """
 
@@ -498,10 +498,12 @@ FROM (
 GROUP BY status
 """
 
+
 LIFECYCLE_PEOPLE_SQL = """
-SELECT person_id
+SELECT DISTINCT person_id as actor_id
 FROM ({events_query}) e
 WHERE status = %(status)s
 AND dateTrunc(%(interval)s, toDateTime(%(target_date)s, %(timezone)s)) = start_of_period
-LIMIT %(limit)s OFFSET %(offset)s
+{limit}
+{offset}
 """

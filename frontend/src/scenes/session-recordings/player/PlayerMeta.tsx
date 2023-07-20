@@ -17,7 +17,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { Logo } from '~/toolbar/assets/Logo'
 
 function SessionPropertyMeta(props: {
     fullScreen: boolean
@@ -130,7 +130,7 @@ export function PlayerMeta(): JSX.Element {
                     {!whitelabel ? (
                         <Tooltip title="Powered by PostHog" placement="right">
                             <Link to={'https://posthog.com'} className="flex items-center" target="blank">
-                                <FriendlyLogo />
+                                <Logo />
                             </Link>
                         </Tooltip>
                     ) : null}

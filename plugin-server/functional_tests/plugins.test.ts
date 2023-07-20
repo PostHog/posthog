@@ -14,6 +14,7 @@ import {
     fetchPluginConsoleLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
+    postgres,
     reloadPlugins,
     updatePluginConfig,
     waitForPluginToLoad,
@@ -567,17 +568,27 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    const client = await postgres.connect()
+    let pluginConfig
 
-    await createPluginAttachment({
-        teamId,
-        pluginConfigId: pluginConfig.id,
-        fileSize: 4,
-        contentType: 'text/plain',
-        fileName: 'test.txt',
-        key: 'testAttachment',
-        contents: 'test',
-    })
+    try {
+        await client.query('BEGIN')
+        pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} }, client)
+
+        await createPluginAttachment({
+            teamId,
+            pluginConfigId: pluginConfig.id,
+            fileSize: 4,
+            contentType: 'text/plain',
+            fileName: 'test.txt',
+            key: 'testAttachment',
+            contents: 'test',
+            client: client,
+        })
+        await client.query('COMMIT')
+    } finally {
+        client.release()
+    }
 
     await reloadPlugins()
 

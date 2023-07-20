@@ -1,18 +1,15 @@
 import datetime as dt
 import json
-from dataclasses import dataclass
-from string import Template
 import tempfile
-import uuid
-from aiochclient import ChClient
+from dataclasses import dataclass
 
-from django.conf import settings
 import snowflake.connector
-from aiohttp import ClientSession
+from django.conf import settings
+from snowflake.connector.cursor import SnowflakeCursor
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.batch_exports.service import SnowflakeBatchExportInputs
 
+from posthog.batch_exports.service import SnowflakeBatchExportInputs
 from posthog.temporal.workflows.base import (
     CreateBatchExportRunInputs,
     PostHogWorkflow,
@@ -20,18 +17,29 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
-
-
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT $fields
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
+from posthog.temporal.workflows.batch_exports import (
+    get_results_iterator,
+    get_rows_count,
 )
+from posthog.temporal.workflows.clickhouse import get_client
+
+
+class SnowflakeFileNotUploadedError(Exception):
+    """Raised when a PUT Snowflake query fails to upload a file."""
+
+    def __init__(self, table_name: str, status: str, message: str):
+        super().__init__(
+            f"Snowflake upload for table '{table_name}' expected status 'UPLOADED' but got '{status}': {message}"
+        )
+
+
+class SnowflakeFileNotLoadedError(Exception):
+    """Raised when a COPY INTO Snowflake query fails to copy a file to a table."""
+
+    def __init__(self, table_name: str, status: str, errors_seen: int, first_error: str):
+        super().__init__(
+            f"Snowflake load for table '{table_name}' expected status 'LOADED' but got '{status}' with {errors_seen} errors: {first_error}"
+        )
 
 
 @dataclass
@@ -54,50 +62,51 @@ class SnowflakeInsertInputs:
     data_interval_end: str
 
 
+def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
+    """Executes a PUT query using the provided cursor to the provided table_name.
+
+    Args:
+        cursor: A Snowflake cursor to execute the PUT query.
+        file_name: The name of the file to PUT.
+        table_name: The name of the table where to PUT the file.
+
+    Raises:
+        TypeError: If we don't get a tuple back from Snowflake (should never happen).
+        SnowflakeFileNotUploadedError: If the upload status is not 'UPLOADED'.
+    """
+    cursor.execute(
+        f"""
+        PUT file://{file_name} @%"{table_name}"
+        """
+    )
+    result = cursor.fetchone()
+    if not isinstance(result, tuple):
+        # Mostly to appease mypy, as this query should always return a tuple.
+        raise TypeError(f"Expected tuple from Snowflake PUT query but got: '{result.__class__.__name__}'")
+
+    status, message = result[6:8]
+    if status != "UPLOADED":
+        raise SnowflakeFileNotUploadedError(table_name, status, message)
+
+
 @activity.defn
 async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
-    """
-    Activity streams data from ClickHouse to Snowflake.
+    """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
-    async with ClientSession() as s:
-        client = ChClient(
-            s,
-            url=settings.CLICKHOUSE_HTTP_URL,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            database=settings.CLICKHOUSE_DATABASE,
-        )
-
+    async with get_client() as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        data_interval_start_ch = dt.datetime.fromisoformat(inputs.data_interval_start).strftime("%Y-%m-%d %H:%M:%S")
-        data_interval_end_ch = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d %H:%M:%S")
-        row = await client.fetchrow(
-            SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count"),
-            params={
-                "team_id": inputs.team_id,
-                "data_interval_start": data_interval_start_ch,
-                "data_interval_end": data_interval_end_ch,
-            },
+        count = await get_rows_count(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
         )
-
-        if row is None:
-            raise ValueError(f"Unexpected result from ClickHouse: {row}")
-
-        count = row["count"]
 
         if count == 0:
             activity.logger.info(
@@ -108,10 +117,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             return
 
         activity.logger.info("BatchExporting %s rows to S3", count)
-
-        query_template = Template(SELECT_QUERY_TEMPLATE.template)
-
-        activity.logger.debug(query_template.template)
 
         conn = snowflake.connector.connect(
             user=inputs.user,
@@ -124,20 +129,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
 
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                f"""
-                CREATE DATABASE IF NOT EXISTS "{inputs.database}"
-                COMMENT = 'PostHog generated database'
-                """
-            )
-
-            cursor.execute(
-                f"""
-                CREATE SCHEMA IF NOT EXISTS "{inputs.database}"."{inputs.schema}"
-                COMMENT = 'PostHog generated schema'
-                """
-            )
-
             cursor.execute(f'USE DATABASE "{inputs.database}"')
             cursor.execute(f'USE SCHEMA "{inputs.schema}"')
 
@@ -162,22 +153,45 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 """
             )
 
-            results_iterator = client.iterate(
-                query_template.safe_substitute(fields="*"),
-                json=True,
-                params={
-                    "team_id": inputs.team_id,
-                    "data_interval_start": data_interval_start_ch,
-                    "data_interval_end": data_interval_end_ch,
-                },
+            results_iterator = get_results_iterator(
+                client=client,
+                team_id=inputs.team_id,
+                interval_start=inputs.data_interval_start,
+                interval_end=inputs.data_interval_end,
             )
-
-            with tempfile.NamedTemporaryFile() as local_results_file:
+            result = None
+            local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
+            try:
                 while True:
                     try:
                         result = await results_iterator.__anext__()
+
                     except StopAsyncIteration:
                         break
+
+                    except json.JSONDecodeError:
+                        activity.logger.info(
+                            "Failed to decode a JSON value while iterating, potentially due to a ClickHouse error"
+                        )
+                        # This is raised by aiochclient as we try to decode an error message from ClickHouse.
+                        # So far, this error message only indicated that we were too slow consuming rows.
+                        # So, we can resume from the last result.
+                        if result is None:
+                            # We failed right at the beginning
+                            new_interval_start = None
+                        else:
+                            new_interval_start = result.get("inserted_at", None)
+
+                        if not isinstance(new_interval_start, str):
+                            new_interval_start = inputs.data_interval_start
+
+                        results_iterator = get_results_iterator(
+                            client=client,
+                            team_id=inputs.team_id,
+                            interval_start=new_interval_start,  # This means we'll generate at least one duplicate.
+                            interval_end=inputs.data_interval_end,
+                        )
+                        continue
 
                     if not result:
                         break
@@ -194,29 +208,20 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     ):
                         activity.logger.info("Uploading to Snowflake")
 
-                        local_results_file.seek(0)
+                        # Flush the file to make sure everything is written
+                        local_results_file.flush()
+                        put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
-                        # Make sure that the staged file has a unique name
-                        staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
-                        cursor.execute(
-                            f"PUT file://{local_results_file.name} @%{inputs.table_name}/{staged_file_name}",
-                        )
+                        # Delete the temporary file and create a new one
+                        local_results_file.close()
+                        local_results_file = tempfile.NamedTemporaryFile(suffix=".jsonl")
 
-                        # Reset the file
-                        local_results_file.seek(0)
-                        local_results_file.truncate()
+                # Flush the file to make sure everything is written
+                local_results_file.flush()
+                put_file_to_snowflake_table(cursor, local_results_file.name, inputs.table_name)
 
-                # Upload the last part
-                local_results_file.seek(0)
-
-                # Make sure that the staged file has a unique name
-                staged_file_name = f"{inputs.table_name}_{uuid.uuid4()}.json"
-
-                cursor.execute(
-                    f"""
-                    PUT file://{local_results_file.name} @%"{inputs.table_name}/{staged_file_name}"
-                    """
-                )
+                # We don't need the file anymore, close (and delete) it.
+                local_results_file.close()
                 cursor.execute(
                     f"""
                     COPY INTO "{inputs.table_name}"
@@ -225,6 +230,26 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     PURGE = TRUE
                     """
                 )
+                results = cursor.fetchall()
+
+                for result in results:
+                    if not isinstance(result, tuple):
+                        # Mostly to appease mypy, as this query should always return a tuple.
+                        raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
+
+                    file_name, status = result[0:2]
+
+                    if status != "LOADED":
+                        errors_seen, first_error = result[5:7]
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            status or "NO STATUS",
+                            errors_seen or 0,
+                            first_error or "NO ERROR MESSAGE",
+                        )
+
+            finally:
+                local_results_file.close()
         finally:
             conn.close()
 
@@ -287,14 +312,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 insert_into_snowflake_activity,
                 insert_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(hours=1),
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     non_retryable_error_types=[
-                        # If we can't connect to ClickHouse, no point in
-                        # retrying.
-                        "ConnectionError",
                         # Validation failed, and will keep failing.
                         "ValueError",
                     ],
@@ -304,6 +325,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         except Exception as e:
             workflow.logger.exception("Snowflake BatchExport failed.", exc_info=e)
             update_inputs.status = "Failed"
+            # Note: This shallows the exception type, but the message should be enough.
+            # If not, swap to repr(e)
+            update_inputs.latest_error = str(e)
             raise
 
         finally:

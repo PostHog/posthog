@@ -19,6 +19,8 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     HogQLMathType,
+    InsightLogicProps,
+    InsightShortId,
 } from '~/types'
 
 /**
@@ -44,6 +46,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
     // New queries, not yet implemented
@@ -59,9 +62,6 @@ export enum NodeKind {
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
     TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
     TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
-
-    /** Performance */
-    RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -82,6 +82,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
+    | SavedInsightNode
     | InsightVizNode
 
     // New queries, not yet implemented
@@ -91,9 +92,6 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-
-    // Performance
-    | RecentPerformancePageViewNode
 
     // Misc
     | TimeToSeeDataSessionsQuery
@@ -133,13 +131,20 @@ export interface HogQLQuery extends DataNode {
     response?: HogQLQueryResponse
 }
 
+export interface HogQLNotice {
+    start?: number
+    end?: number
+    message: string
+    fix?: string
+}
+
 export interface HogQLMetadataResponse {
     inputExpr?: string
     inputSelect?: string
     isValid?: boolean
-    error?: string
-    errorStart?: number
-    errorEnd?: number
+    errors: HogQLNotice[]
+    warnings: HogQLNotice[]
+    notices: HogQLNotice[]
 }
 
 export interface HogQLMetadata extends DataNode {
@@ -255,13 +260,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source:
-        | EventsNode
-        | EventsQuery
-        | PersonsNode
-        | RecentPerformancePageViewNode
-        | HogQLQuery
-        | TimeToSeeDataSessionsQuery
+    source: EventsNode | EventsQuery | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
 
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
@@ -301,13 +300,27 @@ export interface DataTableNode extends Node {
     showOpenEditorButton?: boolean
 }
 
+// Saved insight node
+
+export interface SavedInsightNode extends Node {
+    kind: NodeKind.SavedInsightNode
+    shortId: InsightShortId
+}
+
 // Insight viz node
 
 export interface InsightVizNode extends Node {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
 
-    // showViz, showTable, etc.
+    /** Show with most visual options enabled. Used in insight scene. */
+    full?: boolean
+    showHeader?: boolean
+    showTable?: boolean
+    showCorrelationTable?: boolean
+    showLastComputation?: boolean
+    showLastComputationRefresh?: boolean
+    showLegendButton?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
@@ -494,11 +507,6 @@ export interface TimeToSeeDataWaterfallNode {
 
 export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
 
-export interface RecentPerformancePageViewNode extends DataNode {
-    kind: NodeKind.RecentPerformancePageViewNode
-    dateRange: DateRange
-}
-
 export type HogQLExpression = string
 
 // Various utility types below
@@ -527,6 +535,7 @@ export interface QueryContext {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
+    insightProps?: InsightLogicProps
     emptyStateHeading?: string
     emptyStateDetail?: string
 }

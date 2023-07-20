@@ -1,3 +1,4 @@
+import json
 from functools import cached_property
 from typing import Any, Dict, List, Optional, Type, cast
 
@@ -82,6 +83,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "api_token",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
+            "autocapture_exceptions_errors_to_ignore",
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
@@ -120,6 +122,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "correlation_config",
             "autocapture_opt_out",
             "autocapture_exceptions_opt_in",
+            "autocapture_exceptions_errors_to_ignore",
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
             "session_recording_opt_in",
@@ -132,6 +135,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
             "inject_web_apps",
+            "extra_settings",
         )
         read_only_fields = (
             "id",
@@ -174,6 +178,21 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied("Your organization access level is insufficient.")
 
+        if "autocapture_exceptions_errors_to_ignore" in attrs:
+            if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
+                raise exceptions.ValidationError(
+                    "Must provide a list for field: autocapture_exceptions_errors_to_ignore."
+                )
+            for error in attrs["autocapture_exceptions_errors_to_ignore"]:
+                if not isinstance(error, str):
+                    raise exceptions.ValidationError(
+                        "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
+                    )
+
+            if len(json.dumps(attrs["autocapture_exceptions_errors_to_ignore"])) > 300:
+                raise exceptions.ValidationError(
+                    "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+                )
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:

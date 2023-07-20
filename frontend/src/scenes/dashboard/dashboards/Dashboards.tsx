@@ -10,7 +10,7 @@ import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
-import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -72,7 +72,7 @@ export function Dashboards(): JSX.Element {
                         <LemonButton
                             data-attr={'new-notebook'}
                             onClick={() => {
-                                createNotebook(true)
+                                createNotebook()
                             }}
                             type="primary"
                             disabledReason={notebooksLoading ? 'Loading...' : undefined}
@@ -99,7 +99,7 @@ export function Dashboards(): JSX.Element {
             ) : currentTab === DashboardsTab.Notebooks ? (
                 <NotebooksTable />
             ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                <DashboardsTable />
+                <DashboardsTableContainer />
             ) : (
                 <NoDashboards />
             )}

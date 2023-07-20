@@ -38,6 +38,10 @@ DEPRECATED_ATTRS = (
     "event_properties_numerical",
 )
 
+# keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
+class AvailableExtraSettings:
+    poe_v2_enabled = "poe_v2_enabled"
+
 
 class TeamManager(models.Manager):
     def get_queryset(self):
@@ -47,8 +51,8 @@ class TeamManager(models.Manager):
         filters = [
             {
                 "key": "$host",
-                "operator": "is_not",
-                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                "operator": "not_regex",
+                "value": r"^(localhost|127\.0\.0\.1)($|:)",
                 "type": "event",
             }
         ]
@@ -131,6 +135,7 @@ class Team(UUIDClassicModel):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     autocapture_opt_out: models.BooleanField = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    autocapture_exceptions_errors_to_ignore: models.JSONField = models.JSONField(null=True, blank=True)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -154,6 +159,11 @@ class Team(UUIDClassicModel):
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
     )  # Dashboard shown on project homepage
+
+    # Generic field for storing any team-specific context that is more temporary in nature and thus
+    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
+    # during feature releases.
+    extra_settings: models.JSONField = models.JSONField(null=True, blank=True)
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
@@ -208,11 +218,15 @@ class Team(UUIDClassicModel):
 
     @property
     def _person_on_events_querying_enabled(self) -> bool:
+
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
+            # users can override our feature flag via extra_settings
+            if self.extra_settings and AvailableExtraSettings.poe_v2_enabled in self.extra_settings:
+                return self.extra_settings["poe_v2_enabled"]
             return posthoganalytics.feature_enabled(
                 "person-on-events-enabled",
                 str(self.uuid),

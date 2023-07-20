@@ -16,7 +16,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -25,8 +24,10 @@ export interface InsightsResult {
     count: number
     previous?: string
     next?: string
-    /** not in the API response */
+    /* not in the API response */
     filters?: SavedInsightFilters | null
+    /* not in the API response */
+    offset: number
 }
 
 export interface SavedInsightFilters {
@@ -81,18 +82,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
     },
     loaders: ({ values }) => ({
         insights: {
-            __default: { results: [], count: 0, filters: null } as InsightsResult,
+            __default: { results: [], count: 0, filters: null, offset: 0 } as InsightsResult,
             loadInsights: async ({ debounce }, breakpoint) => {
                 if (debounce && values.insights.filters !== null) {
                     await breakpoint(300)
                 }
                 const { filters } = values
-                const includeQueryInsights = !!values.featureFlags[FEATURE_FLAGS.HOGQL]
 
                 const params = {
                     ...values.paramsFromFilters,
                     basic: true,
-                    include_query_insights: includeQueryInsights,
+                    include_query_insights: true,
                 }
 
                 const response = await api.get(
@@ -101,9 +101,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
-                        const include_queries = includeQueryInsights ? '&include_query_insights=true' : ''
                         const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}${include_queries}`
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}/?include_query_insights=true`
                         )
                         return {
                             ...response,
@@ -125,7 +124,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     window.scrollTo(0, 0)
                 }
 
-                return { ...response, filters }
+                return { ...response, filters, offset: params.offset }
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
                 const response = await api.update(
@@ -238,7 +237,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             },
         ],
     }),
-    listeners: ({ actions, values, selectors }) => ({
+    listeners: ({ actions, asyncActions, values, selectors }) => ({
         setSavedInsightsFilters: async ({ merge, debounce }, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const firstLoad = selectors.rawFilters(previousState) === null
@@ -253,7 +252,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 await breakpoint(300)
             }
             if (firstLoad || !objectsEqual(oldFilters, filters)) {
-                actions.loadInsights(debounce)
+                await asyncActions.loadInsights(debounce)
             }
 
             // Filters from clicks come with "merge: true",

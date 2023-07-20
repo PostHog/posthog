@@ -59,6 +59,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
+    def test_search_person_id(self) -> None:
+        person = _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
+        flush_persons_and_events()
+        response = self.client.get(f"/api/person/?search={person.uuid}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @snapshot_clickhouse_queries
     def test_properties(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
         _create_person(team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"})
@@ -172,7 +181,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -667,16 +676,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(10):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
-        response = self.client.get(response["next"]).json()
-        returned_ids += [x["distinct_ids"][0] for x in response["results"]]
-        self.assertEqual(len(response["results"]), 10)
+        response_next = self.client.get(response["next"]).json()
+        returned_ids += [x["distinct_ids"][0] for x in response_next["results"]]
+        self.assertEqual(len(response_next["results"]), 10)
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
+
+        with self.assertNumQueries(9):
+            response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
+        self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
         person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering

@@ -15,6 +15,14 @@ class PersonUUIDMixin(BaseParamMixin):
 
 class SessionRecordingsMixin(BaseParamMixin):
     @cached_property
+    def console_logs_filter(self) -> List[Literal["error", "warn", "log"]]:
+        user_value = self._data.get("console_logs", None) or []
+        if isinstance(user_value, str):
+            user_value = json.loads(user_value)
+        valid_values = [x for x in user_value if x in ["error", "warn", "log"]]
+        return valid_values
+
+    @cached_property
     def duration_type_filter(self) -> Literal["duration", "active_seconds", "inactive_seconds"]:
         user_value = self._data.get("duration_type_filter", None)
         if user_value in ["duration", "active_seconds", "inactive_seconds"]:

@@ -7,7 +7,9 @@ import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/Activity
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import clsx from 'clsx'
-import { ProductEmptyState } from '../ProductEmptyState/ProductEmptyState'
+import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
+import { ProductKey } from '~/types'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export interface ActivityLogProps {
     scope: ActivityScope
@@ -24,10 +26,12 @@ const Empty = ({ scope }: { scope: string }): JSX.Element => {
         .toLowerCase()
 
     return (
-        <ProductEmptyState
+        <ProductIntroduction
             productName={noun.toUpperCase()}
+            productKey={ProductKey.HISTORY}
             thingName={'history record'}
             description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
+            isEmpty={true}
         />
     )
 }
@@ -100,6 +104,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                     {humanizedActivity.map((logItem, index) => (
                         <ActivityLogRow key={index} logItem={logItem} showExtendedDescription={true} />
                     ))}
+                    <LemonDivider />
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
             ) : (

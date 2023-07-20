@@ -15,6 +15,8 @@ import ReactJson from 'react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function renderColumn(
     key: string,
@@ -29,7 +31,13 @@ export function renderColumn(
     } else if (value === errorColumn) {
         return <LemonTag color="red">Error</LemonTag>
     } else if (value === null) {
-        return <span className="italic text-muted">NULL</span>
+        return (
+            <Tooltip title="NULL" placement="right" delayMs={0}>
+                <span className="cursor-default" aria-hidden>
+                    —
+                </span>
+            </Tooltip>
+        )
     } else if (isHogQLQuery(query.source)) {
         if (typeof value === 'string') {
             try {
@@ -56,6 +64,22 @@ export function renderColumn(
                 return <TZLabel time={value} showSeconds />
             }
         }
+        if (typeof value === 'object') {
+            if (Array.isArray(value)) {
+                if (value[0] === '__hogql_chart_type' && value[1] === 'sparkline') {
+                    const object: Record<string, any> = {}
+                    for (let i = 0; i < value.length; i += 2) {
+                        object[value[i]] = value[i + 1]
+                    }
+                    if ('results' in object && Array.isArray(object.results)) {
+                        return <TableCellSparkline data={object.results} />
+                    }
+                }
+
+                return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
+            }
+            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
@@ -77,6 +101,7 @@ export function renderColumn(
     } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
+        // TODO: remove after removing the old events table
         const propertyKey = trimQuotes(key.substring(11))
         if (setQuery && (isEventsQuery(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
             const newProperty: AnyPropertyFilter = {
@@ -121,7 +146,8 @@ export function renderColumn(
             )
         }
         return <Property value={record.properties[propertyKey]} />
-    } else if (key.startsWith('person.properties.')) {
+    } else if (!Array.isArray(record) && key.startsWith('person.properties.')) {
+        // TODO: remove after removing the old events table
         const eventRecord = record as EventType
         const propertyKey = trimQuotes(key.substring(18))
         if (setQuery && isEventsQuery(query.source)) {

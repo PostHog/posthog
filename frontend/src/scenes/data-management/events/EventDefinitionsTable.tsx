@@ -10,21 +10,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import {
-    ThirtyDayQueryCountTitle,
-    ThirtyDayVolumeTitle,
-} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
 import { combineUrl } from 'kea-router'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { TZLabel } from 'lib/components/TZLabel'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -47,10 +42,9 @@ export const scene: SceneExport = {
 }
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { preflight } = useValues(preflightLogic)
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -69,6 +63,15 @@ export function EventDefinitionsTable(): JSX.Element {
             },
             sorter: true,
         },
+        {
+            title: 'Last seen',
+            key: 'last_seen_at',
+            className: 'definition-column-last_seen_at',
+            render: function Render(_, definition: EventDefinition) {
+                return definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : null
+            },
+            sorter: true,
+        },
         ...(hasDashboardCollaboration
             ? [
                   {
@@ -77,36 +80,6 @@ export function EventDefinitionsTable(): JSX.Element {
                       render: function Render(_, definition: EventDefinition) {
                           return <ObjectTags tags={definition.tags ?? []} staticOnly />
                       },
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-              ]
-            : []),
-        ...(hasIngestionTaxonomy
-            ? [
-                  {
-                      title: <ThirtyDayVolumeTitle tooltipPlacement="bottom" />,
-                      key: 'volume_30_day',
-                      align: 'right',
-                      render: function Render(_, definition: EventDefinition) {
-                          return definition.volume_30_day ? (
-                              humanFriendlyNumber(definition.volume_30_day)
-                          ) : (
-                              <span className="text-muted">—</span>
-                          )
-                      },
-                      sorter: true,
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-                  {
-                      title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
-                      key: 'query_usage_30_day',
-                      align: 'right',
-                      render: function Render(_, definition: EventDefinition) {
-                          return definition.query_usage_30_day ? (
-                              humanFriendlyNumber(definition.query_usage_30_day)
-                          ) : (
-                              <span className="text-muted">—</span>
-                          )
-                      },
-                      sorter: true,
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),
@@ -156,8 +129,35 @@ export function EventDefinitionsTable(): JSX.Element {
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
             />
-            {preflight && !preflight?.is_event_property_usage_enabled && <UsageDisabledWarning />}
+
             <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
+
+            <LemonBanner className="mb-4" type="info">
+                Looking for{' '}
+                {filters.event_type === 'event_custom'
+                    ? 'custom '
+                    : filters.event_type === 'event_posthog'
+                    ? 'PostHog '
+                    : ''}
+                event usage statistics?{' '}
+                <Link
+                    to={urls.insightNewHogQL(
+                        'SELECT event, count()\n' +
+                            'FROM events\n' +
+                            'WHERE timestamp > now() - interval 1 month\n' +
+                            (filters.event_type === 'event_custom'
+                                ? "AND event NOT LIKE '$%'\n"
+                                : filters.event_type === 'event_posthog'
+                                ? "AND event LIKE '$%'\n"
+                                : '') +
+                            'GROUP BY event\n' +
+                            'ORDER BY count() DESC'
+                    )}
+                >
+                    Click here!
+                </Link>
+            </LemonBanner>
+
             <div className="flex justify-between items-center gap-2 mb-4">
                 <LemonInput
                     type="search"

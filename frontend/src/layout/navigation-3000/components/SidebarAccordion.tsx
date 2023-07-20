@@ -1,42 +1,35 @@
-import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { Accordion } from '../types'
+import { SidebarCategory } from '../types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SidebarList } from './SidebarList'
+import { navigation3000Logic } from '../navigationLogic'
+import { useActions, useValues } from 'kea'
+import { NewItemButton } from './NewItemButton'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 interface SidebarAccordionProps {
-    title: Accordion['title']
-    items: Accordion['items']
-    loadMore: Accordion['loadMore']
-    loading: Accordion['loading']
-    collapsed: boolean
-    toggle: () => void
-    activeItemKey: string | number | null
+    category: SidebarCategory
 }
 
-export function SidebarAccordion({
-    title,
-    items,
-    activeItemKey,
-    collapsed,
-    toggle,
-    loadMore,
-    loading = false,
-}: SidebarAccordionProps): JSX.Element {
+export function SidebarAccordion({ category }: SidebarAccordionProps): JSX.Element {
+    const { accordionCollapseMapping } = useValues(navigation3000Logic)
+    const { toggleAccordion } = useActions(navigation3000Logic)
+
+    const { key, items, loading } = category
+
     const isEmpty = items.length === 0
     const isEmptyDefinitively = !loading && isEmpty
-    const isExpanded = !collapsed && !isEmpty
+    const isExpanded = !accordionCollapseMapping[key] && !isEmpty
 
     return (
-        <section
-            className={clsx('Accordion', isExpanded && 'Accordion--expanded')}
-            aria-busy={loading}
-            aria-disabled={isEmpty}
-        >
-            <div className="Accordion__header" onClick={isExpanded || items.length > 0 ? () => toggle() : undefined}>
-                {!loading ? <IconChevronRight /> : <Spinner />}
+        <section className="Accordion" aria-busy={loading} aria-disabled={isEmpty} aria-expanded={isExpanded}>
+            <div
+                className="Accordion__header"
+                onClick={isExpanded || items.length > 0 ? () => toggleAccordion(key) : undefined}
+            >
+                {loading ? <Spinner /> : <IconChevronRight />}
                 <h4>
-                    {title}
+                    {capitalizeFirstLetter(pluralizeCategory(category.noun))}
                     {isEmptyDefinitively && (
                         <>
                             {' '}
@@ -44,12 +37,17 @@ export function SidebarAccordion({
                         </>
                     )}
                 </h4>
+                <NewItemButton category={category} />
             </div>
-            {isExpanded && (
-                <div className="Accordion__content">
-                    <SidebarList items={items} activeItemKey={activeItemKey} loadMore={loadMore} />
-                </div>
-            )}
+            {isExpanded && <SidebarList category={category} />}
         </section>
     )
+}
+
+export function singularizeCategory(noun: SidebarCategory['noun']): string {
+    return Array.isArray(noun) ? noun[0] : noun
+}
+
+export function pluralizeCategory(noun: SidebarCategory['noun']): string {
+    return Array.isArray(noun) ? noun[1] : `${noun}s`
 }

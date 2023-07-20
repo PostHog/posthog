@@ -12,9 +12,13 @@ export function Spinner({ monocolor, className }: SpinnerProps): JSX.Element {
     return <IconSpinner monocolor={monocolor} className={clsx('Spinner', className)} />
 }
 
-export function SpinnerOverlay(props: SpinnerProps): JSX.Element {
+export function SpinnerOverlay(
+    props: SpinnerProps & {
+        sceneLevel?: boolean
+    }
+): JSX.Element {
     return (
-        <div className="SpinnerOverlay">
+        <div className={clsx('SpinnerOverlay', props.sceneLevel && 'SpinnerOverlay--scene-level')}>
             <Spinner className="text-4xl" {...props} />
         </div>
     )
