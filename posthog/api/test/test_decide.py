@@ -658,7 +658,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
         person.add_distinct_id("other_id")
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -698,7 +698,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": 12345, "$anon_distinct_id": "example_id"},
@@ -774,7 +774,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
         # in which case, we're pretty much trashed
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(12):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -842,7 +842,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -937,7 +937,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # new person with "other_id" is yet to be created
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(13):
             # one extra query to find person_id for $anon_distinct_id
             response = self._post_decide(
                 api_version=2,
@@ -2675,25 +2675,19 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         )
 
         # new request with hash key overrides but not writes should not go to main database
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(2, using="default"):
+        with self.assertNumQueries(7, using="replica"), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
-            # E   2. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid" -- a.k.a select the person ids.
+            # E   2. WITH some CTEs,
+            #           SELECT key FROM posthog_featureflag WHERE team_id = 13
+            # E         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+            # E   3. SET LOCAL statement_timeout = 300
+            # E   4. SELECT "posthog_persondistinctid"."person_id", "posthog_persondistinctid"."distinct_id" FROM "posthog_persondistinctid" -- a.k.a select the person ids.
             #        We select person overrides from replica DB when no inserts happened
-            # E   3. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",  - a.k.a select the flag overrides
+            # E   5. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key",  - a.k.a select the flag overrides
 
-            # E   4. SET LOCAL statement_timeout = 600
-            # E   5. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
-
-            # Main queries:
-            # E   1. SET LOCAL statement_timeout = 300
-            # E   2. (The insert hashkey overrides query)
-            # E                       WITH some CTEs,
-            # E                       INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            # E                           SELECT team_id, person_id, key, 'example_id'
-            # E                           FROM flags_to_override, target_person_ids
-            # E                           WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = 7)
-            # E                           ON CONFLICT DO NOTHING
+            # E   6. SET LOCAL statement_timeout = 600
+            # E   7. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
 
             response = self._post_decide(
                 api_version=3,
@@ -2706,16 +2700,18 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # now main database is down, but does not affect replica
 
         with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
-            5, using="replica"
-        ), self.assertNumQueries(1, using="default"):
+            7, using="replica"
+        ), self.assertNumQueries(0, using="default"):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
-            # E   2. SELECT "posthog_persondistinctid"."person_id", -- i.e person from distinct ids
-            # E   3. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", -- i.e. hash key overrides (note this would've gone to main db if insert did not fail)
-            # E   4. SET LOCAL statement_timeout = 600
-            # E   5. SELECT (true) AS "flag_13_condition_0", (true) AS "flag_14_condition_0", -- flag matching
-            # Main queries:
-            # E   1. SET LOCAL statement_timeout = 300 --> failed here, even before it could insert
+            # E   2. WITH some CTEs,
+            #           SELECT key FROM posthog_featureflag WHERE team_id = 13
+            # E         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+            # E   3. SET LOCAL statement_timeout = 300
+            # E   4. SELECT "posthog_persondistinctid"."person_id", -- i.e person from distinct ids
+            # E   5. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", -- i.e. hash key overrides (note this would've gone to main db if insert did not fail)
+            # E   6. SET LOCAL statement_timeout = 600
+            # E   7. SELECT (true) AS "flag_13_condition_0", (true) AS "flag_14_condition_0", -- flag matching
 
             response = self._post_decide(
                 api_version=3,
@@ -2806,11 +2802,14 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         PersonDistinctId.objects.using("default").create(person=person, distinct_id="other_id", team=self.team)
 
         # request with hash key overrides and _new_ writes should go to main database
-        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(5, using="default"):
-            # effectively 3 queries, wrapped around by an atomic transaction
+        with self.assertNumQueries(4, using="replica"), self.assertNumQueries(5, using="default"):
             # Replica queries:
-            # E   1. SET LOCAL statement_timeout = 600
-            # E   2. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
+            # E   1. SET LOCAL statement_timeout = 300
+            # E   2. WITH some CTEs,
+            #           SELECT key FROM posthog_featureflag WHERE team_id = 13
+            # E         AND key NOT IN (SELECT feature_flag_key FROM existing_overrides) -- checks whether we need to write
+            # E   3. SET LOCAL statement_timeout = 600
+            # E   4. SELECT (true) AS "flag_28_condition_0",  -- flag matching query because one flag requires properties
             # Main queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. (The insert hashkey overrides query)

@@ -17,6 +17,9 @@ import { IncomingRecordingMessage } from '../types'
 import { convertToPersistedMessage, now } from '../utils'
 import { RealtimeManager } from './realtime-manager'
 
+const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
+const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
+
 const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
     help: 'A single file flushed to S3',
@@ -31,13 +34,13 @@ const counterS3WriteErrored = new Counter({
 const histogramS3LinesWritten = new Histogram({
     name: 'recording_s3_lines_written_histogram',
     help: 'The number of lines in a file we send to s3',
-    buckets: [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity],
+    buckets: BUCKETS_LINES_WRITTEN,
 })
 
 const histogramS3KbWritten = new Histogram({
     name: 'recording_blob_ingestion_s3_kb_written',
     help: 'The uncompressed size of file we send to S3',
-    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, 102400, Infinity],
+    buckets: BUCKETS_KB_WRITTEN,
 })
 
 const histogramSessionAgeSeconds = new Histogram({
@@ -49,19 +52,19 @@ const histogramSessionAgeSeconds = new Histogram({
 const histogramSessionSizeKb = new Histogram({
     name: 'recording_blob_ingestion_session_size_kb',
     help: 'The size of current sessions in kb',
-    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+    buckets: BUCKETS_KB_WRITTEN,
 })
 
 const histogramFlushTimeSeconds = new Histogram({
     name: 'recording_blob_ingestion_session_flush_time_seconds',
     help: 'The time taken to flush a session in seconds',
-    buckets: [0, 1, 2, 5, 10, 20, 30, 60, 120, Infinity],
+    buckets: [0, 2, 5, 10, 20, 30, 60, 120, 180, 300, Infinity],
 })
 
 const histogramSessionSize = new Histogram({
     name: 'recording_blob_ingestion_session_lines',
     help: 'The size of sessions in numbers of lines',
-    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+    buckets: BUCKETS_LINES_WRITTEN,
 })
 
 // The buffer is a list of messages grouped
