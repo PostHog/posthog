@@ -98,7 +98,7 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
             ) => [
                 {
                     key: 'event-definitions',
-                    title: 'Event definitions',
+                    noun: 'event definition',
                     loading: infiniteEventDefinitionsLoading,
                     items: eventDefinitions.map(
                         (eventDefinition) =>
@@ -136,7 +136,7 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
                 } as SidebarCategory,
                 {
                     key: 'property-definitions',
-                    title: 'Property definitions',
+                    noun: 'property definition',
                     loading: infinitePropertyDefinitionsLoading,
                     items: propertyDefinitions.map(
                         (propertyDefinition) =>
@@ -161,8 +161,9 @@ export const dataManagementSidebarLogic = kea<dataManagementSidebarLogicType>([
                 } as SidebarCategory,
                 {
                     key: 'actions',
-                    title: 'Actions',
+                    noun: 'action',
                     loading: actionsLoading,
+                    onAdd: urls.action('new'), // TODO: Show "New button" at accordion level
                     items: relevantActions.map(([action, matches]) => ({
                         key: action.id,
                         name: action.name,
