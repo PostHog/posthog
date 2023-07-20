@@ -169,9 +169,13 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
 }
 
 export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
-    // Get the offsets for the last message for each partition, from messages
-
-    const topicPartitionOffsets = findOffsetsToCommit(messages)
+    const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
+        return {
+            ...message,
+            // When committing to Kafka you commit the offset of the next message you want to consume
+            offset: message.offset + 1,
+        }
+    })
 
     if (topicPartitionOffsets.length > 0) {
         status.debug('📝', 'Committing offsets', { topicPartitionOffsets })
