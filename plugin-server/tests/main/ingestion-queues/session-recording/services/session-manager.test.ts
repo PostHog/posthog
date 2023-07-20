@@ -3,8 +3,8 @@ import { createReadStream, createWriteStream } from 'fs'
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '../../../../../src/config/config'
-import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/session-manager'
-import { now } from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
+import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/services/session-manager'
+import { now } from '../../../../../src/main/ingestion-queues/session-recording/utils'
 import { createIncomingRecordingMessage } from '../fixtures'
 
 const createMockStream = () => {
