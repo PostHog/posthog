@@ -14,7 +14,7 @@ import { BillingPanel } from './panels/BillingPanel'
 import { Sidebar } from './Sidebar'
 import { InviteModal } from 'scenes/organization/Settings/InviteModal'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { Logo } from '~/toolbar/assets/Logo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -59,7 +59,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
     return (
         <div className="flex flex-col h-screen overflow-hidden">
             <div className="IngestionTopbar">
-                <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                <Logo style={{ fontSize: '1.125rem' }} />
                 <div className="flex">
                     <HelpButton />
                     <SitePopover />

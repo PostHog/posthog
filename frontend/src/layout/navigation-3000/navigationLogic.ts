@@ -6,6 +6,12 @@ import type { navigation3000LogicType } from './navigationLogicType'
 import { NAVBAR_ITEM_ID_TO_ITEM } from './navbarItems'
 import { Scene } from 'scenes/sceneTypes'
 import React from 'react'
+import { captureException } from '@sentry/react'
+import { lemonToast } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
+
+/** Multi-segment item keys are joined using this separator for easy comparisons. */
+export const ITEM_KEY_PART_SEPARATOR = '::'
 
 const MINIMUM_SIDEBAR_WIDTH_PX: number = 192
 const DEFAULT_SIDEBAR_WIDTH_PX: number = 288
@@ -28,6 +34,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         acknowledgeSidebarKeyboardShortcut: true,
         setIsSearchShown: (isSearchShown: boolean) => ({ isSearchShown }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        initiateNewItemInCategory: (category: string) => ({ category }),
+        initiateNewItemInlineInCategory: (category: string) => ({ category }),
+        cancelNewItem: true,
+        saveNewItem: (itemName: string) => ({ itemName }),
+        saveNewItemComplete: true,
         setLastFocusedItemIndex: (index: number) => ({ index }),
         setLastFocusedItemByKey: (key: string | number) => ({ key }), // A wrapper over setLastFocusedItemIndex
         focusNextItem: true,
@@ -117,8 +128,62 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }),
             },
         ],
+        newItemInlineCategory: [
+            null as string | null,
+            {
+                initiateNewItemInlineInCategory: (_, { category }) => category,
+                saveNewItemComplete: () => null,
+                cancelNewItem: () => null,
+                toggleSidebar: () => null,
+                showSidebar: () => null,
+                hideSidebar: () => null,
+            },
+        ],
+        savingNewItem: [
+            false,
+            {
+                saveNewItem: () => true,
+                saveNewItemComplete: () => false,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        initiateNewItemInCategory: ({ category: categoryKey }) => {
+            const category = values.activeNavbarItem?.logic.values.contents?.find((item) => item.key === categoryKey)
+            if (!category) {
+                throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
+            } else if (!category.onAdd || typeof category.onAdd !== 'function') {
+                throw new Error(`Sidebar category '${categoryKey}' doesn't support onAdd`)
+            }
+            if (category.onAdd.length === 0) {
+                ;(category.onAdd as () => void)() // If a zero-arg function, call it immediately
+            } else {
+                actions.initiateNewItemInlineInCategory(categoryKey) // Otherwise initiate inline item creation
+            }
+        },
+        saveNewItem: async ({ itemName }) => {
+            try {
+                const categoryKey = values.newItemInlineCategory
+                if (!categoryKey) {
+                    throw new Error(`Can't save new sidebar item without a category`)
+                }
+                const category = values.activeNavbarItem?.logic.values.contents?.find(
+                    (item) => item.key === categoryKey
+                )
+                if (!category) {
+                    throw new Error(`Sidebar category '${categoryKey}' doesn't exist`)
+                } else if (!category.onAdd || typeof category.onAdd !== 'function') {
+                    throw new Error(`Sidebar category '${categoryKey}' doesn't support onAdd`)
+                }
+                await category.onAdd(itemName)
+            } catch (e) {
+                captureException(e)
+                console.error(e)
+                lemonToast.error('Something went wrong while saving the item. Please try again.')
+            } finally {
+                actions.saveNewItemComplete()
+            }
+        },
         syncSidebarWidthWithMouseMove: ({ delta }) => {
             const newWidthRaw = values.sidebarWidth + values.sidebarOverslide + delta
             let newWidth = newWidthRaw
@@ -202,9 +267,40 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         sidebarContentsFlattened: [
-            (s) => [(state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.contents(state)],
+            (s) => [(state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.contents(state) || null],
             (sidebarContents): BasicListItem[] | ExtendedListItem[] =>
                 sidebarContents ? sidebarContents.flatMap((item) => ('items' in item ? item.items : item)) : [],
+        ],
+        normalizedActiveListItemKey: [
+            (s) => [
+                (state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.activeListItemKey?.(state) || null,
+            ],
+            (activeListItemKey): string | number | string[] | null =>
+                activeListItemKey
+                    ? Array.isArray(activeListItemKey)
+                        ? activeListItemKey.join(ITEM_KEY_PART_SEPARATOR)
+                        : activeListItemKey
+                    : null,
+        ],
+        newItemCategory: [
+            (s) => [
+                (state) => s.activeNavbarItem(state)?.logic.findMounted()?.selectors.contents(state) || null,
+                s.newItemInlineCategory,
+                router.selectors.location,
+            ],
+            (sidebarContents, newItemInlineCategory, location): string | null => {
+                if (!sidebarContents) {
+                    return null
+                }
+                if (newItemInlineCategory) {
+                    return newItemInlineCategory
+                }
+                return (
+                    sidebarContents.find(
+                        (category) => typeof category.onAdd === 'string' && category.onAdd === location.pathname
+                    )?.key || null
+                )
+            },
         ],
     }),
     subscriptions(({ props, cache, actions, values }) => ({
