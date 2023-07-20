@@ -6,6 +6,7 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
 import { EditorRange, isCurrentNodeEmpty } from './utils'
+import Link from '@tiptap/extension-link'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -66,6 +67,9 @@ export function Editor({
                 },
             }),
             NotebookNodeLink,
+            Link.configure({
+                openOnClick: false,
+            }),
             NotebookNodeBacklink,
             NotebookNodeInsight,
             NotebookNodeQuery,

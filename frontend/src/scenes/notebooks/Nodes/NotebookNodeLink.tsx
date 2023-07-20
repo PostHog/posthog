@@ -74,7 +74,7 @@ export const NotebookNodeLink = Node.create({
     name: NotebookNodeType.Link,
     inline: true,
     group: 'inline',
-    atom: true,
+    atom: false,
 
     addAttributes() {
         return {
