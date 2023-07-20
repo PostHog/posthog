@@ -368,13 +368,13 @@ class ArithmeticOperation(Expr):
 
 @dataclass(kw_only=True)
 class And(Expr):
-    # type: Optional[ConstantType] = field(default=None, init=False)
+    type: Optional[ConstantType]
     exprs: List[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
-    # type: Optional[ConstantType] = field(default=None, init=False)
+    type: Optional[ConstantType]
     exprs: List[Expr]
 
 
@@ -539,7 +539,7 @@ class SelectQuery(Expr):
 
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType] = None
+    type: Optional[SelectUnionQueryType]
     select_queries: List[SelectQuery]
 
 
@@ -553,7 +553,7 @@ class RatioExpr(Expr):
 class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
-    offset_value: Optional[RatioExpr]
+    offset_value: Optional[RatioExpr] = None
 
 
 # JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
