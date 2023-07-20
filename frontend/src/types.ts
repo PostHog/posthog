@@ -2045,9 +2045,8 @@ export interface Survey {
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
-    targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
-    conditions: { url: string; selector: string; is_headless?: boolean } | null
-    appearance: SurveyAppearance
+    conditions: { url?: string; selector?: string; is_headless?: boolean } | null
+    appearance: SurveyAppearance | null
     questions: SurveyQuestion[]
     created_at: string
     created_by: UserBasicType | null
