@@ -182,6 +182,7 @@ export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaC
         consumer.commit(topicPartitionOffsets)
     }
 }
+
 export const disconnectConsumer = async (consumer: RdKafkaConsumer) => {
     await new Promise((resolve, reject) => {
         consumer.disconnect((error, data) => {
