@@ -7,7 +7,6 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
-from posthog.schema import HogQLNotice
 from posthog.utils import PersonOnEventsMode
 
 
@@ -161,13 +160,10 @@ class PropertySwapper(CloningVisitor):
         if node.start is None or node.end is None:
             return  # Don't add notices for nodes without location (e.g. from EventsQuery JSON)
         # Only highlight the last part of the chain
-        start = max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1])))
-        self.context.notices.append(
-            HogQLNotice(
-                start=start,
-                end=node.end,
-                message=message,
-            )
+        self.context.add_notice(
+            start=max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1]))),
+            end=node.end,
+            message=message,
         )
 
     def _get_materialized_column(
