@@ -2,7 +2,7 @@
 
 import { TopicPartitionOffset } from 'node-rdkafka-acosom'
 
-import { RRWebEvent } from '../../../../types'
+import { RRWebEvent } from '../../../types'
 
 export type IncomingRecordingMessage = {
     metadata: TopicPartitionOffset & {

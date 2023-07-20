@@ -168,7 +168,7 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
     return highestOffsets
 }
 
-export const commitOffsetsForMessages = (messages: TopicPartitionOffset[], consumer: RdKafkaConsumer) => {
+export const commitOffsetsForMessages = (messages: Message[], consumer: RdKafkaConsumer) => {
     // Get the offsets for the last message for each partition, from messages
 
     const topicPartitionOffsets = findOffsetsToCommit(messages)

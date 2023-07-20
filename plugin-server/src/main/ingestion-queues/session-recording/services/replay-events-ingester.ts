@@ -12,8 +12,8 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
+import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
-import { IncomingRecordingMessage } from './types'
 
 const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
 

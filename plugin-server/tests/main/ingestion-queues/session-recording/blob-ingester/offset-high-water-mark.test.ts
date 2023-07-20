@@ -4,7 +4,7 @@ import {
     OffsetHighWaterMarker,
     offsetHighWaterMarkKey,
     OffsetHighWaterMarks,
-} from '../../../../../src/main/ingestion-queues/session-recording/blob-ingester/offset-high-water-marker'
+} from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { Hub } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
 

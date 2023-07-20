@@ -12,10 +12,10 @@ import { PluginsServerConfig } from '../../../../types'
 import { asyncTimeoutGuard, timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
-import { bufferFileDir } from '../session-recordings-blob-consumer'
+import { bufferFileDir } from '../session-recordings-consumer-v2'
+import { IncomingRecordingMessage } from '../types'
+import { convertToPersistedMessage, now } from '../utils'
 import { RealtimeManager } from './realtime-manager'
-import { IncomingRecordingMessage } from './types'
-import { convertToPersistedMessage, now } from './utils'
 
 const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',

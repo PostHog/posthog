@@ -27,7 +27,7 @@ import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
 import { eventDroppedCounter } from '../metrics'
 
-export const startSessionRecordingEventsConsumer = async ({
+export const startSessionRecordingEventsConsumerV1 = async ({
     teamManager,
     kafkaConfig,
     consumerMaxBytes,

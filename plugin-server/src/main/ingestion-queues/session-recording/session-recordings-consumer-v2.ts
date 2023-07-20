@@ -17,12 +17,12 @@ import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-ma
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
-import { OffsetHighWaterMarker } from './blob-ingester/offset-high-water-marker'
-import { RealtimeManager } from './blob-ingester/realtime-manager'
-import { ReplayEventsIngester } from './blob-ingester/replay-events-ingester'
-import { SessionManager } from './blob-ingester/session-manager'
-import { IncomingRecordingMessage } from './blob-ingester/types'
-import { now } from './blob-ingester/utils'
+import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
+import { RealtimeManager } from './services/realtime-manager'
+import { ReplayEventsIngester } from './services/replay-events-ingester'
+import { SessionManager } from './services/session-manager'
+import { IncomingRecordingMessage } from './types'
+import { now } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -78,7 +78,7 @@ const counterKafkaMessageReceived = new Counter({
     labelNames: ['partition'],
 })
 
-export class SessionRecordingBlobIngester {
+export class SessionRecordingIngesterV2 {
     sessions: Record<string, SessionManager> = {}
     offsetHighWaterMarker: OffsetHighWaterMarker
     realtimeManager: RealtimeManager

@@ -3,8 +3,8 @@ import LibrdKafkaError from 'node-rdkafka-acosom/lib/error'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../../../src/config/config'
-import { now } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/utils'
-import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
+import { eachBatch } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v1'
+import { now } from '../../../../src/main/ingestion-queues/session-recording/utils'
 import { TeamManager } from '../../../../src/worker/ingestion/team-manager'
 import { createOrganization, createTeam } from '../../../helpers/sql'
 

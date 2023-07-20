@@ -31,8 +31,8 @@ import {
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
-import { SessionRecordingBlobIngester } from './ingestion-queues/session-recording/session-recordings-blob-consumer'
-import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recording/session-recordings-consumer'
+import { startSessionRecordingEventsConsumerV1 } from './ingestion-queues/session-recording/session-recordings-consumer-v1'
+import { SessionRecordingIngesterV2 } from './ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { createHttpServer } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
@@ -393,7 +393,7 @@ export async function startPluginsServer(
                 stop,
                 isHealthy: isSessionRecordingsHealthy,
                 join,
-            } = await startSessionRecordingEventsConsumer({
+            } = await startSessionRecordingEventsConsumerV1({
                 teamManager: teamManager,
                 kafkaConfig: serverConfig,
                 consumerMaxBytes: serverConfig.KAFKA_CONSUMPTION_MAX_BYTES,
@@ -417,7 +417,7 @@ export async function startPluginsServer(
                 throw new Error("Can't start session recording blob ingestion without object storage")
             }
             // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingBlobIngester(serverConfig, postgres, s3, redisPool)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, postgres, s3, redisPool)
             await ingester.start()
 
             const batchConsumer = ingester.batchConsumer
