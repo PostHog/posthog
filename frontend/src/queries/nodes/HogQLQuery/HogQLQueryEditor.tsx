@@ -13,6 +13,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -31,6 +32,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt } = useActions(logic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
@@ -94,7 +96,16 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                             HogQL
                                         </a>
                                         , our wrapper around ClickHouse SQL. Explore the{' '}
-                                        <Link to={urls.dataWarehouse()}>database schema</Link> available to you.
+                                        <Link
+                                            to={
+                                                featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
+                                                    ? urls.dataWarehouse()
+                                                    : urls.database()
+                                            }
+                                        >
+                                            database schema
+                                        </Link>{' '}
+                                        available to you.
                                     </div>
                                 ),
                                 placement: 'right-start',
