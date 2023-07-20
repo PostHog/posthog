@@ -31,6 +31,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -146,27 +147,28 @@ const isNewInsight = (filters: Partial<AnyFilterType>): boolean => {
     return true
 }
 
-export function cleanFilters(
-    filters: Partial<AnyFilterType>,
-    // @ts-expect-error
-    oldFilters?: Partial<AnyFilterType>,
-    teamFilterTestAccounts?: boolean
-): Partial<FilterType> {
+export const setTestAccountFilterForNewInsight = (filter: Partial<AnyFilterType>): void => {
+    const teamFilterTestAccounts = teamLogic.findMounted()?.values.currentTeam?.test_account_filters_default_checked
+    if (localStorage.getItem('default_filter_test_accounts') !== null) {
+        // use current user default
+        filter.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
+    } else if (!filter.filter_test_accounts && teamFilterTestAccounts !== undefined) {
+        // overwrite with team default, only if not set
+        filter.filter_test_accounts = teamFilterTestAccounts
+    }
+}
+
+export function cleanFilters(filters: Partial<AnyFilterType>): Partial<FilterType> {
     const commonFilters: Partial<CommonFiltersType> = {
         ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
+        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
     }
 
     // set test account filter default for new insights from team and local storage settings
     if (isNewInsight(filters)) {
-        if (localStorage.getItem('default_filter_test_accounts') !== null) {
-            // use current user default
-            commonFilters.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
-        } else if (!filters.filter_test_accounts && teamFilterTestAccounts !== undefined) {
-            // overwrite with team default, only if not set
-            commonFilters.filter_test_accounts = teamFilterTestAccounts
-        }
+        setTestAccountFilterForNewInsight(commonFilters)
     }
 
     if (isRetentionFilter(filters)) {

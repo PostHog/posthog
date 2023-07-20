@@ -8,7 +8,7 @@ import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { isInsightVizNode } from '~/queries/utils'
-import { cleanFilters } from './utils/cleanFilters'
+import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -115,13 +115,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     return !objectsEqual(query, insight.query)
                 } else {
                     const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
-                    const savedFilters =
-                        savedInsight.filters ||
-                        queryNodeToFilter(insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS])
 
-                    // TODO: Ignore filter_test_accounts for now, but should compare against default
-                    delete currentFilters.filter_test_accounts
-                    delete savedFilters.filter_test_accounts
+                    let savedFilters: Partial<FilterType>
+                    if (savedInsight.filters) {
+                        savedFilters = savedInsight.filters
+                    } else {
+                        savedFilters = queryNodeToFilter(
+                            insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
+                        )
+                        setTestAccountFilterForNewInsight(savedFilters)
+                    }
 
                     return !compareFilters(currentFilters, savedFilters)
                 }

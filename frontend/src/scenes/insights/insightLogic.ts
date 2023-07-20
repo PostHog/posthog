@@ -329,7 +329,7 @@ export const insightLogic = kea<insightLogicType>([
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (state, { filters }) => cleanFilters(filters, state),
+                setFilters: (_, { filters }) => cleanFilters(filters),
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
                     overrideFilter ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (state, { insight }) =>
