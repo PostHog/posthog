@@ -1781,3 +1781,105 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 with_logs_session_id,
             ]
         )
+
+    @snapshot_clickhouse_queries
+    def test_one_event_and_one_person_filter_only_matching_data(self):
+        three_user_ids = [str(uuid4()) for _ in range(3)]
+        target_session_id = f"test_one_event_and_one_person_filter-{str(uuid4())}"
+
+        Person.objects.create(
+            team=self.team, distinct_ids=[three_user_ids[0], three_user_ids[1]], properties={"$current_url": "bla"}
+        )
+
+        produce_replay_summary(
+            distinct_id=three_user_ids[0],
+            session_id=target_session_id,
+            first_timestamp=(self.base_time - relativedelta(days=3)),
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            # does not match because of user distinct id
+            distinct_id=three_user_ids[2],
+            session_id=target_session_id,
+            first_timestamp=(self.base_time - relativedelta(days=3)),
+            team_id=self.team.id,
+        )
+        three_days_ago_event = self.create_event(
+            three_user_ids[0], self.base_time - relativedelta(days=3), properties={"$session_id": target_session_id}
+        )
+
+        flush_persons_and_events()
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "date_to": (self.base_time + relativedelta(days=3)).strftime("%Y-%m-%d"),
+                "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "properties": [{"key": "$current_url", "value": ["bla"], "operator": "exact", "type": "person"}],
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert [(sr["session_id"], sorted(sr["matching_events"])) for sr in session_recordings] == [
+            (target_session_id, sorted([UUID(three_days_ago_event)]))
+        ]
+
+    @snapshot_clickhouse_queries
+    def test_one_event_and_one_person_filter_some_non_matching_data(self):
+        three_user_ids = [str(uuid4()) for _ in range(3)]
+        target_session_id = f"test_one_event_and_one_person_filter_some_non_matching_data-{str(uuid4())}"
+        another_session_id = (
+            f"should-not-match-test_one_event_and_one_person_filter_some_non_matching_data-{str(uuid4())}"
+        )
+
+        Person.objects.create(
+            team=self.team, distinct_ids=[three_user_ids[0], three_user_ids[1]], properties={"$current_url": "bla"}
+        )
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[three_user_ids[2]],
+            properties={"$current_url": "not me"},
+        )
+
+        produce_replay_summary(
+            distinct_id=three_user_ids[0],
+            session_id=target_session_id,
+            first_timestamp=(self.base_time - relativedelta(days=3)),
+            team_id=self.team.id,
+        )
+        produce_replay_summary(
+            # does not match because of user distinct id
+            distinct_id=three_user_ids[2],
+            session_id=another_session_id,
+            first_timestamp=(self.base_time - relativedelta(days=3)),
+            team_id=self.team.id,
+        )
+        matching_session_event = self.create_event(
+            three_user_ids[0], self.base_time - relativedelta(days=3), properties={"$session_id": target_session_id}
+        )
+        self.create_event(
+            three_user_ids[2],
+            self.base_time - relativedelta(days=3),
+            properties={"$session_id": another_session_id},
+        )
+
+        flush_persons_and_events()
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "date_to": (self.base_time + relativedelta(days=3)).strftime("%Y-%m-%d"),
+                "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "properties": [{"key": "$current_url", "value": ["bla"], "operator": "exact", "type": "person"}],
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        assert [(sr["session_id"], sorted(sr["matching_events"])) for sr in session_recordings] == [
+            (target_session_id, sorted([UUID(matching_session_event)]))
+        ]
