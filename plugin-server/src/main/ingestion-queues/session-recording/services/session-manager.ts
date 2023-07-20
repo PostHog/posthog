@@ -77,8 +77,8 @@ type SessionBuffer = {
     file: string
     fileStream: WriteStream
     offsets: {
-        lowest: number
-        highest: number
+        lowest?: number
+        highest?: number
     }
     eventsRange: {
         firstTimestamp: number
@@ -350,7 +350,9 @@ export class SessionManager {
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
-            this.onFinish([offsets.lowest, offsets.highest])
+            if (offsets.lowest && offsets.highest) {
+                this.onFinish([offsets.lowest, offsets.highest])
+            }
         } catch (error) {
             this.captureException(error)
         } finally {
@@ -374,10 +376,7 @@ export class SessionManager {
                 newestKafkaTimestamp: null,
                 file,
                 fileStream: createWriteStream(file, 'utf-8'),
-                offsets: {
-                    lowest: Infinity,
-                    highest: -Infinity,
-                },
+                offsets: {},
                 eventsRange: null,
             }
 
@@ -419,8 +418,12 @@ export class SessionManager {
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.sizeEstimate += content.length
-            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
-            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
+            if (this.buffer.offsets.lowest ?? Infinity > message.metadata.offset) {
+                this.buffer.offsets.lowest = message.metadata.offset
+            }
+            if (this.buffer.offsets.highest ?? -Infinity < message.metadata.offset) {
+                this.buffer.offsets.highest = message.metadata.offset
+            }
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
@@ -504,10 +507,16 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.count === 0) {
-            return null
+        const possibleOffsets = []
+        if (this.buffer.offsets.lowest) {
+            possibleOffsets.push(this.buffer.offsets.lowest)
         }
-        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
+
+        if (this.flushBuffer?.offsets.lowest) {
+            possibleOffsets.push(this.flushBuffer.offsets.lowest)
+        }
+
+        return possibleOffsets.length ? Math.min(...possibleOffsets) : null
     }
 
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
