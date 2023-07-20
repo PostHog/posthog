@@ -7,8 +7,8 @@ import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
-import { IncomingRecordingMessage } from './types'
-import { convertToPersistedMessage } from './utils'
+import { IncomingRecordingMessage } from '../types'
+import { convertToPersistedMessage } from '../utils'
 
 const Keys = {
     snapshots(teamId: number, suffix: string): string {
