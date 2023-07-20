@@ -13,6 +13,8 @@ from temporalio.client import (
     ScheduleOverlapPolicy,
     ScheduleSpec,
     ScheduleState,
+    ScheduleUpdate,
+    ScheduleUpdateInput,
 )
 
 from posthog import settings
@@ -250,6 +252,82 @@ def update_batch_export_run_status(run_id: UUID, status: str, latest_error: str 
     updated = BatchExportRun.objects.filter(id=run_id).update(status=status, latest_error=latest_error)
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
+
+
+def update_batch_export(
+    batch_export: BatchExport,
+    interval: str | None,
+    name: str | None,
+    destination_data: dict | None = None,
+    start_at: dt.datetime | None = None,
+    end_at: dt.datetime | None = None,
+):
+    if destination_data:
+        batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
+        batch_export.destination.config = {**batch_export.destination.config, **destination_data.get("config", {})}
+
+    batch_export.name = name or batch_export.name
+    batch_export.start_at = start_at or batch_export.start_at
+    batch_export.end_at = end_at or batch_export.end_at
+
+    if interval is None:
+        interval = batch_export.interval
+
+    if interval == "hour":
+        time_delta_from_interval = dt.timedelta(hours=1)
+    elif interval == "day":
+        time_delta_from_interval = dt.timedelta(days=1)
+    else:
+        raise ValueError(f"Unsupported interval '{interval}'")
+
+    batch_export.interval = interval or batch_export.interval
+
+    workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
+    state = ScheduleState(
+        note=f"Schedule updated for BatchExport {batch_export.id} to Destination {batch_export.destination.id} in Team {batch_export.team.id}.",
+        paused=batch_export.paused,
+    )
+
+    temporal = sync_connect()
+    new_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            workflow,
+            asdict(
+                workflow_inputs(
+                    team_id=batch_export.team.id,
+                    batch_export_id=str(batch_export.id),
+                    **batch_export.destination.config,
+                )
+            ),
+            id=str(batch_export.id),
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
+            intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
+        ),
+        state=state,
+    )
+
+    update_schedule(temporal, schedule_id=str(batch_export.id), schedule=new_schedule)
+
+    batch_export.save()
+    batch_export.destination.save()
+    return batch_export
+
+
+@async_to_sync
+async def update_schedule(temporal: Client, schedule_id: str, schedule: Schedule) -> None:
+    """Update a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+
+    async def updater(_: ScheduleUpdateInput) -> ScheduleUpdate:
+        return ScheduleUpdate(schedule=schedule)
+
+    return await handle.update(
+        updater=updater,
+    )
 
 
 def create_batch_export(

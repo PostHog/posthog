@@ -15,6 +15,8 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from './utils'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 const fuse = new Fuse<DashboardType>([], {
     keys: [{ name: 'name', weight: 2 }, 'description', 'tags'],
@@ -39,6 +41,8 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             ['showDuplicateDashboardModal'],
             deleteDashboardLogic,
             ['showDeleteDashboardModal'],
+            newDashboardLogic,
+            ['showNewDashboardModal'],
         ],
     }),
     selectors(({ actions }) => ({
@@ -47,8 +51,10 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
             (relevantDashboards, dashboardsLoading) => [
                 {
                     key: 'dashboards',
-                    title: 'Dashboards',
+                    noun: 'dashboard',
                     loading: dashboardsLoading,
+                    onAdd: () => actions.showNewDashboardModal(),
+                    modalContent: <NewDashboardModal />,
                     items: relevantDashboards.map(
                         ([dashboard, matches]) =>
                             ({
@@ -127,8 +133,10 @@ export const dashboardsSidebarLogic = kea<dashboardsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
-                return activeScene === Scene.Dashboard && sceneParams.params.id ? parseInt(sceneParams.params.id) : null
+            (activeScene, sceneParams): [string, number] | null => {
+                return activeScene === Scene.Dashboard && sceneParams.params.id
+                    ? ['dashboards', parseInt(sceneParams.params.id)]
+                    : null
             },
         ],
         relevantDashboards: [

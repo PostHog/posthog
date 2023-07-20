@@ -2233,7 +2233,7 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
 
         with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
             self
-        ), self.assertNumQueries(4):
+        ), self.assertNumQueries(1):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
@@ -2919,6 +2919,33 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self._post_decide(distinct_id="example_id", groups={"organization": "foo", "project": "bar"})
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True, "default-no-prop-group-flag": True})
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
+    def test_site_apps_in_decide_use_replica(self, mock_is_connected):
+        org, team, user = self.setup_user_and_team_in_db("default")
+        self.organization, self.team, self.user = org, team, user
+
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="site.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}",
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        PluginConfig.objects.create(
+            plugin=plugin, enabled=True, order=1, team=self.team, config={}, web_token="tokentoken"
+        )
+        sync_team_inject_web_apps(self.team)
+
+        # update caches
+        self._post_decide(api_version=3)
+
+        with self.assertNumQueries(2, using="replica"), self.assertNumQueries(0, using="default"):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 1)
 
 
 class TestDecideMetricLabel(TestCase):

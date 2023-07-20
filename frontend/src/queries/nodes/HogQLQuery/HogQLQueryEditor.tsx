@@ -44,7 +44,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full'}
+                className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full overflow-hidden'}
+                style={{ height: 318 }}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG} match>
                     <div className="flex gap-2">
@@ -80,7 +81,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </div>
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
-                <div className="relative flex-1">
+                <div className="relative flex-1 overflow-hidden">
                     <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
                         <LemonButtonWithDropdown
                             icon={<IconInfo />}
@@ -106,11 +107,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </span>
                     <MonacoEditor
                         theme={isDarkModeOn ? 'vs-dark' : 'light'}
-                        className="py-2 border rounded overflow-hidden"
+                        className="py-2 border rounded overflow-hidden h-full"
                         language="mysql"
                         value={queryInput}
                         onChange={(v) => setQueryInput(v ?? '')}
-                        height={234} // 12 lines without scrolling
+                        height="100%"
                         onMount={(editor, monaco) => {
                             monaco.languages.registerCodeActionProvider('mysql', {
                                 provideCodeActions: (model, _range, context) => {
@@ -182,6 +183,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             },
                             wordWrap: 'on',
                             scrollBeyondLastLine: false,
+                            automaticLayout: true,
+                            fixedOverflowWidgets: true,
                         }}
                         loading={<Spinner />}
                     />
