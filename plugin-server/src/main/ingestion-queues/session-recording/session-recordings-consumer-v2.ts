@@ -274,6 +274,7 @@ export class SessionRecordingIngesterV2 {
             })
 
             await this.consume(message, consumeSpan)
+            // TODO: We could do this as batch of offsets for the whole lot...
             await this.commitOffset(message.metadata.topic, message.metadata.partition, message.metadata.offset)
 
             consumeSpan?.finish()
