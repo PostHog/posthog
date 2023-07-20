@@ -37,6 +37,7 @@ import {
     getInterval,
     getSeries,
     getShownAs,
+    getShowPercentStackView,
     getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
@@ -116,6 +117,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         shownAs: [(s) => [s.querySource], (q) => (q ? getShownAs(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : undefined)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

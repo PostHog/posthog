@@ -35,6 +35,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -211,6 +212,7 @@ export interface LineGraphProps {
     formula?: string | null
     compare?: boolean | null
     showValueOnSeries?: boolean | null
+    showPercentStackView?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -239,6 +241,7 @@ export function LineGraph_({
     trendsFilter,
     formula,
     showValueOnSeries,
+    showPercentStackView,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -371,6 +374,7 @@ export function LineGraph_({
                 },
             },
             plugins: {
+                stacked100: { enable: showPercentStackView && type === GraphType.Bar, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -614,7 +618,7 @@ export function LineGraph_({
             }
             options.indexAxis = 'y'
         }
-
+        Chart.register(ChartjsPluginStacked100)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
