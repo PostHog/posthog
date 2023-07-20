@@ -3,7 +3,7 @@ import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
-import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
+import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { createIncomingRecordingMessage } from './fixtures'
@@ -50,7 +50,7 @@ describe('ingester', () => {
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
     }
 
-    let ingester: SessionRecordingBlobIngester
+    let ingester: SessionRecordingIngesterV2
 
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -84,7 +84,7 @@ describe('ingester', () => {
 
     // these tests assume that a flush won't run while they run
     beforeEach(async () => {
-        ingester = new SessionRecordingBlobIngester(
+        ingester = new SessionRecordingIngesterV2(
             {
                 ...defaultConfig,
                 SESSION_RECORDING_REDIS_OFFSET_STORAGE_KEY: keyPrefix,
