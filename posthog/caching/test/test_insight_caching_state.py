@@ -182,12 +182,6 @@ def create_tile(
         ),
         pytest.param(
             create_insight,
-            {"query": {"kind": "RecentPerformancePageViewNode"}, "viewed_at_delta": timedelta(days=1)},
-            TargetCacheAge.MID_PRIORITY,
-            id="insight with RecentPerformancePageViewNode query viewed recently",
-        ),
-        pytest.param(
-            create_insight,
             {"query": {"kind": "TimeToSeeDataSessionsQuery"}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.MID_PRIORITY,
             id="insight with TimeToSeeDataSessionsQuery query viewed recently",
