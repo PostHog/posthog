@@ -49,7 +49,6 @@ import { queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
 import { userLogic } from 'scenes/userLogic'
-import { globalInsightLogic } from './globalInsightLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
@@ -92,10 +91,8 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
             userLogic,
             ['user'],
-            globalInsightLogic,
-            ['globalInsightFilters'],
         ],
-        actions: [tagsModel, ['loadTags'], globalInsightLogic, ['setGlobalInsightFilters']],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
@@ -105,7 +102,6 @@ export const insightLogic = kea<insightLogicType>([
             insightMode,
             clearInsightQuery,
         }),
-        setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
         reportInsightViewed: (
             insightModel: Partial<InsightModel>,
@@ -340,7 +336,7 @@ export const insightLogic = kea<insightLogicType>([
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (_, { filters }) => cleanFilters(filters),
+                setFilters: (_, { filters }) => filters,
                 setInsight: (state, { insight, options: { overrideFilter } }) =>
                     overrideFilter ? insight.filters || ({} as Partial<FilterType>) : state,
                 loadInsightSuccess: (state, { insight }) =>
@@ -557,12 +553,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values }) => ({
-        setFiltersMerge: ({ filters }) => {
-            actions.setFilters({ ...values.filters, ...filters })
-        },
-        setGlobalInsightFilters: ({ globalInsightFilters }) => {
-            actions.setFilters({ ...values.filters, ...globalInsightFilters })
-        },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
