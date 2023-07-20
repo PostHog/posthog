@@ -178,9 +178,6 @@ class SelectQueryAliasType(Type):
         return self.select_query_type.has_child(name)
 
 
-# SelectQueryType.update_forward_refs(SelectQueryAliasType=SelectQueryAliasType)
-
-
 @dataclass(kw_only=True)
 class IntegerType(ConstantType):
     data_type: ConstantDataType = field(default="int", init=False)
@@ -554,8 +551,3 @@ class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr] = None
-
-
-# JoinExpr.update_forward_refs(SampleExpr=SampleExpr)
-# JoinExpr.update_forward_refs(SelectUnionQuery=SelectUnionQuery)
-# JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
