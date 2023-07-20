@@ -497,6 +497,8 @@ export class SessionRecordingIngesterV2 {
             potentiallyBlockingOffset && potentiallyBlockingOffset < offset ? potentiallyBlockingOffset : offset
 
         const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
+        // TODO: Check how long we have been blocked by any individual session and if it is too long then we should
+        // capture an exception to figure out why
         if (lastKnownCommit >= highestOffsetToCommit) {
             // If we have already commited this offset then we don't need to do it again
             return
