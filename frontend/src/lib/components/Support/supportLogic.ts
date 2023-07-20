@@ -82,7 +82,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     app: 'apps',
     toolbar: 'analytics',
     warehouse: 'data_warehouse',
-    surveys: 'feature_flags'
+    surveys: 'surveys',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
