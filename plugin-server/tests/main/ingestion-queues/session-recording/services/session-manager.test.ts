@@ -14,7 +14,7 @@ const createMockStream = () => {
         close: jest.fn((cb) => cb?.()),
         end: jest.fn((cb) => cb?.()),
         on: jest.fn(),
-        once: jest.fn(),
+        once: jest.fn((val, cb) => cb?.()),
     }
 }
 
@@ -85,6 +85,8 @@ describe('session-manager', () => {
 
         sessionManager = createSessionManager()
         mockFinish.mockClear()
+        mockWriteFn.mockReset()
+        mockWriteFn.mockImplementation(() => true)
     })
 
     afterEach(async () => {
@@ -329,5 +331,13 @@ describe('session-manager', () => {
             expect(sm.flushJitterMultiplier).toBeGreaterThanOrEqual(minJitter)
             expect(sm.flushJitterMultiplier).toBeLessThanOrEqual(1)
         }
+    })
+
+    it('waits for the drain if write returns false', async () => {
+        await sessionManager.add(createIncomingRecordingMessage())
+        ;(sessionManager.buffer.fileStream.write as jest.Mock).mockReturnValueOnce(false)
+        await sessionManager.add(createIncomingRecordingMessage())
+
+        expect(sessionManager.buffer.fileStream.once).toHaveBeenCalledWith('drain', expect.any(Function))
     })
 })
