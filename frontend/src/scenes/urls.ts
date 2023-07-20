@@ -102,7 +102,7 @@ export const urls = {
     surveys: (): string => '/surveys',
     dataWarehouse: (): string => '/warehouse',
     dataWarehouseTable: (id: ':id' | 'new' | string): string => `/warehouse/${id}`,
-    survey: (id: ':id' | 'new' | string): string => `/survey/${id}`,
+    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
     annotations: (): string => '/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,

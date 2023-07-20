@@ -1,5 +1,3 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -7,6 +5,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { Meta } from '@storybook/react'
+import { router } from 'kea-router'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -21,11 +21,12 @@ const MOCK_BASIC_SURVEY: Survey = {
         first_name: 'Employee 427',
         email: 'test2@posthog.com',
     },
-    questions: [{ question: 'question 1?', type: SurveyQuestionType.Open, link: null }],
+    questions: [{ question: 'question 1?', type: SurveyQuestionType.Open }],
     conditions: null,
     linked_flag: null,
     linked_flag_id: null,
     targeting_flag: null,
+    targeting_flag_filters: undefined,
     appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
     start_date: null,
     end_date: null,
@@ -45,9 +46,9 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         first_name: 'Employee 427',
         email: 'test2@posthog.com',
     },
-    questions: [{ question: 'question 2?', type: SurveyQuestionType.Open, link: null }],
-    appearance: null,
-    conditions: { url: 'posthog' },
+    questions: [{ question: 'question 2?', type: SurveyQuestionType.Open }],
+    appearance: { backgroundColor: 'white', textColor: 'black', submitButtonColor: '#2C2C2C' },
+    conditions: { url: 'posthog', selector: '' },
     linked_flag: {
         id: 7,
         team_id: 1,
@@ -96,6 +97,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
         active: true,
         ensure_experience_continuity: false,
     },
+    targeting_flag_filters: undefined,
     start_date: '2023-04-29T10:04:37.977401Z',
     end_date: null,
     archived: false,
