@@ -11,13 +11,35 @@ const clean = (
     // remove undefined values, empty array and empty objects
     const cleanedFilters = objectCleanWithEmpty(cleanFilters(f, test_account_filters_default_checked))
 
+    // do we need an order property on events or actions?
+    const needsOrder = (cleanedFilters.events || []).length + (cleanedFilters.actions || []).length > 1
+
     cleanedFilters.events = cleanedFilters.events?.map((e) => {
         // event math `total` is the default
         if (e.math === 'total') {
             delete e.math
         }
+
+        // delete unnecessary event order
+        if (!needsOrder) {
+            delete e.order
+        }
+
         return e
     })
+
+    cleanedFilters.actions = cleanedFilters.actions?.map((a) => {
+        // delete unnecessary action order
+        if (!needsOrder) {
+            delete a.order
+        }
+
+        return a
+    })
+
+    // used only for persons endpoint
+    delete f.entity_type
+
     return cleanedFilters
 }
 
