@@ -1,7 +1,7 @@
 import { LemonButton, LemonDivider, LemonModal, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues, useAsyncActions } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 import clsx from 'clsx'
 
@@ -15,7 +15,7 @@ export function FeaturePreviewsModal({
         useValues(featurePreviewsLogic)
     const { hideFeaturePreviewsModal, loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
-    useEffect(() => loadEarlyAccessFeatures(), [])
+    useLayoutEffect(() => loadEarlyAccessFeatures(), [])
 
     return (
         <LemonModal
