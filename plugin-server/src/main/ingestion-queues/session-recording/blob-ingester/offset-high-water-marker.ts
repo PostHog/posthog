@@ -22,7 +22,7 @@ export type OffsetHighWaterMarks = Record<string, number | undefined>
  * which offsets have been written to S3 for each session, and which haven't
  * so that we don't re-process those messages.
  */
-export class OffsetHighWaterMark {
+export class OffsetHighWaterMarker {
     // Watermarks are held in memory and synced back to redis on commit
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
     private topicPartitionWaterMarks: Record<string, Promise<OffsetHighWaterMarks> | undefined> = {}

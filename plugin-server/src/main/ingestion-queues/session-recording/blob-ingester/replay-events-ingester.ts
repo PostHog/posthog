@@ -12,7 +12,7 @@ import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
-import { OffsetHighWaterMark } from './offset-high-water-mark'
+import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { IncomingRecordingMessage } from './types'
 
 const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
@@ -22,7 +22,7 @@ export class ReplayEventsIngester {
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
-        private readonly offsetHighWaterMark: OffsetHighWaterMark
+        private readonly offsetHighWaterMarker: OffsetHighWaterMarker
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -69,7 +69,7 @@ export class ReplayEventsIngester {
 
         const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
         await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.offsetHighWaterMark.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
+            topicPartitionOffsets.map((tpo) => this.offsetHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
         )
     }
 
@@ -104,7 +104,7 @@ export class ReplayEventsIngester {
         }
 
         if (
-            await this.offsetHighWaterMark.isBelowHighWaterMark(
+            await this.offsetHighWaterMarker.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
                 event.metadata.offset
