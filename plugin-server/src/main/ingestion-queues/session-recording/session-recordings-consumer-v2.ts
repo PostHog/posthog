@@ -172,8 +172,8 @@ export class SessionRecordingIngesterV2 {
                         return
                     }
 
-                    this.commitOffsets(topic, partition, session_id, offsets)
-                    // We don't want to block if anything fails here. Watermarks are best effort
+                    // We don't want to block if anything fails here.
+                    void this.commitOffsets(topic, partition, offsets)
                     void this.offsetHighWaterMarker.add({ topic, partition }, session_id, offsets.slice(-1)[0])
                 }
             )
@@ -282,6 +282,8 @@ export class SessionRecordingIngesterV2 {
             })
 
             await this.consume(message, consumeSpan)
+            await this.commitOffsets(message.metadata.topic, message.metadata.partition, [message.metadata.offset])
+
             consumeSpan?.finish()
         }
 
@@ -483,7 +485,7 @@ export class SessionRecordingIngesterV2 {
     // Given a topic and partition and a list of offsets, commit the highest offset
     // that is no longer found across any of the existing sessions.
     // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
-    private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
+    private async commitOffsets(topic: string, partition: number, offsets: number[]): Promise<void> {
         let potentiallyBlockingSession: SessionManager | undefined
 
         for (const sessionManager of Object.values(this.sessions)) {
@@ -512,7 +514,6 @@ export class SessionRecordingIngesterV2 {
                 partition,
                 offsetToCommit: highestOffsetToCommit,
                 lastKnownCommit,
-                sessionId,
             })
 
             return
@@ -525,23 +526,15 @@ export class SessionRecordingIngesterV2 {
             offsetToCommit: highestOffsetToCommit,
         })
 
-        void this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
+        await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
 
-        try {
-            this.batchConsumer?.consumer.commit({
-                topic,
-                partition,
-                // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
-                // for some reason you commit the next offset you expect to read and not the one you actually have
-                offset: highestOffsetToCommit + 1,
-            })
-            gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
-        } catch (e) {
-            gaugeOffsetCommitFailed.inc({ partition })
-            captureException(e, {
-                extra: { partition, offsetToCommit: highestOffsetToCommit, sessionId },
-                tags: { partition },
-            })
-        }
+        this.batchConsumer?.consumer.commit({
+            topic,
+            partition,
+            // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+            // for some reason you commit the next offset you expect to read and not the one you actually have
+            offset: highestOffsetToCommit + 1,
+        })
+        gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
     }
 }
