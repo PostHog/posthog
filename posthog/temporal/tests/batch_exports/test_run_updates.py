@@ -1,5 +1,4 @@
 import datetime as dt
-
 import pytest
 from asgiref.sync import sync_to_async
 
@@ -16,116 +15,119 @@ from posthog.temporal.workflows.base import (
     create_export_run,
     update_export_run_status,
 )
+from posthog.test.base import TransactionTestCase
 
 
-@pytest.fixture
-def organization():
-    """Fixture providing an Organization for testing."""
-    org = Organization.objects.create(name="test-org")
-    org.save()
+class RunUpdatesTest(TransactionTestCase):
+    available_apps = ["posthog"]
 
-    yield org
+    @pytest.fixture(autouse=True)
+    def activity_environment_fixture(self, activity_environment):
+        """Fixture providing an Organization for testing."""
+        self.activity_environment = activity_environment
 
-    org.delete()
+    @pytest.fixture(autouse=True)
+    def organization(self):
+        """Fixture providing an Organization for testing."""
+        self.org = Organization.objects.create(name="test-org")
+        self.org.save()
 
+        yield
 
-@pytest.fixture
-def team(organization):
-    """Fixture providing a Team for testing."""
-    team = Team.objects.create(organization=organization)
-    team.save()
+        self.org.delete()
 
-    yield team
+    @pytest.fixture(autouse=True)
+    def team_fixture(self, organization):
+        """Fixture providing a Team for testing."""
+        self.team = Team.objects.create(organization=self.org)
+        self.team.save()
 
-    team.delete()
+        yield
 
+        self.team.delete()
 
-@pytest.fixture
-def destination(team):
-    """Fixture providing an BatchExportDestination for testing."""
-    dest = BatchExportDestination.objects.create(
-        type="S3",
-        config={
-            "bucket_name": "bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "batch_window_size": 3600,
-            "aws_access_key_id": "key_id",
-            "aws_secret_access_key": "secret",
-        },
-    )
-    dest.save()
+    @pytest.fixture(autouse=True)
+    def destination(self, team_fixture):
+        """Fixture providing an BatchExportDestination for testing."""
+        self.dest = BatchExportDestination.objects.create(
+            type="S3",
+            config={
+                "bucket_name": "bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "batch_window_size": 3600,
+                "aws_access_key_id": "key_id",
+                "aws_secret_access_key": "secret",
+            },
+        )
+        self.dest.save()
 
-    yield dest
+        yield
 
-    dest.delete()
+        self.dest.delete()
 
+    @pytest.fixture(autouse=True)
+    def batch_export(self, team_fixture, destination):
+        """A test BatchExport."""
+        self.batch_export = BatchExport.objects.create(
+            name="test export", team=self.team, destination=self.dest, interval="hour"
+        )
+        self.batch_export.save()
 
-@pytest.fixture
-def batch_export(destination, team):
-    """A test BatchExport."""
-    batch_export = BatchExport.objects.create(name="test export", team=team, destination=destination, interval="hour")
+        yield
 
-    batch_export.save()
+        self.batch_export.delete()
 
-    yield batch_export
+    @pytest.mark.asyncio
+    async def test_create_export_run(self):
+        """Test the create_export_run activity.
 
-    batch_export.delete()
+        We check if an BatchExportRun is created after the activity runs.
+        """
+        start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
+        end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
 
+        inputs = CreateBatchExportRunInputs(
+            team_id=self.team.id,
+            batch_export_id=str(self.batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        )
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_create_export_run(activity_environment, team, batch_export):
-    """Test the create_export_run activity.
+        run_id = await self.activity_environment.run(create_export_run, inputs)
 
-    We check if an BatchExportRun is created after the activity runs.
-    """
-    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
-    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+        runs = BatchExportRun.objects.filter(id=run_id)
+        assert await sync_to_async(runs.exists)()  # type:ignore
 
-    inputs = CreateBatchExportRunInputs(
-        team_id=team.id,
-        batch_export_id=str(batch_export.id),
-        data_interval_start=start.isoformat(),
-        data_interval_end=end.isoformat(),
-    )
+        run = await sync_to_async(runs.first)()  # type:ignore
+        assert run.data_interval_start == start
+        assert run.data_interval_end == end
 
-    run_id = await activity_environment.run(create_export_run, inputs)
+    @pytest.mark.asyncio
+    async def test_update_export_run_status(self):
+        """Test the export_run_status activity."""
+        start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
+        end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
 
-    runs = BatchExportRun.objects.filter(id=run_id)
-    assert await sync_to_async(runs.exists)()  # type:ignore
+        inputs = CreateBatchExportRunInputs(
+            team_id=self.team.id,
+            batch_export_id=str(self.batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        )
 
-    run = await sync_to_async(runs.first)()  # type:ignore
-    assert run.data_interval_start == start
-    assert run.data_interval_end == end
+        run_id = await self.activity_environment.run(create_export_run, inputs)
 
+        runs = BatchExportRun.objects.filter(id=run_id)
+        run = await sync_to_async(runs.first)()  # type:ignore
+        assert run.status == "Starting"
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_update_export_run_status(activity_environment, team, batch_export):
-    """Test the export_run_status activity."""
-    start = dt.datetime(2023, 4, 24, tzinfo=dt.timezone.utc)
-    end = dt.datetime(2023, 4, 25, tzinfo=dt.timezone.utc)
+        update_inputs = UpdateBatchExportRunStatusInputs(
+            id=str(run_id),
+            status="Completed",
+        )
+        await self.activity_environment.run(update_export_run_status, update_inputs)
 
-    inputs = CreateBatchExportRunInputs(
-        team_id=team.id,
-        batch_export_id=str(batch_export.id),
-        data_interval_start=start.isoformat(),
-        data_interval_end=end.isoformat(),
-    )
-
-    run_id = await activity_environment.run(create_export_run, inputs)
-
-    runs = BatchExportRun.objects.filter(id=run_id)
-    run = await sync_to_async(runs.first)()  # type:ignore
-    assert run.status == "Starting"
-
-    update_inputs = UpdateBatchExportRunStatusInputs(
-        id=str(run_id),
-        status="Completed",
-    )
-    await activity_environment.run(update_export_run_status, update_inputs)
-
-    runs = BatchExportRun.objects.filter(id=run_id)
-    run = await sync_to_async(runs.first)()  # type:ignore
-    assert run.status == "Completed"
+        runs = BatchExportRun.objects.filter(id=run_id)
+        run = await sync_to_async(runs.first)()  # type:ignore
+        assert run.status == "Completed"
