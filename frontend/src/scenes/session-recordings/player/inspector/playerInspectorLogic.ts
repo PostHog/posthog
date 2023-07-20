@@ -136,8 +136,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
             sessionRecordingDataLogic(props),
             [
-                'performanceEvents',
-                'performanceEventsLoading',
                 'sessionPlayerData',
                 'sessionPlayerMetaDataLoading',
                 'sessionPlayerSnapshotDataLoading',
@@ -256,10 +254,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allPerformanceEvents: [
-            (s) => [s.sessionPlayerData, s.performanceEvents],
-            (sessionPlayerData, performanceEvents): PerformanceEvent[] => {
-                // performanceEvents come from the API but we decided to instead store them in the recording data
-                const events: PerformanceEvent[] = [...(performanceEvents || [])]
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData): PerformanceEvent[] => {
+                // performanceEvents used to come from the API,
+                // but we decided to instead store them in the recording data
+                const events: PerformanceEvent[] = []
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
                     snapshots.forEach((snapshot: eventWithTime) => {
@@ -617,7 +616,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         tabsState: [
             (s) => [
                 s.sessionEventsDataLoading,
-                s.performanceEventsLoading,
                 s.sessionPlayerMetaDataLoading,
                 s.sessionPlayerSnapshotDataLoading,
                 s.sessionEventsData,
@@ -626,7 +624,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             (
                 sessionEventsDataLoading,
-                performanceEventsLoading,
                 sessionPlayerMetaDataLoading,
                 sessionPlayerSnapshotDataLoading,
                 events,
@@ -641,10 +638,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         ? 'ready'
                         : 'empty'
                 const tabNetworkState =
-                    sessionPlayerMetaDataLoading ||
-                    sessionPlayerSnapshotDataLoading ||
-                    performanceEventsLoading ||
-                    !performanceEvents
+                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !performanceEvents
                         ? 'loading'
                         : performanceEvents.length
                         ? 'ready'

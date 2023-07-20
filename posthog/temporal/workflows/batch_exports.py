@@ -14,8 +14,8 @@ SELECT_QUERY_TEMPLATE = Template(
         -- As a side-effect, this heuristic will discard historical loads older than 2 days.
         timestamp >= toDateTime({data_interval_start}, 'UTC') - INTERVAL 2 DAY
         AND timestamp < toDateTime({data_interval_end}, 'UTC') + INTERVAL 1 DAY
-        AND _timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND _timestamp < toDateTime({data_interval_end}, 'UTC')
+        AND COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
+        AND COALESCE(inserted_at, _timestamp) < toDateTime64({data_interval_end}, 6, 'UTC')
         AND team_id = {team_id}
     $order_by
     """
@@ -50,7 +50,7 @@ async def get_results_iterator(client: ChClient, team_id: int, interval_start: s
             fields="""
                     uuid,
                     timestamp,
-                    _timestamp,
+                    inserted_at,
                     created_at,
                     event,
                     properties,

@@ -2,11 +2,10 @@ import { kea } from 'kea'
 import { objectsEqual, dateMapping } from 'lib/utils'
 import type { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType, Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dayjs } from 'lib/dayjs'
-import { FunnelsQuery, InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,8 +15,8 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['setFilters'], insightVizDataLogic(props), ['updateQuerySource']],
-        values: [insightLogic(props), ['filters'], insightVizDataLogic(props), ['querySource']],
+        actions: [insightVizDataLogic(props), ['updateQuerySource']],
+        values: [insightVizDataLogic(props), ['interval', 'querySource']],
     }),
     actions: () => ({
         setInterval: (interval: IntervalKeyType) => ({ interval }),
@@ -33,14 +32,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
     }),
     listeners: ({ values, actions, selectors }) => ({
         setInterval: ({ interval }) => {
-            if (!objectsEqual(interval, values.filters.interval)) {
-                actions.setFilters({ ...values.filters, interval })
-            }
-
-            if (
-                !values.querySource ||
-                (values.querySource as FunnelsQuery | StickinessQuery | TrendsQuery).interval !== interval
-            ) {
+            if (values.interval !== interval) {
                 actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
             }
         },
@@ -149,7 +141,4 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
         },
     }),
-    selectors: {
-        interval: [(s) => [s.filters], (filters) => filters?.interval],
-    },
 })

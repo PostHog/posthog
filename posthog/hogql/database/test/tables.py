@@ -2,9 +2,9 @@ from posthog.hogql.database.models import DateDatabaseField, IntegerDatabaseFiel
 from posthog.hogql.database.s3_table import S3Table
 
 
-def create_aapl_stock_s3_table() -> S3Table:
+def create_aapl_stock_s3_table(name="aapl_stock") -> S3Table:
     return S3Table(
-        name="aapl_stock",
+        name=name,
         url="https://s3.eu-west-3.amazonaws.com/datasets-documentation/aapl_stock.csv",
         format="CSVWithNames",
         fields={

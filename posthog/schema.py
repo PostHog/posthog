@@ -350,15 +350,6 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
-class RecentPerformancePageViewNode(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    dateRange: DateRange
-    kind: str = Field("RecentPerformancePageViewNode", const=True, description="Performance")
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
-
-
 class RecordingDurationFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -905,9 +896,9 @@ class DataTableNode(BaseModel):
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[
-        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
-    ] = Field(..., description="Source of the events")
+    source: Union[EventsNode, EventsQuery, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery] = Field(
+        ..., description="Source of the events"
+    )
 
 
 class PropertyGroupFilter(BaseModel):
@@ -1145,6 +1136,7 @@ class InsightVizNode(BaseModel):
     showCorrelationTable: Optional[bool] = None
     showHeader: Optional[bool] = None
     showLastComputation: Optional[bool] = None
+    showLastComputationRefresh: Optional[bool] = None
     showLegendButton: Optional[bool] = None
     showTable: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
@@ -1161,7 +1153,6 @@ class Model(BaseModel):
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
-        RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
         Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, HogQLMetadata, TimeToSeeDataSessionsQuery],

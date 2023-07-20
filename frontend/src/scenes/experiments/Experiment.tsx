@@ -82,6 +82,8 @@ export function Experiment(): JSX.Element {
         flagImplementationWarning,
         props,
         sortedExperimentResultVariants,
+        aggregationLabel,
+        groupTypes,
         experimentCountPerUserMath,
     } = useValues(experimentLogic)
     const {
@@ -98,6 +100,7 @@ export function Experiment(): JSX.Element {
         loadExperimentResults,
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
+        setExperiment,
     } = useActions(experimentLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -345,15 +348,13 @@ export function Experiment(): JSX.Element {
                                 </div>
                                 <Row className="person-selection">
                                     <Col span={12}>
-                                        <div className="mb-2">
+                                        <div>
                                             <strong>Select participants</strong>
                                         </div>
                                         <div className="text-muted mb-4">
                                             Experiments use feature flags to target users. By default, 100% of
-                                            participants will be targeted.
-                                            <br />
-                                            For any advanced options like changing the rollout percentage, and targeting
-                                            by groups, you can{' '}
+                                            participants will be targeted. For any advanced options like changing the
+                                            rollout percentage, and targeting by groups, you can{' '}
                                             {experimentId === 'new' ? (
                                                 'change settings on the feature flag after saving this experiment.'
                                             ) : (
@@ -368,6 +369,49 @@ export function Experiment(): JSX.Element {
                                                 </Link>
                                             )}
                                         </div>
+                                        {experimentId === 'new' && (
+                                            <>
+                                                <div className="mt-4">
+                                                    <strong>Default participant type</strong>
+                                                </div>
+                                                <div className="text-muted mb-4">
+                                                    This sets default aggregation type for all metrics and feature
+                                                    flags. You can change this at any time by updating the metric or
+                                                    feature flag.
+                                                </div>
+                                                <LemonSelect
+                                                    value={
+                                                        experiment.parameters.aggregation_group_type_index != undefined
+                                                            ? experiment.parameters.aggregation_group_type_index
+                                                            : -1
+                                                    }
+                                                    data-attr="participant-aggregation-filter"
+                                                    dropdownMatchSelectWidth={false}
+                                                    onChange={(rawGroupTypeIndex) => {
+                                                        const groupTypeIndex =
+                                                            rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
+
+                                                        setExperiment({
+                                                            parameters: {
+                                                                ...experiment.parameters,
+                                                                aggregation_group_type_index:
+                                                                    groupTypeIndex ?? undefined,
+                                                            },
+                                                        })
+                                                        setNewExperimentInsight()
+                                                    }}
+                                                    options={[
+                                                        { value: -1, label: 'Persons' },
+                                                        ...groupTypes.map((groupType) => ({
+                                                            value: groupType.group_type_index,
+                                                            label: capitalizeFirstLetter(
+                                                                aggregationLabel(groupType.group_type_index).plural
+                                                            ),
+                                                        })),
+                                                    ]}
+                                                />
+                                            </>
+                                        )}
                                     </Col>
                                 </Row>
 
@@ -448,6 +492,9 @@ export function Experiment(): JSX.Element {
                                                     onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
+                                                    defaultAggregationType={
+                                                        experiment.parameters?.aggregation_group_type_index
+                                                    }
                                                 />
                                             </div>
                                         </Row>
@@ -787,6 +834,9 @@ export function Experiment(): JSX.Element {
                                                         updateExperimentSecondaryMetrics(metrics)
                                                     }
                                                     initialMetrics={experiment.secondary_metrics}
+                                                    defaultAggregationType={
+                                                        experiment.parameters?.aggregation_group_type_index
+                                                    }
                                                 />
                                             </Col>
                                         </Row>
@@ -960,6 +1010,7 @@ export function Experiment(): JSX.Element {
                                         showTable: true,
                                         showLegendButton: false,
                                         showLastComputation: true,
+                                        showLastComputationRefresh: false,
                                     }}
                                     context={{
                                         insightProps: {

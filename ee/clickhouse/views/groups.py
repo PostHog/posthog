@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Dict, List, cast
 
+from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -93,7 +94,7 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
 
         group_search = self.request.GET.get("search")
         if group_search is not None:
-            queryset = queryset.filter(group_properties__icontains=group_search)
+            queryset = queryset.filter(Q(group_properties__icontains=group_search) | Q(group_key__iexact=group_search))
 
         page = self.paginate_queryset(queryset)
         if page is not None:

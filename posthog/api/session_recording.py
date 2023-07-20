@@ -70,10 +70,16 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "distinct_id",
             "viewed",
             "recording_duration",
+            "active_seconds",
+            "inactive_seconds",
             "start_time",
             "end_time",
             "click_count",
             "keypress_count",
+            "mouse_activity_count",
+            "console_log_count",
+            "console_warn_count",
+            "console_error_count",
             "start_url",
             "matching_events",
             "person",
@@ -86,10 +92,16 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "distinct_id",
             "viewed",
             "recording_duration",
+            "active_seconds",
+            "inactive_seconds",
             "start_time",
             "end_time",
             "click_count",
             "keypress_count",
+            "mouse_activity_count",
+            "console_log_count",
+            "console_warn_count",
+            "console_error_count",
             "start_url",
             "matching_events",
             "storage",
@@ -412,7 +424,7 @@ def list_recordings(
     recordings: List[SessionRecording] = []
     more_recordings_available = False
     can_use_v2 = v2 and not any(entity.has_hogql_property for entity in filter.entities)
-    can_use_v3 = v3 and not any(entity.has_hogql_property for entity in filter.entities)
+    can_use_v3 = v3
     team = context["get_team"]()
 
     if all_session_ids:
