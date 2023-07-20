@@ -31,7 +31,7 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v3
               with:
-                fetch-depth: 2
+                  fetch-depth: 2
 
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
@@ -99,7 +99,7 @@ jobs:
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
+                  echo "::set-output name=changed::$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)"
 
             - name: Trigger Ingestion Cloud deployment
               if: steps.check_changes_plugins.outputs.changed != ''
