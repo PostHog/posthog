@@ -15,10 +15,10 @@ import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lem
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
 import type { organizationSettingsTabsLogicType } from './indexType'
 import { PermissionsGrid } from './Permissions/PermissionsGrid'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -114,48 +114,57 @@ export function OrganizationSettings(): JSX.Element {
     const { tab } = useValues(organizationSettingsTabsLogic)
     const { setTab } = useActions(organizationSettingsTabsLogic)
 
+    const tabs = [
+        {
+            key: OrganizationSettingsTabs.GENERAL,
+            label: 'General',
+            content: (
+                <div className="border rounded p-6">
+                    <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                    <LemonDivider className="my-6" />
+                    <Invites />
+                    <LemonDivider className="my-6" />
+                    {user && <Members user={user} />}
+                    <LemonDivider className="my-6" />
+                    <RestrictedArea
+                        Component={VerifiedDomains}
+                        minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    />
+                    <LemonDivider className="my-6" />
+                    <RestrictedArea
+                        Component={EmailPreferences}
+                        minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    />
+                    <LemonDivider className="my-6" />
+                    <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
+                </div>
+            ),
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS]) {
+        tabs.push({
+            key: OrganizationSettingsTabs.ROLE_BASED_ACCESS,
+            label: 'Role-based access',
+            content: (
+                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                    <RestrictedArea
+                        Component={PermissionsGrid}
+                        minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    />
+                </PayGateMini>
+            ),
+        })
+    }
+
     return (
         <>
             <PageHeader
                 title="Organization Settings"
                 caption="View and manage your organization here. Build an even better product together."
             />
-            <Tabs activeKey={tab} destroyInactiveTabPane onChange={(t) => setTab(t as OrganizationSettingsTabs)}>
-                <Tabs.TabPane tab="General" key="general">
-                    <div className="border rounded p-6">
-                        <RestrictedArea
-                            Component={DisplayName}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <LemonDivider className="my-6" />
-                        <Invites />
-                        <LemonDivider className="my-6" />
-                        {user && <Members user={user} />}
-                        <LemonDivider className="my-6" />
-                        <RestrictedArea
-                            Component={VerifiedDomains}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <LemonDivider className="my-6" />
-                        <RestrictedArea
-                            Component={EmailPreferences}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <LemonDivider className="my-6" />
-                        <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
-                    </div>
-                </Tabs.TabPane>
-                {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                    <Tabs.TabPane tab="Role-based access" key="role_based_access">
-                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                            <RestrictedArea
-                                Component={PermissionsGrid}
-                                minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                            />
-                        </PayGateMini>
-                    </Tabs.TabPane>
-                )}
-            </Tabs>
+
+            <LemonTabs activeKey={tab} onChange={setTab} tabs={tabs} />
         </>
     )
 }
