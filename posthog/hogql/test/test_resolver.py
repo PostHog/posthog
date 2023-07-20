@@ -339,7 +339,7 @@ class TestResolver(BaseTest):
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
         expr = resolve_types(expr, self.context)
-        pdi_table_type = ast.TableType(table=self.database.person_distinct_ids)
+        pdi_table_type = ast.LazyTableType(table=self.database.person_distinct_ids)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
