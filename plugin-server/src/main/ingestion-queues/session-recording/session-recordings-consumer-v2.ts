@@ -2,7 +2,6 @@ import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { mkdirSync, rmSync } from 'node:fs'
 import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka-acosom'
-import path from 'path'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
@@ -22,7 +21,7 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import { now } from './utils'
+import { bufferFileDir, now } from './utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -30,8 +29,6 @@ require('@sentry/tracing')
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
 const flushIntervalTimeoutMs = 30000
-
-export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',

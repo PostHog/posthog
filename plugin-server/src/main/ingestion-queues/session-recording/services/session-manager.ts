@@ -12,9 +12,8 @@ import { PluginsServerConfig } from '../../../../types'
 import { asyncTimeoutGuard, timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
-import { bufferFileDir } from '../session-recordings-consumer-v2'
 import { IncomingRecordingMessage } from '../types'
-import { convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
+import { bufferFileDir, convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
 import { RealtimeManager } from './realtime-manager'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
