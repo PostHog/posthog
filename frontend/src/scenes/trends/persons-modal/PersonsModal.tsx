@@ -31,6 +31,8 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
+import './PersonsModal.scss'
+
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
     url?: string | null
