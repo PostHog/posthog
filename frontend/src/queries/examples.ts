@@ -298,25 +298,6 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
     },
 }
 
-const RecentPageViewsWithPerformance: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.RecentPerformancePageViewNode,
-        dateRange: {
-            date_to: null,
-            date_from: '-2h',
-        },
-    },
-    columns: ['page_url', 'duration', 'timestamp', 'context.columns.waterfallButton'],
-    expandable: false,
-    showExport: false,
-    showReload: true,
-    showActions: false,
-    showEventFilter: false,
-    showPropertyFilter: false,
-    showColumnConfigurator: false,
-}
-
 const HogQLRaw: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `   select event,
@@ -356,7 +337,6 @@ export const queryExamples: Record<string, Node> = {
     InsightPathsQuery,
     InsightStickinessQuery,
     InsightLifecycleQuery,
-    RecentPageViewsWithPerformance,
 }
 
 export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(

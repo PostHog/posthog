@@ -9,7 +9,6 @@ import { SidebarCategory, BasicListItem } from '../types'
 import { asDisplay, asLink, urls } from '@posthog/apps-common'
 import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { combineUrl } from 'kea-router'
@@ -52,7 +51,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                 return [
                     {
                         key: 'persons',
-                        title: 'Persons',
+                        noun: 'person',
                         items: infinitePersons.map((person) => {
                             if (!person) {
                                 return person
@@ -94,7 +93,10 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                         (groupType) =>
                             ({
                                 key: `groups-${groupType.group_type_index}`,
-                                title: capitalizeFirstLetter(groupType.name_plural || `${groupType.group_type} groups`),
+                                noun: [
+                                    groupType.name_singular || `${groupType.group_type} group`,
+                                    groupType.name_plural || `${groupType.group_type} groups`,
+                                ],
                                 items: groups[groupType.group_type_index].results.map((group) => {
                                     const { searchTerm } = values
                                     const displayId = groupDisplayId(group.group_key, group.group_properties)
@@ -173,7 +175,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
         loadPersons: async ({ url }) => {
             const offset = url ? parseInt(new URL(url).searchParams.get('offset') || '0') : 0
             if (offset === 0) {
-                cache.requestedPersons.length = 0 // Clear cache
+                cache.requestedPersons = []
             }
         },
     })),

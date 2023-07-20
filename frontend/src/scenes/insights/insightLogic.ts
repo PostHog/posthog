@@ -652,6 +652,7 @@ export const insightLogic = kea<insightLogicType>([
                           insightRequest
                       )
                     : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
@@ -705,7 +706,7 @@ export const insightLogic = kea<insightLogicType>([
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
-            savedInsightsLogic.findMounted()?.actions.loadInsights()
+            savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
         },
         loadInsightSuccess: async ({ insight }) => {
