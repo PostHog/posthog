@@ -1176,9 +1176,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             mock_counter.labels.assert_called_once_with(reason="timeout")
 
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_HASH_KEY_WRITES_COUNTER")
     @patch("posthog.api.decide.FLAG_EVALUATION_COUNTER")
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_metric_counter(self, mock_error_counter, mock_counter, *args):
+    def test_feature_flags_v3_metric_counter(self, mock_error_counter, mock_counter, mock_hash_key_counter, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
@@ -1235,6 +1236,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         ]
                     },
                 },
+                "ensure_experience_continuity": True,
             },
             format="json",
             content_type="application/json",
@@ -1244,16 +1246,23 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(DECIDE_TRACK_TEAM_IDS=["all"]):
             # also adding team to cache
-            self._post_decide(api_version=3)
+            response = self._post_decide(
+                api_version=3,
+                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
+            )
 
-            mock_counter.labels.assert_called_once_with(team_id=str(self.team.pk), errors_computing=False)
+            mock_counter.labels.assert_called_once_with(
+                team_id=str(self.team.pk), errors_computing=False, has_hash_key_override=True
+            )
             mock_counter.labels.return_value.inc.assert_called_once()
             mock_error_counter.labels.assert_not_called()
+            mock_hash_key_counter.labels.assert_called_once_with(team_id=str(self.team.pk), successful_write=True)
             client.logout()
 
             mock_counter.reset_mock()
+            mock_hash_key_counter.reset_mock()
 
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(9):
                 response = self._post_decide(api_version=3)
                 self.assertTrue(response.json()["featureFlags"]["beta-feature"])
                 self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1262,9 +1271,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 )  # assigned by distinct_id hash
                 self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-            mock_counter.labels.assert_called_once_with(team_id=str(self.team.pk), errors_computing=False)
+            mock_counter.labels.assert_called_once_with(
+                team_id=str(self.team.pk), errors_computing=False, has_hash_key_override=False
+            )
             mock_counter.labels.return_value.inc.assert_called_once()
             mock_error_counter.labels.assert_not_called()
+            mock_hash_key_counter.labels.assert_not_called()
 
             mock_counter.reset_mock()
 
@@ -1273,12 +1285,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 response = self._post_decide(api_version=3, distinct_id="example_id")
                 self.assertTrue("beta-feature" not in response.json()["featureFlags"])
                 self.assertTrue(response.json()["featureFlags"]["default-flag"])
-                self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+                self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
                 self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-                mock_counter.labels.assert_called_once_with(team_id=str(self.team.pk), errors_computing=True)
+                mock_counter.labels.assert_called_once_with(
+                    team_id=str(self.team.pk), errors_computing=True, has_hash_key_override=False
+                )
                 mock_counter.labels.return_value.inc.assert_called_once()
-                mock_error_counter.labels.assert_called_once_with(reason="timeout")
+                mock_error_counter.labels.assert_called_once_with(reason="healthcheck_failed")
+                mock_hash_key_counter.labels.assert_not_called()
 
     def test_feature_flags_v3_with_database_errors_and_no_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
