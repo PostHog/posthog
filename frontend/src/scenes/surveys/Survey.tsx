@@ -108,7 +108,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     {survey.questions.map(
                         (question: LinkSurveyQuestion | SurveyQuestion | RatingSurveyQuestion, index: number) => (
                             <Group name={`questions.${index}`} key={index}>
-                                <Field name="type" label="Question type" className="max-w-150">
+                                <Field name="type" label="Question type" className="min-w-150">
                                     <LemonSelect
                                         options={[
                                             { label: 'Open text', value: SurveyQuestionType.Open },
@@ -133,7 +133,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 {question.type === SurveyQuestionType.Rating && (
                                     <div className="flex flex-col gap-2">
                                         <div className="flex flex-row gap-4">
-                                            <Field name="display" label="Display type" className="max-w-100">
+                                            <Field name="display" label="Display type" className="min-w-50">
                                                 <LemonSelect
                                                     options={[
                                                         { label: 'Number', value: 'number' },
@@ -141,7 +141,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                                     ]}
                                                 />
                                             </Field>
-                                            <Field name="scale" label="Scale" className="max-w-100">
+                                            <Field name="scale" label="Scale" className="min-w-50">
                                                 <LemonSelect
                                                     options={[
                                                         ...(question.display === 'emoji'
@@ -159,14 +159,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                             <Field
                                                 name="lowerBoundLabel"
                                                 label="Lower bound label"
-                                                className="max-w-150"
+                                                className="min-w-150"
                                             >
                                                 <LemonInput value={question.lowerBoundLabel || ''} />
                                             </Field>
                                             <Field
                                                 name="upperBoundLabel"
                                                 label="Upper bound label"
-                                                className="max-w-150"
+                                                className="min-w-150"
                                             >
                                                 <LemonInput value={question.upperBoundLabel || ''} />
                                             </Field>

@@ -72,7 +72,7 @@ export function SurveyAppearance({
                         value={appearance?.descriptionTextColor || defaultSurveyAppearance.descriptionTextColor}
                         onChange={(descriptionTextColor) => onAppearanceChange({ ...appearance, descriptionTextColor })}
                     />
-                    {type === SurveyQuestionType.Rating && (
+                    {surveyQuestionItem.type === SurveyQuestionType.Rating && (
                         <>
                             <div className="mt-2">Rating button color</div>
                             <LemonInput
@@ -81,13 +81,17 @@ export function SurveyAppearance({
                                     onAppearanceChange({ ...appearance, ratingButtonColor })
                                 }
                             />
-                            <div className="mt-2">Rating button hover color</div>
-                            <LemonInput
-                                value={appearance?.ratingButtonHoverColor}
-                                onChange={(ratingButtonHoverColor) =>
-                                    onAppearanceChange({ ...appearance, ratingButtonHoverColor })
-                                }
-                            />
+                            {surveyQuestionItem.display === 'emoji' && (
+                                <>
+                                    <div className="mt-2">Rating button hover color</div>
+                                    <LemonInput
+                                        value={appearance?.ratingButtonHoverColor}
+                                        onChange={(ratingButtonHoverColor) =>
+                                            onAppearanceChange({ ...appearance, ratingButtonHoverColor })
+                                        }
+                                    />
+                                </>
+                            )}
                         </>
                     )}
                     {(type === SurveyQuestionType.Open || type === SurveyQuestionType.Link) && (
@@ -210,7 +214,18 @@ function SurveyRatingAppearance({
                         {ratingSurveyQuestion.display === 'emoji' && (
                             <div className="rating-options-emoji">
                                 {(ratingSurveyQuestion.scale === 3 ? threeEmojis : fiveEmojis).map((emoji, idx) => (
-                                    <button className="ratings-emoji" type="button" key={idx}>
+                                    <button
+                                        className="ratings-emoji"
+                                        type="button"
+                                        key={idx}
+                                        style={{ fill: appearance.ratingButtonColor }}
+                                        onMouseEnter={(val) => {
+                                            val.currentTarget.style.fill = appearance.ratingButtonHoverColor || 'coral'
+                                        }}
+                                        onMouseLeave={(val) => {
+                                            val.currentTarget.style.fill = appearance.ratingButtonColor || 'black'
+                                        }}
+                                    >
                                         {emoji}
                                     </button>
                                 ))}
@@ -229,7 +244,12 @@ function SurveyRatingAppearance({
                                             : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
                                         ).map((num, idx) => {
                                             return (
-                                                <button className="ratings-number" type="button" key={idx}>
+                                                <button
+                                                    className="ratings-number"
+                                                    type="button"
+                                                    key={idx}
+                                                    style={{ backgroundColor: appearance.ratingButtonColor }}
+                                                >
                                                     {num}
                                                 </button>
                                             )
