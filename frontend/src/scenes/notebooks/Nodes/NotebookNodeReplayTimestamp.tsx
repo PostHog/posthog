@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import clsx from 'clsx'
-import { lastChildOfType, useNotebookLink } from '../Notebook/Editor'
+import { findClosestNodePositionMatchingAttrs, lastChildOfType, useNotebookLink } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 
 const Component = (props: NodeViewProps): JSX.Element => {
@@ -23,6 +23,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const handleOnClick = (): void => {
         if (logic) {
             logic.actions.seekToTime(props.node.attrs.playbackTime, true)
+            const pos = findClosestNodePositionMatchingAttrs(props.editor, props.getPos(), { id: sessionRecordingId })
+            if (pos) {
+                const domEl = props.editor.view.nodeDOM(pos) as HTMLElement
+                domEl.scrollIntoView()
+            }
         } else {
             onClick()
         }
