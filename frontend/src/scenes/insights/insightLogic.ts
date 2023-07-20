@@ -59,7 +59,8 @@ export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     return (
         !filters ||
-        (Object.keys(filters).length < 2 && JSON.stringify(cleanFilters(filters)) === JSON.stringify(cleanFilters({})))
+        (Object.keys(filters).length < 2 &&
+            JSON.stringify(cleanFilters(filters, false)) === JSON.stringify(cleanFilters({}, false)))
     )
 }
 
