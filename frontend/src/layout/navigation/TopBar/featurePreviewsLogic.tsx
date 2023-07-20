@@ -64,7 +64,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     })),
     reducers({
         featurePreviewsModalVisible: [
-            true,
+            false,
             {
                 showFeaturePreviewsModal: () => true,
                 hideFeaturePreviewsModal: () => false,
