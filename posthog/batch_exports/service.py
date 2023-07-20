@@ -11,6 +11,7 @@ from temporalio.client import (
     ScheduleBackfill,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
     ScheduleUpdate,
@@ -392,6 +393,7 @@ def create_batch_export(
                 intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
             ),
             state=state,
+            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
         ),
         trigger_immediately=trigger_immediately,
     )
