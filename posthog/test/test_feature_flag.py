@@ -29,7 +29,6 @@ from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_que
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
-
     maxDiff = None
 
     def test_cohort_expansion(self):
@@ -2381,7 +2380,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
     def test_invalid_filters_dont_set_db_down(self, mock_database_healthcheck):
-
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -2627,7 +2625,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
-
     person: Person
 
     @classmethod
@@ -2671,7 +2668,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
     def test_setting_overrides(self):
-
         set_feature_flag_hash_key_overrides(
             team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
@@ -2685,7 +2681,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             self.assertEqual({var[0] for var in res}, {"other_id"})
 
     def test_retrieving_hash_key_overrides(self):
-
         set_feature_flag_hash_key_overrides(
             team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
@@ -2695,7 +2690,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
 
     def test_hash_key_overrides_for_multiple_ids_when_people_are_not_merged(self):
-
         Person.objects.create(
             team=self.team, distinct_ids=["1"], properties={"email": "beuk@posthog.com", "team": "posthog"}
         )
@@ -2712,7 +2706,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(hash_keys, {"beta-feature": "other_id1", "multivariate-flag": "other_id1"})
 
     def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
-
         all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         # existing overrides
@@ -2740,7 +2733,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             self.assertEqual({var[0] for var in res}, {hash_key})
 
     def test_setting_overrides_when_persons_dont_exist(self):
-
         set_feature_flag_hash_key_overrides(
             team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
         )
@@ -2786,6 +2778,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
 
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
+    available_apps = ["posthog"]
+
     def setUp(self) -> None:
         postgres_healthcheck.set_connection(True)
         return super().setUp()
