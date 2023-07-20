@@ -214,7 +214,7 @@ export function useNotebookLink(href: string): { path: string; pathStart: string
     const [path, pathStart, internal] = useMemo(() => {
         const path = href.replace(window.location.origin, '')
         const pathStart = path.split('/')[1]?.toLowerCase()
-        const internal = href.startsWith(window.location.origin)
+        const internal = href === path || href.startsWith(window.location.origin)
 
         return [path, pathStart, internal]
     }, [href])
@@ -222,11 +222,10 @@ export function useNotebookLink(href: string): { path: string; pathStart: string
     const onClick = (): void => {
         if (internal) {
             router.actions.push(path)
+            openNotebook(shortId, NotebookTarget.Sidebar)
         } else {
             window.open(href, '_blank')
         }
-        // notebookLinkClicked(shortId, internal)
-        openNotebook(shortId, NotebookTarget.Sidebar)
     }
 
     return { path, pathStart, onClick }
