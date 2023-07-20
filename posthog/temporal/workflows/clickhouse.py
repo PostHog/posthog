@@ -2,12 +2,12 @@ import collections.abc
 import contextlib
 import datetime as dt
 import json
-import tempfile
 import typing
 import uuid
 
 import aiohttp
 import pyarrow as pa
+import requests
 from django.conf import settings
 
 
@@ -154,8 +154,8 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def check_response(self, response, query) -> None:
-        """Check the HTTP response received from ClickHouse.
+    async def acheck_response(self, response, query) -> None:
+        """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
             ClickHouseError: If the status code is not 200.
@@ -164,8 +164,18 @@ class ClickHouseClient:
             error_message = await response.text()
             raise ClickHouseError(query, error_message)
 
+    def check_response(self, response, query) -> None:
+        """Check the HTTP response received from ClickHouse.
+
+        Raises:
+            ClickHouseError: If the status code is not 200.
+        """
+        if response.status_code != 200:
+            error_message = response.text()
+            raise ClickHouseError(query, error_message)
+
     @contextlib.asynccontextmanager
-    async def post_query(
+    async def apost_query(
         self, query, *data, query_parameters, query_id
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
@@ -194,7 +204,39 @@ class ClickHouseClient:
             request_data = query.encode("utf-8")
 
         async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.check_response(response, query)
+            await self.acheck_response(response, query)
+            yield response
+
+    @contextlib.contextmanager
+    def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:
+        """POST a query to the ClickHouse HTTP interface.
+
+        The context manager protocol is used to control when to release the response.
+
+        Arguments:
+            query: The query to POST.
+            *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
+            query_parameters: Parameters to be formatted in the query.
+            query_id: A query ID to pass to ClickHouse.
+
+        Returns:
+            The response received from the ClickHouse HTTP interface.
+        """
+        params = {**self.params}
+        if query_id is not None:
+            params["query_id"] = query_id
+
+        query = self.prepare_query(query, query_parameters)
+        request_data = self.prepare_request_data(data)
+
+        if request_data:
+            params["query"] = query
+        else:
+            request_data = query.encode("utf-8")
+
+        with requests.Session() as s:
+            response = s.post(url=self.url, params=params, headers=self.headers, data=request_data, stream=True)
+            self.check_response(response, query)
             yield response
 
     async def execute_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> None:
@@ -202,7 +244,7 @@ class ClickHouseClient:
 
         This method doesn't return any response.
         """
-        async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id):
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id):
             return None
 
     async def read_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> bytes:
@@ -211,7 +253,7 @@ class ClickHouseClient:
         As the entire payload will be read at once, use this method when expecting a small payload, like
         when running a 'count(*)' query.
         """
-        async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
     async def stream_query_as_jsonl(
@@ -223,7 +265,7 @@ class ClickHouseClient:
         """
 
         buffer = b""
-        async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             async for chunk in response.content.iter_any():
                 lines = chunk.split(line_separator)
 
@@ -234,26 +276,20 @@ class ClickHouseClient:
                 for line in lines[1:]:
                     yield json.loads(line)
 
-    async def stream_query_as_arrow(
+    def stream_query_as_arrow(
         self,
         query,
         *data,
         query_parameters=None,
         query_id: str | None = None,
-    ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
+    ) -> typing.Generator[pa.RecordBatch, None, None]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStreaming, although we currently do not enforce this.
-        As pyarrow doesn't support async/await buffers, we have to write the output to a local temporary file first.
+        As pyarrow doesn't support async/await buffers, this method is sync and utilizes requests instead of aiohttp.
         """
-
-        with tempfile.SpooledTemporaryFile() as temp_file:
-            async with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
-                async for chunk in response.content.iter_any():
-                    temp_file.write(chunk)
-
-            temp_file.seek(0)
-            with pa.ipc.open_stream(temp_file) as reader:
+        with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+            with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
                 for batch in reader:
                     yield batch
 

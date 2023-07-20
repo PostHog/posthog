@@ -1,4 +1,5 @@
 import json
+import typing
 from datetime import datetime
 from string import Template
 
@@ -40,7 +41,9 @@ async def get_rows_count(client, team_id: int, interval_start: str, interval_end
     return int(count)
 
 
-async def get_results_iterator(client, team_id: int, interval_start: str, interval_end: str):
+def get_results_iterator(
+    client, team_id: int, interval_start: str, interval_end: str
+) -> typing.Generator[dict[str, typing.Any], None, None]:
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
@@ -58,11 +61,11 @@ async def get_results_iterator(client, team_id: int, interval_start: str, interv
                     -- Autocapture fields
                     elements_chain
             """,
-        order_by="ORDER BY _timestamp",
+        order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
     )
 
-    async for batch in client.stream_query_as_arrow(
+    for batch in client.stream_query_as_arrow(
         query,
         query_parameters={
             "team_id": team_id,
@@ -73,19 +76,19 @@ async def get_results_iterator(client, team_id: int, interval_start: str, interv
         # Make sure to parse `properties` and
         # `person_properties` are parsed as JSON to `dict`s. In ClickHouse they
         # are stored as `String`s.
-        for row in batch.to_pylist():
-            properties = row.get("properties")
-            person_properties = row.get("person_properties")
+        for record in batch.to_pylist():
+            properties = record.get("properties")
+            person_properties = record.get("person_properties")
 
             yield {
-                "uuid": row.get("uuid").decode(),
-                "distinct_id": row.get("distinct_id").decode(),
-                "person_id": row.get("person_id").decode(),
-                "event": row.get("event").decode(),
-                "_timestamp": datetime.fromtimestamp(row.get("_timestamp")).strftime("%Y-%m-%d %H:%M:%S"),
-                "created_at": row.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "timestamp": row.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "uuid": record.get("uuid").decode(),
+                "distinct_id": record.get("distinct_id").decode(),
+                "person_id": record.get("person_id").decode(),
+                "event": record.get("event").decode(),
+                "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "properties": json.loads(properties) if properties else None,
                 "person_properties": json.loads(person_properties) if person_properties else None,
-                "elements_chain": row.get("elements_chain").decode(),
+                "elements_chain": record.get("elements_chain").decode(),
             }
