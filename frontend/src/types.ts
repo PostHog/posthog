@@ -336,7 +336,7 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     // Dashboards associated on particular scenes e.g. Persons or Groups
-    scene_dashboards: Record<DashboardCompatibleScenes, number>
+    scene_dashboards: Record<DashboardCompatibleScenes, number> | null
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
