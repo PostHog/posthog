@@ -18,8 +18,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
     const logic = sessionRecordingPlayerLogic.findMounted(logicProps)
 
-    console.log(playbackTime)
-
     const { onClick } = useNotebookLink(urls.replaySingle(sessionRecordingId) + `?timestamp=${playbackTime}`)
 
     const handleOnClick = (): void => {
