@@ -3,8 +3,14 @@ import { useActions, useValues, useAsyncActions } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useEffect, useState } from 'react'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+import clsx from 'clsx'
 
-export function FeaturePreviewsModal(): JSX.Element {
+export function FeaturePreviewsModal({
+    inline,
+}: {
+    /** @deprecated This is just for Storybook. */
+    inline?: boolean
+}): JSX.Element {
     const { featurePreviewsModalVisible, earlyAccessFeatures, rawEarlyAccessFeaturesLoading } =
         useValues(featurePreviewsLogic)
     const { hideFeaturePreviewsModal, loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
@@ -13,13 +19,19 @@ export function FeaturePreviewsModal(): JSX.Element {
 
     return (
         <LemonModal
-            isOpen={featurePreviewsModalVisible}
+            isOpen={inline || featurePreviewsModalVisible}
             onClose={hideFeaturePreviewsModal}
             title="Feature previews"
             description="Get early access to these upcoming features. Let us know what you think!"
             width={528}
+            inline={inline}
         >
-            <div className="relative min-h-24">
+            <div
+                className={clsx(
+                    'flex flex-col relative min-h-24',
+                    earlyAccessFeatures.length === 0 && 'items-center justify-center'
+                )}
+            >
                 {earlyAccessFeatures.map((feature, i) => {
                     if (!feature.flagKey) {
                         return false
@@ -31,7 +43,15 @@ export function FeaturePreviewsModal(): JSX.Element {
                         </>
                     )
                 })}
-                {rawEarlyAccessFeaturesLoading && <SpinnerOverlay />}
+                {rawEarlyAccessFeaturesLoading ? (
+                    <SpinnerOverlay />
+                ) : earlyAccessFeatures.length === 0 ? (
+                    <i className="text-center">
+                        No feature previews currently available.
+                        <br />
+                        Check back later!
+                    </i>
+                ) : null}
             </div>
         </LemonModal>
     )

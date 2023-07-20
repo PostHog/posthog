@@ -4,11 +4,16 @@ import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { userLogic } from 'scenes/userLogic'
-import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import type { featurePreviewsLogicType } from './featurePreviewsLogicType'
 
 /** Features that can only be toggled if you fall under the `${flagKey}-preview` flag */
-const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([FEATURE_FLAGS.POSTHOG_3000])
+const CONSTRAINED_PREVIEWS: Set<FeatureFlagKey> = new Set([
+    FEATURE_FLAGS.POSTHOG_3000,
+    // The below are for Storybook
+    'constrained-test-1' as FeatureFlagKey,
+    'constrained-test-2' as FeatureFlagKey,
+])
 
 export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'flagKey'> {
     flagKey: string

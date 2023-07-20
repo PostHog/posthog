@@ -36,7 +36,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { featurePreviewsLogic } from './featurePreviewsLogic'
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
