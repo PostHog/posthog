@@ -50,7 +50,6 @@ jest.mock('fs/promises', () => {
 describe('session-manager', () => {
     jest.setTimeout(1000)
     let sessionManager: SessionManager
-    const mockFinish = jest.fn()
     const mockS3Client: any = {
         send: jest.fn(),
     }
@@ -63,16 +62,20 @@ describe('session-manager', () => {
         addMessagesFromBuffer: jest.fn(),
     }
 
+    const mockOffsetHighWaterMarker: any = {
+        add: jest.fn(() => Promise.resolve()),
+    }
+
     const createSessionManager = () => {
         return new SessionManager(
             defaultConfig,
             mockS3Client,
             mockRealtimeManager,
+            mockOffsetHighWaterMarker,
             1,
             'session_id_1',
             1,
-            'topic',
-            mockFinish
+            'topic'
         )
     }
 
@@ -83,7 +86,6 @@ describe('session-manager', () => {
         Settings.now = () => new Date(2018, 4, 25).valueOf()
 
         sessionManager = createSessionManager()
-        mockFinish.mockClear()
     })
 
     afterEach(async () => {
@@ -253,7 +255,6 @@ describe('session-manager', () => {
         await afterResumeFlushPromise
 
         expect(sessionManager.flushBuffer).toEqual(undefined)
-        expect(mockFinish).toBeCalledTimes(1)
         expect(fileStream.close).toBeCalledTimes(1)
     })
 
