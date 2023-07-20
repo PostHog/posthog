@@ -156,7 +156,15 @@ export const insightLogic = kea<insightLogicType>([
                         )}&include_query_insights=true`
                     )
                     if (response?.results?.[0]) {
-                        return response.results[0]
+                        let insight = response.results[0]
+                        insight = {
+                            ...insight,
+                            filters: cleanFilters(
+                                insight.filters || {},
+                                values.currentTeam?.test_account_filters_default_checked
+                            ),
+                        }
+                        return insight
                     }
                     throw new Error(`Insight "${shortId}" not found`)
                 },
@@ -343,7 +351,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
                     fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
-                loadInsightSuccess: (_, { insight }) => ({ ...insight, filters: cleanFilters(insight.filters || {}) }),
+                loadInsightSuccess: (_, { insight }) => insight,
                 updateInsightSuccess: (_, { insight }) => ({
                     ...insight,
                     filters: cleanFilters(insight.filters || {}),
