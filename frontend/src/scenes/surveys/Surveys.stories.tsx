@@ -1,13 +1,12 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SurveyQuestionType } from 'posthog-js'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 import { mswDecorator, useFeatureFlags } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyType } from '~/types'
+import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
