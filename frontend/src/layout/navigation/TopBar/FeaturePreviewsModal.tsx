@@ -16,7 +16,8 @@ export function FeaturePreviewsModal(): JSX.Element {
             isOpen={featurePreviewsModalVisible}
             onClose={hideFeaturePreviewsModal}
             title="Feature previews"
-            width={512}
+            description="Get early access to these upcoming features. Let us know what you think!"
+            width={528}
         >
             <div className="relative min-h-24">
                 {earlyAccessFeatures.map((feature, i) => {
