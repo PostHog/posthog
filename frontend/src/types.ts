@@ -2055,20 +2055,20 @@ export interface SurveyBase {
     archived: boolean
 }
 
-export interface PopoverSurvey extends SurveyBase {
-    type: SurveyType.Popover
-}
-
-export interface APISurvey extends SurveyBase {
-    type: SurveyType.API
-}
-
 export enum SurveyType {
     Popover = 'popover',
     Button = 'button',
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
+}
+
+export interface PopoverSurvey extends SurveyBase {
+    type: SurveyType.Popover
+}
+
+export interface APISurvey extends SurveyBase {
+    type: SurveyType.API
 }
 
 export interface SurveyAppearance {
