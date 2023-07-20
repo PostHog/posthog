@@ -26,8 +26,7 @@ from posthog.test.base import (
     FuzzyInt,
 )
 
-# TODO we can delete this file in favour of test_session_recordings_version_three
-# once we've removed the old session recordings listing versions
+
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     def setUp(self):
         super().setUp()
