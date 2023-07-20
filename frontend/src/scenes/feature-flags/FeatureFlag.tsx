@@ -155,7 +155,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 </>
             ),
         },
-    ] as LemonTab<string>[]
+    ] as LemonTab<FeatureFlagsTab>[]
 
     if (featureFlag.key && id) {
         tabs.push({
