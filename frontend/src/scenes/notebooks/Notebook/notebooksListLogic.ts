@@ -43,7 +43,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
-        createNotebook: (title?: string, location: NotebookTarget = NotebookTarget.Auto, content?: JSONContent) => ({
+        createNotebook: (title?: string, location: NotebookTarget = NotebookTarget.Auto, content?: JSONContent[]) => ({
             title,
             location,
             content,
@@ -75,12 +75,12 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const res = await api.notebooks.list()
                     return res.results
                 },
-                createNotebook: async ({ title, target, content }, breakpoint) => {
+                createNotebook: async ({ title, location, content }, breakpoint) => {
                     await breakpoint(100)
 
                     const notebook = await api.notebooks.create(defaultNotebookContent(title, content))
 
-                    openNotebook(notebook, target)
+                    openNotebook(notebook, location)
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,

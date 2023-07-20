@@ -12,12 +12,15 @@ import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNod
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookTarget } from '~/types'
 import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
-    const nodeLogic = useNotebookNode()
     const { createNotebook } = useActions(notebooksListLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const nodeLogic = useNotebookNode()
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
@@ -74,13 +77,12 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const isInNotebook = !!nodeLogic
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
-                    {isInNotebook && (
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
                         <LemonButton icon={<IconLink />} onClick={onComment} {...commonProps}>
                             <span>Comment</span>
                         </LemonButton>
