@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import path from 'path'
 
 import { IncomingRecordingMessage, PersistedRecordingMessage } from './types'
 
@@ -21,3 +22,5 @@ export const maxDefined = (...args: (number | undefined)[]): number | undefined 
     const definedArgs = args.filter((arg) => arg !== undefined) as number[]
     return Math.max(...definedArgs)
 }
+
+export const bufferFileDir = (root: string) => path.join(root, 'session-buffer-files')
