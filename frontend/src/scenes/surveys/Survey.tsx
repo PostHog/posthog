@@ -307,7 +307,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 >
                     Cancel
                 </LemonButton>
-                <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" loading={surveyLoading}>
+                <LemonButton type="primary" data-attr="save-survey" htmlType="submit" loading={surveyLoading}>
                     {id === 'new' ? 'Save as draft' : 'Save'}
                 </LemonButton>
             </div>
