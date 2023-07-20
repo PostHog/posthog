@@ -20,6 +20,7 @@ import {
     IconJournal,
 } from 'lib/lemon-ui/icons'
 import { useNotebookLink } from '../Notebook/Editor'
+import { useMemo } from 'react'
 
 const ICON_MAP = {
     dashboard: <IconGauge />,
@@ -39,7 +40,15 @@ const ICON_MAP = {
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { path, pathStart, onClick } = useNotebookLink(props.node.attrs.href)
+    const href: string = props.node.attrs.href
+    const { onClick } = useNotebookLink(href)
+
+    const [path, pathStart] = useMemo(() => {
+        const path = href.replace(window.location.origin, '')
+        const pathStart = path.split('/')[1]?.toLowerCase()
+
+        return [path, pathStart]
+    }, [href])
 
     return (
         <NodeViewWrapper as="span">

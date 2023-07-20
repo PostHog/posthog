@@ -208,25 +208,26 @@ export function lastChildOfType(node: Node, type: string, direct: boolean = true
     return latestNode
 }
 
-export function useNotebookLink(href: string): { path: string; pathStart: string; onClick: () => void } {
+export function useNotebookLink(href: string): { onClick: () => void } {
     const { shortId } = useValues(notebookLogic)
 
-    const [path, pathStart, internal] = useMemo(() => {
-        const path = href.replace(window.location.origin, '')
-        const pathStart = path.split('/')[1]?.toLowerCase()
-        const internal = href === path || href.startsWith(window.location.origin)
+    const [path, search, internal] = useMemo(() => {
+        const url = new URL(href, window.location.origin)
+        const path = url.pathname
+        const search = url.search
+        const internal = window.location.origin === url.origin
 
-        return [path, pathStart, internal]
+        return [path, search, internal]
     }, [href])
 
     const onClick = (): void => {
         if (internal) {
-            router.actions.push(path)
+            router.actions.push(path + search)
             openNotebook(shortId, NotebookTarget.Sidebar)
         } else {
             window.open(href, '_blank')
         }
     }
 
-    return { path, pathStart, onClick }
+    return { onClick }
 }
