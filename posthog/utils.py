@@ -1281,7 +1281,7 @@ class PersonOnEventsMode(str, Enum):
 
 
 def label_for_team_id_to_track(team_id: int) -> str:
-    team_id_filter = settings.DECIDE_TRACK_TEAM_IDS
+    team_id_filter: List[str] = settings.DECIDE_TRACK_TEAM_IDS
 
     team_id_as_string = str(team_id)
 
