@@ -138,36 +138,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
 
-    def test_user_session_recording_version(self, *args):
-        # :TRICKY: Test for regression around caching
-        response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], False)
-
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
-        )
-
-        self._update_team({"session_recording_version": "v2"})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
-        )
-
-        self._update_team({"session_recording_version": "v1"})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
-        )
-
     def test_user_console_log_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
