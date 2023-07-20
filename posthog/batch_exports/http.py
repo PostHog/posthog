@@ -295,6 +295,50 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"paused": False})
 
+    @action(methods=["POST"], detail=True)
+    def reset(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Reset many BatchExportRuns from this BatchExport."""
+        if not isinstance(request.user, User) or request.user.current_team is None:
+            raise NotAuthenticated()
+
+        team_id = request.user.current_team.id
+
+        start_at, end_at = None, None
+        if start_at_input := request.data.get("start_at", None) is not None:
+            start_at = validate_date_input(start_at_input)
+        if end_at_input := request.data.get("end_at", None) is not None:
+            end_at = validate_date_input(end_at_input)
+
+        failed_input = request.data.get("failed", True)
+
+        batch_export = self.get_object()
+        runs = BatchExportRun.objects.filter(
+            team_id=team_id,
+            batch_export_id=batch_export.id,
+        )
+
+        if start_at is not None:
+            runs = runs.filter(data_interval_start__gte=start_at)
+        if end_at is not None:
+            runs = runs.filter(data_interval_end__lte=end_at)
+        if failed_input:
+            runs = runs.filter(status="Failed")
+
+        temporal = sync_connect()
+
+        resetted_ids = set()
+        new_run_ids = []
+        for run in runs:
+            scheduled_id = f"{batch_export.id}-{run.data_interval_end:%Y-%m-%dT%H:%M:%SZ}"
+
+            if scheduled_id in resetted_ids:
+                continue
+
+            new_run_ids.append(reset_batch_export_run(temporal, batch_export_id=scheduled_id))
+            resetted_ids.add(scheduled_id)
+
+        return response.Response({"new_run_ids": new_run_ids})
+
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state."""
         instance.deleted = True
