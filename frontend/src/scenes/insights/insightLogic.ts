@@ -292,9 +292,7 @@ export const insightLogic = kea<insightLogicType>([
                           result: null,
                           filters: {},
                       },
-            setInsight: (_state, { insight }) => ({
-                ...insight,
-            }),
+            setInsight: (_, { insight }) => insight,
             setFilters: (state, { clearInsightQuery }) => {
                 return {
                     ...state,
@@ -343,8 +341,8 @@ export const insightLogic = kea<insightLogicType>([
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (_, { filters }) => cleanFilters(filters),
-                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
-                    overrideFilter ? cleanFilters(filters || {}) : state,
+                setInsight: (state, { insight, options: { overrideFilter } }) =>
+                    overrideFilter ? insight.filters || ({} as Partial<FilterType>) : state,
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
             },
@@ -354,7 +352,7 @@ export const insightLogic = kea<insightLogicType>([
             () => props.cachedInsight || ({} as InsightModel),
             {
                 setInsight: (state, { insight, options: { fromPersistentApi } }) =>
-                    fromPersistentApi ? { ...insight, filters: cleanFilters(insight.filters || {}) } : state,
+                    fromPersistentApi ? insight : state,
                 loadInsightSuccess: (_, { insight }) => insight,
                 updateInsightSuccess: (_, { insight }) => insight,
             },
@@ -672,7 +670,17 @@ export const insightLogic = kea<insightLogicType>([
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (!!query ? values.insight.result : null)
-            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
+            actions.setInsight(
+                {
+                    ...savedInsight,
+                    result: result,
+                    filters: cleanFilters(
+                        savedInsight.filters || {},
+                        values.currentTeam?.test_account_filters_default_checked
+                    ),
+                },
+                { fromPersistentApi: true, overrideFilter: true }
+            )
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
@@ -715,7 +723,13 @@ export const insightLogic = kea<insightLogicType>([
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
-            actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
+            actions.setInsight(
+                {
+                    ...insight,
+                    filters: cleanFilters(insight.filters, values.currentTeam?.test_account_filters_default_checked),
+                },
+                { fromPersistentApi: true, overrideFilter: true }
+            )
             savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
         },

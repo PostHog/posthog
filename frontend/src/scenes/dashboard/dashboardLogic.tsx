@@ -53,6 +53,7 @@ import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -126,7 +127,7 @@ function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsig
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId', 'currentTeam'], featureFlagLogic, ['featureFlags']],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
@@ -956,7 +957,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrThrow(refreshedInsightResponse)
                     breakpoint()
-                    updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
+                    updateExistingInsightState({
+                        cachedInsight: {
+                            ...insight,
+                            filters: cleanFilters(
+                                insight.filters || {},
+                                values.currentTeam?.test_account_filters_default_checked
+                            ),
+                        },
+                        dashboardId,
+                        refreshedInsight,
+                    })
                     dashboardsModel.actions.updateDashboardInsight(
                         refreshedInsight,
                         [],
@@ -1103,7 +1114,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 for (const tile of tilesWithResults) {
                     if (tile.insight) {
                         updateExistingInsightState({
-                            cachedInsight: tile.insight,
+                            cachedInsight: {
+                                ...tile.insight,
+                                filters: cleanFilters(
+                                    tile.insight?.filters || {},
+                                    values.currentTeam?.test_account_filters_default_checked
+                                ),
+                            },
                             dashboardId: dashboard.id,
                             refreshedInsight: tile.insight,
                         })
