@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -96,6 +96,9 @@ dependencies:
   chartjs-plugin-datalabels:
     specifier: ^2.2.0
     version: 2.2.0(chart.js@3.9.1)
+  chartjs-plugin-stacked100:
+    specifier: ^1.4.0
+    version: 1.4.0(chart.js@3.9.1)
   chokidar:
     specifier: ^3.5.3
     version: 3.5.3
@@ -7787,6 +7790,14 @@ packages:
       chart.js: 3.9.1
     dev: false
 
+  /chartjs-plugin-stacked100@1.4.0(chart.js@3.9.1):
+    resolution: {integrity: sha512-49oWqcja9E++uVgmYE1AY8t1g56vZhhkt9CXO/eCMnuoTRjlJPD3lznMyemkZMEVpRoAujMw07eVLJcJnpcUKA==}
+    peerDependencies:
+      chart.js: '>=3.8.0'
+    dependencies:
+      chart.js: 3.9.1
+    dev: false
+
   /check-more-types@2.24.0:
     resolution: {integrity: sha512-Pj779qHxV2tuapviy1bSZNEL1maXr13bPYpsvSDB68HlYcYuhlDrmGd63i0JHMCLKzc7rUSNIrpdJlhVlNwrxA==}
     engines: {node: '>= 0.8.0'}
@@ -13550,7 +13561,7 @@ packages:
     dependencies:
       universalify: 2.0.0
     optionalDependencies:
-      graceful-fs: 4.2.10
+      graceful-fs: 4.2.11
 
   /jsprim@2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}

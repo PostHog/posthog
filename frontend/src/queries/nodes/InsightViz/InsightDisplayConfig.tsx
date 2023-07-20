@@ -16,6 +16,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { PercentStackView } from 'scenes/insights/EditorFilters/PercentStackView'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -28,6 +29,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         disableDateRange,
         showCompare,
         showValueOnSeries,
+        showPercentStackView,
         showUnit,
         showChart,
         showInterval,
@@ -81,6 +83,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {showValueOnSeries && (
                     <ConfigFilter>
                         <ValueOnSeriesFilter />
+                    </ConfigFilter>
+                )}
+
+                {showPercentStackView && (
+                    <ConfigFilter>
+                        <PercentStackView />
                     </ConfigFilter>
                 )}
             </div>
