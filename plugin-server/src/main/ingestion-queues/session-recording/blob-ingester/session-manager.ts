@@ -58,7 +58,7 @@ const histogramSessionSizeKb = new Histogram({
 const histogramFlushTimeSeconds = new Histogram({
     name: 'recording_blob_ingestion_session_flush_time_seconds',
     help: 'The time taken to flush a session in seconds',
-    buckets: [0, 1, 2, 5, 10, 20, 30, 60, 120, Infinity],
+    buckets: [0, 2, 5, 10, 20, 30, 60, 120, 180, 300, Infinity],
 })
 
 const histogramSessionSize = new Histogram({
