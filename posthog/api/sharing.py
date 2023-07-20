@@ -17,6 +17,7 @@ from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import SessionRecordingSerializer
 from posthog.models import SharingConfiguration, Team
+from posthog.models.activity_logging.activity_log import log_activity, Detail, Change
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
@@ -157,6 +158,29 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        if context.get("insight"):
+            name = instance.insight.name or instance.insight.derived_name
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                item_id=instance.insight.pk,
+                scope="Insight",
+                activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
+                detail=Detail(
+                    name=str(name) if name else None,
+                    changes=[
+                        Change(
+                            type="Insight",
+                            action="changed",
+                            field="sharing",
+                            after=serializer.data.get("enabled"),
+                        )
+                    ],
+                    short_id=str(instance.insight.short_id),
+                ),
+            )
 
         if not context.get("recording") and serializer.data.get("enabled"):
             export_asset_for_opengraph(instance)

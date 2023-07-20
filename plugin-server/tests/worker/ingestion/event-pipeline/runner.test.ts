@@ -7,7 +7,7 @@ import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { processOnEventStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
@@ -103,7 +103,7 @@ describe('EventPipelineRunner', () => {
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
         jest.mocked(createEventStep).mockResolvedValue([null, Promise.resolve()])
-        jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
+        jest.mocked(processOnEventStep).mockResolvedValue(null)
     })
 
     describe('runEventPipeline()', () => {
@@ -233,7 +233,7 @@ describe('EventPipelineRunner', () => {
             })
 
             it('does not emit to dead letter queue for runAsyncHandlersStep', async () => {
-                jest.mocked(runAsyncHandlersStep).mockRejectedValue(error)
+                jest.mocked(processOnEventStep).mockRejectedValue(error)
 
                 await runner.runEventPipeline(pipelineEvent)
 
@@ -243,17 +243,17 @@ describe('EventPipelineRunner', () => {
         })
     })
 
-    describe('runAsyncHandlersEventPipeline()', () => {
+    describe('runAppsOnEventPipeline()', () => {
         it('runs remaining steps', async () => {
             jest.mocked(hub.db.fetchPerson).mockResolvedValue('testPerson')
 
-            await runner.runAsyncHandlersEventPipeline({
+            await runner.runAppsOnEventPipeline({
                 ...preIngestionEvent,
                 person_properties: {},
                 person_created_at: '2020-02-23T02:11:00.000Z' as ISOTimestamp,
             })
 
-            expect(runner.steps).toEqual(['runAsyncHandlersStep'])
+            expect(runner.steps).toEqual(['processOnEventStep'])
         })
     })
 })

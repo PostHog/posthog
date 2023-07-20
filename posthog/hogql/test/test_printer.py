@@ -264,7 +264,9 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array[1]")
         self._assert_expr_error("properties.id.0", "SQL indexes start from one, not from zero. E.g: array[1]")
-        self._assert_expr_error("event as `as%d`", "Alias \"as%d\" contains unsupported character '%'")
+        self._assert_expr_error(
+            "event as `as%d`", 'The HogQL identifier "as%d" is not permitted as it contains the "%" character'
+        )
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_expr_parse_errors_poe_on(self):

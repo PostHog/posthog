@@ -8,6 +8,7 @@ class Survey(UUIDModel):
         BUTTON = "button", "button"
         EMAIL = "email", "email"
         FULL_SCREEN = "full_screen", "full screen"
+        API = "api", "api"
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]

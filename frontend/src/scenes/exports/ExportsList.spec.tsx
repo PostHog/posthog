@@ -25,6 +25,8 @@ describe('ExportActionButtons', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -90,6 +92,8 @@ describe('ExportActionButtons', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -155,6 +159,8 @@ describe('ExportActionButtons', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -213,6 +219,8 @@ describe('Exports', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -233,6 +241,8 @@ describe('Exports', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {
@@ -253,6 +263,8 @@ describe('Exports', () => {
                 created_at: new Date().toISOString(),
                 last_updated_at: new Date().toISOString(),
                 interval: 'hour' as const,
+                start_at: null,
+                end_at: null,
                 destination: {
                     type: 'S3',
                     config: {

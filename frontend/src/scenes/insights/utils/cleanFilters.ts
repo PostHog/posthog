@@ -45,15 +45,9 @@ export function getDefaultEvent(): Entity {
 /** Take the first series from filters and, based on it, apply the most relevant breakdown type to cleanedParams. */
 const useMostRelevantBreakdownType = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const series: LocalFilter | undefined = toLocalFilters(filters)[0]
-    cleanedParams['breakdown_type'] =
-        (series?.math &&
-            (series.math === 'unique_group'
-                ? 'group'
-                : ['dau', 'weekly_active', 'monthly_active'].includes(series.math)
-                ? 'person'
-                : null)) ||
-        'event'
-    cleanedParams['breakdown_group_type_index'] = series?.math_group_type_index
+    cleanedParams['breakdown_type'] = ['dau', 'weekly_active', 'monthly_active'].includes(series?.math || '')
+        ? 'person'
+        : 'event'
 }
 
 function cleanBreakdownNormalizeURL(
@@ -125,6 +119,33 @@ type CommonFiltersType = {
     [K in CommonFiltersTypeKeys]: FilterType[K]
 }
 
+/** Heuristic for determining wether this is a new insight, usually set by url.
+ * In the most basic case something like `/insights/new?insight=TRENDS`. */
+const isNewInsight = (filters: Partial<AnyFilterType>): boolean => {
+    if (Object.keys(filters).length === 0) {
+        return true
+    }
+
+    if (
+        isTrendsFilter(filters) ||
+        isFunnelsFilter(filters) ||
+        isStickinessFilter(filters) ||
+        isLifecycleFilter(filters)
+    ) {
+        return !filters.actions && !filters.events
+    }
+
+    if (isRetentionFilter(filters)) {
+        return !filters.returning_entity && !filters.target_entity
+    }
+
+    if (isPathsFilter(filters)) {
+        return !filters.include_event_types
+    }
+
+    return true
+}
+
 export function cleanFilters(
     filters: Partial<AnyFilterType>,
     // @ts-expect-error
@@ -138,7 +159,7 @@ export function cleanFilters(
     }
 
     // set test account filter default for new insights from team and local storage settings
-    if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
+    if (isNewInsight(filters)) {
         if (localStorage.getItem('default_filter_test_accounts') !== null) {
             // use current user default
             commonFilters.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'

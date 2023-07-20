@@ -43,7 +43,6 @@ import { globalInsightLogic } from './globalInsightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 import { posthog } from 'posthog-js'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
-import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -68,14 +67,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, getInsightRefreshButtonDisabledReason } = useValues(
-        insightDataLogic(insightProps)
-    )
-    const {
-        saveInsight: saveQueryBasedInsight,
-        toggleQueryEditorPanel,
-        loadData,
-    } = useActions(insightDataLogic(insightProps))
+    const { query, queryChanged, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -88,10 +81,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { push } = useActions(router)
     const { globalInsightFilters } = useValues(globalInsightLogic)
     const { setGlobalInsightFilters } = useActions(globalInsightLogic)
-
-    usePeriodicRerender(30000) // Re-render every 30 seconds for up-to-date `insightRefreshButtonDisabledReason`
-
-    const insightRefreshButtonDisabledReason = getInsightRefreshButtonDisabledReason()
 
     return (
         <>
@@ -141,39 +130,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {!hasDashboardItemId ? (
+                        {hasDashboardItemId && (
                             <>
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => loadData(true)}
-                                                fullWidth
-                                                data-attr="refresh-insight-from-insight-view"
-                                                disabledReason={insightRefreshButtonDisabledReason}
-                                            >
-                                                Refresh
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
-                        ) : (
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => loadData(true)}
-                                                fullWidth
-                                                data-attr="refresh-insight-from-insight-view"
-                                                disabledReason={insightRefreshButtonDisabledReason}
-                                            >
-                                                Refresh
-                                            </LemonButton>
                                             <LemonButton
                                                 status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}

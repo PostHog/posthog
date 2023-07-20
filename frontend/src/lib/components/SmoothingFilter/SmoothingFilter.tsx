@@ -3,21 +3,19 @@ import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { filters } = useValues(trendsLogic(insightProps))
-    const { setFilters } = useActions(trendsLogic(insightProps))
+    const { isTrends, interval, trendsFilter } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    if (!filters.interval || !isTrendsFilter(filters)) {
+    if (!isTrends || !interval) {
         return null
     }
 
-    const { interval, smoothing_intervals } = filters
+    const { smoothing_intervals } = trendsFilter || {}
 
     // Put a little icon next to the selected item
     const options = smoothingOptions[interval].map(({ value, label }) => ({
@@ -39,7 +37,6 @@ export function SmoothingFilter(): JSX.Element | null {
             value={smoothing_intervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
-                setFilters({ ...filters, smoothing_intervals: key })
                 updateInsightFilter({
                     smoothing_intervals: key,
                 })

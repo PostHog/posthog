@@ -44,8 +44,8 @@ function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, plu
     if (serverCapability === 'processPluginJobs') {
         return (pluginCapabilities.jobs || []).length > 0
     }
-    if (serverCapability === 'processAsyncHandlers') {
-        return pluginCapabilities.methods?.some((method) => ['onSnapshot', 'onEvent', 'exportEvents'].includes(method))
+    if (serverCapability === 'processAsyncOnEventHandlers') {
+        return pluginCapabilities.methods?.some((method) => ['onEvent', 'exportEvents'].includes(method))
     }
 
     return false

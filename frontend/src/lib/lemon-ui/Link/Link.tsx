@@ -4,13 +4,11 @@ import { isExternalLink } from 'lib/utils'
 import clsx from 'clsx'
 import './Link.scss'
 import { IconOpenInNew } from '../icons'
+import { Tooltip } from '../Tooltip'
 
 type RoutePart = string | Record<string, any>
 
-export type LinkProps = Pick<
-    React.HTMLProps<HTMLAnchorElement>,
-    'target' | 'className' | 'children' | 'title' | 'disabled'
-> & {
+export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'className' | 'children' | 'title'> & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
     /** If true, in-app navigation will not be used and the link will navigate with a page load */
@@ -22,6 +20,10 @@ export type LinkProps = Pick<
     onMouseLeave?: (event: React.MouseEvent<HTMLElement>) => void
     onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void
     onFocus?: (event: React.FocusEvent<HTMLElement>) => void
+    /** @deprecated Links should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
+    disabled?: boolean
+    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+    disabledReason?: string | null | false
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -51,6 +53,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             onClick: onClickRaw,
             className,
             children,
+            disabled,
+            disabledReason,
             ...props
         },
         ref
@@ -88,9 +92,23 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <button ref={ref as any} className={clsx('Link', className)} onClick={onClick} type="button" {...props}>
-                {children}
-            </button>
+            <Tooltip
+                isDefaultTooltip
+                title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
+            >
+                <span>
+                    <button
+                        ref={ref as any}
+                        className={clsx('Link', className)}
+                        onClick={onClick}
+                        type="button"
+                        disabled={disabled || !!disabledReason}
+                        {...props}
+                    >
+                        {children}
+                    </button>
+                </span>
+            </Tooltip>
         )
     }
 )

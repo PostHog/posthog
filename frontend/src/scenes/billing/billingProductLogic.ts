@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { convertAmountToUsage } from './billing-utils'
@@ -10,7 +10,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing']],
+        values: [billingLogic, ['billing', 'isUnlicensedDebug']],
         actions: [billingLogic, ['loadBillingSuccess', 'updateBillingLimitsSuccess']],
     }),
     props({
@@ -56,11 +56,26 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ values }) => ({
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
                 return billing?.custom_limits_usd?.[product.type] || billing?.custom_limits_usd?.[product.usage_key]
+            },
+        ],
+        currentAndUpgradePlans: [
+            (_s, p) => [p.product],
+            (product) => {
+                const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
+                const currentPlan = product.plans?.[currentPlanIndex]
+                const upgradePlan =
+                    // If in debug mode and with no license there will be
+                    // no currentPlan. So we want to upgrade to the highest plan.
+                    values.isUnlicensedDebug
+                        ? product.plans?.[product.plans.length - 1]
+                        : product.plans?.[currentPlanIndex + 1]
+                const downgradePlan = product.plans?.[currentPlanIndex - 1]
+                return { currentPlan, upgradePlan, downgradePlan }
             },
         ],
         showBillingLimitInput: [
@@ -140,7 +155,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 ].filter(Boolean)
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, props }) => ({
         loadBillingSuccess: actions.billingLoaded,
         updateBillingLimitsSuccess: actions.billingLoaded,
