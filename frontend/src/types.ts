@@ -2036,10 +2036,11 @@ export interface SetInsightOptions {
     fromPersistentApi?: boolean
 }
 
-export interface SurveyBase {
+export interface Survey {
     /** UUID */
     id: string
     name: string
+    type: SurveyType
     description: string
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
@@ -2061,14 +2062,6 @@ export enum SurveyType {
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
-}
-
-export interface PopoverSurvey extends SurveyBase {
-    type: SurveyType.Popover
-}
-
-export interface APISurvey extends SurveyBase {
-    type: SurveyType.API
 }
 
 export interface SurveyAppearance {
@@ -2108,8 +2101,6 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
     choices: string[]
 }
-
-export type Survey = PopoverSurvey | APISurvey
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
 
