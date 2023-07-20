@@ -418,10 +418,10 @@ export class SessionManager {
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.sizeEstimate += content.length
-            if (this.buffer.offsets.lowest ?? Infinity > message.metadata.offset) {
+            if ((this.buffer.offsets.lowest ?? Infinity) > message.metadata.offset) {
                 this.buffer.offsets.lowest = message.metadata.offset
             }
-            if (this.buffer.offsets.highest ?? -Infinity < message.metadata.offset) {
+            if ((this.buffer.offsets.highest ?? -Infinity) < message.metadata.offset) {
                 this.buffer.offsets.highest = message.metadata.offset
             }
 
