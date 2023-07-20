@@ -14,7 +14,7 @@ import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
 import { bufferFileDir } from '../session-recordings-consumer-v2'
 import { IncomingRecordingMessage } from '../types'
-import { convertToPersistedMessage, now } from '../utils'
+import { convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
 import { RealtimeManager } from './realtime-manager'
 
 const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
@@ -418,12 +418,8 @@ export class SessionManager {
             const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.sizeEstimate += content.length
-            if ((this.buffer.offsets.lowest ?? Infinity) > message.metadata.offset) {
-                this.buffer.offsets.lowest = message.metadata.offset
-            }
-            if ((this.buffer.offsets.highest ?? -Infinity) < message.metadata.offset) {
-                this.buffer.offsets.highest = message.metadata.offset
-            }
+            this.buffer.offsets.lowest = minDefined(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = maxDefined(this.buffer.offsets.highest, message.metadata.offset)
 
             if (this.realtime) {
                 // We don't care about the response here as it is an optimistic call
@@ -438,7 +434,7 @@ export class SessionManager {
     }
     private setEventsRangeFrom(message: IncomingRecordingMessage) {
         const start = message.events.at(0)?.timestamp
-        const end = message.events.at(-1)?.timestamp
+        const end = message.events.at(-1)?.timestamp ?? start
 
         if (!start || !end) {
             captureMessage(
@@ -454,8 +450,8 @@ export class SessionManager {
             return
         }
 
-        const firstTimestamp = Math.min(start, this.buffer.eventsRange?.firstTimestamp || Infinity)
-        const lastTimestamp = Math.max(end || start, this.buffer.eventsRange?.lastTimestamp || -Infinity)
+        const firstTimestamp = minDefined(start, this.buffer.eventsRange?.firstTimestamp) ?? start
+        const lastTimestamp = maxDefined(end, this.buffer.eventsRange?.lastTimestamp) ?? end
 
         this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
@@ -507,16 +503,7 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        const possibleOffsets = []
-        if (this.buffer.offsets.lowest) {
-            possibleOffsets.push(this.buffer.offsets.lowest)
-        }
-
-        if (this.flushBuffer?.offsets.lowest) {
-            possibleOffsets.push(this.flushBuffer.offsets.lowest)
-        }
-
-        return possibleOffsets.length ? Math.min(...possibleOffsets) : null
+        return minDefined(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest) ?? null
     }
 
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
