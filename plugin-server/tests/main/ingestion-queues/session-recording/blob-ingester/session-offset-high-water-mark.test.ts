@@ -57,7 +57,7 @@ describe('session offset high-water mark', () => {
 
     describe('with no existing high-water marks', () => {
         it('can remove all high-water marks based on a given offset', async () => {
-            await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
+            await sessionOffsetHighWaterMark.clear({ topic: 'topic', partition: 1 }, 12)
             await expectMemoryAndRedisToEqual({ topic: 'topic', partition: 1 }, {})
         })
 
@@ -125,7 +125,7 @@ describe('session offset high-water mark', () => {
         })
 
         it('can remove all high-water marks based on a given offset', async () => {
-            await sessionOffsetHighWaterMark.onCommit({ topic: 'topic', partition: 1 }, 12)
+            await sessionOffsetHighWaterMark.clear({ topic: 'topic', partition: 1 }, 12)
 
             // the commit updates redis
             // removes all high-water marks that are <= 12

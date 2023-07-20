@@ -1,12 +1,11 @@
 // This is the incoming message from Kafka
 
+import { TopicPartitionOffset } from 'node-rdkafka-acosom'
+
 import { RRWebEvent } from '../../../../types'
 
 export type IncomingRecordingMessage = {
-    metadata: {
-        topic: string
-        partition: number
-        offset: number
+    metadata: TopicPartitionOffset & {
         timestamp: number
     }
 

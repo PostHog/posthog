@@ -5,18 +5,25 @@ import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
+import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
+import { OffsetHighWaterMark } from './offset-high-water-mark'
 import { IncomingRecordingMessage } from './types'
+
+const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
 
 export class ReplayEventsIngester {
     producer?: RdKafkaProducer
 
-    constructor(private readonly serverConfig: PluginsServerConfig) {}
+    constructor(
+        private readonly serverConfig: PluginsServerConfig,
+        private readonly offsetHighWaterMark: OffsetHighWaterMark
+    ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
@@ -59,9 +66,13 @@ export class ReplayEventsIngester {
                 }
             }
         }
+
+        const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
+        await Promise.all(
+            topicPartitionOffsets.map((tpo) => this.offsetHighWaterMark.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
+        )
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
         const warn = (text: string, labels: Record<string, any> = {}) =>
             status.warn('⚠️', text, {
@@ -73,7 +84,7 @@ export class ReplayEventsIngester {
         const drop = (reason: string, labels: Record<string, any> = {}) => {
             eventDroppedCounter
                 .labels({
-                    event_type: 'session_recordings',
+                    event_type: 'session_recordings_replay_events',
                     drop_cause: reason,
                 })
                 .inc()
@@ -90,6 +101,16 @@ export class ReplayEventsIngester {
 
         if (event.replayIngestionConsumer !== 'v2') {
             return drop('invalid_event_type')
+        }
+
+        if (
+            await this.offsetHighWaterMark.isBelowHighWaterMark(
+                event.metadata,
+                HIGH_WATERMARK_KEY,
+                event.metadata.offset
+            )
+        ) {
+            return drop('high_water_mark')
         }
 
         try {

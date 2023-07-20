@@ -122,9 +122,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: 'default', // Used as a Sentry tag
 
-        // this defaults to true, but is used to disable for testing in production
-        SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: true,
-
         SESSION_RECORDING_KAFKA_HOSTS: undefined,
         SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL: undefined,
         SESSION_RECORDING_KAFKA_BATCH_SIZE: 500,

@@ -197,7 +197,6 @@ export interface PluginsServerConfig {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     CLOUD_DEPLOYMENT: string
 
-    SESSION_RECORDING_ENABLE_OFFSET_HIGH_WATER_MARK_PROCESSING: boolean
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
     SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: number
