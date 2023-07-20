@@ -105,6 +105,18 @@
         z-index: 1;
     }
 
+    .NotebookRecordingTimestamp {
+        padding: 0.125rem 0.25rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background-color: var(--white);
+
+        &.NotebookRecordingTimestamp--selected {
+            outline-style: solid;
+            outline-color: var(--primary-bg-active);
+        }
+    }
+
     // overriding ::selection is necessary here because
     // antd makes it invisible otherwise
     span::selection {

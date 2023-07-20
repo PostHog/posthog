@@ -13,6 +13,7 @@ from django.db.models.fields import BooleanField
 from django.db.models import Q
 from django.db.models.query import QuerySet
 from sentry_sdk.api import capture_exception
+from posthog.metrics import LABEL_TEAM_ID
 
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -25,6 +26,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.utils import TimeoutException, execute_with_timeout, python_signal_timeout
 from posthog.queries.base import match_property, properties_to_Q
 from posthog.database_healthcheck import postgres_healthcheck, DATABASE_FOR_FLAG_MATCHING
+from posthog.utils import label_for_team_id_to_track
 
 from .feature_flag import (
     FeatureFlag,
@@ -43,6 +45,12 @@ FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
     "Failed decide requests with reason.",
     labelnames=["reason"],
+)
+
+FLAG_HASH_KEY_WRITES_COUNTER = Counter(
+    "flag_hash_key_writes_total",
+    "Attempts to write hash key overrides to the database.",
+    labelnames=[LABEL_TEAM_ID, "successful_write"],
 )
 
 
@@ -620,7 +628,6 @@ def get_all_feature_flags(
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, DATABASE_FOR_FLAG_MATCHING) as cursor:
                 distinct_ids = [distinct_id, str(hash_key_override)]
-
                 query = """
                     WITH target_person_ids AS (
                         SELECT team_id, person_id FROM posthog_persondistinctid WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
@@ -655,6 +662,9 @@ def get_all_feature_flags(
                     writing_hash_key_override = set_feature_flag_hash_key_overrides(
                         team_id, [distinct_id, hash_key_override], hash_key_override
                     )
+                    FLAG_HASH_KEY_WRITES_COUNTER.labels(
+                        team_id=label_for_team_id_to_track(team_id), successful_write=writing_hash_key_override
+                    ).inc()
             except Exception as e:
                 # If the database is in read-only mode, we can't handle experience continuity flags,
                 # since the set_feature_flag_hash_key_overrides call will fail.

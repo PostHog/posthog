@@ -2985,6 +2985,7 @@ export enum NotebookNodeType {
     Person = 'ph-person',
     Link = 'ph-link',
     Backlink = 'ph-backlink',
+    ReplayTimestamp = 'ph-replay-timestamp',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
