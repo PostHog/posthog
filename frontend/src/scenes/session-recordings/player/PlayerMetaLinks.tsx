@@ -10,12 +10,14 @@ import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookTarget } from '~/types'
+import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
+    const { createNotebook } = useActions(notebooksListLogic)
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
@@ -53,6 +55,17 @@ export function PlayerMetaLinks(): JSX.Element {
                 NotebookNodeType.ReplayTimestamp,
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
             )
+        } else {
+            createNotebook('Session Replay Notes', NotebookTarget.Sidebar, [
+                {
+                    type: NotebookNodeType.Recording,
+                    attrs: { id: sessionRecordingId },
+                },
+                {
+                    type: NotebookNodeType.ReplayTimestamp,
+                    attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
+                },
+            ])
         }
     }
 

@@ -2988,6 +2988,11 @@ export enum NotebookNodeType {
     ReplayTimestamp = 'ph-replay-timestamp',
 }
 
+export enum NotebookTarget {
+    Sidebar = 'sidebar',
+    Auto = 'auto',
+}
+
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'
 
 export interface DataWarehouseCredential {
