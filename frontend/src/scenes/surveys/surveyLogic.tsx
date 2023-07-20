@@ -283,13 +283,19 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...(question.type === SurveyQuestionType.Link
                         ? { link: !question.link && 'Please enter a url for the link.' }
                         : {}),
+                    ...(question.type === SurveyQuestionType.Rating
+                        ? {
+                              display: !question.display && 'Please choose a display type.',
+                              scale: !question.scale && 'Please choose a scale.',
+                          }
+                        : {}),
                 })),
             }),
             submit: async (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload
                 const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                const targetingFlag = flagLogic.values.featureFlag
                 if (values.hasTargetingFlag) {
+                    const targetingFlag = flagLogic.values.featureFlag
                     surveyPayloadWithTargetingFlagFilters = {
                         ...surveyPayload,
                         ...{ targeting_flag_filters: targetingFlag.filters },
