@@ -78,7 +78,10 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                 createNotebook: async ({ title, location, content }, breakpoint) => {
                     await breakpoint(100)
 
-                    const notebook = await api.notebooks.create(defaultNotebookContent(title, content))
+                    const notebook = await api.notebooks.create({
+                        title,
+                        content: defaultNotebookContent(title, content),
+                    })
 
                     openNotebook(notebook, location)
 

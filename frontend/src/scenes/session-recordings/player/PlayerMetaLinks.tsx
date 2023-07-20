@@ -14,6 +14,7 @@ import { NotebookNodeType, NotebookTarget } from '~/types'
 import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dayjs } from 'lib/dayjs'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -59,14 +60,21 @@ export function PlayerMetaLinks(): JSX.Element {
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
             )
         } else {
-            createNotebook('Session Replay Notes', NotebookTarget.Sidebar, [
+            const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
+            createNotebook(title, NotebookTarget.Sidebar, [
                 {
                     type: NotebookNodeType.Recording,
                     attrs: { id: sessionRecordingId },
                 },
                 {
-                    type: NotebookNodeType.ReplayTimestamp,
-                    attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: NotebookNodeType.ReplayTimestamp,
+                            attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
+                        },
+                        { type: 'text', text: ' ' },
+                    ],
                 },
             ])
         }

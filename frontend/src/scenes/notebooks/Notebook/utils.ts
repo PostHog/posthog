@@ -51,7 +51,7 @@ const textContent = (node: any): string => {
     })
 }
 
-export function defaultNotebookContent(title?: string, content: JSONContent[] | undefined): JSONContent {
+export function defaultNotebookContent(title?: string, content?: JSONContent[]): JSONContent {
     const initialContent = [
         {
             type: 'heading',

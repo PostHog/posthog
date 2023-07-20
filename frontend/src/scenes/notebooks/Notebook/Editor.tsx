@@ -133,6 +133,7 @@ export function Editor({
                 return false
             },
         },
+        autofocus: 'end',
         onCreate: ({ editor }) => {
             editorRef.current = editor
             onCreate({
