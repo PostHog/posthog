@@ -2,7 +2,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { DatabaseSceneRow } from 'scenes/data-warehouse/dataWarehouseSceneLogic'
+import { DatabaseSceneRow } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 
 interface DatabaseTableProps {
     table: string

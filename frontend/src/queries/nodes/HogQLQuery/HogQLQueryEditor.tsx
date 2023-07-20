@@ -186,22 +186,33 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         loading={<Spinner />}
                     />
                 </div>
-                <LemonButton
-                    onClick={saveQuery}
-                    type="primary"
-                    disabledReason={
-                        !props.setQuery
-                            ? 'No permission to update'
-                            : hasErrors
-                            ? error ?? 'Query has errors'
-                            : undefined
-                    }
-                    fullWidth
-                    center
-                    data-attr="hogql-query-editor-save"
-                >
-                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
-                </LemonButton>
+                <div className="flex flex-row">
+                    <LemonButton
+                        className="flex-1"
+                        onClick={saveQuery}
+                        type="primary"
+                        disabledReason={
+                            !props.setQuery
+                                ? 'No permission to update'
+                                : hasErrors
+                                ? error ?? 'Query has errors'
+                                : undefined
+                        }
+                        center
+                        data-attr="hogql-query-editor-save"
+                    >
+                        {!props.setQuery ? 'No permission to update' : 'Update and run'}
+                    </LemonButton>
+                    <LemonButton
+                        className="ml-2"
+                        onClick={saveQuery}
+                        type="primary"
+                        center
+                        data-attr="hogql-query-editor-save-as-view"
+                    >
+                        {'Save as View'}
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

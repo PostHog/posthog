@@ -2,22 +2,16 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductKey } from '~/types'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
-import { DataWarehouseTablesContainer } from './DataWarehouseTables'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { DataWarehouseViewsContainer } from './DataWarehouseViewsContainer'
 
 export const scene: SceneExport = {
-    component: DataWarehouse,
-    logic: databaseSceneLogic,
+    component: DataWarehouseViewsScene,
+    logic: dataWarehouseViewsLogic,
 }
 
-export function DataWarehouse(): JSX.Element {
-    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSceneLogic)
-
+export function DataWarehouseViewsScene(): JSX.Element {
     return (
         <div>
             <PageHeader
@@ -49,7 +43,7 @@ export function DataWarehouse(): JSX.Element {
                     </div>
                 }
             />
-            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
+            {/* {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
                     thingName={'data warehouse table'}
@@ -62,7 +56,9 @@ export function DataWarehouse(): JSX.Element {
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}
-            {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
+            {!shouldShowEmptyState && <DataWarehouseViewsContainer />} */}
+            <DataWarehousePageTabs tab={DataWarehouseTab.Views} />
+            <DataWarehouseViewsContainer />
         </div>
     )
 }

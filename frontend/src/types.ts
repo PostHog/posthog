@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext } from './queries/schema'
+import { DatabaseSchemaQueryResponseField, InsightQueryNode, Node, QueryContext, HogQLQuery } from './queries/schema'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -3005,3 +3005,11 @@ export interface DataWarehouseTable {
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
+
+export interface DataWarehouseView {
+    /** UUID */
+    id: string
+    name: string
+    query: HogQLQuery
+    columns: DatabaseSchemaQueryResponseField[]
+}

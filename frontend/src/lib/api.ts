@@ -8,6 +8,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataWarehouseTable,
+    DataWarehouseView,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
@@ -441,6 +442,14 @@ class ApiRequest {
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
+    }
+
+    // # Warehouse view
+    public dataWarehouseViews(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('warehouse_view')
+    }
+    public dataWarehouseView(id: DataWarehouseView['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseViews(teamId).addPathComponent(id)
     }
 
     // # Subscriptions
@@ -1295,6 +1304,27 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+    },
+
+    dataWarehouseViews: {
+        async list(): Promise<PaginatedResponse<DataWarehouseView>> {
+            return await new ApiRequest().dataWarehouseViews().get()
+        },
+        async get(viewId: DataWarehouseView['id']): Promise<DataWarehouseView> {
+            return await new ApiRequest().dataWarehouseView(viewId).get()
+        },
+        async create(data: Partial<DataWarehouseView>): Promise<DataWarehouseView> {
+            return await new ApiRequest().dataWarehouseViews().create({ data })
+        },
+        async delete(viewId: DataWarehouseView['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseView(viewId).delete()
+        },
+        async update(
+            viewId: DataWarehouseView['id'],
+            data: Pick<DataWarehouseView, 'name' | 'query'>
+        ): Promise<DataWarehouseView> {
+            return await new ApiRequest().dataWarehouseView(viewId).update({ data })
         },
     },
 
