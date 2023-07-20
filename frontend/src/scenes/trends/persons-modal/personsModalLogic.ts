@@ -12,6 +12,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface PersonModalLogicProps {
     url: string
@@ -38,7 +39,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeam']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
     }),
 
@@ -144,8 +145,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         propertiesTimelineFilterFromUrl: [
-            (_, p) => [p.url],
-            (url): PropertiesTimelineFilterType => {
+            (s, p) => [p.url, s.currentTeam],
+            (url, currentTeam): PropertiesTimelineFilterType => {
                 // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
                 const params = new URLSearchParams(url.split('?')[1])
                 const eventsString = params.get('events')
@@ -166,7 +167,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     breakdown: params.get('breakdown') || undefined,
                     breakdown_type: (params.get('breakdown_type') || undefined) as BreakdownType | undefined,
                 }
-                return cleanFilters(filter)
+                return cleanFilters(filter, currentTeam?.test_account_filters_default_checked)
             },
         ],
     }),

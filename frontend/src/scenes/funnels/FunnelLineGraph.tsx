@@ -11,6 +11,7 @@ import { funnelDataLogic } from './funnelDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isInsightQueryNode } from '~/queries/utils'
 import { TrendsFilter } from '~/queries/schema'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function FunnelLineGraph({
     inSharedMode,
@@ -19,6 +20,8 @@ export function FunnelLineGraph({
     const { insightProps } = useValues(insightLogic)
     const { steps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
         useValues(funnelDataLogic(insightProps))
+
+    const { currentTeam } = useValues(teamLogic)
 
     if (!isInsightQueryNode(querySource)) {
         return null
@@ -72,6 +75,7 @@ export function FunnelLineGraph({
                               date_from: day ?? '',
                               date_to: day ?? '',
                               filters,
+                              test_account_filters_default_checked: currentTeam?.test_account_filters_default_checked,
                           }
 
                           const url = buildPeopleUrl(props)

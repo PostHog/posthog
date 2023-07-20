@@ -128,6 +128,7 @@ export interface PeopleParamType {
 export interface PeopleUrlBuilderParams extends PeopleParamType {
     filters: Partial<FilterType>
     funnelStep?: number
+    test_account_filters_default_checked: boolean | undefined
 }
 
 export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
@@ -172,9 +173,10 @@ export const buildPeopleUrl = ({
     date_to,
     breakdown_value,
     funnelStep,
+    test_account_filters_default_checked,
 }: PeopleUrlBuilderParams): string | undefined => {
     if (isFunnelsFilter(filters) && filters.funnel_correlation_person_entity) {
-        const cleanedParams = cleanFilters(filters)
+        const cleanedParams = cleanFilters(filters, test_account_filters_default_checked)
         return `api/person/funnel/correlation/?${cleanedParams}`
     } else if (isStickinessFilter(filters)) {
         const filterParams = parsePeopleParams({ action, date_from, date_to, breakdown_value }, filters)
@@ -193,11 +195,11 @@ export const buildPeopleUrl = ({
                 ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
             }
         }
-        const cleanedParams = cleanFilters(params)
+        const cleanedParams = cleanFilters(params, test_account_filters_default_checked)
         const funnelParams = toParams(cleanedParams)
         return `api/person/funnel/?${funnelParams}`
     } else if (isPathsFilter(filters)) {
-        const cleanedParams = cleanFilters(filters)
+        const cleanedParams = cleanFilters(filters, test_account_filters_default_checked)
         const pathParams = toParams(cleanedParams)
 
         return `api/person/path/?${pathParams}`

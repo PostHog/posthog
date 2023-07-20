@@ -130,10 +130,10 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     }),
     selectors({
         apiParams: [
-            (s) => [s.querySource],
-            (querySource) => {
+            (s) => [s.querySource, s.currentTeam],
+            (querySource, currentTeam) => {
                 const cleanedParams: Partial<FunnelsFilterType> = querySource
-                    ? cleanFilters(queryNodeToFilter(querySource))
+                    ? cleanFilters(queryNodeToFilter(querySource), currentTeam?.test_account_filters_default_checked)
                     : {}
                 return cleanedParams
             },

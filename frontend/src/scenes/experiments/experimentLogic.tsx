@@ -79,7 +79,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['aggregationLabel', 'groupTypes']],
+        values: [teamLogic, ['currentTeamId', 'currentTeam'], groupsModel, ['aggregationLabel', 'groupTypes']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -327,15 +327,18 @@ export const experimentLogic = kea<experimentLogicType>([
             let newInsightFilters
             const aggregationGroupTypeIndex = values.experiment.parameters?.aggregation_group_type_index
             if (filters?.insight === InsightType.FUNNELS) {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.FUNNELS,
-                    funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: aggregationGroupTypeIndex,
-                    ...filters,
-                })
+                newInsightFilters = cleanFilters(
+                    {
+                        insight: InsightType.FUNNELS,
+                        funnel_viz_type: FunnelVizType.Steps,
+                        date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                        date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                        layout: FunnelLayout.horizontal,
+                        aggregation_group_type_index: aggregationGroupTypeIndex,
+                        ...filters,
+                    },
+                    values.currentTeam?.test_account_filters_default_checked
+                )
             } else {
                 const groupAggregation =
                     aggregationGroupTypeIndex !== undefined
@@ -345,13 +348,16 @@ export const experimentLogic = kea<experimentLogicType>([
                     filters?.actions || filters?.events
                         ? {}
                         : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.TRENDS,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    ...eventAddition,
-                    ...filters,
-                })
+                newInsightFilters = cleanFilters(
+                    {
+                        insight: InsightType.TRENDS,
+                        date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                        date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                        ...eventAddition,
+                        ...filters,
+                    },
+                    values.currentTeam?.test_account_filters_default_checked
+                )
             }
 
             actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
@@ -361,12 +367,15 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setExperiment({ filters: queryNodeToFilter((query as InsightVizNode).source) })
         },
         setExperimentExposureInsight: async ({ filters }) => {
-            const newInsightFilters = cleanFilters({
-                insight: InsightType.TRENDS,
-                date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                ...filters,
-            })
+            const newInsightFilters = cleanFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    ...filters,
+                },
+                values.currentTeam?.test_account_filters_default_checked
+            )
 
             actions.updateExposureQuerySource(filtersToQueryNode(newInsightFilters))
         },

@@ -50,7 +50,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({
         logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId', 'currentTeam']],
         actions: [
             insightDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
             ['setQuery'],
@@ -136,23 +136,29 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         setPreviewInsight: async ({ filters }) => {
             let newInsightFilters
             if (filters?.insight === InsightType.FUNNELS) {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.FUNNELS,
-                    funnel_viz_type: FunnelVizType.Steps,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    layout: FunnelLayout.horizontal,
-                    aggregation_group_type_index: props.defaultAggregationType,
-                    ...filters,
-                })
+                newInsightFilters = cleanFilters(
+                    {
+                        insight: InsightType.FUNNELS,
+                        funnel_viz_type: FunnelVizType.Steps,
+                        date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
+                        date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                        layout: FunnelLayout.horizontal,
+                        aggregation_group_type_index: props.defaultAggregationType,
+                        ...filters,
+                    },
+                    values.currentTeam?.test_account_filters_default_checked
+                )
             } else {
-                newInsightFilters = cleanFilters({
-                    insight: InsightType.TRENDS,
-                    date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
-                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    ...defaultFormValuesGenerator(props.defaultAggregationType).filters,
-                    ...filters,
-                })
+                newInsightFilters = cleanFilters(
+                    {
+                        insight: InsightType.TRENDS,
+                        date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
+                        date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                        ...defaultFormValuesGenerator(props.defaultAggregationType).filters,
+                        ...filters,
+                    },
+                    values.currentTeam?.test_account_filters_default_checked
+                )
             }
 
             actions.updateQuerySource(filtersToQueryNode(newInsightFilters))

@@ -17,6 +17,7 @@ import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -47,6 +48,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             insightLogic,
@@ -109,8 +112,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
-            (isQueryBasedInsight, query, insight, savedInsight) => {
+            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight, s.currentTeam],
+            (isQueryBasedInsight, query, insight, savedInsight, currentTeam) => {
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
                 } else {
@@ -123,10 +126,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         savedFilters = queryNodeToFilter(
                             insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
                         )
-                        setTestAccountFilterForNewInsight(savedFilters)
+                        setTestAccountFilterForNewInsight(
+                            savedFilters,
+                            currentTeam?.test_account_filters_default_checked
+                        )
                     }
 
-                    return !compareFilters(currentFilters, savedFilters)
+                    return !compareFilters(
+                        currentFilters,
+                        savedFilters,
+                        currentTeam?.test_account_filters_default_checked
+                    )
                 }
             },
         ],
@@ -135,7 +145,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     listeners(({ actions, values }) => ({
         setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
-                actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
+                actions.setQuery(
+                    queryFromFilters(
+                        cleanFilters(filters || {}, values.currentTeam?.test_account_filters_default_checked)
+                    )
+                )
             } else if (query) {
                 actions.setQuery(query)
             }

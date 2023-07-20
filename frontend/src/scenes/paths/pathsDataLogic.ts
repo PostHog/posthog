@@ -13,6 +13,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode } from '~/queries/schema'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -41,6 +42,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'pathsFilter',
                 'dateRange',
             ],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter']],
     })),
@@ -106,11 +109,14 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 path_end_key,
                 path_dropoff_key,
             }
-            const personsUrl = buildPeopleUrl({
-                date_from: '',
-                date_to: '',
-                filters,
-            })
+            const personsUrl = buildPeopleUrl(
+                {
+                    date_from: '',
+                    date_to: '',
+                    filters,
+                },
+                values.currentTeam?.test_account_filters_default_checked
+            )
             if (personsUrl) {
                 openPersonsModal({
                     url: personsUrl,

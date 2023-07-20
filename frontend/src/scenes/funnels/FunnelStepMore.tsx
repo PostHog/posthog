@@ -7,6 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { funnelDataLogic } from './funnelDataLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 
 type FunnelStepMoreProps = {
     stepIndex: number
@@ -15,8 +16,10 @@ type FunnelStepMoreProps = {
 export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { currentTeam } = useValues(teamLogic)
+
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const filterProps = cleanFilters(queryNodeToFilter(querySource!))
+    const filterProps = cleanFilters(queryNodeToFilter(querySource!), currentTeam?.test_account_filters_default_checked)
 
     const aggregationGroupTypeIndex = querySource?.aggregation_group_type_index
 

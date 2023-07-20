@@ -31,7 +31,6 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -147,18 +146,23 @@ const isNewInsight = (filters: Partial<AnyFilterType>): boolean => {
     return true
 }
 
-export const setTestAccountFilterForNewInsight = (filter: Partial<AnyFilterType>): void => {
-    const teamFilterTestAccounts = teamLogic.findMounted()?.values.currentTeam?.test_account_filters_default_checked
+export const setTestAccountFilterForNewInsight = (
+    filter: Partial<AnyFilterType>,
+    test_account_filters_default_checked: boolean | undefined
+): void => {
     if (localStorage.getItem('default_filter_test_accounts') !== null) {
         // use current user default
         filter.filter_test_accounts = localStorage.getItem('default_filter_test_accounts') === 'true'
-    } else if (!filter.filter_test_accounts && teamFilterTestAccounts !== undefined) {
+    } else if (!filter.filter_test_accounts && test_account_filters_default_checked !== undefined) {
         // overwrite with team default, only if not set
-        filter.filter_test_accounts = teamFilterTestAccounts
+        filter.filter_test_accounts = test_account_filters_default_checked
     }
 }
 
-export function cleanFilters(filters: Partial<AnyFilterType>): Partial<FilterType> {
+export function cleanFilters(
+    filters: Partial<AnyFilterType>,
+    test_account_filters_default_checked: boolean | undefined
+): Partial<FilterType> {
     const commonFilters: Partial<CommonFiltersType> = {
         ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
@@ -168,7 +172,7 @@ export function cleanFilters(filters: Partial<AnyFilterType>): Partial<FilterTyp
 
     // set test account filter default for new insights from team and local storage settings
     if (isNewInsight(filters)) {
-        setTestAccountFilterForNewInsight(commonFilters)
+        setTestAccountFilterForNewInsight(commonFilters, test_account_filters_default_checked)
     }
 
     if (isRetentionFilter(filters)) {
@@ -379,7 +383,7 @@ export function cleanFilters(filters: Partial<AnyFilterType>): Partial<FilterTyp
         return trendLikeFilter
     } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
-        return cleanFilters({ insight: InsightType.TRENDS })
+        return cleanFilters({ insight: InsightType.TRENDS }, test_account_filters_default_checked)
     }
 
     throw new Error(`Unknown insight type "${(filters as any).insight}" given to cleanFilters`)
