@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List
 from unittest import mock
 
 from freezegun import freeze_time
@@ -200,32 +201,28 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session1",
         )
         assert add_one_response.status_code == 200
+        self._assert_playlist_session_ids(playlist1.short_id, expected=["session1"])
 
         add_two_response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session2",
         )
         assert add_two_response.status_code == 200
+        self._assert_playlist_session_ids(playlist1.short_id, expected=["session1", "session2"])
 
         add_one_to_playlist_two_response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/session1",
         )
         assert add_one_to_playlist_two_response.status_code == 200
 
-        result = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings",
+        # adding to playlist 2 should not affect playlist 1
+        self._assert_playlist_session_ids(playlist1.short_id, expected=["session1", "session2"])
+        self._assert_playlist_session_ids(playlist2.short_id, expected=["session1"])
+
+    def _assert_playlist_session_ids(self, playlist_short_id: str, expected: List[str]) -> None:
+        playlist_response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist_short_id}/recordings",
         ).json()
-
-        assert len(result["results"]) == 2
-        assert result["results"][0]["id"] == "session1"
-        assert result["results"][1]["id"] == "session2"
-
-        # Test get recordings
-        result = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings",
-        ).json()
-
-        assert len(result["results"]) == 1
-        assert result["results"][0]["id"] == "session1"
+        assert [r["id"] for r in playlist_response["results"]] == expected
 
     def test_add_remove_static_playlist_items(self):
         playlist1 = SessionRecordingPlaylist.objects.create(

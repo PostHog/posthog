@@ -109,10 +109,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     def test_get_session_recordings(self):
-        p = Person.objects.create(
+        user = Person.objects.create(
             team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        Person.objects.create(
+        user2 = Person.objects.create(
             team=self.team, distinct_ids=["user2"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -134,24 +134,30 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        first_session = response_data["results"][0]
-        second_session = response_data["results"][1]
 
-        self.assertEqual(first_session["id"], "2")
-        self.assertEqual(first_session["distinct_id"], "user2")
-        self.assertEqual(parse(first_session["start_time"]), (base_time + relativedelta(seconds=20)))
-        self.assertEqual(parse(first_session["end_time"]), (base_time + relativedelta(seconds=20)))
-        self.assertEqual(first_session["recording_duration"], 0)
-        self.assertEqual(first_session["viewed"], False)
-
-        self.assertEqual(second_session["id"], "1")
-        self.assertEqual(second_session["distinct_id"], "user")
-        self.assertEqual(parse(second_session["start_time"]), base_time)
-        self.assertEqual(parse(second_session["end_time"]), (base_time + relativedelta(seconds=30)))
-        self.assertEqual(second_session["recording_duration"], 30)
-        self.assertEqual(second_session["viewed"], False)
-        self.assertEqual(second_session["person"]["id"], p.pk)
+        assert [
+            (
+                r["id"],
+                r["distinct_id"],
+                parse(r["start_time"]),
+                parse(r["end_time"]),
+                r["recording_duration"],
+                r["viewed"],
+                r["person"]["id"],
+            )
+            for r in response_data["results"]
+        ] == [
+            (
+                "2",
+                "user2",
+                base_time + relativedelta(seconds=20),
+                base_time + relativedelta(seconds=20),
+                0,
+                False,
+                user2.pk,
+            ),
+            ("1", "user", base_time, base_time + relativedelta(seconds=30), 30, False, user.pk),
+        ]
 
     @patch("posthog.api.session_recording.SessionRecordingListFromReplaySummary")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_summary_lister):
