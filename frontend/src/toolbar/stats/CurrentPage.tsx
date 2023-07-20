@@ -3,7 +3,7 @@ import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { GlobalOutlined } from '@ant-design/icons'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { Comment } from 'antd'
+import { Comment } from '@ant-design/compatible'
 
 function getFavicon(): string {
     let favicon

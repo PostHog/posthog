@@ -130,7 +130,7 @@ export function ExperimentPreview({
                                                 },
                                             })
                                         }}
-                                        tipFormatter={(value) => `${value}%`}
+                                        tooltip={{ formatter: (value) => `${value}%` }}
                                     />
                                 </Col>
                                 <InputNumber
@@ -338,7 +338,6 @@ export function ExperimentPreview({
                     </Row>
                 )}
             </Col>
-
             {experimentId !== 'new' && !editingExistingExperiment && !experiment?.start_date && (
                 <Col span={12} className="pl-4">
                     <ExperimentWorkflow />

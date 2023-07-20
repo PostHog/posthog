@@ -1,5 +1,7 @@
 import { cohortLogic, CohortLogicProps } from './cohortLogic'
-import 'antd/lib/dropdown/style/index.css'
+
+// import 'antd/lib/dropdown/style/index.css'
+
 import { SceneExport } from 'scenes/sceneTypes'
 import { CohortEdit } from 'scenes/cohorts/CohortEdit'
 
