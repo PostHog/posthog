@@ -9,11 +9,12 @@ import { createIncomingRecordingMessage } from '../fixtures'
 
 const createMockStream = () => {
     return {
-        write: jest.fn(),
+        write: jest.fn(() => true),
         pipe: jest.fn(() => createMockStream()),
         close: jest.fn((cb) => cb?.()),
         end: jest.fn((cb) => cb?.()),
         on: jest.fn(),
+        once: jest.fn(),
     }
 }
 
