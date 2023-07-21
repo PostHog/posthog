@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { HogQLMetadata, HogQLNotice, HogQLQuery, NodeKind } from '~/queries/schema'
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -14,6 +14,8 @@ import type { Monaco } from '@monaco-editor/react'
 import api from 'lib/api'
 import { combineUrl } from 'kea-router'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/views/dataWarehouseViewsLogic'
+import { promptLogic } from 'lib/logic/promptLogic'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -38,6 +40,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             actions.setQueryInput(props.query.query)
         }
     }),
+    connect({
+        actions: [dataWarehouseViewsLogic, ['createDataWarehouseView']],
+        logic: [promptLogic({ key: `save-as-view` })],
+    }),
     actions({
         saveQuery: true,
         setQueryInput: (queryInput: string) => ({ queryInput }),
@@ -46,6 +52,8 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         setPromptError: (error: string | null) => ({ error }),
         draftFromPrompt: true,
         draftFromPromptComplete: true,
+        saveAsView: true,
+        saveAsViewSuccess: (name: string) => ({ name }),
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
@@ -153,6 +161,22 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             if (model) {
                 props.monaco?.editor.setModelMarkers(model, 'hogql', markers)
             }
+        },
+        saveAsView: async () => {
+            promptLogic({ key: `save-as-view` }).actions.prompt({
+                title: 'Save as view',
+                placeholder: 'Please enter the name of the view',
+                value: '',
+                error: 'You must enter a name',
+                success: actions.saveAsViewSuccess,
+            })
+        },
+        saveAsViewSuccess: async ({ name }) => {
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: values.queryInput,
+            }
+            actions.createDataWarehouseView({ name, query })
         },
     })),
 ])

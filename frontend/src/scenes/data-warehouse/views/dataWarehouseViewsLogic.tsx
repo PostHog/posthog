@@ -12,6 +12,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     connect(() => ({
         values: [userLogic, ['user']],
     })),
+
     loaders(({ values }) => ({
         dataWarehouseViews: [
             null as PaginatedResponse<DataWarehouseView> | null,
@@ -43,6 +44,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                             id: view.id,
                             name: view.name,
                             columns: view.columns,
+                            query: view.query,
                         } as DataWarehouseSceneRow)
                 )
             },

@@ -29,7 +29,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
-    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt } = useActions(logic)
+    const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
@@ -205,7 +205,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         className="ml-2"
-                        onClick={saveQuery}
+                        onClick={saveAsView}
                         type="primary"
                         center
                         data-attr="hogql-query-editor-save-as-view"

@@ -31,6 +31,7 @@ interface DatabaseTablesProps<T extends Record<string, any>> {
     tables: T[]
     loading: boolean
     renderRow: (row: T) => JSX.Element
+    columns?: LemonTableColumns<T>
     extraColumns?: LemonTableColumns<T>
 }
 
@@ -38,6 +39,7 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
     tables,
     loading,
     renderRow,
+    columns,
     extraColumns = [],
 }: DatabaseTablesProps<T>): JSX.Element {
     return (
@@ -45,46 +47,50 @@ export function DatabaseTables<T extends DatabaseSceneRow>({
             <LemonTable
                 loading={loading}
                 dataSource={tables}
-                columns={[
-                    {
-                        title: 'Table',
-                        key: 'name',
-                        dataIndex: 'name',
-                        render: function RenderTable(table, obj: T) {
-                            const query: DataTableNode = {
-                                kind: NodeKind.DataTableNode,
-                                full: true,
-                                source: {
-                                    kind: NodeKind.HogQLQuery,
-                                    // TODO: Use `hogql` tag?
-                                    query: `SELECT ${obj.columns
-                                        .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                        .map(({ key }) => key)} FROM ${table} LIMIT 100`,
-                                },
-                            }
-                            return (
-                                <div className="flex">
-                                    <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
-                                        <code>{table}</code>
-                                    </Link>
-                                </div>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Type',
-                        key: 'type',
-                        dataIndex: 'name',
-                        render: function RenderType() {
-                            return (
-                                <LemonTag type="default" className="uppercase">
-                                    PostHog
-                                </LemonTag>
-                            )
-                        },
-                    },
-                    ...extraColumns,
-                ]}
+                columns={
+                    columns
+                        ? [...columns, ...extraColumns]
+                        : [
+                              {
+                                  title: 'Table',
+                                  key: 'name',
+                                  dataIndex: 'name',
+                                  render: function RenderTable(table, obj: T) {
+                                      const query: DataTableNode = {
+                                          kind: NodeKind.DataTableNode,
+                                          full: true,
+                                          source: {
+                                              kind: NodeKind.HogQLQuery,
+                                              // TODO: Use `hogql` tag?
+                                              query: `SELECT ${obj.columns
+                                                  .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                                  .map(({ key }) => key)} FROM ${table} LIMIT 100`,
+                                          },
+                                      }
+                                      return (
+                                          <div className="flex">
+                                              <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                                  <code>{table}</code>
+                                              </Link>
+                                          </div>
+                                      )
+                                  },
+                              },
+                              {
+                                  title: 'Type',
+                                  key: 'type',
+                                  dataIndex: 'name',
+                                  render: function RenderType() {
+                                      return (
+                                          <LemonTag type="default" className="uppercase">
+                                              PostHog
+                                          </LemonTag>
+                                      )
+                                  },
+                              },
+                              ...extraColumns,
+                          ]
+                }
                 expandable={{
                     expandedRowRender: renderRow,
                     rowExpandable: () => true,

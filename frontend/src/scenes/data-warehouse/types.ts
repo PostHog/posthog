@@ -1,4 +1,4 @@
-import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
+import { DatabaseSchemaQueryResponseField, HogQLQuery } from '~/queries/schema'
 
 export interface DatabaseSceneRow {
     name: string
@@ -9,4 +9,5 @@ export interface DataWarehouseSceneRow extends DatabaseSceneRow {
     id: string
     url_pattern?: string
     format?: string
+    query?: HogQLQuery
 }

@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 import { DatabaseTables } from 'scenes/data-management/database/DatabaseTables'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { DataWarehouseSceneRow } from '../types'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { urls } from 'scenes/urls'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 export function DataWarehouseViewsContainer(): JSX.Element {
     const { views, dataWarehouseViewsLoading } = useValues(dataWarehouseViewsLogic)
@@ -26,6 +28,32 @@ export function DataWarehouseViewsContainer(): JSX.Element {
                     </div>
                 )
             }}
+            columns={[
+                {
+                    title: 'View',
+                    key: 'name',
+                    dataIndex: 'name',
+                    render: function RenderTable(table, obj: DataWarehouseSceneRow) {
+                        const query: DataTableNode = {
+                            kind: NodeKind.DataTableNode,
+                            full: true,
+                            source: obj.query || {
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT ${obj.columns
+                                    .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                    .map(({ key }) => key)} FROM ${table} LIMIT 100`,
+                            },
+                        }
+                        return (
+                            <div className="flex">
+                                <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                    <code>{table}</code>
+                                </Link>
+                            </div>
+                        )
+                    },
+                },
+            ]}
             extraColumns={[
                 {
                     width: 0,
