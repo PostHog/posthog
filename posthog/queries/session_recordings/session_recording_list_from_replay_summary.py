@@ -231,10 +231,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         event_filters = self.build_event_filters
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
 
-        # filter groups for only properties that are not for persons or cohorts
-        # KLUDGE: we only support AND filters
-        # and can't push all these filters to the top level of the query, so
-        # we pick out the ones we want to apply here
+        # TRICKY: we only support AND filters in the UI
+        # and, we want to push these filters into the sub-queries
+        # and, they won't work at the top-level with the joins as they are now
+        # so, we pick out the ones we want to apply here
         not_cohort_and_person_properties = PropertyGroup(
             type=PropertyOperatorType.AND,
             values=[
@@ -268,10 +268,10 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
         person_query, person_query_params = self._get_person_query()
 
-        # filter groups for only properties that are for persons or cohorts
-        # KLUDGE: we only support AND filters
-        # and can't push all these filters to the top level of the query so
-        # we pick out the ones we want to apply here
+        # TRICKY: we only support AND filters in the UI
+        # and, we want to push these filters into the sub-queries
+        # and, they won't work at the top-level with the joins as they are now
+        # so, we pick out the ones we want to apply here
         cohort_and_person_properties = PropertyGroup(
             type=PropertyOperatorType.AND,
             values=[
