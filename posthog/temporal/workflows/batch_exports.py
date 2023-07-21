@@ -85,7 +85,9 @@ def get_results_iterator(
                 "distinct_id": record.get("distinct_id").decode(),
                 "person_id": record.get("person_id").decode(),
                 "event": record.get("event").decode(),
-                "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "inserted_at": record.get("inserted_at").strftime("%Y-%m-%d %H:%M:%S.%f")
+                if record.get("inserted_at")
+                else None,
                 "created_at": record.get("created_at").strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "timestamp": record.get("timestamp").strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "properties": json.loads(properties) if properties else None,

@@ -533,7 +533,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: Ht
     run = runs[0]
     assert run.status == "Completed"
 
-    assert_events_in_s3(s3_client, bucket_name, prefix, events)
+    assert_events_in_s3(s3_client, bucket_name, prefix.format(year=2023, month="04", day="25"), events)
 
 
 @pytest.mark.django_db
@@ -848,10 +848,10 @@ async def test_s3_export_workflow_continues_on_json_decode_error(client: HttpCli
     )
     error_raised = False
 
-    async def fake_get_results_iterator(*args, **kwargs):
+    def fake_get_results_iterator(*args, **kwargs):
         nonlocal error_raised
 
-        async for result in get_results_iterator(*args, **kwargs):
+        for result in get_results_iterator(*args, **kwargs):
             if error_raised is False:
                 error_raised = True
                 raise json.JSONDecodeError("Test error", "A ClickHouse error message\n", 0)
@@ -990,8 +990,8 @@ async def test_s3_export_workflow_continues_on_multiple_json_decode_error(client
     def should_fail(event):
         return bool(int(event["event"]) % 2)
 
-    async def fake_get_results_iterator(*args, **kwargs):
-        async for result in get_results_iterator(*args, **kwargs):
+    def fake_get_results_iterator(*args, **kwargs):
+        for result in get_results_iterator(*args, **kwargs):
             if result["event"] not in failed_events and should_fail(result):
                 # Will raise an exception every other row.
                 failed_events.add(result["event"])  # Otherwise we infinite loop
