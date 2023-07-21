@@ -27,7 +27,7 @@ export class OffsetHighWaterMarker {
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
     private topicPartitionWaterMarks: Record<string, Promise<OffsetHighWaterMarks> | undefined> = {}
 
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/high-water-marks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
         const client = await this.redisPool.acquire()
