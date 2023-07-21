@@ -2,9 +2,10 @@ import dataclasses
 import datetime
 from typing import Any, Dict, List, Tuple, Union, Literal
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.property import PropertyGroup
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -33,6 +34,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         FROM person_distinct_id2 as pdi
             {filter_persons_clause}
         WHERE team_id = %(team_id)s
+        {prop_filter_clause}
         GROUP BY distinct_id
         HAVING
             argMax(is_deleted, version) = 0
@@ -87,7 +89,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         AND s.min_first_timestamp >= %(start_time)s
         AND s.max_last_timestamp <= %(end_time)s
     {provided_session_ids_clause}
-    {prop_filter_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
     ORDER BY start_time DESC
@@ -201,9 +202,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
         should_join_events = self._determine_should_join_events()
 
-        # TODO this would mean that you can't have an event and a cohort filter :'(
-        prop_query, prop_params = self._get_prop_filter_clause
-
         return (
             self._session_recordings_query.format(
                 person_id_clause=person_id_clause,
@@ -213,7 +211,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 event_ids_selector=",any(e.event_ids) as matching_events" if should_join_events else "",
                 events_join=events_join,
                 console_log_clause=console_log_clause,
-                prop_filter_clause="" if should_join_events else prop_query,
             ),
             {
                 **base_params,
@@ -223,14 +220,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 **person_id_params,
                 **duration_params,
                 **provided_session_ids_params,
-                **prop_params,
             },
-        )
-
-    @cached_property
-    def _get_prop_filter_clause(self) -> Tuple[str, Dict[str, Any]]:
-        return self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
     @cached_property
@@ -241,7 +231,21 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         event_filters = self.build_event_filters
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
 
-        prop_query, prop_params = self._get_prop_filter_clause
+        # filter groups for only properties that are not for persons or cohorts
+        # KLUDGE: we only support AND filters
+        # and can't push all these filters to the top level of the query, so
+        # we pick out the ones we want to apply here
+        not_cohort_and_person_properties = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                g
+                for g in self._filter.property_groups.flat
+                if g.type not in ["person", "cohort", "static-cohort", "precalculated-cohort"]
+            ],
+        )
+        prop_query, prop_params = self._get_prop_groups(
+            not_cohort_and_person_properties, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         return (
             self._raw_events_join.format(
@@ -264,11 +268,28 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
 
         person_query, person_query_params = self._get_person_query()
 
+        # filter groups for only properties that are for persons or cohorts
+        # KLUDGE: we only support AND filters
+        # and can't push all these filters to the top level of the query so
+        # we pick out the ones we want to apply here
+        cohort_and_person_properties = PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                g
+                for g in self._filter.property_groups.flat
+                if g.type in ["person", "cohort", "static-cohort", "precalculated-cohort"]
+            ],
+        )
+        prop_query, prop_params = self._get_prop_groups(
+            cohort_and_person_properties, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
+
         if self._filter.person_uuid or person_query:
             person_id_params = {
                 **person_id_params,
                 **person_query_params,
                 "person_uuid": self._filter.person_uuid,
+                **prop_params,
             }
             filter_persons_clause = person_query or ""
             filter_by_person_uuid_condition = "and person_id = %(person_uuid)s" if self._filter.person_uuid else ""
@@ -276,6 +297,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             persons_join = self._raw_persons_join.format(
                 filter_persons_clause=filter_persons_clause,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
+                prop_filter_clause=prop_query,
             )
 
         return persons_join, person_id_params

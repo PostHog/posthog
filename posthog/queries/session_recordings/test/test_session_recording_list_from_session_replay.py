@@ -1305,7 +1305,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     first_timestamp=self.base_time,
                     team_id=self.team.id,
                 )
-                self.create_event(user_one, self.base_time, team=self.team)
+                # self.create_event(user_one, self.base_time, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
@@ -1318,7 +1318,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     first_timestamp=self.base_time,
                     team_id=self.team.id,
                 )
-                self.create_event(user_two, self.base_time, team=self.team)
+                # self.create_event(user_two, self.base_time, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
@@ -1363,7 +1363,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     first_timestamp=self.base_time,
                     team_id=self.team.id,
                 )
-                self.create_event(user_one, self.base_time, team=self.team, event_nameo0="custom_event")
+                self.create_event(
+                    user_one,
+                    self.base_time,
+                    team=self.team,
+                    event_name="custom_event",
+                    properties={"$session_id": session_id_one},
+                )
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
@@ -1376,7 +1382,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                     first_timestamp=self.base_time,
                     team_id=self.team.id,
                 )
-                self.create_event(user_two, self.base_time, team=self.team, event_nameo0="custom_event")
+                the_event_that_will_match = self.create_event(
+                    user_two,
+                    self.base_time,
+                    team=self.team,
+                    event_name="custom_event",
+                    properties={"$session_id": session_id_two},
+                )
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
@@ -1397,8 +1409,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 (session_recordings, _) = session_recording_list_instance.run()
 
                 assert len(session_recordings) == 0
-                assert session_recordings[0]["session_id"] == session_id_two
-                assert "matching_events" not in session_recordings[0]
 
                 filter = SessionRecordingsFilter(
                     team=self.team,
@@ -1412,7 +1422,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
                 assert len(session_recordings) == 1
                 assert session_recordings[0]["session_id"] == session_id_two
-                assert "matching_events" not in session_recordings[0]
+                assert len(session_recordings[0]["matching_events"]) == 1
+                assert str(session_recordings[0]["matching_events"][0]) == the_event_that_will_match
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"])
