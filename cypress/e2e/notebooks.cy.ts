@@ -1,8 +1,5 @@
 describe('Notebooks', () => {
     beforeEach(() => {
-        cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
-        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
-
         cy.fixture('api/session-recordings/recordings.json').then((recordings) => {
             cy.intercept('GET', /api\/projects\/\d+\/session_recordings\/?\?.*/, { body: recordings }).as(
                 'loadSessionRecordingsList'
