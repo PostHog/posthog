@@ -104,10 +104,4 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
     }
 
     return <LemonTabs data-attr="event-details" tabs={tabs} activeKey={activeTab} onChange={setActiveTab} />
-    // return (
-    //     <Tabs
-    //         style={{ float: 'left', width: '100%' }}
-    //         tabBarStyle={{ margin: 0, paddingLeft: 12 }}
-    //     ></Tabs>
-    // )
 }
