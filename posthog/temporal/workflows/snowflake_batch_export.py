@@ -237,7 +237,15 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         # Mostly to appease mypy, as this query should always return a tuple.
                         raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
 
-                    file_name, status = result[0:2]
+                    if len(result) < 2:
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            "NO STATUS",
+                            0,
+                            result[1] if len(result) == 1 else "NO ERROR MESSAGE",
+                        )
+
+                    _, status = result[0:2]
 
                     if status != "LOADED":
                         errors_seen, first_error = result[5:7]
