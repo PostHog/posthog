@@ -155,6 +155,7 @@ export class SessionManager {
         })
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
             return
@@ -188,7 +189,8 @@ export class SessionManager {
             // NOTE: If write returns false we are supposed to wait for drain
             if (!this.buffer.fileStream.write(content)) {
                 writeStreamBlocked.inc()
-                await new Promise((r) => this.buffer.fileStream.once('drain', r))
+                // NOTE: We aren't doing this yet as it doesn't seem to work
+                // await new Promise((r) => this.buffer.fileStream.once('drain', r))
             }
         } catch (error) {
             this.captureException(error, { message })
