@@ -374,7 +374,7 @@ export function LineGraph_({
                 },
             },
             plugins: {
-                stacked100: { enable: showPercentStackView && type === GraphType.Bar, precision: 1 },
+                stacked100: { enable: showPercentStackView, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -388,7 +388,15 @@ export function LineGraph_({
                         const datum = context.dataset.data[context.dataIndex]
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
-                    formatter: (value: number) => formatAggregationAxisValue(trendsFilter, value),
+                    formatter: (value: number, context) => {
+                        const data = context.chart.data
+                        const { datasetIndex, dataIndex } = context
+                        if (showPercentStackView) {
+                            // @ts-expect-error
+                            return `${data.calculatedData[datasetIndex][dataIndex]}%`
+                        }
+                        return formatAggregationAxisValue(trendsFilter, value)
+                    },
                     borderWidth: 2,
                     borderRadius: 4,
                     borderColor: 'white',

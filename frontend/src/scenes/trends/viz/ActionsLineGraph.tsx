@@ -47,7 +47,7 @@ export function ActionsLineGraph({
             trendsFilter={trendsFilter}
             formula={formula}
             showValueOnSeries={showValueOnSeries}
-            showPercentStackView={showPercentStackView}
+            showPercentStackView={showPercentStackView && display === ChartDisplayType.ActionsBar}
             tooltip={
                 isLifecycle
                     ? {
