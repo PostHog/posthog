@@ -35,7 +35,7 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-def to_bytecode(expr: str) -> List[any]:
+def to_bytecode(expr: str) -> List[Any]:
     from posthog.hogql.parser import parse_expr
 
     return create_bytecode(parse_expr(expr))
