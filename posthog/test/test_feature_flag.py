@@ -2423,6 +2423,42 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
 
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag2: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="group-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "aggregation_group_type_index": 0,
+            },
+        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
+
+        self.assertEqual(
+            matcher.get_matches(),
+            (
+                {"active-flag": True},
+                {"active-flag": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}},
+                {},
+                True,
+            ),
+        )
+        self.assertEqual(matcher.failed_to_fetch_conditions, False)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(

@@ -68,7 +68,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_opt_out: true,
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
-    session_recording_version: 'v1',
     capture_performance_opt_in: true,
     autocapture_exceptions_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],

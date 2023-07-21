@@ -255,7 +255,7 @@ class _Printer(Visitor):
             while isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
 
-            if not isinstance(table_type, ast.TableType):
+            if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
