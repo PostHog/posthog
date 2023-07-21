@@ -9,11 +9,12 @@ import { createIncomingRecordingMessage } from '../fixtures'
 
 const createMockStream = () => {
     return {
-        write: jest.fn(),
+        write: jest.fn(() => true),
         pipe: jest.fn(() => createMockStream()),
         close: jest.fn((cb) => cb?.()),
         end: jest.fn((cb) => cb?.()),
         on: jest.fn(),
+        once: jest.fn((val, cb) => cb?.()),
     }
 }
 
@@ -92,7 +93,7 @@ describe('session-manager', () => {
         Settings.now = () => new Date().valueOf()
     })
 
-    it('adds a message', () => {
+    it('adds a message', async () => {
         const timestamp = now() - 10000
         const event = createIncomingRecordingMessage({
             metadata: {
@@ -100,7 +101,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        sessionManager.add(event)
+        await sessionManager.add(event)
 
         expect(sessionManager.buffer).toEqual({
             count: 1,
@@ -138,7 +139,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        sessionManager.add(event)
+        await sessionManager.add(event)
         await sessionManager.flushIfSessionBufferIsOld(now.toMillis())
 
         // as a proxy for flush having been called or not
@@ -177,8 +178,8 @@ describe('session-manager', () => {
             } as any,
         })
 
-        sessionManager.add(eventOne)
-        sessionManager.add(eventTwo)
+        await sessionManager.add(eventOne)
+        await sessionManager.add(eventTwo)
 
         await sessionManager.flushIfSessionBufferIsOld(now())
 
@@ -208,8 +209,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        sessionManager.add(event)
-
+        await sessionManager.add(event)
         await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis())
 
         // as a proxy for flush having been called or not
@@ -227,7 +227,7 @@ describe('session-manager', () => {
             } as any,
         })
 
-        sessionManager.add(event)
+        await sessionManager.add(event)
         await sessionManager.flushIfSessionBufferIsOld(now.minus({ milliseconds: aDayInMilliseconds }).toMillis())
         expect(createReadStream).not.toHaveBeenCalled()
 
@@ -242,7 +242,7 @@ describe('session-manager', () => {
 
     it('flushes messages', async () => {
         const event = createIncomingRecordingMessage()
-        sessionManager.add(event)
+        await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
         const fileStream = sessionManager.buffer.fileStream
         const afterResumeFlushPromise = sessionManager.flush('buffer_size')
@@ -262,12 +262,12 @@ describe('session-manager', () => {
         const event2 = createIncomingRecordingMessage({
             events: [{ timestamp: 1234, type: 4, data: { href: 'http://localhost:3001/' } }],
         })
-        sessionManager.add(event)
+        await sessionManager.add(event)
         expect(sessionManager.buffer.count).toEqual(1)
 
         const firstBufferFile = sessionManager.buffer.file
         const flushPromise = sessionManager.flush('buffer_size')
-        sessionManager.add(event2)
+        await sessionManager.add(event2)
 
         // that the second event is in a new buffer file
         // that the original buffer file is deleted
@@ -290,7 +290,7 @@ describe('session-manager', () => {
         ])
     })
 
-    it('tracks the offsets', () => {
+    it('tracks the offsets', async () => {
         const addEvent = (offset: number) =>
             sessionManager.add(
                 createIncomingRecordingMessage({
@@ -300,21 +300,21 @@ describe('session-manager', () => {
                 })
             )
 
-        addEvent(4)
+        await addEvent(4)
 
         expect(sessionManager.buffer.offsets).toEqual({
             highest: 4,
             lowest: 4,
         })
 
-        addEvent(10)
+        await addEvent(10)
 
         expect(sessionManager.buffer.offsets).toEqual({
             highest: 10,
             lowest: 4,
         })
 
-        addEvent(2)
+        await addEvent(2)
 
         expect(sessionManager.buffer.offsets).toEqual({
             highest: 10,
@@ -329,5 +329,13 @@ describe('session-manager', () => {
             expect(sm.flushJitterMultiplier).toBeGreaterThanOrEqual(minJitter)
             expect(sm.flushJitterMultiplier).toBeLessThanOrEqual(1)
         }
+    })
+
+    it('waits for the drain if write returns false', async () => {
+        await sessionManager.add(createIncomingRecordingMessage())
+        ;(sessionManager.buffer.fileStream.write as jest.Mock).mockReturnValueOnce(false)
+        await sessionManager.add(createIncomingRecordingMessage())
+
+        expect(sessionManager.buffer.fileStream.once).toHaveBeenCalledWith('drain', expect.any(Function))
     })
 })
