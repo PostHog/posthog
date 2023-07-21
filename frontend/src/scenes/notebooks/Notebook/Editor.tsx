@@ -197,21 +197,21 @@ function hasDirectChildOfType(node: Node, type: string, direct: boolean = true):
     return types.includes(type)
 }
 
-export function findClosestNodePositionMatchingAttrs(
+export function findPositionOfClosestNodeMatchingAttrs(
     editor: TTEditor,
     pos: number,
     attrs: { [attr: string]: any }
 ): number {
-    const positions: number[] = []
+    const matchingPositions: number[] = []
     const attrEntries = Object.entries(attrs)
 
     editor.state.doc.descendants((node, pos) => {
         if (attrEntries.every(([attr, value]) => node.attrs[attr] === value)) {
-            positions.push(pos)
+            matchingPositions.push(pos)
         }
     })
 
-    return closest(positions, pos)
+    return closest(matchingPositions, pos)
 }
 
 function closest(array: number[], num: number): number {
