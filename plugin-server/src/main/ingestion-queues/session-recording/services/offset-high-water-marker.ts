@@ -116,6 +116,20 @@ export class OffsetHighWaterMarker {
 
     public async clear(tp: TopicPartition, offset: number): Promise<void> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
+
+        const watermarks = await this.getWaterMarks(tp)
+        let hadDeletion = false
+        Object.entries(watermarks).forEach(([id, value]) => {
+            if (value && value <= offset) {
+                delete watermarks[id]
+                hadDeletion = true
+            }
+        })
+
+        if (!hadDeletion) {
+            return
+        }
+
         try {
             return await this.run(`clear all below offset high-water mark for ${key} `, async (client) => {
                 const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
@@ -124,15 +138,6 @@ export class OffsetHighWaterMarker {
                     ...tp,
                     offset,
                 })
-                const watermarks = await this.getWaterMarks(tp)
-                // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
-                Object.entries(watermarks).forEach(([id, value]) => {
-                    if (value && value <= offset) {
-                        delete watermarks[id]
-                    }
-                })
-
-                this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
