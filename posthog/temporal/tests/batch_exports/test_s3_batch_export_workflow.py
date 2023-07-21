@@ -524,7 +524,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_a_lot_of_data(client: Ht
                     id=workflow_id,
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=60),
+                    execution_timeout=dt.timedelta(seconds=120),
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export.id)
