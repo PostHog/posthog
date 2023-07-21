@@ -54,6 +54,7 @@ export const TARGET_AREA_TO_NAME = {
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
+    surveys: 'User Surveys',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -81,6 +82,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     app: 'apps',
     toolbar: 'analytics',
     warehouse: 'data_warehouse',
+    surveys: 'surveys',
 }
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {

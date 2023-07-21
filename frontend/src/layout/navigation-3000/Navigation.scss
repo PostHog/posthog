@@ -109,6 +109,7 @@
         font-weight: 600;
         line-height: 1.75rem;
         font-size: 0.6875rem;
+        flex-grow: 1;
     }
     h5 {
         font-weight: 400;
@@ -223,6 +224,7 @@
 
 .Sidebar3000__header {
     flex: 0 0 var(--sidebar-row-height);
+    gap: 0.25rem;
     display: flex;
     align-items: center;
     padding: 0 var(--sidebar-horizontal-padding);
@@ -281,7 +283,7 @@
     &:hover {
         background: var(--border-3000);
     }
-    .LemonIcon {
+    > .LemonIcon {
         transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
@@ -306,7 +308,8 @@
     list-style: none;
 
     &:hover:not([aria-disabled='true']),
-    &[aria-current='page'] {
+    &[aria-current='page'],
+    &.SidebarListItem--is-renaming {
         opacity: 1;
         --sidebar-list-item-background: var(--border-3000);
     }
@@ -436,6 +439,31 @@
         right: 0;
         border: 1px solid var(--default);
         pointer-events: none;
+        .SidebarListItem[aria-invalid='true'] & {
+            border-color: var(--danger);
+        }
+    }
+}
+
+.SidebarListItem__error {
+    position: absolute;
+    top: 2rem;
+    left: 0;
+    line-height: 1.25rem;
+    padding: 0 0.25rem;
+    z-index: 1;
+    background: var(--danger);
+    color: #fff;
+    white-space: normal;
+    &::before {
+        display: block;
+        content: '';
+        position: absolute;
+        top: -0.5rem;
+        left: 0;
+        border: 0.25rem solid transparent;
+        border-left-color: var(--danger);
+        border-bottom-color: var(--danger);
     }
 }
 

@@ -46,8 +46,9 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             (relevantFeatureFlags, featureFlagsLoading, currentTeamId, aggregationLabel) => [
                 {
                     key: 'feature-flags',
-                    title: 'Feature Flags',
+                    noun: 'feature flag',
                     loading: featureFlagsLoading,
+                    onAdd: urls.featureFlag('new'),
                     items: relevantFeatureFlags.map(([featureFlag, matches]) => {
                         if (!featureFlag.id) {
                             throw new Error('Feature flag ID should never be missing in the sidebar')
@@ -148,9 +149,9 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
+            (activeScene, sceneParams): [string, number] | null => {
                 return activeScene === Scene.FeatureFlag && sceneParams.params.id
-                    ? parseInt(sceneParams.params.id)
+                    ? ['feature-flags', parseInt(sceneParams.params.id)]
                     : null
             },
         ],
