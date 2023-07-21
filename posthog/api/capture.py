@@ -98,6 +98,7 @@ LIKELY_ANONYMOUS_IDS = {
     "anon_id",
     "anonymous",
     "anonymous_id",
+    "backend",
     "distinct_id",
     "distinctid",
     "email",

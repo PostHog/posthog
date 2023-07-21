@@ -19,6 +19,7 @@ const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
 // that we can safely assume stem from a bug or mistake
 const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
     'anonymous',
+    'backend',
     'guest',
     'distinctid',
     'distinct_id',
