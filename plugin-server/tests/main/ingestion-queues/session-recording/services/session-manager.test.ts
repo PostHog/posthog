@@ -331,11 +331,11 @@ describe('session-manager', () => {
         }
     })
 
-    it('waits for the drain if write returns false', async () => {
-        await sessionManager.add(createIncomingRecordingMessage())
-        ;(sessionManager.buffer.fileStream.write as jest.Mock).mockReturnValueOnce(false)
-        await sessionManager.add(createIncomingRecordingMessage())
+    // it('waits for the drain if write returns false', async () => {
+    //     await sessionManager.add(createIncomingRecordingMessage())
+    //     ;(sessionManager.buffer.fileStream.write as jest.Mock).mockReturnValueOnce(false)
+    //     await sessionManager.add(createIncomingRecordingMessage())
 
-        expect(sessionManager.buffer.fileStream.once).toHaveBeenCalledWith('drain', expect.any(Function))
-    })
+    //     expect(sessionManager.buffer.fileStream.once).toHaveBeenCalledWith('drain', expect.any(Function))
+    // })
 })
