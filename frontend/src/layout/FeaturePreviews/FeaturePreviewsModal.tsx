@@ -8,7 +8,7 @@ import clsx from 'clsx'
 export function FeaturePreviewsModal({
     inline,
 }: {
-    /** @deprecated This is just for Storybook. */
+    /** @deprecated This is only for Storybook. */
     inline?: boolean
 }): JSX.Element {
     const { featurePreviewsModalVisible, earlyAccessFeatures, rawEarlyAccessFeaturesLoading } =

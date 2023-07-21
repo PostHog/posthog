@@ -2,6 +2,8 @@ import { Meta, StoryFn } from '@storybook/react'
 import { FeaturePreviewsModal as FeaturePreviewsModalComponent } from './FeaturePreviewsModal'
 import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { EarlyAccessFeature } from 'posthog-js'
+import { CONSTRAINED_PREVIEWS } from './featurePreviewsLogic'
+import { FeatureFlagKey } from 'lib/constants'
 
 export default {
     title: 'Layout/Feature Previews Modal',
@@ -11,6 +13,9 @@ export default {
         viewMode: 'story',
     },
 } as Meta
+
+CONSTRAINED_PREVIEWS.add('constrained-test-1' as FeatureFlagKey)
+CONSTRAINED_PREVIEWS.add('constrained-test-2' as FeatureFlagKey)
 
 const Template: StoryFn<{ earlyAccessFeatures: EarlyAccessFeature[]; enabledFeatureFlags: string[] }> = ({
     earlyAccessFeatures,
