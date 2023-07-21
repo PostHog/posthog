@@ -26,6 +26,7 @@ import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigatio
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
 import { useEffect } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FeaturePreviewsModal } from '~/layout/FeaturePreviews'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -175,6 +176,7 @@ function AppScene(): JSX.Element | null {
         <>
             <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
+            <FeaturePreviewsModal />
             <UpgradeModal />
             {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
                 <LemonModal title="Set up 2FA" closable={false}>
