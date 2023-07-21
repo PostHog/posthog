@@ -490,6 +490,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         const responseStatus = item.data.response_status || 200
+                        const responseTime = item.data.duration || 0
 
                         if (
                             miniFiltersByKey['performance-all']?.enabled ||
@@ -505,8 +506,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (
-                            (miniFiltersByKey['performance-fetch']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            miniFiltersByKey['performance-fetch']?.enabled &&
                             item.data.entry_type === 'resource' &&
                             ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
                         ) {
@@ -556,6 +556,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
                             responseStatus >= 400
                         ) {
+                            include = true
+                        }
+
+                        if (miniFiltersByKey['all-automatic']?.enabled && responseTime >= 1000) {
                             include = true
                         }
 

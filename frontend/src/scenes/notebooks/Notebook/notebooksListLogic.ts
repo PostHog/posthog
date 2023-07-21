@@ -44,7 +44,7 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
-        createNotebook: (title?: string, location?: NotebookTarget, content?: JSONContent[]) => ({
+        createNotebook: (title?: string, location: NotebookTarget = NotebookTarget.Auto, content?: JSONContent[]) => ({
             title,
             location,
             content,

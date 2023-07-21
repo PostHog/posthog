@@ -184,7 +184,7 @@ export class SessionRecordingIngesterV2 {
             })
         }
 
-        this.sessions[key]?.add(event)
+        await this.sessions[key]?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -308,12 +308,12 @@ export class SessionRecordingIngesterV2 {
 
         await this.replayEventsIngester.start()
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
+        const recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars(recordingConsumerConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
 
-        const recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
