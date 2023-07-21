@@ -1,0 +1,28 @@
+{
+    "id": "018977d9-6965-7850-a89e-8712c2c72bc1",
+    "distinct_id": "OxCqS42wM8Nl1qnGOZHYYIK7A1wXEoRFFVnvdnHvuJQ",
+    "viewed": true,
+    "recording_duration": 2923,
+    "active_seconds": null,
+    "inactive_seconds": null,
+    "start_time": "2023-07-21T09:48:00.031000Z",
+    "end_time": "2023-07-21T10:36:43.865000Z",
+    "click_count": 13,
+    "keypress_count": 3,
+    "mouse_activity_count": null,
+    "console_log_count": null,
+    "console_warn_count": null,
+    "console_error_count": null,
+    "start_url": "http://localhost:8000/feature_flags/46",
+    "matching_events": null,
+    "person": {
+        "id": 2879,
+        "name": "test@posthog.com",
+        "distinct_ids": ["OxCqS42wM8Nl1qnGOZHYYIK7A1wXEoRFFVnvdnHvuJQ"],
+        "properties": {},
+        "created_at": "2023-07-11T14:21:33.883000Z",
+        "uuid": "01894554-925a-0000-11d9-a44d69b426d7"
+    },
+    "storage": "clickhouse",
+    "pinned_count": 0
+}
