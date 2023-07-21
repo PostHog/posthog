@@ -37,6 +37,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -233,15 +234,21 @@ function InstanceSettings(): JSX.Element | null {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+
+    const isUsingSiteApp = featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] === 'site-app'
 
     return (
         <LemonButton
             onClick={() => {
                 closeSitePopover()
-                showFeaturePreviewsModal()
+                if (!isUsingSiteApp) {
+                    showFeaturePreviewsModal()
+                }
             }}
+            data-attr={isUsingSiteApp ? 'early-access-feature-button' : undefined}
             icon={<IconRedeem />}
             fullWidth
         >
