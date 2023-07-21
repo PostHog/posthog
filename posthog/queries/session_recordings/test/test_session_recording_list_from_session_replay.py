@@ -1783,3 +1783,54 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 with_logs_session_id,
             ]
         )
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_test_accounts_excluded(self):
+        self.team.test_account_filters = [
+            # {"key": "internal-marker", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            {"key": "is_internal_user", "value": ["false"], "operator": "exact", "type": "event"}
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": "true"},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 0)
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": False,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)

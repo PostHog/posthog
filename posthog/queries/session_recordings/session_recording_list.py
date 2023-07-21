@@ -213,7 +213,7 @@ class SessionRecordingList(EventQuery):
         return start_time_clause, start_time_params
 
     @cached_property
-    def session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_filter_by_provided_session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
         if self._filter.session_ids is None:
             return "", {}
 
@@ -328,7 +328,7 @@ class SessionRecordingList(EventQuery):
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause
-        session_ids_clause, session_ids_params = self.session_ids_clause
+        session_ids_clause, session_ids_params = self._get_filter_by_provided_session_ids_clause
         person_id_clause, person_id_params = self._get_person_id_clause
         duration_clause, duration_params = self._get_duration_clause
 
