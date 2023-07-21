@@ -658,7 +658,7 @@ async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(client
 
     We will be asserting that exported events land in the appropiate S3 key according to the prefix.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
