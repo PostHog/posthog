@@ -2,7 +2,6 @@ import json
 from unittest.mock import patch
 from urllib.parse import quote
 
-from dateutil.parser import isoparse
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -468,40 +467,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(response.get("columns"), ["event"])
 
-    def test_invalid_recent_performance_pageviews(self):
-        api_response = self.client.post(
-            f"/api/projects/{self.team.id}/query/", {"kind": "RecentPerformancePageViewNode"}
-        )
-        assert api_response.status_code == 400
-
     def test_invalid_query_kind(self):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         assert api_response.status_code == 400
         assert api_response.json()["code"] == "parse_error"
         assert "validation errors for Model" in api_response.json()["detail"]
         assert "type=value_error.const; given=Tomato Soup" in api_response.json()["detail"]
-
-    def test_valid_recent_performance_pageviews(self):
-        api_response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            {"query": {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}}},
-        )
-        assert api_response.status_code == 200
-
-    @patch("ee.api.performance_events.load_performance_events_recent_pageviews")
-    def test_valid_recent_performance_pageviews_defaults_to_the_last_hour(self, patched_load_performance_events):
-        frozen_now = "2020-01-10T12:14:00Z"
-        one_hour_before = "2020-01-10T11:14:00Z"
-
-        with freeze_time(frozen_now):
-            process_query(
-                self.team,
-                {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
-                False,
-            )
-
-            patched_load_performance_events.assert_called_with(
-                team_id=self.team.pk,
-                date_from=isoparse(one_hour_before),
-                date_to=isoparse(frozen_now),
-            )

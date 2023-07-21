@@ -1186,7 +1186,7 @@ class TestCapture(BaseTest):
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
         self._send_session_recording_event(session_id=session_id)
-        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(kafka_produce.call_count, 2)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
@@ -1204,17 +1204,16 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        with self.settings(REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=0):
-            self._send_session_recording_event(
-                timestamp=timestamp,
-                snapshot_source=snapshot_source,
-                snapshot_type=snapshot_type,
-                session_id=session_id,
-                distinct_id=distinct_id,
-                window_id=window_id,
-                event_data=event_data,
-            )
-        self.assertEqual(kafka_produce.call_count, 1)
+        self._send_session_recording_event(
+            timestamp=timestamp,
+            snapshot_source=snapshot_source,
+            snapshot_type=snapshot_type,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            window_id=window_id,
+            event_data=event_data,
+        )
+        self.assertEqual(kafka_produce.call_count, 2)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, session_id)
@@ -1225,6 +1224,7 @@ class TestCapture(BaseTest):
             {
                 "event": "$snapshot",
                 "properties": {
+                    "$snapshot_consumer": "v1",
                     "$snapshot_data": {
                         "chunk_count": 1,
                         "chunk_id": "fake-uuid",
@@ -1253,12 +1253,13 @@ class TestCapture(BaseTest):
         self._send_session_recording_event(event_data=large_data_array)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
-        assert topic_counter == Counter({KAFKA_SESSION_RECORDING_EVENTS: 3})
+        assert topic_counter == Counter(
+            {KAFKA_SESSION_RECORDING_EVENTS: 3, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1}
+        )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_to_blob_ingestion_topic_with_usual_size_limit(self, kafka_produce) -> None:
         with self.settings(
-            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=512,
         ):
             self._send_session_recording_event(event_data=large_data_array)
@@ -1272,7 +1273,6 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_to_blob_ingestion_topic(self, kafka_produce) -> None:
         with self.settings(
-            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
             self._send_session_recording_event(event_data=large_data_array)
@@ -1292,7 +1292,6 @@ class TestCapture(BaseTest):
             KAFKA_SECURITY_PROTOCOL="SASL_SSL",
             SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
             SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL="SSL",
-            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=1234,
         ):
             # avoid logs from being printed because the mock is None
@@ -1323,7 +1322,6 @@ class TestCapture(BaseTest):
         with self.settings(
             KAFKA_HOSTS=["first.server:9092", "second.server:9092"],
             SESSION_RECORDING_KAFKA_HOSTS=["another-server:9092", "a-fourth.server:9092"],
-            REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=1,
         ):
             default_kafka_producer_mock.return_value = KafkaProducer()
             session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
@@ -1340,27 +1338,6 @@ class TestCapture(BaseTest):
             data_sent_to_recording_kafka = json.loads(kafka_produce.call_args_list[1][1]["data"]["data"])
             assert data_sent_to_recording_kafka["event"] == "$snapshot_items"
             assert len(data_sent_to_recording_kafka["properties"]["$snapshot_items"]) == 1
-
-    @patch("posthog.api.capture.sessionRecordingKafkaProducer")
-    @patch("posthog.api.capture.KafkaProducer")
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_uses_does_not_produce_if_blob_ingestion_disabled(
-        self,
-        kafka_produce: MagicMock,
-        default_kafka_producer_mock: MagicMock,
-        session_recording_producer_mock: MagicMock,
-    ) -> None:
-        with self.settings(REPLAY_BLOB_INGESTION_TRAFFIC_RATIO=0):
-            default_kafka_producer_mock.return_value = KafkaProducer()
-            session_recording_producer_mock.side_effect = sessionRecordingKafkaProducer()
-
-            data = "example"
-            self._send_session_recording_event(event_data=data)
-
-            default_kafka_producer_mock.assert_called()
-            session_recording_producer_mock.assert_not_called()
-            assert len(kafka_produce.call_args_list) == 1
-            assert json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])["event"] == "$snapshot"
 
     def test_get_distinct_id_non_json_properties(self) -> None:
         with self.assertRaises(ValueError):
@@ -1415,7 +1392,7 @@ class TestCapture(BaseTest):
         replace_limited_team_tokens(QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000})
         replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
         self._send_session_recording_event()
-        self.assertEqual(kafka_produce.call_count, 1)
+        self.assertEqual(kafka_produce.call_count, 2)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
@@ -1440,11 +1417,11 @@ class TestCapture(BaseTest):
 
         with self.settings(QUOTA_LIMITING_ENABLED=True):
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 3)
+            self.assertEqual(kafka_produce.call_count, 4)
 
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
+            self.assertEqual(kafka_produce.call_count, 2)  # Only the recording event
 
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}
@@ -1457,7 +1434,7 @@ class TestCapture(BaseTest):
             )
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000})
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
+            self.assertEqual(kafka_produce.call_count, 4)  # All events as limit-until timestamp is in the past
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_historical_analytics_events(self, kafka_produce) -> None:

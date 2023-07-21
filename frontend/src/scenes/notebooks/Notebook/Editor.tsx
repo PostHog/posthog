@@ -18,6 +18,10 @@ import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
+import { BacklinkCommandsExtension } from './BacklinkCommands'
+import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
+import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
+import { Node } from '@tiptap/pm/model'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -64,20 +68,20 @@ export function Editor({
                 },
             }),
             NotebookNodeLink,
-
+            NotebookNodeBacklink,
             NotebookNodeInsight,
             NotebookNodeQuery,
             NotebookNodeRecording,
+            NotebookNodeReplayTimestamp,
             NotebookNodePlaylist,
             NotebookNodePerson,
             NotebookNodeFlag,
             SlashCommandsExtension,
+            BacklinkCommandsExtension,
         ],
         content: initialContent,
         editorProps: {
-            attributes: {
-                class: 'NotebookEditor',
-            },
+            attributes: { class: 'NotebookEditor' },
             handleDrop: (view, event, _slice, moved) => {
                 const editor = editorRef.current
                 if (!editor) {
@@ -137,6 +141,15 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
+                insertContentAfterNode: (position: number, content: JSONContent) => {
+                    const endPosition = findEndPositionOfNode(editor, position)
+                    if (endPosition) {
+                        editor.chain().focus().insertContentAt(endPosition, content).run()
+                    }
+                },
+                findNode: (position: number) => findNode(editor, position),
+                nextNode: (position: number) => nextNode(editor, position),
+                hasChildOfType: (node: Node, type: string) => hasDirectChildOfType(node, type),
             })
         },
         onUpdate: onUpdate,
@@ -149,4 +162,42 @@ export function Editor({
             {_editor && <FloatingSlashCommands editor={_editor} />}
         </>
     )
+}
+
+function findEndPositionOfNode(editor: TTEditor, position: number): number | null {
+    const node = findNode(editor, position)
+    return !node ? null : position + node.nodeSize
+}
+
+function findNode(editor: TTEditor, position: number): Node | null {
+    return editor.state.doc.nodeAt(position)
+}
+
+function nextNode(editor: TTEditor, position: number): { node: Node; position: number } | null {
+    const endPosition = findEndPositionOfNode(editor, position)
+    if (!endPosition) {
+        return null
+    }
+    const result = editor.state.doc.childAfter(endPosition)
+    return result.node ? { node: result.node, position: result.offset } : null
+}
+
+function hasDirectChildOfType(node: Node, type: string, direct: boolean = true): boolean {
+    const types: string[] = []
+    node.descendants((child) => {
+        types.push(child.type.name)
+        return !direct
+    })
+    return types.includes(type)
+}
+
+export function lastChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
+    let latestNode: Node | null = null
+    node.descendants((child) => {
+        if (child.type.name === type) {
+            latestNode = child
+        }
+        return !direct
+    })
+    return latestNode
 }

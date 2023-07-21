@@ -365,7 +365,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                 }
-                if (isPersonsNode(query) && response && !responseError) {
+                if (isPersonsNode(query) && response && !responseError && response.next) {
                     const personsResults = (response as PersonsNode['response'])?.results
                     const nextQuery: PersonsNode = {
                         ...query,

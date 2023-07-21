@@ -5,17 +5,18 @@ import {
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
 import { posthogNodePasteRule } from './utils'
+import { uuid } from 'lib/utils'
 
 const HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
-    const recordingLogicProps: SessionRecordingPlayerProps = {
-        sessionRecordingId: id,
-        playerKey: `notebook-${id}`,
+
+    const recordingLogicProps = {
+        ...sessionRecordingPlayerProps(id),
         autoPlay: false,
     }
 
@@ -42,6 +43,7 @@ export const NotebookNodeRecording = Node.create({
 
     addAttributes() {
         return {
+            nodeId: { default: uuid() },
             id: {
                 default: null,
             },
@@ -76,3 +78,10 @@ export const NotebookNodeRecording = Node.create({
         ]
     },
 })
+
+export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionRecordingPlayerProps {
+    return {
+        sessionRecordingId: id,
+        playerKey: `notebook-${id}`,
+    }
+}

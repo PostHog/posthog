@@ -2,7 +2,7 @@ import './ToolbarButton.scss'
 
 import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { HogLogo } from '~/toolbar/assets/HogLogo'
+import { Logomark } from '~/toolbar/assets/Logomark'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -115,7 +115,14 @@ export function ToolbarButton(): JSX.Element {
             rootNode
             width={62}
             className="floating-toolbar-button"
-            content={!hedgehogMode ? <HogLogo style={{ width: 45, cursor: 'pointer' }} /> : <></>}
+            content={
+                !hedgehogMode ? (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div style={{ width: 45, display: 'flex' }}>
+                        <Logomark />
+                    </div>
+                ) : undefined
+            }
             {...clickEvents}
             onMouseOver={isAuthenticated ? undefined : () => setExtensionPercentage(1)}
             style={{
@@ -124,6 +131,7 @@ export function ToolbarButton(): JSX.Element {
                 marginTop: -23,
                 pointerEvents: hedgehogMode ? 'none' : undefined,
                 display: hedgehogMode ? 'none' : 'flex',
+                cursor: 'pointer',
             }}
             zIndex={3}
         >
@@ -149,7 +157,7 @@ export function ToolbarButton(): JSX.Element {
                 extensionPercentage={extensionPercentage}
                 distance={hedgehogModeDistance}
                 rotation={hedgehogModeRotation}
-                content={<span style={{ width: 14, height: 14 }}>🦔</span>}
+                content="🦔"
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={() => setHedgehogMode(!hedgehogMode)}
                 style={{
