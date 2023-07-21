@@ -22,6 +22,7 @@ EventValues = TypedDict(
         "event": str,
         "_timestamp": str,
         "timestamp": str,
+        "inserted_at": str,
         "created_at": str,
         "distinct_id": str,
         "person_id": str,
@@ -42,6 +43,7 @@ async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
             event,
             timestamp,
             _timestamp,
+            inserted_at,
             person_id,
             team_id,
             properties,
@@ -59,6 +61,7 @@ async def insert_events(ch_client: ClickHouseClient, events: list[EventValues]):
                 event["event"],
                 event["timestamp"],
                 event["_timestamp"],
+                event["inserted_at"],
                 event["person_id"],
                 event["team_id"],
                 json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
@@ -105,6 +108,7 @@ async def test_get_rows_count(client):
             "event": "test",
             "_timestamp": "2023-04-20 14:30:00",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
@@ -139,6 +143,7 @@ async def test_get_results_iterator(client):
             "event": f"test-{i}",
             "_timestamp": "2023-04-20 14:30:00",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "created_at": "2023-04-20 14:30:00.000000",
             "distinct_id": str(uuid4()),
             "person_id": str(uuid4()),
@@ -154,8 +159,8 @@ async def test_get_results_iterator(client):
         events=events,
     )
 
-    aiter = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
-    rows = [row async for row in aiter]
+    iter_ = get_results_iterator(client, team_id, "2023-04-20 14:30:00", "2023-04-20 14:31:00")
+    rows = [row for row in iter_]
 
     all_expected = sorted(events, key=operator.itemgetter("event"))
     all_result = sorted(rows, key=operator.itemgetter("event"))
