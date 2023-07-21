@@ -1280,13 +1280,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"])
-    def test_event_filter_with_cohort_properties(self):
+    def test_filter_with_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
-                user_one = "test_event_filter_with_cohort_properties-user"
-                user_two = "test_event_filter_with_cohort_properties-user2"
-                session_id_one = f"test_event_filter_with_cohort_properties-1-{str(uuid4())}"
-                session_id_two = f"test_event_filter_with_cohort_properties-2-{str(uuid4())}"
+                user_one = "test_filter_with_cohort_properties-user"
+                user_two = "test_filter_with_cohort_properties-user2"
+                session_id_one = f"test_filter_with_cohort_properties-1-{str(uuid4())}"
+                session_id_two = f"test_filter_with_cohort_properties-2-{str(uuid4())}"
 
                 Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
                 Person.objects.create(
@@ -1328,6 +1328,84 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 filter = SessionRecordingsFilter(
                     team=self.team,
                     data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}]},
+                )
+                session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+                (session_recordings, _) = session_recording_list_instance.run()
+
+                assert len(session_recordings) == 1
+                assert session_recordings[0]["session_id"] == session_id_two
+                assert "matching_events" not in session_recordings[0]
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(["$current_url"])
+    def test_filter_with_events_and_cohorts(self):
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                user_one = "test_filter_with_events_and_cohorts-user"
+                user_two = "test_filter_with_events_and_cohorts-user2"
+                session_id_one = f"test_filter_with_events_and_cohorts-1-{str(uuid4())}"
+                session_id_two = f"test_filter_with_events_and_cohorts-2-{str(uuid4())}"
+
+                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "bla"})
+                Person.objects.create(
+                    team=self.team, distinct_ids=[user_two], properties={"email": "bla2", "$some_prop": "some_val"}
+                )
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="cohort1",
+                    groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
+                )
+                cohort.calculate_people_ch(pending_version=0)
+
+                produce_replay_summary(
+                    distinct_id=user_one,
+                    session_id=session_id_one,
+                    first_timestamp=self.base_time,
+                    team_id=self.team.id,
+                )
+                self.create_event(user_one, self.base_time, team=self.team, event_nameo0="custom_event")
+                produce_replay_summary(
+                    distinct_id=user_one,
+                    session_id=session_id_one,
+                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    team_id=self.team.id,
+                )
+                produce_replay_summary(
+                    distinct_id=user_two,
+                    session_id=session_id_two,
+                    first_timestamp=self.base_time,
+                    team_id=self.team.id,
+                )
+                self.create_event(user_two, self.base_time, team=self.team, event_nameo0="custom_event")
+                produce_replay_summary(
+                    distinct_id=user_two,
+                    session_id=session_id_two,
+                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    team_id=self.team.id,
+                )
+
+                filter = SessionRecordingsFilter(
+                    team=self.team,
+                    data={
+                        # has to be in the cohort and pageview has to be in the events
+                        # test data has one user in the cohort but no pageviews
+                        "properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],
+                        "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                    },
+                )
+                session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+                (session_recordings, _) = session_recording_list_instance.run()
+
+                assert len(session_recordings) == 0
+                assert session_recordings[0]["session_id"] == session_id_two
+                assert "matching_events" not in session_recordings[0]
+
+                filter = SessionRecordingsFilter(
+                    team=self.team,
+                    data={
+                        "properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}],
+                        "events": [{"id": "custom_event", "type": "events", "order": 0, "name": "custom_event"}],
+                    },
                 )
                 session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
                 (session_recordings, _) = session_recording_list_instance.run()

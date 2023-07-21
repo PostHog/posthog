@@ -1155,75 +1155,6 @@
   OFFSET 0
   '
 ---
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = NULL
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties.1
-  '
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version = 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_cohort_properties.2
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  join
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2 as pdi
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = s.distinct_id
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2021-07-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-08-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-08-21 20:00:00'
-    AND (pdi.person_id IN
-           (SELECT DISTINCT person_id
-            FROM cohortpeople
-            WHERE team_id = 2
-              AND cohort_id = 2
-              AND version = 0 ))
-  GROUP BY session_id
-  HAVING 1=1
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
 # name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_matching_on_session_id
   '
   
@@ -1990,6 +1921,75 @@
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = NULL
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties.1
+  '
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version = 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_with_cohort_properties.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  join
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2 as pdi
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = s.distinct_id
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2021-07-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-08-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND (pdi.person_id IN
+           (SELECT DISTINCT person_id
+            FROM cohortpeople
+            WHERE team_id = 2
+              AND cohort_id = 2
+              AND version = 0 ))
+  GROUP BY session_id
+  HAVING 1=1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
