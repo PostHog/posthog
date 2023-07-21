@@ -72,7 +72,6 @@ export const defaultMocks: Mocks = {
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
-        'https://update.posthog.com/': [{ version: '1.42.0', release_date: '2022-11-30' }],
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

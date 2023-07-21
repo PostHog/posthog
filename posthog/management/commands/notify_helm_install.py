@@ -6,7 +6,6 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.utils import get_helm_info_env, get_machine_id
-from posthog.version import VERSION
 
 
 class Command(BaseCommand):
@@ -17,7 +16,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         report = get_helm_info_env()
-        report["posthog_version"] = VERSION
         report["deployment"] = os.getenv("DEPLOYMENT", "unknown")
 
         print(f"Report for {get_machine_id()}:")

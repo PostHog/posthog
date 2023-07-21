@@ -5,10 +5,10 @@ from infi.clickhouse_orm.utils import import_submodules
 from semantic_version.base import Version
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
+from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import AsyncMigration, get_all_completed_async_migrations
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings import TEST
-from posthog.version import VERSION
 
 
 def reload_migration_definitions():
@@ -22,9 +22,6 @@ ASYNC_MIGRATION_TO_DEPENDENCY: Dict[str, Optional[str]] = {}
 
 # inverted mapping of ASYNC_MIGRATION_TO_DEPENDENCY
 DEPENDENCY_TO_ASYNC_MIGRATION: Dict[Optional[str], str] = {}
-
-
-POSTHOG_VERSION = Version(VERSION)
 
 ASYNC_MIGRATIONS_MODULE_PATH = "posthog.async_migrations.migrations"
 ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH = "posthog.async_migrations.examples"
@@ -51,9 +48,11 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         if (
             (not ignore_posthog_version)
             and (migration_name in unapplied_migrations)
-            and (POSTHOG_VERSION > Version(migration.posthog_max_version))
+            and (FROZEN_POSTHOG_VERSION > Version(migration.posthog_max_version))
         ):
-            raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
+            raise ImproperlyConfigured(
+                f"Migration {migration_name} is required for PostHog versions above {FROZEN_POSTHOG_VERSION}."
+            )
 
     first_migration = _set_up_dependency_constants()
 

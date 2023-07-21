@@ -42,7 +42,6 @@ function errorEvent(properties: Record<string, any>): EventType | RecordingEvent
                 customer: 'the-customer',
                 instance: 'https://app.posthog.com',
             },
-            posthog_version: '1.43.0',
             $exception_message: 'ResizeObserver loop limit exceeded',
             $exception_type: 'Error',
             $exception_personURL: 'https://app.posthog.com/person/the-person-id',

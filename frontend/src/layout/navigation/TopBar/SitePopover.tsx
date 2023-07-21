@@ -153,42 +153,6 @@ function SystemStatus(): JSX.Element {
     )
 }
 
-function Version(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
-    const { minorUpdateAvailable, anyUpdateAvailable, latestVersion } = useValues(navigationLogic)
-    const { preflight } = useValues(preflightLogic)
-
-    return (
-        <LemonRow
-            status={minorUpdateAvailable ? 'warning' : 'success'}
-            icon={minorUpdateAvailable ? <IconUpdate /> : <IconCheckmark />}
-            fullWidth
-        >
-            <>
-                <div className="SitePopover__main-info">
-                    <div>
-                        Version <strong>{preflight?.posthog_version}</strong>
-                    </div>
-                    {anyUpdateAvailable && <div className="supplement">{latestVersion} is available</div>}
-                </div>
-                {latestVersion && (
-                    <Link
-                        to={`https://posthog.com/blog/the-posthog-array-${latestVersion.replace(/\./g, '-')}`}
-                        target="_blank"
-                        onClick={() => {
-                            closeSitePopover()
-                        }}
-                        className="SitePopover__side-link"
-                        data-attr="update-indicator-badge"
-                    >
-                        Release notes
-                    </Link>
-                )}
-            </>
-        </LemonRow>
-    )
-}
-
 function AsyncMigrations(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
     const { asyncMigrationsOk } = useValues(navigationLogic)
@@ -309,7 +273,6 @@ export function SitePopoverOverlay(): JSX.Element {
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                 <SitePopoverSection title="PostHog instance">
                     <SystemStatus />
-                    {!preflight?.cloud && <Version />}
                     <AsyncMigrations />
                     <InstanceSettings />
                 </SitePopoverSection>

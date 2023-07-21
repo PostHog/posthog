@@ -163,7 +163,6 @@ export interface UserType extends UserBaseType {
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
     realm?: Realm
-    posthog_version?: string
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
@@ -2250,7 +2249,6 @@ export interface PreflightStatus {
     available_social_auth_providers: AuthBackends
     available_timezones?: Record<string, number>
     opt_out_capture?: boolean
-    posthog_version?: string
     email_service_available: boolean
     slack_service: {
         available: boolean
@@ -2584,11 +2582,6 @@ export enum HelpType {
     Docs = 'docs',
     Updates = 'updates',
     SupportForm = 'support_form',
-}
-
-export interface VersionType {
-    version: string
-    release_date?: string
 }
 
 export interface DateMappingOption {

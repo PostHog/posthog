@@ -266,7 +266,6 @@ export const preflightLogic = kea<preflightLogicType>([
             await breakpoint(100)
             if (posthog && values.preflight) {
                 posthog.register({
-                    posthog_version: values.preflight.posthog_version,
                     realm: values.realm,
                     email_service_available: values.preflight.email_service_available,
                     slack_service_available: values.preflight.slack_service?.available,

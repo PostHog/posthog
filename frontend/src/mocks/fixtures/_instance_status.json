@@ -2,11 +2,6 @@
     "results": {
         "overview": [
             {
-                "key": "posthog_version",
-                "metric": "PostHog version",
-                "value": "1.33.0"
-            },
-            {
                 "key": "posthog_git_sha",
                 "metric": "PostHog Git SHA",
                 "value": "Undefined"

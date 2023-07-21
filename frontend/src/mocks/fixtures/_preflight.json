@@ -463,7 +463,6 @@
         "UTC": 0.0
     },
     "opt_out_capture": false,
-    "posthog_version": "1.33.0",
     "is_debug": true,
     "licensed_users_available": 21311,
     "site_url": "http://localhost:6006",
