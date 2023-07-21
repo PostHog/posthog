@@ -3,9 +3,8 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import { useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, isCurrentNodeEmpty } from './utils'
+import { EditorRange } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -16,12 +15,13 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
-import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
+import { SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { Node } from '@tiptap/pm/model'
+import { InsertionSuggestions } from './InsertionSuggestions'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -48,24 +48,6 @@ export function Editor({
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
-            }),
-            FloatingMenu.configure({
-                shouldShow: ({ editor }) => {
-                    console.log('Floating extension')
-                    if (!editor) {
-                        return false
-                    }
-                    if (
-                        editor.view.hasFocus() &&
-                        editor.isEditable &&
-                        editor.isActive('paragraph') &&
-                        isCurrentNodeEmpty(editor)
-                    ) {
-                        return true
-                    }
-
-                    return false
-                },
             }),
             NotebookNodeLink,
             NotebookNodeBacklink,
@@ -160,7 +142,7 @@ export function Editor({
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {_editor && <FloatingSlashCommands editor={_editor} />}
+            {_editor && <InsertionSuggestions editor={_editor} />}
         </>
     )
 }
@@ -183,7 +165,7 @@ function nextNode(editor: TTEditor, position: number): { node: Node; position: n
     return result.node ? { node: result.node, position: result.offset } : null
 }
 
-function hasDirectChildOfType(node: Node, type: string, direct: boolean = true): boolean {
+export function hasDirectChildOfType(node: Node, type: string, direct: boolean = true): boolean {
     const types: string[] = []
     node.descendants((child) => {
         types.push(child.type.name)
