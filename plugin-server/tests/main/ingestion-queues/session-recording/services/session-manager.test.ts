@@ -85,8 +85,6 @@ describe('session-manager', () => {
 
         sessionManager = createSessionManager()
         mockFinish.mockClear()
-        mockWriteFn.mockReset()
-        mockWriteFn.mockImplementation(() => true)
     })
 
     afterEach(async () => {
