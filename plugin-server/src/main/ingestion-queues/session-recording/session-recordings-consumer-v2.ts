@@ -130,7 +130,7 @@ export class SessionRecordingIngesterV2 {
         // lag does not distribute evenly across partitions, so track timestamps per partition
         this.partitionNow[partition] = timestamp
         // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset - 1
+        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
@@ -461,37 +461,31 @@ export class SessionRecordingIngesterV2 {
         gaugeRealtimeSessions.reset()
     }
 
-    async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
-        const destroyPromises: Promise<void>[] = []
-
-        sessionsToDestroy.forEach(([key, sessionManager]) => {
-            delete this.sessions[key]
-            destroyPromises.push(sessionManager.destroy())
-        })
-
-        await Promise.allSettled(destroyPromises)
-    }
-
     // Given a topic and partition and a list of offsets, commit the highest offset
     // that is no longer found across any of the existing sessions.
     // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
-    private async commitOffset(topic: string, partition: number, offset: number): Promise<void> {
+    public async commitOffset(topic: string, partition: number, offset: number): Promise<void> {
         let potentiallyBlockingSession: SessionManager | undefined
 
         for (const sessionManager of Object.values(this.sessions)) {
             if (sessionManager.partition === partition && sessionManager.topic === topic) {
                 const lowestOffset = sessionManager.getLowestOffset()
-                if (lowestOffset && lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)) {
+                if (
+                    lowestOffset !== null &&
+                    lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
+                ) {
                     potentiallyBlockingSession = sessionManager
                 }
             }
         }
 
-        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
+        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset() ?? null
 
         // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
         const highestOffsetToCommit =
-            potentiallyBlockingOffset && potentiallyBlockingOffset < offset ? potentiallyBlockingOffset : offset
+            potentiallyBlockingOffset !== null && potentiallyBlockingOffset < offset
+                ? potentiallyBlockingOffset
+                : offset
 
         const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
         // TODO: Check how long we have been blocked by any individual session and if it is too long then we should
@@ -518,5 +512,16 @@ export class SessionRecordingIngesterV2 {
 
         await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
         gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
+    }
+
+    public async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
+        const destroyPromises: Promise<void>[] = []
+
+        sessionsToDestroy.forEach(([key, sessionManager]) => {
+            delete this.sessions[key]
+            destroyPromises.push(sessionManager.destroy())
+        })
+
+        await Promise.allSettled(destroyPromises)
     }
 }
