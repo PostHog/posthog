@@ -301,7 +301,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             </div>
 
             {expanded ? (
-                <div className="bg-side border-t rounded-b">
+                <div className="PersonsModal__tabs bg-side border-t rounded-b">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}
