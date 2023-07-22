@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -16,6 +16,7 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
@@ -268,7 +269,12 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
-                    continue
+                    # tell clients to wait until midnight before trying again, or at least 1 hour, if midnight is soon
+                    seconds_until_midnight = max(
+                        (datetime.now() + timedelta(days=1)).replace(hour=0, minute=0, second=0) - datetime.now(),
+                        timedelta(hours=1),
+                    ).total_seconds()
+                    raise Throttled(detail="Recording event dropped due to billing limit", wait=seconds_until_midnight)
 
         else:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
@@ -363,8 +369,21 @@ def get_event(request):
         try:
             events = drop_events_over_quota(token, events)
         except Exception as e:
-            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
+            # if the exception is Throttled, we want to return a 429 response
+            # to allow SDKs to decide not to retry
+            if isinstance(e, Throttled):
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        detail=e.detail,
+                        code="quota_exceeded",
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        # throttled definitely has a wait property
+                        headers={"Retry-After": e.wait},  # type: ignore
+                    ),
+                )
 
         consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
 
