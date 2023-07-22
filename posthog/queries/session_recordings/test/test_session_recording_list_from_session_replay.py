@@ -1,5 +1,4 @@
 from datetime import datetime
-from unittest import skip
 from uuid import uuid4, UUID
 
 from dateutil.relativedelta import relativedelta
@@ -1115,6 +1114,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
+
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == "1"
         assert session_recordings[0]["duration"] == 6 * 60 * 60
@@ -1470,7 +1470,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
     # @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
-    @skip("This and SessionListV2 can't query using HogQL  ¯\\_(ツ)_/¯")
     def test_event_filter_with_hogql_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
 

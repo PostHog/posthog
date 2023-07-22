@@ -2,10 +2,9 @@ import dataclasses
 import datetime
 from typing import Any, Dict, List, Tuple, Union, Literal
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.property import PropertyGroup
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -27,6 +26,31 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             **kwargs,
         )
         self.ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
+
+    _raw_persons_or_events_join = """
+join (
+            SELECT
+                groupUniqArray(event) as event_names,
+                groupArray(uuid) as event_ids,
+                `$session_id`,
+                pdi.distinct_id,
+                argMax(pdi.person_id, version) as person_id
+            FROM events e
+                JOIN person_distinct_id2 as pdi on pdi.distinct_id = e.distinct_id
+                {filter_persons_clause}
+            WHERE
+                e.team_id = %(team_id)s
+                and notEmpty(`$session_id`)
+                {events_timestamp_clause}
+                {event_filter_where_conditions}
+                {prop_filter_clause}
+            GROUP BY `$session_id`, pdi.distinct_id
+            HAVING
+                argMax(is_deleted, version) = 0
+                {filter_by_person_uuid_condition}
+                {event_filter_having_events_condition}
+) as e on s.session_id = e.`$session_id`
+    """
 
     _raw_persons_join = """
     join (
@@ -55,7 +79,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 {event_filter_where_conditions}
                     {prop_filter_clause}
             GROUP BY `$session_id`
-            {event_filter_having_events_condition}
+            HAVING 1=1 {event_filter_having_events_condition}
         ) as e on s.session_id = e.`$session_id`"""
 
     _session_recordings_query: str = """
@@ -77,8 +101,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(s.console_error_count) as console_error_count
        {event_ids_selector}
     FROM session_replay_events s
-        {persons_join}
-        {events_join}
+        {persons_or_events_join}
     WHERE s.team_id = %(team_id)s
         -- regardless of what other filters are applied
         -- limit by storage TTL
@@ -122,7 +145,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             # using "All events"
             having_conditions = ""
         else:
-            having_conditions = "HAVING hasAll(event_names, %(event_names)s)"
+            having_conditions = "AND hasAll(event_names, %(event_names)s)"
 
         return SummaryEventFiltersSQL(
             having_conditions=having_conditions,
@@ -194,11 +217,9 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         person_id_clause, person_id_params = self._get_person_id_clause
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
 
-        persons_join, persons_join_params = self._persons_join_clause
-
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
 
-        events_join, events_join_params = self._get_events_join
+        persons_or_events_join, persons_or_events_join_params = self._get_persons_or_events_join
 
         should_join_events = self._determine_should_join_events()
 
@@ -206,16 +227,14 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             self._session_recordings_query.format(
                 person_id_clause=person_id_clause,
                 duration_clause=duration_clause,
-                persons_join=persons_join,
+                persons_or_events_join=persons_or_events_join,
                 provided_session_ids_clause=provided_session_ids_clause,
                 event_ids_selector=",any(e.event_ids) as matching_events" if should_join_events else "",
-                events_join=events_join,
                 console_log_clause=console_log_clause,
             ),
             {
                 **base_params,
-                **events_join_params,
-                **persons_join_params,
+                **persons_or_events_join_params,
                 **recording_start_time_params,
                 **person_id_params,
                 **duration_params,
@@ -224,67 +243,33 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         )
 
     @cached_property
-    def _get_events_join(self) -> Tuple[str, Dict[str, Any]]:
-        if not self._determine_should_join_events():
-            return "", {}
-
-        event_filters = self.build_event_filters
-        events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
-
-        # TRICKY: we only support AND filters in the UI
-        # and, we want to push these filters into the sub-queries
-        # and, they won't work at the top-level with the joins as they are now
-        # so, we pick out the ones we want to apply here
-        not_cohort_and_person_properties = PropertyGroup(
-            type=PropertyOperatorType.AND,
-            values=[
-                g
-                for g in self._filter.property_groups.flat
-                if g.type not in ["person", "cohort", "static-cohort", "precalculated-cohort"]
-            ],
-        )
-        prop_query, prop_params = self._get_prop_groups(
-            not_cohort_and_person_properties, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        )
-
-        return (
-            self._raw_events_join.format(
-                event_filter_where_conditions=event_filters.where_conditions,
-                event_filter_having_events_condition=event_filters.having_conditions,
-                events_timestamp_clause=events_timestamp_clause,
-                prop_filter_clause=prop_query,
-            ),
-            {
-                **events_timestamp_params,
-                **event_filters.params,
-                **prop_params,
-            },
-        )
-
-    @cached_property
-    def _persons_join_clause(self) -> Tuple[str, Dict[str, Any]]:
-        persons_join = ""
+    def _get_persons_or_events_join(self) -> Tuple[str, Dict[str, Any]]:
         person_id_params: Dict[str, Any] = {}
+        events_timestamp_clause = ""
+        events_timestamp_params: Dict[str, Any] = {}
+        event_filters_params = {}
+        event_filters_where_conditions = ""
+        event_filters_having_conditions = ""
+
+        should_join_events = self._determine_should_join_events()
+        if should_join_events:
+            event_filters = self.build_event_filters
+            event_filters_params = event_filters.params
+            event_filters_where_conditions = event_filters.where_conditions
+            event_filters_having_conditions = event_filters.having_conditions
+
+            events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
+
+        prop_query, prop_params = self._get_prop_groups(
+            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+        )
 
         person_query, person_query_params = self._get_person_query()
 
-        # TRICKY: we only support AND filters in the UI
-        # and, we want to push these filters into the sub-queries
-        # and, they won't work at the top-level with the joins as they are now
-        # so, we pick out the ones we want to apply here
-        cohort_and_person_properties = PropertyGroup(
-            type=PropertyOperatorType.AND,
-            values=[
-                g
-                for g in self._filter.property_groups.flat
-                if g.type in ["person", "cohort", "static-cohort", "precalculated-cohort"]
-            ],
-        )
-        prop_query, prop_params = self._get_prop_groups(
-            cohort_and_person_properties, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-        )
-
-        if self._filter.person_uuid or person_query:
+        filter_persons_clause = ""
+        filter_by_person_uuid_condition = ""
+        should_join_persons = self._filter.person_uuid or person_query
+        if should_join_persons:
             person_id_params = {
                 **person_id_params,
                 **person_query_params,
@@ -294,13 +279,30 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             filter_persons_clause = person_query or ""
             filter_by_person_uuid_condition = "and person_id = %(person_uuid)s" if self._filter.person_uuid else ""
 
-            persons_join = self._raw_persons_join.format(
+        join_clause = ""
+        if should_join_persons and should_join_events:
+            join_clause = self._raw_persons_or_events_join
+        elif should_join_persons:
+            join_clause = self._raw_persons_join
+        elif should_join_events:
+            join_clause = self._raw_events_join
+
+        return (
+            join_clause.format(
+                event_filter_where_conditions=event_filters_where_conditions,
+                event_filter_having_events_condition=event_filters_having_conditions,
+                events_timestamp_clause=events_timestamp_clause,
                 filter_persons_clause=filter_persons_clause,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
                 prop_filter_clause=prop_query,
-            )
-
-        return persons_join, person_id_params
+            ),
+            {
+                **events_timestamp_params,
+                **event_filters_params,
+                **prop_params,
+                **person_id_params,
+            },
+        )
 
     @cached_property
     def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
