@@ -584,6 +584,43 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
+    def test_event_filter_has_ttl_applied_too(self):
+        user = "test_event_filter_has_ttl_applied_too-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+        session_id_one = f"test_event_filter_has_ttl_applied_too-{str(uuid4())}"
+
+        # this is artificially incorrect data, the session events are within TTL
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        # but the page view event is outside TTL
+        self.create_event(
+            user,
+            self.base_time
+            - relativedelta(days=SessionRecordingListFromReplaySummary.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
+            properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
+        )
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        assert len(session_recordings) == 0
+
+        filter = SessionRecordingsFilter(team=self.team, data={})
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        # without an event filter the recording is present, showing that the TTL was applied to the events table too
+        # we want this to limit the amount of event data we query
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id_one
+
+    @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
         self,
     ):
