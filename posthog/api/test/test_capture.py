@@ -1187,7 +1187,7 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_data_sent_to_kafka(self, kafka_produce) -> None:
         session_id = "some_session_id"
-        self.send_session_recording_event(session_id=session_id)
+        self._send_session_recording_event(session_id=session_id)
         self.assertEqual(kafka_produce.call_count, 2)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
@@ -1206,7 +1206,7 @@ class TestCapture(BaseTest):
         snapshot_source = 8
         snapshot_type = 8
         event_data = {"foo": "bar"}
-        self.send_session_recording_event(
+        self._send_session_recording_event(
             timestamp=timestamp,
             snapshot_source=snapshot_source,
             snapshot_type=snapshot_type,
@@ -1252,7 +1252,7 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_legacy_recording_ingestion_large_is_split_into_multiple_messages(self, kafka_produce) -> None:
-        self.send_session_recording_event(event_data=large_data_array)
+        self._send_session_recording_event(event_data=large_data_array)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
         assert topic_counter == Counter(
@@ -1264,7 +1264,7 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=512,
         ):
-            self.send_session_recording_event(event_data=large_data_array)
+            self._send_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             # this fake data doesn't split, so we send one huge message to the item events topic
@@ -1277,7 +1277,7 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self.send_session_recording_event(event_data=large_data_array)
+            self._send_session_recording_event(event_data=large_data_array)
             topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
 
             assert topic_counter == Counter(
@@ -1300,7 +1300,7 @@ class TestCapture(BaseTest):
             session_recording_producer_singleton_mock.return_value = KafkaProducer()
 
             data = "example"
-            self.send_session_recording_event(event_data=data)
+            self._send_session_recording_event(event_data=data)
 
             session_recording_producer_singleton_mock.assert_called_with(
                 compression_type=None,
@@ -1329,7 +1329,7 @@ class TestCapture(BaseTest):
             session_recording_producer_factory_mock.return_value = sessionRecordingKafkaProducer()
 
             data = "example"
-            self.send_session_recording_event(event_data=data)
+            self._send_session_recording_event(event_data=data)
             default_kafka_producer_mock.assert_called()
             session_recording_producer_factory_mock.assert_called()
 
