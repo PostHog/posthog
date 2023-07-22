@@ -95,7 +95,7 @@ class TestCapture(BaseTest):
             "sent_at": args["sent_at"],
         }
 
-    def send_session_recording_event(
+    def _send_session_recording_event(
         self,
         number_of_events=1,
         event_data={},
