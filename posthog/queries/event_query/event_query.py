@@ -244,7 +244,6 @@ class EventQuery(metaclass=ABCMeta):
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         person_id_joined_alias="person_id",
         prepend="global",
-        event_table_alias=EVENT_TABLE_ALIAS,
     ) -> Tuple[str, Dict]:
         if not prop_group:
             return "", {}
@@ -261,7 +260,7 @@ class EventQuery(metaclass=ABCMeta):
             team_id=self._team_id,
             property_group=props_to_filter,
             prepend=prepend,
-            table_name=event_table_alias,
+            table_name=self.EVENT_TABLE_ALIAS,
             allow_denormalized_props=True,
             person_properties_mode=person_properties_mode,
             person_id_joined_alias=person_id_joined_alias,

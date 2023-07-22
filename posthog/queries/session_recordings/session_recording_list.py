@@ -325,7 +325,6 @@ class SessionRecordingList(EventQuery):
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
-            event_table_alias="events",
         )
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause

@@ -155,6 +155,7 @@ export const FEATURE_FLAGS = {
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
+    SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
