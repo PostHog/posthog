@@ -17,6 +17,7 @@ import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelD
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { PercentStackView } from 'scenes/insights/EditorFilters/PercentStackView'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -39,6 +40,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showFunnelDisplayLayout,
         showFunnelBins,
     } = useValues(insightDisplayConfigLogic(insightProps))
+
+    const { showPercentStackView: isPercentStackViewOn } = useValues(trendsDataLogic(insightProps))
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -93,7 +96,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
-                {showUnit && (
+                {!isPercentStackViewOn && showUnit && (
                     <ConfigFilter>
                         <UnitPicker />
                     </ConfigFilter>
