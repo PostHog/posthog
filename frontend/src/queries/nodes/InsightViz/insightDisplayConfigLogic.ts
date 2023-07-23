@@ -4,7 +4,12 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import {
+    FEATURE_FLAGS,
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+} from 'lib/constants'
 
 import type { insightDisplayConfigLogicType } from './insightDisplayConfigLogicType'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -62,7 +67,7 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         showPercentStackView: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isStickiness, isLifecycle, display) =>
-                isTrends || isStickiness ? display === ChartDisplayType.ActionsBar : isLifecycle,
+                (isTrends || isStickiness) && display ? PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display) : isLifecycle,
         ],
         showUnit: [(s) => [s.supportsDisplay, s.isTrends], (supportsDisplay, isTrends) => supportsDisplay && isTrends],
         showChart: [(s) => [s.supportsDisplay], (supportsDisplay) => supportsDisplay],

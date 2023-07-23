@@ -11,7 +11,7 @@ import {
 } from '~/queries/utils'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import equal from 'fast-deep-equal'
-import { ShownAsValue } from 'lib/constants'
+import { PERCENT_STACK_VIEW_DISPLAY_TYPE, ShownAsValue } from 'lib/constants'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
@@ -107,12 +107,16 @@ export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefin
 }
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
-    if (isLifecycleQuery(query)) {
-        return query.lifecycleFilter?.show_percent_stack_view
-    } else if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.show_percent_stack_view
-    } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_percent_stack_view
+    if (PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(query) as ChartDisplayType)) {
+        if (isLifecycleQuery(query)) {
+            return query.lifecycleFilter?.show_percent_stack_view
+        } else if (isStickinessQuery(query)) {
+            return query.stickinessFilter?.show_percent_stack_view
+        } else if (isTrendsQuery(query)) {
+            return query.trendsFilter?.show_percent_stack_view
+        } else {
+            return undefined
+        }
     } else {
         return undefined
     }
