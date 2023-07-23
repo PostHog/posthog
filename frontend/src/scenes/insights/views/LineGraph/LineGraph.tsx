@@ -35,7 +35,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TrendsFilter } from '~/queries/schema'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 
 export function ensureTooltipElement(): HTMLElement {
     let tooltipEl = document.getElementById('InsightTooltipWrapper')
@@ -389,11 +389,10 @@ export function LineGraph_({
                         return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
-                        const data = context.chart.data
+                        const data = context.chart.data as ExtendedChartData
                         const { datasetIndex, dataIndex } = context
                         if (showPercentStackView) {
-                            // @ts-expect-error
-                            return `${data.calculatedData[datasetIndex][dataIndex]}%`
+                            return `${data.calculatedData?.[datasetIndex][dataIndex]}%`
                         }
                         return formatAggregationAxisValue(trendsFilter, value)
                     },

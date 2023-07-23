@@ -19,6 +19,11 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
 ]
+export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+]
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
