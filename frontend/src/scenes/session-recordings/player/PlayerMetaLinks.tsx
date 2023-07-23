@@ -10,11 +10,17 @@ import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { buildTimestampCommentContent } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookTarget } from '~/types'
+import { notebooksListLogic } from 'scenes/notebooks/Notebook/notebooksListLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dayjs } from 'lib/dayjs'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, deleteRecording } = useActions(sessionRecordingPlayerLogic)
+    const { createNotebook } = useActions(notebooksListLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const nodeLogic = useNotebookNode()
 
     const getCurrentPlayerTime = (): number => {
@@ -53,6 +59,24 @@ export function PlayerMetaLinks(): JSX.Element {
                 NotebookNodeType.ReplayTimestamp,
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
             )
+        } else {
+            const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
+            createNotebook(title, NotebookTarget.Sidebar, [
+                {
+                    type: NotebookNodeType.Recording,
+                    attrs: { id: sessionRecordingId },
+                },
+                {
+                    type: 'paragraph',
+                    content: [
+                        {
+                            type: NotebookNodeType.ReplayTimestamp,
+                            attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
+                        },
+                        { type: 'text', text: ' ' },
+                    ],
+                },
+            ])
         }
     }
 
@@ -61,13 +85,12 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const isInNotebook = !!nodeLogic
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
             {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
-                    {isInNotebook && (
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
                         <LemonButton icon={<IconLink />} onClick={onComment} {...commonProps}>
                             <span>Comment</span>
                         </LemonButton>
