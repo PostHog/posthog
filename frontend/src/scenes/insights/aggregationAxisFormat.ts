@@ -56,3 +56,15 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined)
             return 'Unit'
     }
 }
+
+export const formatYAxisLabel = (
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    value: number | string
+): string => {
+    if (trendsFilter?.show_percent_stack_view) {
+        value = Number(value)
+        return percentage(value / 100)
+    } else {
+        return formatAggregationAxisValue(trendsFilter, value)
+    }
+}

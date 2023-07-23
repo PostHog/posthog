@@ -27,7 +27,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue, formatYAxisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -545,7 +545,7 @@ export function LineGraph_({
                         precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatAggregationAxisValue(trendsFilter, value)
+                            return formatYAxisLabel(trendsFilter, value)
                         },
                     },
                 },
@@ -571,7 +571,7 @@ export function LineGraph_({
                         precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatAggregationAxisValue(trendsFilter, value)
+                            return formatYAxisLabel(trendsFilter, value)
                         },
                     },
                     grid: {
