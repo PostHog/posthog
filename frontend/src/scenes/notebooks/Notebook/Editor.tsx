@@ -21,7 +21,7 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { Node } from '@tiptap/pm/model'
-import { InsertionSuggestions } from './InsertionSuggestions'
+import { InsertionSuggestions } from '../Suggestions/InsertionSuggestions'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
