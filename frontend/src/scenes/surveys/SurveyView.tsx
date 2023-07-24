@@ -230,10 +230,15 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 <div className="mt-6">
                                                     <SurveyAppearance
                                                         type={survey.questions[0].type}
+                                                        surveyQuestionItem={survey.questions[0]}
                                                         appearance={survey.appearance || defaultSurveyAppearance}
                                                         question={survey.questions[0].question}
                                                         description={survey.questions[0].description}
-                                                        link={survey.questions[0].link}
+                                                        link={
+                                                            survey.questions[0].type === SurveyQuestionType.Link
+                                                                ? survey.questions[0].link
+                                                                : undefined
+                                                        }
                                                         readOnly={true}
                                                         onAppearanceChange={() => {}}
                                                     />

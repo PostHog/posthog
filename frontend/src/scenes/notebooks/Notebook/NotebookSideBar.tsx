@@ -53,7 +53,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
     return (
         <>
             {clonedChild}
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS}>
                 <div
                     ref={ref}
                     className={clsx('NotebookSidebar', fullScreen && 'NotebookSidebar--full-screen')}

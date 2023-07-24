@@ -1,5 +1,4 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -8,10 +7,13 @@ import { urls } from 'scenes/urls'
 import { AccessLevel, RoleType } from '~/types'
 import { CreateRoleModal } from './CreateRoleModal'
 import { rolesLogic } from './rolesLogic'
+import { useState } from 'react'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal, deleteRole } = useActions(rolesLogic)
+    const [activeKey, setActiveKey] = useState('members')
 
     const columns: LemonTableColumns<RoleType> = [
         {
@@ -79,30 +81,42 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
                 expandable={{
                     expandedRowRender: function RenderRolesTable(role) {
                         return (
-                            <Tabs defaultActiveKey="members">
-                                <Tabs.TabPane tab="Members" key="members">
-                                    <div className="flex flex-col my-4">
-                                        {role.members.map((member) => (
-                                            <div key={member.id}>{member.user.first_name}</div>
-                                        ))}
-                                    </div>
-                                </Tabs.TabPane>
-                                <Tabs.TabPane tab="Feature flags" key="feature-flags">
-                                    <div className="mb-4">
-                                        {role.feature_flags_access_level === AccessLevel.WRITE ? (
-                                            'All'
-                                        ) : (
-                                            <div className="flex flex-col">
-                                                {role.associated_flags.map((flag) => (
-                                                    <Link key={flag.id} to={urls.featureFlag(flag.id)}>
-                                                        {flag.key}
-                                                    </Link>
+                            <LemonTabs
+                                activeKey={activeKey}
+                                onChange={setActiveKey}
+                                tabs={[
+                                    {
+                                        key: 'members',
+                                        label: 'Members',
+                                        content: (
+                                            <div className="flex flex-col my-4">
+                                                {role.members.map((member) => (
+                                                    <div key={member.id}>{member.user.first_name}</div>
                                                 ))}
                                             </div>
-                                        )}
-                                    </div>
-                                </Tabs.TabPane>
-                            </Tabs>
+                                        ),
+                                    },
+                                    {
+                                        key: 'feature-flags',
+                                        label: 'Feature flags',
+                                        content: (
+                                            <div className="mb-4">
+                                                {role.feature_flags_access_level === AccessLevel.WRITE ? (
+                                                    'All'
+                                                ) : (
+                                                    <div className="flex flex-col">
+                                                        {role.associated_flags.map((flag) => (
+                                                            <Link key={flag.id} to={urls.featureFlag(flag.id)}>
+                                                                {flag.key}
+                                                            </Link>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
                         )
                     },
                 }}

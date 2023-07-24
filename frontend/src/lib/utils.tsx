@@ -408,7 +408,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
-/** Check objects for deep equality, including "ordering" of properties */
+/** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
@@ -1420,7 +1420,7 @@ export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
 
-export function isMultiSeriesFormula(formula?: string): boolean {
+export function isMultiSeriesFormula(formula?: string | null): boolean {
     if (!formula) {
         return false
     }

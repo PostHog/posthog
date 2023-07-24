@@ -312,7 +312,29 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._selector_to_expr("#withid"),
-            clear_locations(elements_chain_match('#withid([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(
+                elements_chain_match('.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
+        )
+        self.assertEqual(
+            self._selector_to_expr("#with-dashed-id"),
+            clear_locations(
+                elements_chain_match(
+                    '.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
+        )
+        self.assertEqual(
+            self._selector_to_expr("#with-dashed-id"),
+            self._selector_to_expr("[id='with-dashed-id']"),
+        )
+        self.assertEqual(
+            self._selector_to_expr("#with\\slashed\\id"),
+            clear_locations(
+                elements_chain_match(
+                    '.*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_elements_chain_key_filter(self):
@@ -358,7 +380,7 @@ class TestProperty(BaseTest):
                 "event = '$autocapture' and match(elements_chain, {regex1}) and match(elements_chain, {regex2})",
                 {
                     "regex1": ast.Constant(
-                        value='a.*?\\.active\\..*?nav-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        value='a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                     ),
                     "regex2": ast.Constant(value="(^|;)a(\\.|$|;|:)"),
                 },
@@ -386,6 +408,14 @@ class TestProperty(BaseTest):
                     "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
                 },
             ),
+        )
+
+        action4 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$pageview", action=action4)
+        ActionStep.objects.create(event=None, action=action4)
+        self.assertEqual(
+            clear_locations(action_to_expr(action4)),
+            self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
         )
 
     def test_cohort_filter_static(self):

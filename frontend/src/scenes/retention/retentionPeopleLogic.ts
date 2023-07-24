@@ -52,7 +52,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
         ],
     },
     listeners: ({ actions, values }) => ({
-        loadDataSuccess: async () => {
+        loadDataSuccess: () => {
             // clear people when changing the insight filters
             actions.clearPeople()
         },

@@ -48,14 +48,14 @@ export const defaultSurveyAppearance = {
     submitButtonColor: '#2C2C2C',
     textColor: 'black',
     submitButtonText: 'Submit',
-    descriptionTextColor: 'black',
+    descriptionTextColor: '#4b4b52',
 }
 
 const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
-    questions: [{ type: SurveyQuestionType.Open, question: '', link: null }],
+    questions: [{ type: SurveyQuestionType.Open, question: '' }],
     type: SurveyType.Popover,
     linked_flag_id: undefined,
     targeting_flag_filters: undefined,
@@ -93,7 +93,6 @@ export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
         propertiesViaUrl: true,
         showExport: true,
         showReload: true,
-        showColumnConfigurator: true,
         showEventFilter: true,
         showPropertyFilter: true,
     }
@@ -101,8 +100,8 @@ export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
 }
 
 export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+    const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,
@@ -284,13 +283,19 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...(question.type === SurveyQuestionType.Link
                         ? { link: !question.link && 'Please enter a url for the link.' }
                         : {}),
+                    ...(question.type === SurveyQuestionType.Rating
+                        ? {
+                              display: !question.display && 'Please choose a display type.',
+                              scale: !question.scale && 'Please choose a scale.',
+                          }
+                        : {}),
                 })),
             }),
             submit: async (surveyPayload) => {
                 let surveyPayloadWithTargetingFlagFilters = surveyPayload
                 const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                const targetingFlag = flagLogic.values.featureFlag
                 if (values.hasTargetingFlag) {
+                    const targetingFlag = flagLogic.values.featureFlag
                     surveyPayloadWithTargetingFlagFilters = {
                         ...surveyPayload,
                         ...{ targeting_flag_filters: targetingFlag.filters },
