@@ -31,15 +31,20 @@ export interface SecondaryMetricForm {
     filters: Partial<FilterType>
 }
 
-const defaultFormValuesGenerator: (aggregationType?: number) => SecondaryMetricForm = (aggregationType) => {
+const defaultFormValuesGenerator: (
+    aggregationType?: number,
+    disableAddEventToDefault?: boolean
+) => SecondaryMetricForm = (aggregationType, disableAddEventToDefault) => {
     const groupAggregation =
         aggregationType !== undefined ? { math: 'unique_group', math_group_type_index: aggregationType } : {}
+
+    const eventAddition = disableAddEventToDefault ? {} : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
 
     return {
         name: '',
         filters: {
             insight: InsightType.TRENDS,
-            events: [{ ...getDefaultEvent(), ...groupAggregation }],
+            ...eventAddition,
         },
     }
 }
@@ -150,7 +155,10 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                     insight: InsightType.TRENDS,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    ...defaultFormValuesGenerator(props.defaultAggregationType).filters,
+                    ...defaultFormValuesGenerator(
+                        props.defaultAggregationType,
+                        (filters?.actions?.length || 0) + (filters?.events?.length || 0) > 0
+                    ).filters,
                     ...filters,
                 })
             }

@@ -11,6 +11,7 @@ from temporalio.client import (
     ScheduleBackfill,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
+    SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
     ScheduleUpdate,
@@ -195,7 +196,13 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
-def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetime, end_at: dt.datetime):
+def backfill_export(
+    temporal: Client,
+    batch_export_id: str,
+    start_at: dt.datetime,
+    end_at: dt.datetime,
+    overlap: ScheduleOverlapPolicy = ScheduleOverlapPolicy.BUFFER_ALL,
+):
     """Creates an export run for the given BatchExport, and specified time range.
 
     Arguments:
@@ -207,7 +214,7 @@ def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetim
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
-    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=ScheduleOverlapPolicy.ALLOW_ALL)
+    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=overlap)
     backfill_schedule(temporal=temporal, schedule_id=batch_export_id, schedule_backfill=schedule_backfill)
 
 
@@ -267,6 +274,8 @@ def update_batch_export(
         batch_export.destination.config = {**batch_export.destination.config, **destination_data.get("config", {})}
 
     batch_export.name = name or batch_export.name
+    batch_export.start_at = start_at or batch_export.start_at
+    batch_export.end_at = end_at or batch_export.end_at
 
     if interval is None:
         interval = batch_export.interval
@@ -301,8 +310,8 @@ def update_batch_export(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
-            start_at=start_at,
-            end_at=end_at,
+            start_at=batch_export.start_at,
+            end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
         ),
         state=state,
@@ -390,6 +399,7 @@ def create_batch_export(
                 intervals=[ScheduleIntervalSpec(every=time_delta_from_interval)],
             ),
             state=state,
+            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
         ),
         trigger_immediately=trigger_immediately,
     )

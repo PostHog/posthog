@@ -12,10 +12,13 @@ import { PluginsServerConfig } from '../../../../types'
 import { asyncTimeoutGuard, timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { ObjectStorage } from '../../../services/object_storage'
-import { bufferFileDir } from '../session-recordings-blob-consumer'
+import { IncomingRecordingMessage } from '../types'
+import { bufferFileDir, convertToPersistedMessage, maxDefined, minDefined, now } from '../utils'
+import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
-import { IncomingRecordingMessage } from './types'
-import { convertToPersistedMessage, now } from './utils'
+
+const BUCKETS_LINES_WRITTEN = [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity]
+const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 const counterS3FilesWritten = new Counter({
     name: 'recording_s3_files_written',
@@ -31,13 +34,13 @@ const counterS3WriteErrored = new Counter({
 const histogramS3LinesWritten = new Histogram({
     name: 'recording_s3_lines_written_histogram',
     help: 'The number of lines in a file we send to s3',
-    buckets: [0, 10, 50, 100, 500, 1000, 2000, 5000, 10000, Infinity],
+    buckets: BUCKETS_LINES_WRITTEN,
 })
 
 const histogramS3KbWritten = new Histogram({
     name: 'recording_blob_ingestion_s3_kb_written',
     help: 'The uncompressed size of file we send to S3',
-    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, 102400, Infinity],
+    buckets: BUCKETS_KB_WRITTEN,
 })
 
 const histogramSessionAgeSeconds = new Histogram({
@@ -49,19 +52,24 @@ const histogramSessionAgeSeconds = new Histogram({
 const histogramSessionSizeKb = new Histogram({
     name: 'recording_blob_ingestion_session_size_kb',
     help: 'The size of current sessions in kb',
-    buckets: [0, 128, 512, 1024, 2048, 5120, 10240, 20480, 51200, Infinity],
+    buckets: BUCKETS_KB_WRITTEN,
 })
 
 const histogramFlushTimeSeconds = new Histogram({
     name: 'recording_blob_ingestion_session_flush_time_seconds',
     help: 'The time taken to flush a session in seconds',
-    buckets: [0, 1, 2, 5, 10, 20, 30, 60, 120, Infinity],
+    buckets: [0, 2, 5, 10, 20, 30, 60, 120, 180, 300, Infinity],
 })
 
 const histogramSessionSize = new Histogram({
     name: 'recording_blob_ingestion_session_lines',
     help: 'The size of sessions in numbers of lines',
-    buckets: [0, 50, 100, 150, 200, 300, 400, 500, 750, 1000, 2000, 5000, Infinity],
+    buckets: BUCKETS_LINES_WRITTEN,
+})
+
+const writeStreamBlocked = new Counter({
+    name: 'recording_blob_ingestion_write_stream_blocked',
+    help: 'Number of times we get blocked by the stream backpressure',
 })
 
 // The buffer is a list of messages grouped
@@ -74,8 +82,8 @@ type SessionBuffer = {
     file: string
     fileStream: WriteStream
     offsets: {
-        lowest: number
-        highest: number
+        lowest?: number
+        highest?: number
     }
     eventsRange: {
         firstTimestamp: number
@@ -99,11 +107,11 @@ export class SessionManager {
         public readonly serverConfig: PluginsServerConfig,
         public readonly s3Client: ObjectStorage['s3'],
         public readonly realtimeManager: RealtimeManager,
+        public readonly offsetHighWaterMarker: OffsetHighWaterMarker,
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
-        public readonly topic: string,
-        private readonly onFinish: (offsetsToRemove: number[]) => void
+        public readonly topic: string
     ) {
         this.buffer = this.createBuffer()
 
@@ -148,12 +156,47 @@ export class SessionManager {
         })
     }
 
-    public add(message: IncomingRecordingMessage): void {
+    // eslint-disable-next-line @typescript-eslint/require-await
+    public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
             return
         }
 
-        this.addToBuffer(message)
+        try {
+            this.buffer.oldestKafkaTimestamp = Math.min(
+                this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
+            this.buffer.newestKafkaTimestamp = Math.max(
+                this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
+                message.metadata.timestamp
+            )
+
+            const messageData = convertToPersistedMessage(message)
+            this.setEventsRangeFrom(message)
+
+            const content = JSON.stringify(messageData) + '\n'
+            this.buffer.count += 1
+            this.buffer.sizeEstimate += content.length
+            this.buffer.offsets.lowest = minDefined(this.buffer.offsets.lowest, message.metadata.offset)
+            this.buffer.offsets.highest = maxDefined(this.buffer.offsets.highest, message.metadata.offset)
+
+            if (this.realtime) {
+                // We don't care about the response here as it is an optimistic call
+                void this.realtimeManager.addMessage(message)
+            }
+
+            // NOTE: If write returns false we are supposed to wait for drain
+            if (!this.buffer.fileStream.write(content)) {
+                writeStreamBlocked.inc()
+                // NOTE: We aren't doing this yet as it doesn't seem to work
+                // await new Promise((r) => this.buffer.fileStream.once('drain', r))
+            }
+        } catch (error) {
+            this.captureException(error, { message })
+            throw error
+        }
 
         // NOTE: This is uncompressed size estimate but thats okay as we currently want to over-flush to see if we can shake out a bug
         if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
@@ -347,7 +390,13 @@ export class SessionManager {
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
-            this.onFinish([offsets.lowest, offsets.highest])
+            if (offsets.highest) {
+                void this.offsetHighWaterMarker.add(
+                    { topic: this.topic, partition: this.partition },
+                    this.sessionId,
+                    offsets.highest
+                )
+            }
         } catch (error) {
             this.captureException(error)
         } finally {
@@ -371,10 +420,7 @@ export class SessionManager {
                 newestKafkaTimestamp: null,
                 file,
                 fileStream: createWriteStream(file, 'utf-8'),
-                offsets: {
-                    lowest: Infinity,
-                    highest: -Infinity,
-                },
+                offsets: {},
                 eventsRange: null,
             }
 
@@ -395,44 +441,9 @@ export class SessionManager {
         }
     }
 
-    /**
-     * Full messages (all chunks) are added to the buffer directly
-     */
-    private addToBuffer(message: IncomingRecordingMessage): void {
-        try {
-            this.buffer.oldestKafkaTimestamp = Math.min(
-                this.buffer.oldestKafkaTimestamp ?? message.metadata.timestamp,
-                message.metadata.timestamp
-            )
-
-            this.buffer.newestKafkaTimestamp = Math.max(
-                this.buffer.newestKafkaTimestamp ?? message.metadata.timestamp,
-                message.metadata.timestamp
-            )
-
-            const messageData = convertToPersistedMessage(message)
-            this.setEventsRangeFrom(message)
-
-            const content = JSON.stringify(messageData) + '\n'
-            this.buffer.count += 1
-            this.buffer.sizeEstimate += content.length
-            this.buffer.offsets.lowest = Math.min(this.buffer.offsets.lowest, message.metadata.offset)
-            this.buffer.offsets.highest = Math.max(this.buffer.offsets.highest, message.metadata.offset)
-
-            if (this.realtime) {
-                // We don't care about the response here as it is an optimistic call
-                void this.realtimeManager.addMessage(message)
-            }
-
-            this.buffer.fileStream.write(content)
-        } catch (error) {
-            this.captureException(error, { message })
-            throw error
-        }
-    }
     private setEventsRangeFrom(message: IncomingRecordingMessage) {
         const start = message.events.at(0)?.timestamp
-        const end = message.events.at(-1)?.timestamp
+        const end = message.events.at(-1)?.timestamp ?? start
 
         if (!start || !end) {
             captureMessage(
@@ -448,8 +459,8 @@ export class SessionManager {
             return
         }
 
-        const firstTimestamp = Math.min(start, this.buffer.eventsRange?.firstTimestamp || Infinity)
-        const lastTimestamp = Math.max(end || start, this.buffer.eventsRange?.lastTimestamp || -Infinity)
+        const firstTimestamp = minDefined(start, this.buffer.eventsRange?.firstTimestamp) ?? start
+        const lastTimestamp = maxDefined(end, this.buffer.eventsRange?.lastTimestamp) ?? end
 
         this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
@@ -501,10 +512,7 @@ export class SessionManager {
     }
 
     public getLowestOffset(): number | null {
-        if (this.buffer.count === 0) {
-            return null
-        }
-        return Math.min(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest ?? Infinity)
+        return minDefined(this.buffer.offsets.lowest, this.flushBuffer?.offsets.lowest) ?? null
     }
 
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {

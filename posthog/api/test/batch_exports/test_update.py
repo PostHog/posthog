@@ -52,6 +52,8 @@ def test_can_put_config(client: HttpClient):
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "start_at": "2023-07-19 00:00:00",
+        "end_at": "2023-07-20 00:00:00",
     }
 
     organization = create_organization("Test Org")
@@ -84,6 +86,7 @@ def test_can_put_config(client: HttpClient):
             "name": "my-production-s3-bucket-destination",
             "destination": new_destination_data,
             "interval": "day",
+            "start_at": "2022-07-19 00:00:00",
         }
 
         response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
@@ -98,6 +101,8 @@ def test_can_put_config(client: HttpClient):
         new_schedule = describe_schedule(temporal, batch_export["id"])
         assert old_schedule.schedule.spec.intervals[0].every != new_schedule.schedule.spec.intervals[0].every
         assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+        assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.timezone.utc)
+        assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.timezone.utc)
 
         decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
