@@ -12,6 +12,9 @@ export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
     EXPOSURE = 'exposure',
+    Analysis = 'analysis',
+    USAGE = 'usage',
+    PERMISSIONS = 'permissions',
 }
 
 export interface FeatureFlagsFilters {
