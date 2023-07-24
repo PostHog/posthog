@@ -31,7 +31,7 @@ let uniqueNode = 0
 
 export function InsightViz({ query, setQuery, context, readOnly }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
-    const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}` }
+    const insightProps: InsightLogicProps = context?.insightProps || { dashboardItemId: `new-AdHoc.${key}`, query }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: insightVizDataNodeKey(insightProps),
