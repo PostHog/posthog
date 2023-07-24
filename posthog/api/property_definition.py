@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Type, cast
 from django.db import connection
 from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets, status, request, response
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
@@ -15,10 +16,15 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import PropertyDefinition, TaggedItem, User
+from posthog.models import PropertyDefinition, TaggedItem, User, EventProperty
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from posthog.models.utils import UUIDT
 from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
+
+
+class SeenTogetherQuerySerializer(serializers.Serializer):
+    event_names: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=True)
+    property_name: serializers.CharField = serializers.CharField(required=True)
 
 
 class PropertyDefinitionQuerySerializer(serializers.Serializer):
@@ -480,6 +486,28 @@ class PropertyDefinitionViewSet(
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def seen_together(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """
+        Allows a caller to provide a list of event names and a single property name
+        Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
+        """
+
+        serializer = SeenTogetherQuerySerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        matches = EventProperty.objects.filter(
+            team_id=self.team_id,
+            event__in=serializer.validated_data["event_names"],
+            property=serializer.validated_data["property_name"],
+        )
+
+        results = {}
+        for event_name in serializer.validated_data["event_names"]:
+            results[event_name] = matches.filter(event=event_name).exists()
+
+        return response.Response(results)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

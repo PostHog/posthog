@@ -14,9 +14,9 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
-    find_count_for_team_in_rows,
     get_teams_with_event_count_in_period,
     get_teams_with_recording_count_in_period,
+    convert_team_usage_rows_to_dict,
 )
 from posthog.utils import get_current_day
 
@@ -146,8 +146,12 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = dict(
-        teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
-        teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
+        teams_with_event_count_in_period=convert_team_usage_rows_to_dict(
+            get_teams_with_event_count_in_period(period_start, period_end)
+        ),
+        teams_with_recording_count_in_period=convert_team_usage_rows_to_dict(
+            get_teams_with_recording_count_in_period(period_start, period_end)
+        ),
     )
 
     teams: Sequence[Team] = list(
@@ -162,8 +166,8 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     # we iterate through all teams, and add their usage to the organization they belong to
     for team in teams:
         team_report = UsageCounters(
-            events=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_period"]),
-            recordings=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_in_period"]),
+            events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
+            recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)

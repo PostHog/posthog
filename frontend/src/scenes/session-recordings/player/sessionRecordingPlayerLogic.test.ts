@@ -93,24 +93,32 @@ describe('sessionRecordingPlayerLogic', () => {
             silenceKeaLoadersErrors()
             // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                autoPlay: true,
+            })
+
             useMocks({
                 get: {
                     '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
             logic.mount()
-            logic.actions.loadRecording(true)
 
             await expectLogic(logic, () => {
                 logic.actions.seekToTime(50) // greater than null buffered time
-            }).toDispatchActionsInAnyOrder([
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshotsFailure,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
-                'seekToTimestamp',
-                'setErrorPlayerState',
-            ])
+            })
+                .toDispatchActions([
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMeta,
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingMetaSuccess,
+                    'seekToTimestamp',
+                ])
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadRecordingSnapshots,
+                    'setErrorPlayerState',
+                ])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {

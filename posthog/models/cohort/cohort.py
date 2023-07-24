@@ -97,7 +97,6 @@ class Cohort(models.Model):
 
     @property
     def properties(self) -> PropertyGroup:
-
         if self.filters:
             # Do not try simplifying properties at this stage. We'll let this happen at query time.
             return Filter(data={**self.filters, "is_simplified": True}).property_groups
@@ -107,7 +106,6 @@ class Cohort(models.Model):
             property_groups = []
             for group in self.groups:
                 if group.get("properties"):
-
                     # KLUDGE: map 'event' to 'person' to handle faulty event type that
                     # used to be saved for old properties
                     # TODO: Remove once the event type is swapped over

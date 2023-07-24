@@ -329,7 +329,7 @@ export const insightLogic = kea<insightLogicType>([
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (state, { filters }) => cleanFilters(filters, state),
+                setFilters: (_, { filters }) => cleanFilters(filters),
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
                     overrideFilter ? cleanFilters(filters || {}) : state,
                 loadInsightSuccess: (state, { insight }) =>
@@ -471,16 +471,7 @@ export const insightLogic = kea<insightLogicType>([
                 return toLocalFilters(filters)
             },
         ],
-        isSingleSeries: [
-            (s) => [s.filters, s.localFilters],
-            (filters, localFilters): boolean => {
-                return (
-                    ((isTrendsFilter(filters) && !!filters.formula) || localFilters.length <= 1) && !filters.breakdown
-                )
-            },
-        ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
-        timezone: [(s) => [s.insight], (insight) => insight?.timezone || 'UTC'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
@@ -661,6 +652,7 @@ export const insightLogic = kea<insightLogicType>([
                           insightRequest
                       )
                     : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
@@ -714,7 +706,7 @@ export const insightLogic = kea<insightLogicType>([
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
             actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
-            savedInsightsLogic.findMounted()?.actions.loadInsights()
+            savedInsightsLogic.findMounted()?.actions.loadInsights() // Load insights afresh
             router.actions.push(urls.insightEdit(insight.short_id))
         },
         loadInsightSuccess: async ({ insight }) => {

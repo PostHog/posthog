@@ -48,7 +48,8 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
             (insights, infiniteInsights, insightsLoading, currentTeamId) => [
                 {
                     key: 'insights',
-                    title: 'Insights',
+                    noun: 'insight',
+                    onAdd: urls.insightNew(),
                     items: infiniteInsights.map(
                         (insight) =>
                             insight &&
@@ -129,8 +130,10 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
-                return activeScene === Scene.Insight && sceneParams.params.shortId ? sceneParams.params.shortId : null
+            (activeScene, sceneParams): [string, string] | null => {
+                return activeScene === Scene.Insight && sceneParams.params.shortId
+                    ? ['insights', sceneParams.params.shortId]
+                    : null
             },
         ],
         // kea-typegen doesn't like selectors without deps, so searchTerm is just for appearances

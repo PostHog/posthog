@@ -19,7 +19,7 @@ class LicensedTestMixin:
 
     def license_required_response(
         self,
-        message: str = "This feature is part of the premium PostHog offering. To use it, get a self-hosted license: https://license.posthog.com",
+        message: str = "This feature is part of the premium PostHog offering. Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options.",
     ) -> Dict[str, Optional[str]]:
         return {"type": "server_error", "code": "payment_required", "detail": message, "attr": None}
 

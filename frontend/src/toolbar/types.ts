@@ -20,9 +20,19 @@ export interface CountedHTMLElement {
     type: '$autocapture' | '$rageclick'
 }
 
+export interface ElementRect {
+    bottom: number
+    height: number
+    left: number
+    right: number
+    top: number
+    width: number
+    x: number
+    y: number
+}
 export interface ElementWithMetadata {
     element: HTMLElement
-    rect?: DOMRect
+    rect?: ElementRect
     index?: number
     count?: number
     clickCount?: number

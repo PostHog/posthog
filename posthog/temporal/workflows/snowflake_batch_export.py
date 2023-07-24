@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import tempfile
 from dataclasses import dataclass
-from string import Template
 
 import snowflake.connector
 from django.conf import settings
@@ -23,17 +22,6 @@ from posthog.temporal.workflows.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.workflows.clickhouse import get_client
-
-SELECT_QUERY_TEMPLATE = Template(
-    """
-    SELECT $fields
-    FROM events
-    WHERE
-        timestamp >= toDateTime({data_interval_start}, 'UTC')
-        AND timestamp < toDateTime({data_interval_end}, 'UTC')
-        AND team_id = {team_id}
-    """
-)
 
 
 class SnowflakeFileNotUploadedError(Exception):
@@ -72,6 +60,7 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+    role: str | None = None
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -103,18 +92,9 @@ def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_n
 
 @activity.defn
 async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
-    """
-    Activity streams data from ClickHouse to Snowflake.
+    """Activity streams data from ClickHouse to Snowflake.
 
     TODO: We're using JSON here, it's not the most efficient way to do this.
-
-    TODO: at the moment this doesn't do anything about catching data that might
-    be late being ingested into the specified time range. To work around this,
-    as a little bit of a hack we should export data only up to an hour ago with
-    the assumption that that will give it enough time to settle. I is a little
-    tricky with the existing setup to properly partition the data into data we
-    have or haven't processed yet. We have `_timestamp` in the events table, but
-    this is the time
     """
     activity.logger.info("Running Snowflake export batch %s - %s", inputs.data_interval_start, inputs.data_interval_end)
 
@@ -146,6 +126,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
+            role=inputs.role,
         )
 
         try:
@@ -201,7 +182,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                             # We failed right at the beginning
                             new_interval_start = None
                         else:
-                            new_interval_start = result.get("_timestamp", None)
+                            new_interval_start = result.get("inserted_at", None)
 
                         if not isinstance(new_interval_start, str):
                             new_interval_start = inputs.data_interval_start
@@ -218,9 +199,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         break
 
                     # Write the results to a local file
-                    local_results_file.write(
-                        json.dumps({k: v for k, v in result.items() if k != "_timestamp"}).encode("utf-8")
-                    )
+                    local_results_file.write(json.dumps(result).encode("utf-8"))
                     local_results_file.write("\n".encode("utf-8"))
 
                     # Write results to Snowflake when the file reaches 50MB and
@@ -260,7 +239,15 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                         # Mostly to appease mypy, as this query should always return a tuple.
                         raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
 
-                    file_name, status = result[0:2]
+                    if len(result) < 2:
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            "NO STATUS",
+                            0,
+                            result[1] if len(result) == 1 else "NO ERROR MESSAGE",
+                        )
+
+                    _, status = result[0:2]
 
                     if status != "LOADED":
                         errors_seen, first_error = result[5:7]
@@ -309,10 +296,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
@@ -330,6 +318,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            role=inputs.role,
         )
         try:
             await workflow.execute_activity(
@@ -339,9 +328,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     non_retryable_error_types=[
-                        # If we can't connect to ClickHouse, no point in
-                        # retrying.
-                        "ConnectionError",
                         # Validation failed, and will keep failing.
                         "ValueError",
                     ],
@@ -360,9 +346,13 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 update_export_run_status,
                 update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
             )
 
 

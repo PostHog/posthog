@@ -68,7 +68,6 @@ class LazyLoader:
 cacheable_query_kinds = [
     "EventsQuery",
     "HogQLQuery",
-    "RecentPerformancePageViewNode",
     "TimeToSeeDataSessionsQuery",
     "TimeToSeeDataQuery",
 ]

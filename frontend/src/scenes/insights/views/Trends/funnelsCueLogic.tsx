@@ -1,24 +1,35 @@
 import { kea, props, key, path, connect, actions, reducers, listeners, selectors, events } from 'kea'
-import { InsightLogicProps, InsightType } from '~/types'
+import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { funnelsCueLogicType } from './funnelsCueLogicType'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 
 export const funnelsCueLogic = kea<funnelsCueLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'InsightTabs', 'TrendTab', 'FunnelsCue', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightLogic(props), ['filters', 'isFirstLoad'], featureFlagLogic, ['featureFlags']],
-        actions: [insightLogic(props), ['setFilters'], featureFlagLogic, ['setFeatureFlags']],
+        values: [
+            insightLogic(props),
+            ['isFirstLoad'],
+            insightVizDataLogic(props),
+            ['query'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+        actions: [insightVizDataLogic(props), ['setQuery'], featureFlagLogic, ['setFeatureFlags']],
     })),
     actions({
         optOut: (userOptedOut: boolean) => ({ userOptedOut }),
         setShouldShow: (show: boolean) => ({ show }),
         setPermanentOptOut: true,
+        displayAsFunnel: true,
     }),
     reducers({
         _shouldShow: [
@@ -41,12 +52,16 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
             // funnels_cue_3701_opt_out -> will add the user to a FF that will permanently exclude the user
             actions.setPermanentOptOut()
         },
-        setFilters: async ({ filters }) => {
-            const step_count = (filters.events?.length ?? 0) + (filters.actions?.length ?? 0)
-            if (!values.isFirstLoad && filters.insight === InsightType.TRENDS && step_count >= 3) {
+        setQuery: ({ query }) => {
+            if (!isInsightVizNode(query)) {
+                return
+            }
+
+            if (!values.isFirstLoad && isTrendsQuery(query?.source) && (query.source.series || []).length >= 3) {
                 actions.setShouldShow(true)
-                !values.permanentOptOut && posthog.capture('funnel cue 7301 - shown', { step_count })
-            } else if (values.shown && filters.insight === InsightType.FUNNELS) {
+                !values.permanentOptOut &&
+                    posthog.capture('funnel cue 7301 - shown', { step_count: query.source.series.length })
+            } else if (values.shown && isFunnelsQuery(query?.source)) {
                 actions.optOut(false)
             } else {
                 actions.setShouldShow(false)
@@ -56,6 +71,15 @@ export const funnelsCueLogic = kea<funnelsCueLogicType>([
             if (flags[FEATURE_FLAGS.FUNNELS_CUE_OPT_OUT]) {
                 actions.setPermanentOptOut()
             }
+        },
+        displayAsFunnel: () => {
+            if (!isInsightVizNode(values.query) || !isTrendsQuery(values.query?.source)) {
+                return
+            }
+
+            const query = JSON.parse(JSON.stringify(values.query)) as InsightVizNode
+            query.source.kind = NodeKind.FunnelsQuery
+            actions.setQuery(query)
         },
     })),
     selectors({
