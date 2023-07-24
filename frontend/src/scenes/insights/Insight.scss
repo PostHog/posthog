@@ -1,5 +1,4 @@
 @import '../../styles/mixins';
-@import '../../styles/mixins';
 
 .insights-page {
     h2 {
@@ -180,51 +179,5 @@
 
     .ant-tag {
         margin-top: 0;
-    }
-}
-
-.trends-insights-container {
-    position: relative;
-    min-height: min(calc(90vh - 16rem), 36rem);
-    display: flex;
-    justify-content: center;
-
-    .LineGraph {
-        height: calc(100% - 1rem) !important;
-    }
-}
-
-.funnel-insights-container {
-    border-radius: 0 0 var(--radius) var(--radius);
-
-    &.non-empty-state {
-        min-height: 26rem;
-        position: relative;
-        margin-bottom: 0;
-    }
-
-    .ant-table-wrapper {
-        margin-top: 0 !important;
-    }
-}
-
-.funnel-tab-btn-popover {
-    .ant-popover-inner-content {
-        padding: 4px 15px; // same as antd button padding
-
-        button.ant-btn-link {
-            padding: 0;
-            margin: 0 0 0 4px;
-        }
-    }
-}
-
-.significance-highlight {
-    display: inline-flex;
-    background: var(--primary);
-    color: var(--bg-light);
-
-    .LemonIcon {
-        color: var(--bg-light);
     }
 }

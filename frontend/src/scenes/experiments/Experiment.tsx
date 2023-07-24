@@ -14,7 +14,6 @@ import {
     InsightType,
 } from '~/types'
 import './Experiment.scss'
-import '../insights/Insight.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
