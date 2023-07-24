@@ -93,6 +93,7 @@ type SnowflakeDestination = {
         password: string
         schema: string
         table_name: string
+        role: string | null
     }
 }
 
@@ -177,6 +178,30 @@ export const useDeleteExport = (
     }, [teamId, exportId])
 
     return { deleteExport, ...state }
+}
+
+export const useUpdateExport = (): {
+    loading: boolean
+    error: Error | null
+    updateExport: (teamId: number, exportId: string, exportData: BatchExportData) => Promise<void>
+} => {
+    const [state, setState] = useState<{ loading: boolean; error: Error | null }>({ loading: false, error: null })
+
+    const updateExport = useCallback((teamId: number, exportId: string, exportData: BatchExportData) => {
+        setState({ loading: true, error: null })
+        return api.createResponse(`/api/projects/${teamId}/batch_exports/${exportId}`, exportData).then((response) => {
+            if (response.ok) {
+                setState({ loading: false, error: null })
+            } else {
+                // TODO: parse the error response.
+                const error = new Error(response.statusText)
+                setState({ loading: false, error: error })
+                throw error
+            }
+        })
+    }, [])
+
+    return { updateExport, ...state }
 }
 
 export const useExportAction = (
