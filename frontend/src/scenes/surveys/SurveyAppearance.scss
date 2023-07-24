@@ -12,7 +12,7 @@
     border: 1px solid #f0f0f0;
     border-radius: 8px;
     padding-top: 5px;
-    max-width: 300px; //changeable: maxWidth
+    max-width: 320px; //changeable: maxWidth
     box-shadow: -6px 0 16px -8px rgb(0 0 0 / 8%), -9px 0 28px 0 rgb(0 0 0 / 5%), -12px 0 48px 16px rgb(0 0 0 / 3%);
 
     .button {
@@ -43,9 +43,9 @@
     .survey-question {
         padding-top: 4px;
         padding-bottom: 4px;
-        text-align: center;
         font-size: 16px;
-        color: 'black'; //changeable: textColor
+        font-weight: 500;
+        color: black; //changeable: textColor
     }
 
     .question-textarea-wrapper {
@@ -126,8 +126,54 @@
 
     .description {
         font-size: 14px;
-        margin-top: 0.75rem;
-        margin-bottom: 0.75rem;
-        text-align: center;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        color: #4b4b52; //changeable: descriptionTextColor
+    }
+    .rating-options {
+        margin-top: 0.5rem;
+    }
+    .ratings-number {
+        background-color: #e0e2e8;
+        font-size: 14px;
+        border-radius: 6px;
+        border: 1px solid #e0e2e8;
+        padding: 8px;
+    }
+    .ratings-number:hover {
+        cursor: pointer;
+        filter: brightness(0.75);
+    }
+    .rating-options-buttons {
+        display: flex;
+        justify-content: space-evenly;
+    }
+    .max-numbers {
+        min-width: 280px;
+    }
+    .rating-options-emoji {
+        display: flex;
+        justify-content: space-evenly;
+    }
+    .ratings-emoji {
+        font-size: 16px;
+        background-color: transparent;
+        border: none;
+    }
+    .ratings-emoji:hover {
+        cursor: pointer;
+        fill: coral; //changeable: ratingButtonHoverColor
+    }
+    .rating-text {
+        display: flex;
+        flex-direction: row;
+        font-size: 12px;
+        justify-content: space-between;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        color: #4b4b52;
+    }
+    .rating-section {
+        margin-bottom: 0.5rem;
     }
 }
