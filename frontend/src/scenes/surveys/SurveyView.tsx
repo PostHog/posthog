@@ -21,7 +21,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries, showSurveyAppWarning } =
+    const { survey, dataTableQuery, surveyLoading, surveyPlugin, surveyMetricsQueries, surveyDataVizQuery, showSurveyAppWarning } =
         useValues(surveyLogic)
     // TODO: survey results logic
     // const { surveyImpressionsCount, surveyStartedCount, surveyCompletedCount } = useValues(surveyResultsLogic)
@@ -120,24 +120,31 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         tabs={[
                             survey.start_date
                                 ? {
-                                      content: (
-                                          <div>
-                                              {surveyMetricsQueries && (
-                                                  <div className="flex flex-row gap-4 mb-4">
-                                                      <div className="flex-1">
-                                                          <Query query={surveyMetricsQueries.surveysShown} />
-                                                      </div>
-                                                      <div className="flex-1">
-                                                          <Query query={surveyMetricsQueries.surveysDismissed} />
-                                                      </div>
-                                                  </div>
-                                              )}
-                                              {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
-                                          </div>
-                                      ),
-                                      key: 'results',
-                                      label: 'Results',
-                                  }
+                                    content: (
+                                        <div>
+                                            {surveyMetricsQueries && (
+                                                <div className="flex flex-row gap-4 mb-4">
+                                                    <div className="flex-1">
+                                                        <Query query={surveyMetricsQueries.surveysShown} />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <Query query={surveyMetricsQueries.surveysDismissed} />
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {survey.questions[0].type === SurveyQuestionType.Rating &&
+                                                <div className="mb-4">
+                                                    <Query
+                                                        query={surveyDataVizQuery}
+                                                    />
+                                                </div>
+                                            }
+                                            {surveyLoading ? <LemonSkeleton /> : <Query query={dataTableQuery} />}
+                                        </div>
+                                    ),
+                                    key: 'results',
+                                    label: 'Results',
+                                }
                                 : null,
                             {
                                 content: (
