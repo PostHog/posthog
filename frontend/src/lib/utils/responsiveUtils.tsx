@@ -1,10 +1,12 @@
-import { responsiveMap } from 'antd/lib/_util/responsiveObserve'
+import useResponsiveObserver, { BreakpointMap } from 'antd/lib/_util/responsiveObserver'
 import { ANTD_EXPAND_BUTTON_WIDTH } from '../components/ResizableTable'
+import { useMemo } from 'react'
 
-const BREAKPOINT_MAP = Object.fromEntries(
-    Object.entries(responsiveMap).map(([key, cssStatement]) => [key, parsePixelValue(cssStatement)])
-)
-const BREAKPOINT_VALUES = Object.values(BREAKPOINT_MAP).sort((a, b) => a - b)
+const getBreakpointMap = (responsiveMap: BreakpointMap): { [k: string]: number } =>
+    Object.fromEntries(Object.entries(responsiveMap).map(([key, cssStatement]) => [key, parsePixelValue(cssStatement)]))
+
+const getBreakpointValues = (responsiveMap: BreakpointMap): number[] =>
+    Object.values(getBreakpointMap(responsiveMap)).sort((a, b) => a - b)
 
 export function getMinColumnWidth(breakpoint: number): number {
     return breakpoint < 576 ? 150 : 50
@@ -20,11 +22,15 @@ export function parsePixelValue(cssStatement: string): number {
 }
 
 export function getActiveBreakpointValue(): number {
+    const { responsiveMap } = useResponsiveObserver()
+    const breakpointValues = useMemo(() => getBreakpointValues(responsiveMap), [responsiveMap])
     const windowWidth = window.innerWidth
-    const lastMatchingBreakpoint = BREAKPOINT_VALUES.filter((value) => windowWidth >= value).pop()
-    return lastMatchingBreakpoint || BREAKPOINT_VALUES[0]
+    const lastMatchingBreakpoint = breakpointValues.filter((value) => windowWidth >= value).pop()
+    return lastMatchingBreakpoint || breakpointValues[0]
 }
 
 export function getBreakpoint(breakpointKey: string): number {
-    return BREAKPOINT_MAP[breakpointKey] || -1
+    const { responsiveMap } = useResponsiveObserver()
+    const map = useMemo(() => getBreakpointMap(responsiveMap), [responsiveMap])
+    return map[breakpointKey] || -1
 }
