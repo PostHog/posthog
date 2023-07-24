@@ -62,6 +62,7 @@
         "prepare": "husky install"
     },
     "dependencies": {
+        "@ant-design/compatible": "^5.1.1",
         "@ant-design/icons": "^4.7.0",
         "@floating-ui/react": "^0.16.0",
         "@lottiefiles/react-lottie-player": "^3.4.7",
@@ -85,7 +86,7 @@
         "@types/react-textfit": "^1.1.0",
         "@types/react-transition-group": "^4.4.5",
         "@types/react-virtualized": "^9.21.14",
-        "antd": "^4.24.12",
+        "antd": "^5.7.2",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^3.9.1",
