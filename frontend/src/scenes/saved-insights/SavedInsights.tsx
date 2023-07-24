@@ -440,7 +440,11 @@ export function SavedInsights(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton
+                                    status="stealth"
+                                    to={urls.insightEdit(insight.short_id, urls.savedInsights())}
+                                    fullWidth
+                                >
                                     Edit
                                 </LemonButton>
                                 <LemonButton

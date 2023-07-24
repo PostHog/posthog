@@ -14,7 +14,7 @@ import {
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
@@ -674,7 +674,10 @@ export const insightLogic = kea<insightLogicType>([
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-            if (redirectToViewMode) {
+            const redirectionPath = decodeParams(router.values.location.search, '?')
+            if (redirectionPath && redirectionPath.from) {
+                router.actions.push(redirectionPath.from)
+            } else if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))

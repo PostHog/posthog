@@ -70,7 +70,8 @@ export const urls = {
                 source: { kind: 'HogQLQuery', query },
             })
         ),
-    insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+    insightEdit: (id: InsightShortId, source?: string): string =>
+        combineUrl(`/insights/${id}/edit`, source ? { from: source } : {}).url,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
     insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
