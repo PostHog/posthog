@@ -321,7 +321,7 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
         const schema = schemaRef.current?.value ?? ''
         const tableName = tableNameRef.current?.value ?? ''
         const interval = intervalRef.current
-        const role = roleRef.current?.value ?? null
+        const role = roleRef.current?.value ?? ''
 
         const exportData = {
             name,
@@ -334,7 +334,7 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
                     database,
                     warehouse,
                     schema,
-                    role,
+                    role: role === '' ? null : role,
                     table_name: tableName,
                 },
             },
@@ -394,6 +394,10 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
                         { value: 'day', label: 'Daily' },
                     ]}
                 />
+            </PureField>
+
+            <PureField label="Role" showOptional={true}>
+                <LemonInput placeholder="my-role" ref={roleRef} value={undefined} defaultValue={undefined} />
             </PureField>
 
             <LemonButton onClick={handleCreateExport}>Create Export</LemonButton>
