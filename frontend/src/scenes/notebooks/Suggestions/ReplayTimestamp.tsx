@@ -6,7 +6,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { Node } from '@tiptap/pm/model'
 import { useValues } from 'kea'
 import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
-import { notebookLogic } from '../Notebook/notebookLogic'
+import { NotebookEditor } from '../Notebook/utils'
 
 const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
     const { currentPlayerTime } = useValues(
@@ -24,9 +24,7 @@ export default InsertionSuggestion.create({
     shouldShow: ({ previousNode }) =>
         !!previousNode ? hasDirectChildOfType(previousNode, NotebookNodeType.ReplayTimestamp) : false,
 
-    onTab: ({ previousNode }: { previousNode: Node | null }) => {
-        const { editor } = useValues(notebookLogic)
-
+    onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => {
         if (!!previousNode && !!editor) {
             const sessionRecordingId = previousNode.attrs.sessionRecordingId
 

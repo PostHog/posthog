@@ -15,6 +15,7 @@ const Component = (): JSX.Element => {
                 actionable: true,
                 closeParentPopoverOnClickInside: true,
             }}
+            className="ml-1"
         />
     )
 }

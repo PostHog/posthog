@@ -1,19 +1,20 @@
 import { Node } from '@tiptap/pm/model'
+import { NotebookEditor } from '../Notebook/utils'
 
 export type InsertionSuggestionViewProps = {
     previousNode?: Node | null
 }
 
 interface InsertionSuggestionConfig {
+    shouldShow: boolean | (({ previousNode }: { previousNode: Node | null }) => boolean)
     Component: (props: InsertionSuggestionViewProps) => JSX.Element
-    shouldShow: boolean | (({ previousNode }: { previousNode: Node }) => boolean)
-    onTab?: ({ previousNode }: { previousNode: Node | null }) => void
+    onTab?: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => void
 }
 
 export class InsertionSuggestion {
     dismissed = false
-    shouldShow: boolean | (({ previousNode }: { previousNode: Node }) => boolean) = false
-    onTab: ({ previousNode }: { previousNode: Node | null }) => void = () => {}
+    shouldShow: boolean | (({ previousNode }: { previousNode: Node | null }) => boolean) = false
+    onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => void = () => {}
     Component: (props: InsertionSuggestionViewProps) => JSX.Element
 
     constructor(config: InsertionSuggestionConfig) {

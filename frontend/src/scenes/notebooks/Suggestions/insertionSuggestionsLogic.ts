@@ -1,28 +1,24 @@
-import { kea } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
 import { InsertionSuggestion } from './InsertionSuggestion'
 import { Node } from '@tiptap/pm/model'
+import { NotebookEditor } from '../Notebook/utils'
 
-const SUGGESTIONS = [ReplayTimestampSuggestion] as InsertionSuggestion[]
-const DEFAULT_SUGGESTION: InsertionSuggestion = SlashCommands
-
-export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
-    path: ['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic'],
-
-    actions: {
-        setPreviousNode: (node) => ({ node }),
+export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
+    path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
+    actions({
+        setEditor: (editor: NotebookEditor | null) => ({ editor }),
+        setPreviousNode: (node: Node | null) => ({ node }),
         setSuggestions: (suggestions: InsertionSuggestion[]) => ({ suggestions }),
-        dismissSuggestion: (key: string) => ({ key }),
         resetSuggestions: true,
         onTab: true,
         onEscape: true,
-    },
-
-    reducers: {
+    }),
+    reducers({
         suggestions: [
-            SUGGESTIONS,
+            [ReplayTimestampSuggestion] as InsertionSuggestion[],
             {
                 setSuggestions: (_, { suggestions }) => suggestions,
             },
@@ -33,20 +29,24 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
                 setPreviousNode: (_, { node }) => node,
             },
         ],
-    },
-
-    selectors: {
+        editor: [
+            null as NotebookEditor | null,
+            {
+                setEditor: (_, { editor }) => editor,
+            },
+        ],
+    }),
+    selectors({
         activeSuggestion: [
             (s) => [s.suggestions, s.previousNode],
-            (suggestions: InsertionSuggestion[], previousNode: Node) =>
+            (suggestions, previousNode): InsertionSuggestion =>
                 suggestions.find(
                     ({ dismissed, shouldShow }) =>
                         !dismissed && (typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow)
-                ) || DEFAULT_SUGGESTION,
+                ) || SlashCommands,
         ],
-    },
-
-    listeners: ({ values, actions }) => ({
+    }),
+    listeners(({ values, actions }) => ({
         resetSuggestions: () => {
             const nextSuggestions = values.suggestions.map((suggestion) => {
                 return { ...suggestion, dismissed: false }
@@ -55,7 +55,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
         },
 
         onTab: () => {
-            values.activeSuggestion?.onTab({ previousNode: values.previousNode })
+            values.activeSuggestion?.onTab({ editor: values.editor, previousNode: values.previousNode })
         },
 
         onEscape: () => {
@@ -67,9 +67,8 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
                 actions.setSuggestions(nextSuggestions)
             }
         },
-    }),
-
-    events: ({ cache, actions }) => ({
+    })),
+    events(({ cache, actions }) => ({
         afterMount: () => {
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'Tab') {
@@ -83,5 +82,5 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
         beforeUnmount: () => {
             window.removeEventListener('keydown', cache.onKeyDown)
         },
-    }),
-})
+    })),
+])

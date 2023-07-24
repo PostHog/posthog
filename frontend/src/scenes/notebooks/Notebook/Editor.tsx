@@ -69,6 +69,11 @@ export function Editor({
                     updatePreviousNode()
                     resetSuggestions()
                 },
+                addKeyboardShortcuts() {
+                    return {
+                        Tab: () => true,
+                    }
+                },
             }),
             NotebookNodeLink,
             NotebookNodeBacklink,
@@ -145,7 +150,7 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
-                insertContent: (content: JSONContent) => editor.chain().focus().insertContent(content).focus().run(),
+                insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
@@ -158,7 +163,6 @@ export function Editor({
             })
         },
         onUpdate: onUpdate,
-        onDestroy: () => {},
     })
 
     return (
