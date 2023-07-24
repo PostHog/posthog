@@ -502,10 +502,11 @@ def get_event(request):
 
     if events_were_quota_limited or recordings_were_quota_limited:
         headers = {}
+        one_minute_in_seconds = 60
         if events_were_quota_limited:
-            headers["X-PostHog-Retry-After-Events"] = 10 * 60 * 1000
+            headers["X-PostHog-Retry-After-Events"] = one_minute_in_seconds
         if recordings_were_quota_limited:
-            headers["X-PostHog-Retry-After-Recordings"] = 10 * 60 * 1000
+            headers["X-PostHog-Retry-After-Recordings"] = one_minute_in_seconds
 
         response = generate_exception_response(
             "capture",
