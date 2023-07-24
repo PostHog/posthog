@@ -115,6 +115,12 @@
             outline-style: solid;
             outline-color: var(--primary-bg-active);
         }
+
+        &.NotebookRecordingTimestamp--preview {
+            border: 1px solid var(--border-light);
+            color: var(--mid);
+            padding: 0.1rem 0.25rem;
+        }
     }
 
     // overriding ::selection is necessary here because

@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 
 export function InsertionSuggestions({ editor }: { editor: TTEditor }): JSX.Element | null {
-    const { activeSuggestion } = useValues(insertionSuggestionsLogic({ editor }))
+    const { activeSuggestion, previousNode } = useValues(insertionSuggestionsLogic({ editor }))
 
     const shouldShow = useCallback((): boolean => {
         if (!editor) {
@@ -19,35 +19,14 @@ export function InsertionSuggestions({ editor }: { editor: TTEditor }): JSX.Elem
         return false
     }, [editor])
 
-    console.log('re-renders from component')
-
     return editor ? (
         <FloatingMenu
             editor={editor}
-            tippyOptions={{ duration: 100, placement: 'left' }}
+            tippyOptions={{ duration: 100, placement: 'left', offset: [0, 0] }}
             className="NotebookFloatingButton"
             shouldShow={shouldShow}
         >
-            {activeSuggestion && <activeSuggestion.Component />}
+            {activeSuggestion && <activeSuggestion.Component previousNode={previousNode} />}
         </FloatingMenu>
     ) : null
 }
-
-// export const InsertionSuggestionsExtension = Extension.create({
-//     addKeyboardShortcuts() {
-//         return {
-//             Enter: ({}) => {
-//                 console.log('Enter pressed')
-//                 return false
-//             },
-//             Tab: ({}) => {
-//                 console.log('Tab pressed')
-//                 return false
-//             },
-//             Esc: ({}) => {
-//                 console.log('Esc pressed')
-//                 return false
-//             },
-//         }
-//     },
-// })

@@ -23,6 +23,8 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
     actions: {
         dismissSuggestion: (key: string) => ({ key }),
         resetSuggestions: true,
+        onTab: true,
+        onEscape: true,
     },
     reducers: () => ({
         suggestions: [
@@ -32,7 +34,6 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
             },
         ],
     }),
-
     selectors: {
         activeSuggestion: [
             (s) => [s.suggestions, (_, props) => props.editor],
@@ -42,15 +43,28 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
                     return typeof shouldShow === 'function' ? shouldShow({ editor }) : shouldShow
                 }),
         ],
+        previousNode: [
+            () => [(_, props) => props.editor],
+            (editor: TTEditor) => {
+                const { $anchor } = editor.state.selection
+                const node = $anchor.node(1)
+                return editor.state.doc.childBefore($anchor.pos - node.nodeSize).node
+            },
+        ],
     },
-
-    events: ({ cache, props, values }) => ({
+    listeners: ({ props, values }) => ({
+        onTab: () => {
+            values.activeSuggestion.onTab({ editor: props.editor, previousNode: values.previousNode })
+        },
+        onEscape: () => {},
+    }),
+    events: ({ cache, actions }) => ({
         afterMount: () => {
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.key === 'Tab') {
-                    values.activeSuggestion.onTab({ editor: props.editor })
+                    actions.onTab()
                 } else if (e.key === 'Escape') {
-                    console.log('Escaped')
+                    actions.onEscape()
                 }
             }
             window.addEventListener('keydown', cache.onKeyDown)

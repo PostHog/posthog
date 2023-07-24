@@ -173,14 +173,3 @@ export function hasDirectChildOfType(node: Node, type: string, direct: boolean =
     })
     return types.includes(type)
 }
-
-export function lastChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
-    let latestNode: Node | null = null
-    node.descendants((child) => {
-        if (child.type.name === type) {
-            latestNode = child
-        }
-        return !direct
-    })
-    return latestNode
-}
