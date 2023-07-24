@@ -30,12 +30,12 @@ def get_hogql_metadata(
             context = HogQLContext(team_id=team.pk, enable_select_queries=True)
             select_ast = parse_select(query.select)
             _is_valid_view = is_valid_view(select_ast)
-            print_ast(select_ast, context=context, dialect="clickhouse")
+            response.isValidView = _is_valid_view
+            print_ast(parse_select(query.select), context=context, dialect="clickhouse")
         else:
             raise ValueError("Either expr or select must be provided")
         response.warnings = context.warnings
         response.notices = context.notices
-        response.isValidView = _is_valid_view
     except Exception as e:
         response.isValid = False
         if isinstance(e, ValueError):
