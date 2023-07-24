@@ -119,7 +119,7 @@ export function PlayerController(): JSX.Element {
                                         Export to file
                                     </LemonButton>
 
-                                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER} match={true}>
+                                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_DOM_EXPLORER}>
                                         <LemonButton
                                             status="stealth"
                                             onClick={() => openExplorer()}

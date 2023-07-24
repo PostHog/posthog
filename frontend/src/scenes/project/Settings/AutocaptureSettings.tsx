@@ -40,7 +40,7 @@ export function AutocaptureSettings(): JSX.Element {
                     label="Enable Autocapture"
                     bordered
                 />
-                <FlaggedFeature flag={FEATURE_FLAGS.EXCEPTION_AUTOCAPTURE} match={true}>
+                <FlaggedFeature flag={FEATURE_FLAGS.EXCEPTION_AUTOCAPTURE}>
                     <div className={'mt-4 border rounded px-6 py-4'}>
                         <LemonSwitch
                             id="posthog-autocapture-exceptions-switch"

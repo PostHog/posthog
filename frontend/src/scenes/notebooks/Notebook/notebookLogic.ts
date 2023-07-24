@@ -1,8 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import type { notebookLogicType } from './notebookLogicType'
 import { loaders } from 'kea-loaders'
-import { handleNotebookCreation, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
-import { NotebookSyncStatus, NotebookType } from '~/types'
+import { openNotebook, notebooksListLogic, SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
+import { NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
 
 // NOTE: Annoyingly, if we import this then kea logic typegen generates two imports and fails so we reimport it from a utils file
 import { JSONContent, NotebookEditor } from './utils'
@@ -154,7 +154,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    handleNotebookCreation(response)
+                    openNotebook(response, NotebookTarget.Auto)
 
                     return response
                 },
