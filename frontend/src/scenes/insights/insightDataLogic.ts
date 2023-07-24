@@ -1,22 +1,23 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { DataNode, InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightNodeKind, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { isInsightVizNode } from '~/queries/utils'
-import { cleanFilters } from './utils/cleanFilters'
+import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { insightTypeToDefaultQuery, nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 import { compareFilters } from './utils/compareFilters'
 import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
@@ -37,22 +38,24 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [
             insightLogic,
             ['filters', 'insight', 'savedInsight'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             [
+                'query as insightQuery',
+                'response as insightData',
                 'dataLoading as insightDataLoading',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
             ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             insightLogic,
             ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData'],
+            dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
+            ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
         logic: [insightDataTimingLogic(props)],
     })),
@@ -109,32 +112,46 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight],
-            (isQueryBasedInsight, query, insight, savedInsight) => {
+            (s) => [s.isQueryBasedInsight, s.query, s.insight, s.savedInsight, s.currentTeam],
+            (isQueryBasedInsight, query, insight, savedInsight, currentTeam) => {
                 if (isQueryBasedInsight) {
                     return !objectsEqual(query, insight.query)
                 } else {
                     const currentFilters = queryNodeToFilter((query as InsightVizNode).source)
-                    const savedFilters =
-                        savedInsight.filters ||
-                        queryNodeToFilter(insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS])
 
-                    // TODO: Ignore filter_test_accounts for now, but should compare against default
-                    delete currentFilters.filter_test_accounts
-                    delete savedFilters.filter_test_accounts
+                    let savedFilters: Partial<FilterType>
+                    if (savedInsight.filters) {
+                        savedFilters = savedInsight.filters
+                    } else {
+                        savedFilters = queryNodeToFilter(
+                            insightTypeToDefaultQuery[currentFilters.insight || InsightType.TRENDS]
+                        )
+                        setTestAccountFilterForNewInsight(
+                            savedFilters,
+                            currentTeam?.test_account_filters_default_checked
+                        )
+                    }
 
-                    return !compareFilters(currentFilters, savedFilters)
+                    return !compareFilters(
+                        currentFilters,
+                        savedFilters,
+                        currentTeam?.test_account_filters_default_checked
+                    )
                 }
             },
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
+        setInsight: ({ insight: { filters, query, result }, options: { overrideFilter } }) => {
             if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
             } else if (query) {
                 actions.setQuery(query)
+            }
+
+            if (result) {
+                actions.setInsightData({ ...values.insightData, result })
             }
         },
         loadInsightSuccess: ({ insight }) => {

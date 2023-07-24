@@ -17,10 +17,16 @@
 }
 
 .Navigation3000__scene {
-    margin: var(--scene-padding-y) var(--scene-padding-x);
-    // The below is for positioning of the scene-level spinner
+    // `relative` is for positioning of the scene-level spinner
     position: relative;
+    margin: var(--scene-padding-y) var(--scene-padding-x);
     min-height: calc(100vh - var(--breadcrumbs-height) - var(--scene-padding-y) * 2);
+    overflow-x: hidden;
+    &.Navigation3000__scene--raw {
+        --scene-padding-y: 0px;
+        --scene-padding-x: 0px;
+        display: flex;
+    }
 }
 
 // Navbar
@@ -103,6 +109,7 @@
         font-weight: 600;
         line-height: 1.75rem;
         font-size: 0.6875rem;
+        flex-grow: 1;
     }
     h5 {
         font-weight: 400;
@@ -217,6 +224,7 @@
 
 .Sidebar3000__header {
     flex: 0 0 var(--sidebar-row-height);
+    gap: 0.25rem;
     display: flex;
     align-items: center;
     padding: 0 var(--sidebar-horizontal-padding);
@@ -275,7 +283,7 @@
     &:hover {
         background: var(--border-3000);
     }
-    .LemonIcon {
+    > .LemonIcon {
         transition: 50ms ease transform;
         font-size: var(--accordion-arrow-size);
         flex-shrink: 0;
@@ -299,8 +307,9 @@
     border-bottom-width: 1px;
     list-style: none;
 
-    &:hover,
-    &[aria-current='page'] {
+    &:hover:not([aria-disabled='true']),
+    &[aria-current='page'],
+    &.SidebarListItem--is-renaming {
         opacity: 1;
         --sidebar-list-item-background: var(--border-3000);
     }
@@ -404,6 +413,9 @@
     row-gap: 1px;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
     color: inherit !important; // Disable link color
+    .SidebarListItem[aria-disabled='true'] & {
+        cursor: default;
+    }
 }
 
 .SidebarListItem__rename {
@@ -427,6 +439,31 @@
         right: 0;
         border: 1px solid var(--default);
         pointer-events: none;
+        .SidebarListItem[aria-invalid='true'] & {
+            border-color: var(--danger);
+        }
+    }
+}
+
+.SidebarListItem__error {
+    position: absolute;
+    top: 2rem;
+    left: 0;
+    line-height: 1.25rem;
+    padding: 0 0.25rem;
+    z-index: 1;
+    background: var(--danger);
+    color: #fff;
+    white-space: normal;
+    &::before {
+        display: block;
+        content: '';
+        position: absolute;
+        top: -0.5rem;
+        left: 0;
+        border: 0.25rem solid transparent;
+        border-left-color: var(--danger);
+        border-bottom-color: var(--danger);
     }
 }
 

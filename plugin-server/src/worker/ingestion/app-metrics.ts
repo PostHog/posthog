@@ -134,7 +134,7 @@ export class AppMetrics {
 
         if (this.timer === null) {
             this.timer = setTimeout(() => {
-                this.hub.promiseManager.trackPromise(this.flush())
+                this.hub.promiseManager.trackPromise(this.flush(), 'app metrics')
                 this.timer = null
             }, this.flushFrequencyMs)
         }

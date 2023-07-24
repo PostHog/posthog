@@ -13,7 +13,7 @@ import { SessionRecordingLogicProps, sessionRecordingPlayerLogic } from '../sess
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getKeyMapping } from 'lib/taxonomy'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from '@rrweb/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -136,8 +136,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
             sessionRecordingDataLogic(props),
             [
-                'performanceEvents',
-                'performanceEventsLoading',
                 'sessionPlayerData',
                 'sessionPlayerMetaDataLoading',
                 'sessionPlayerSnapshotDataLoading',
@@ -256,10 +254,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allPerformanceEvents: [
-            (s) => [s.sessionPlayerData, s.performanceEvents],
-            (sessionPlayerData, performanceEvents): PerformanceEvent[] => {
-                // performanceEvents come from the API but we decided to instead store them in the recording data
-                const events: PerformanceEvent[] = [...(performanceEvents || [])]
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData): PerformanceEvent[] => {
+                // performanceEvents used to come from the API,
+                // but we decided to instead store them in the recording data
+                const events: PerformanceEvent[] = []
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
                     snapshots.forEach((snapshot: eventWithTime) => {
@@ -491,6 +490,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         const responseStatus = item.data.response_status || 200
+                        const responseTime = item.data.duration || 0
 
                         if (
                             miniFiltersByKey['performance-all']?.enabled ||
@@ -506,8 +506,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (
-                            (miniFiltersByKey['performance-fetch']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            miniFiltersByKey['performance-fetch']?.enabled &&
                             item.data.entry_type === 'resource' &&
                             ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
                         ) {
@@ -557,6 +556,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
                             responseStatus >= 400
                         ) {
+                            include = true
+                        }
+
+                        if (miniFiltersByKey['all-automatic']?.enabled && responseTime >= 1000) {
                             include = true
                         }
 
@@ -617,7 +620,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         tabsState: [
             (s) => [
                 s.sessionEventsDataLoading,
-                s.performanceEventsLoading,
                 s.sessionPlayerMetaDataLoading,
                 s.sessionPlayerSnapshotDataLoading,
                 s.sessionEventsData,
@@ -626,7 +628,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             (
                 sessionEventsDataLoading,
-                performanceEventsLoading,
                 sessionPlayerMetaDataLoading,
                 sessionPlayerSnapshotDataLoading,
                 events,
@@ -641,10 +642,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         ? 'ready'
                         : 'empty'
                 const tabNetworkState =
-                    sessionPlayerMetaDataLoading ||
-                    sessionPlayerSnapshotDataLoading ||
-                    performanceEventsLoading ||
-                    !performanceEvents
+                    sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !performanceEvents
                         ? 'loading'
                         : performanceEvents.length
                         ? 'ready'

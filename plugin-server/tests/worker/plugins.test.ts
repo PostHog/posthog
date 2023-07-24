@@ -84,7 +84,6 @@ describe('plugins', () => {
             'exportEvents',
             'getSettings',
             'onEvent',
-            'onSnapshot',
             'processEvent',
             'setupPlugin',
             'teardownPlugin',
@@ -609,7 +608,7 @@ describe('plugins', () => {
                 source__index_ts: `
         function processEvent (event, meta) { event.properties={"x": 1}; return event }
         function randomFunction (event, meta) { return event}
-        function onSnapshot (event, meta) { return event }`,
+        function onEvent (event, meta) { return event }`,
             },
         ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
@@ -623,7 +622,7 @@ describe('plugins', () => {
         await pluginConfig.vm?.resolveInternalVm
         // async loading of capabilities
 
-        expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onSnapshot', 'processEvent'])
+        expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
         expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
     })

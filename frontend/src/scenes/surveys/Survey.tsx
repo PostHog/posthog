@@ -4,30 +4,27 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonTag,
-    LemonTextArea,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { Field, PureField } from 'lib/forms/Field'
-import { FilterLogicalOperator, SurveyQuestion, Survey, FeatureFlagFilters, SurveyQuestionType } from '~/types'
+import {
+    SurveyQuestion,
+    Survey,
+    SurveyQuestionType,
+    SurveyType,
+    LinkSurveyQuestion,
+    RatingSurveyQuestion,
+} from '~/types'
 import { FlagSelector } from 'scenes/early-access-features/EarlyAccessFeature'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { IconCancel, IconDelete, IconErrorOutline, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { SurveyView } from './SurveyView'
-import { cohortsModel } from '~/models/cohortsModel'
 import { SurveyAppearance } from './SurveyAppearance'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlag'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: SurveyComponent,
@@ -54,10 +51,9 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, isEditingSurvey, propertySelectErrors, targetingFlagFilters } =
-        useValues(surveyLogic)
-    const { loadSurvey, editingSurvey, updateTargetingFlagFilters, removeConditionSet, addConditionSet } =
-        useActions(surveyLogic)
+    const { survey, surveyLoading, isEditingSurvey, hasTargetingFlag } = useValues(surveyLogic)
+    const { loadSurvey, editingSurvey, setHasTargetingFlag } = useActions(surveyLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
         <Form formKey="survey" logic={surveyLogic} className="space-y-4" enableFormOnSubmit>
@@ -93,85 +89,138 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             />
             <LemonDivider />
             <div className="flex flex-row gap-4">
-                <div className="flex flex-col gap-2 max-w-160">
+                <div className="flex flex-col gap-2 min-w-180">
                     <Field name="name" label="Name">
                         <LemonInput data-attr="survey-name" />
                     </Field>
                     <Field name="description" label="Description (optional)">
                         <LemonTextArea data-attr="survey-description" />
                     </Field>
-                    <Field
-                        name="linked_flag_id"
-                        label="Link feature flag (optional)"
-                        info={
-                            <>
-                                Connecting to a feature flag will automatically enable this survey for everyone in the
-                                feature flag.
-                            </>
-                        }
-                    >
-                        {({ value, onChange }) => (
-                            <div className="flex">
-                                <FlagSelector value={value} onChange={onChange} />
-                                {value && (
-                                    <LemonButton
-                                        className="ml-2"
-                                        icon={<IconCancel />}
-                                        size="small"
-                                        status="stealth"
-                                        onClick={() => onChange(undefined)}
-                                        aria-label="close"
-                                    />
-                                )}
-                            </div>
-                        )}
+                    <Field name="type" label="Display mode" className="w-max">
+                        <LemonSelect
+                            data-attr="survey-type"
+                            options={[
+                                { label: 'Popover', value: SurveyType.Popover },
+                                { label: 'API', value: SurveyType.API },
+                            ]}
+                        />
                     </Field>
-                    {survey.questions.map((question: SurveyQuestion, index: number) => (
-                        <Group name={`questions.${index}`} key={index}>
-                            <Field name="type" label="Type" className="w-max">
-                                <LemonSelect
-                                    options={[
-                                        { label: 'Open text', value: SurveyQuestionType.Open },
-                                        { label: 'Link', value: SurveyQuestionType.Link },
-                                    ]}
-                                />
-                            </Field>
-                            <Field name="question" label="Question">
-                                <LemonInput value={question.question} />
-                            </Field>
-                            <Field name="description" label="Question description (optional)">
-                                <LemonTextArea value={question.description || ''} />
-                            </Field>
-                            {question.type === SurveyQuestionType.Link && (
-                                <Field name="link" label="Link" info="Make sure to include https:// in the url.">
-                                    <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                    <LemonDivider />
+                    {survey.questions.map(
+                        (question: LinkSurveyQuestion | SurveyQuestion | RatingSurveyQuestion, index: number) => (
+                            <Group name={`questions.${index}`} key={index}>
+                                <Field name="type" label="Question type" className="min-w-150">
+                                    <LemonSelect
+                                        options={[
+                                            { label: 'Open text', value: SurveyQuestionType.Open },
+                                            { label: 'Link', value: SurveyQuestionType.Link },
+                                            ...(featureFlags[FEATURE_FLAGS.SURVEYS_RATING_TYPE]
+                                                ? [{ label: 'Rating', value: SurveyQuestionType.Rating }]
+                                                : []),
+                                        ]}
+                                    />
                                 </Field>
-                            )}
-                        </Group>
-                    ))}
-                    <PureField label="Targeting (optional)" className="mt-4">
+                                <Field name="question" label="Question">
+                                    <LemonInput value={question.question} />
+                                </Field>
+                                {question.type === SurveyQuestionType.Link && (
+                                    <Field name="link" label="Link" info="Make sure to include https:// in the url.">
+                                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                                    </Field>
+                                )}
+                                <Field name="description" label="Question description (optional)">
+                                    <LemonTextArea value={question.description || ''} />
+                                </Field>
+                                {question.type === SurveyQuestionType.Rating && (
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex flex-row gap-4">
+                                            <Field name="display" label="Display type" className="min-w-50">
+                                                <LemonSelect
+                                                    options={[
+                                                        { label: 'Number', value: 'number' },
+                                                        { label: 'Emoji', value: 'emoji' },
+                                                    ]}
+                                                />
+                                            </Field>
+                                            <Field name="scale" label="Scale" className="min-w-50">
+                                                <LemonSelect
+                                                    options={[
+                                                        ...(question.display === 'emoji'
+                                                            ? [{ label: '1 - 3', value: 3 }]
+                                                            : []),
+                                                        { label: '1 - 5', value: 5 },
+                                                        ...(question.display === 'number'
+                                                            ? [{ label: '1 - 10', value: 10 }]
+                                                            : []),
+                                                    ]}
+                                                />
+                                            </Field>
+                                        </div>
+                                        <div className="flex flex-row gap-4">
+                                            <Field
+                                                name="lowerBoundLabel"
+                                                label="Lower bound label"
+                                                className="min-w-150"
+                                            >
+                                                <LemonInput value={question.lowerBoundLabel || ''} />
+                                            </Field>
+                                            <Field
+                                                name="upperBoundLabel"
+                                                label="Upper bound label"
+                                                className="min-w-150"
+                                            >
+                                                <LemonInput value={question.upperBoundLabel || ''} />
+                                            </Field>
+                                        </div>
+                                    </div>
+                                )}
+                            </Group>
+                        )
+                    )}
+                    <LemonDivider className="my-2" />
+                    <PureField label="Targeting (optional)">
                         <span className="text-muted">
-                            Choose when the survey appears based on url, selector, and user properties.
+                            If targeting options are set, the survey will be released to users who match <b>all</b> of
+                            the conditions. If no targeting options are set, the survey{' '}
+                            <b>will be released to everyone</b>.
                         </span>
-                        <span>
-                            <b>
-                                Warning: If there are no targeting options set, the survey will display on all domains
-                                to everyone.
-                            </b>
-                        </span>
-                        <LemonDivider />
+                        <Field
+                            name="linked_flag_id"
+                            label="Link feature flag (optional)"
+                            info={
+                                <>
+                                    Connecting to a feature flag will automatically enable this survey for everyone in
+                                    the feature flag.
+                                </>
+                            }
+                        >
+                            {({ value, onChange }) => (
+                                <div className="flex">
+                                    <FlagSelector value={value} onChange={onChange} />
+                                    {value && (
+                                        <LemonButton
+                                            className="ml-2"
+                                            icon={<IconCancel />}
+                                            size="small"
+                                            status="stealth"
+                                            onClick={() => onChange(undefined)}
+                                            aria-label="close"
+                                        />
+                                    )}
+                                </div>
+                            )}
+                        </Field>
                         <Field name="conditions">
                             {({ value, onChange }) => (
                                 <>
-                                    <PureField label="Url">
+                                    <PureField label="URL contains:">
                                         <LemonInput
                                             value={value?.url}
                                             onChange={(urlVal) => onChange({ ...value, url: urlVal })}
                                             placeholder="ex: https://app.posthog.com"
                                         />
                                     </PureField>
-                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
-                                    <PureField label="Selector">
+                                    <PureField label="Selector matches:">
                                         <LemonInput
                                             value={value?.selector}
                                             onChange={(selectorVal) => onChange({ ...value, selector: selectorVal })}
@@ -181,110 +230,67 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                                 </>
                             )}
                         </Field>
-                        <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                         <PureField label="User properties">
-                            {(targetingFlagFilters?.groups || []).map((group, index) => (
-                                <>
-                                    {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2">OR</div>}
-                                    <div className="border rounded p-4">
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                Matching <b>users</b> against the criteria
-                                            </div>
+                            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                                {!hasTargetingFlag && (
+                                    <LemonButton
+                                        type="secondary"
+                                        className="w-max"
+                                        onClick={() => setHasTargetingFlag(true)}
+                                    >
+                                        Add user targeting
+                                    </LemonButton>
+                                )}
+                                {hasTargetingFlag && (
+                                    <>
+                                        <div className="mt-2">
+                                            <FeatureFlagReleaseConditions excludeTitle={true} />
+                                        </div>
+                                        {id === 'new' && (
                                             <LemonButton
-                                                icon={<IconDelete />}
-                                                status="muted"
-                                                size="small"
-                                                noPadding
-                                                onClick={() => removeConditionSet(index)}
-                                            />
-                                        </div>
-                                        <LemonDivider className="my-3" />
-                                        <div>
-                                            <PropertyFilters
-                                                orFiltering={true}
-                                                pageKey={`survey-${id}-targeting-${index}`}
-                                                propertyFilters={group.properties}
-                                                logicalRowDivider
-                                                addButton={
-                                                    <LemonButton icon={<IconPlusMini />} sideIcon={null} noPadding>
-                                                        Add condition
-                                                    </LemonButton>
-                                                }
-                                                onChange={(properties) => updateTargetingFlagFilters(index, properties)}
-                                                taxonomicGroupTypes={[
-                                                    TaxonomicFilterGroupType.PersonProperties,
-                                                    TaxonomicFilterGroupType.Cohorts,
-                                                ]}
-                                                hasRowOperator={false}
-                                                sendAllKeyUpdates
-                                                errorMessages={
-                                                    propertySelectErrors?.[index]?.properties?.some(
-                                                        (message) => !!message.value
-                                                    )
-                                                        ? propertySelectErrors[index].properties.map(
-                                                              (message, index) => {
-                                                                  return message.value ? (
-                                                                      <div
-                                                                          key={index}
-                                                                          className="text-danger flex items-center gap-1 text-sm"
-                                                                      >
-                                                                          <IconErrorOutline className="text-xl" />{' '}
-                                                                          {message.value}
-                                                                      </div>
-                                                                  ) : (
-                                                                      <></>
-                                                                  )
-                                                              }
-                                                          )
-                                                        : null
-                                                }
-                                            />
-                                        </div>
-                                    </div>
-                                </>
-                            ))}
+                                                type="secondary"
+                                                status="danger"
+                                                className="w-max"
+                                                onClick={() => setHasTargetingFlag(false)}
+                                            >
+                                                Remove all user properties
+                                            </LemonButton>
+                                        )}
+                                    </>
+                                )}
+                            </BindLogic>
                         </PureField>
-                        <LemonButton
-                            type="secondary"
-                            className="mt-0 w-max"
-                            onClick={addConditionSet}
-                            icon={<IconPlus />}
-                        >
-                            Add condition set
-                        </LemonButton>
                     </PureField>
                 </div>
                 <LemonDivider vertical />
-                <div className="flex flex-col flex-1 items-center">
-                    <Field name="appearance" label="">
-                        {({ value, onChange }) => (
-                            <SurveyAppearance
-                                type={survey.questions[0].type}
-                                question={survey.questions[0].question}
-                                description={survey.questions[0].description}
-                                onAppearanceChange={(appearance) => {
-                                    onChange(appearance)
-                                }}
-                                link={survey.questions[0].link}
-                                appearance={value || defaultSurveyAppearance}
-                            />
-                        )}
-                    </Field>
+                <div className="flex flex-col flex-1 items-center min-w-80">
+                    {survey.type !== SurveyType.API ? (
+                        <Field name="appearance" label="">
+                            {({ value, onChange }) => (
+                                <SurveyAppearance
+                                    type={survey.questions[0].type}
+                                    surveyQuestionItem={survey.questions[0]}
+                                    question={survey.questions[0].question}
+                                    description={survey.questions[0].description}
+                                    onAppearanceChange={(appearance) => {
+                                        onChange(appearance)
+                                    }}
+                                    link={
+                                        survey.questions[0].type === SurveyQuestionType.Link
+                                            ? survey.questions[0].link
+                                            : undefined
+                                    }
+                                    appearance={value || defaultSurveyAppearance}
+                                />
+                            )}
+                        </Field>
+                    ) : (
+                        <SurveyAPIEditor survey={survey} />
+                    )}
                 </div>
             </div>
             <LemonDivider />
-            <LemonCollapse
-                panels={[
-                    {
-                        key: '1',
-                        header: 'Release summary',
-                        content: (
-                            <SurveyReleaseSummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
-                        ),
-                    },
-                ]}
-            />
+            <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
             <LemonDivider />
             <div className="flex items-center gap-2 justify-end">
                 <LemonButton
@@ -302,7 +308,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                 >
                     Cancel
                 </LemonButton>
-                <LemonButton type="primary" data-attr="save-feature-flag" htmlType="submit" loading={surveyLoading}>
+                <LemonButton type="primary" data-attr="save-survey" htmlType="submit" loading={surveyLoading}>
                     {id === 'new' ? 'Save as draft' : 'Save'}
                 </LemonButton>
             </div>
@@ -313,32 +319,34 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
 export function SurveyReleaseSummary({
     id,
     survey,
-    targetingFlagFilters,
+    hasTargetingFlag,
 }: {
     id: string
     survey: Survey | NewSurvey
-    targetingFlagFilters?: Pick<FeatureFlagFilters, 'groups'> | null
+    hasTargetingFlag: boolean
 }): JSX.Element {
-    const { cohortsById } = useValues(cohortsModel)
     return (
         <div className="flex flex-col mt-2 gap-2">
-            <div>
-                {survey.linked_flag_id ||
-                survey.conditions?.url ||
-                survey.conditions?.selector ||
-                targetingFlagFilters ? (
-                    <>
-                        This survey {survey.start_date ? 'is' : 'will be'} released to users who match <b>all</b> of the
-                        following:
-                    </>
-                ) : (
-                    <LemonTag type="highlight">
-                        <span className="text-sm">
-                            This survey {survey.start_date ? 'is' : 'will be'} released to everyone
-                        </span>
-                    </LemonTag>
-                )}
-            </div>
+            <div className="font-semibold">Release conditions</div>
+            <span className="text-muted">
+                By default surveys will be released to everyone unless targeting options are set.
+            </span>
+            {survey.conditions?.url && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>URL contains:</span>{' '}
+                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
+                    </div>
+                </div>
+            )}
+            {survey.conditions?.selector && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>Selector matches:</span>{' '}
+                        <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
+                    </div>
+                </div>
+            )}
             {survey.linked_flag_id && (
                 <div className="flex flex-row font-medium gap-1">
                     <span>Feature flag enabled for:</span>{' '}
@@ -351,76 +359,14 @@ export function SurveyReleaseSummary({
                     )}
                 </div>
             )}
-            {survey.conditions?.url && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>Url contains:</span>{' '}
-                    <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.url}</span>
-                </div>
-            )}
-            {survey.conditions?.selector && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>Selector matches:</span>{' '}
-                    <span className="simple-tag tag-light-blue text-primary-alt">{survey.conditions.selector}</span>
-                </div>
-            )}
-            {(targetingFlagFilters?.groups?.[0]?.properties?.length || 0) > 0 && (
-                <div className="flex flex-row font-medium gap-1">
-                    <span>User conditions:</span>{' '}
-                </div>
-            )}
-            {targetingFlagFilters?.groups?.map((group, index) => (
-                <>
-                    {index > 0 && <div className="text-primary-alt font-semibold text-xs ml-2 py-1">OR</div>}
-                    {group.properties?.map((property, idx) => (
-                        <>
-                            <div className="feature-flag-property-display" key={idx}>
-                                {idx === 0 ? (
-                                    <LemonButton
-                                        icon={<IconSubArrowRight className="arrow-right" />}
-                                        status="muted"
-                                        size="small"
-                                    />
-                                ) : (
-                                    <LemonButton
-                                        icon={<span className="text-sm">&</span>}
-                                        status="muted"
-                                        size="small"
-                                    />
-                                )}
-                                <span className="simple-tag tag-light-blue text-primary-alt">
-                                    {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
-                                </span>
-                                {isPropertyFilterWithOperator(property) ? (
-                                    <span>{allOperatorsToHumanName(property.operator)} </span>
-                                ) : null}
-
-                                {property.type === 'cohort' ? (
-                                    <a
-                                        href={urls.cohort(property.value)}
-                                        target="_blank"
-                                        rel="noopener"
-                                        className="simple-tag tag-light-blue text-primary-alt display-value"
-                                    >
-                                        {(property.value && cohortsById[property.value]?.name) ||
-                                            `ID ${property.value}`}
-                                    </a>
-                                ) : (
-                                    [...(Array.isArray(property.value) ? property.value : [property.value])].map(
-                                        (val, idx) => (
-                                            <span
-                                                key={idx}
-                                                className="simple-tag tag-light-blue text-primary-alt display-value"
-                                            >
-                                                {val}
-                                            </span>
-                                        )
-                                    )
-                                )}
-                            </div>
-                        </>
-                    ))}
-                </>
-            ))}
+            <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                {hasTargetingFlag && (
+                    <>
+                        <span className="font-medium">User properties:</span>{' '}
+                        <FeatureFlagReleaseConditions readOnly excludeTitle />
+                    </>
+                )}
+            </BindLogic>
         </div>
     )
 }

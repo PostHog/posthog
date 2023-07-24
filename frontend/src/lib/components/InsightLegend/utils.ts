@@ -1,15 +1,11 @@
-import { ChartDisplayType, FilterType } from '~/types'
-import { isFilterWithDisplay } from 'scenes/insights/sharedUtils'
+import { ChartDisplayType } from '~/types'
 
-export const displayTypesWithoutLegend = [
+export const DISPLAY_TYPES_WITHOUT_LEGEND = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.ActionsTable,
     ChartDisplayType.BoldNumber,
     ChartDisplayType.ActionsBarValue,
 ]
-
-export const shouldShowLegend = (filters: Partial<FilterType>): boolean =>
-    isFilterWithDisplay(filters) && !!filters.display && !displayTypesWithoutLegend.includes(filters.display)
 
 export function shouldHighlightThisRow(
     hiddenLegendKeys: Record<string, boolean | undefined>,

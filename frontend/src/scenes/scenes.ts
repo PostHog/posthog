@@ -103,10 +103,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.WebPerformance]: {
-        projectBased: true,
-        name: 'Web Performance',
-    },
     [Scene.Replay]: {
         projectBased: true,
         name: 'Session Replay',
@@ -210,11 +206,16 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Ingestion]: {
         projectBased: true,
-        plain: true,
+        layout: 'plain',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch Toolbar',
+    },
+    [Scene.Site]: {
+        projectBased: true,
+        hideProjectNotice: true,
+        layout: 'app-raw',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -252,7 +253,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
-        plain: true,
+        layout: 'plain',
     },
     // Instance management routes
     [Scene.SystemStatus]: {
@@ -282,7 +283,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
-        plain: true,
+        layout: 'plain',
     },
     [Scene.Feedback]: {
         projectBased: true,
@@ -378,8 +379,6 @@ export const routes: Record<string, Scene> = {
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
     [urls.database()]: Scene.Database,
     [urls.events()]: Scene.Events,
-    [urls.webPerformance()]: Scene.WebPerformance,
-    [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
@@ -433,6 +432,7 @@ export const routes: Record<string, Scene> = {
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
+    [urls.site(':url')]: Scene.Site,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.login2FA()]: Scene.Login2FA,

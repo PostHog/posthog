@@ -51,7 +51,7 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
     },
     {
         title: 'I',
-        command: (chain) => chain.toggleBold(),
+        command: (chain) => chain.toggleItalic(),
     },
 ]
 

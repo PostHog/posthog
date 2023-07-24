@@ -4,7 +4,9 @@ from django.db import connections
 import structlog
 from django.conf import settings
 
-DATABASE_FOR_FLAG_MATCHING = "default" if "decide" not in settings.READ_REPLICA_OPT_IN else "replica"
+DATABASE_FOR_FLAG_MATCHING = (
+    "default" if ("decide" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES) else "replica"
+)
 
 
 logger = structlog.get_logger(__name__)
@@ -56,4 +58,4 @@ class DatabaseHealthcheck:
             return False
 
 
-postgres_healthcheck = DatabaseHealthcheck()
+postgres_healthcheck = DatabaseHealthcheck(time_interval=10)

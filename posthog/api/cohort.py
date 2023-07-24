@@ -36,7 +36,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import get_and_update_pending_version
+from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -51,9 +51,9 @@ from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.calculate_cohort import (
-    calculate_cohort_ch,
     calculate_cohort_from_list,
     insert_cohort_from_insight_filter,
+    update_cohort,
 )
 from posthog.utils import format_query_params_absolute_url
 
@@ -112,9 +112,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, self.context)
         else:
-            pending_version = get_and_update_pending_version(cohort)
-
-            calculate_cohort_ch.delay(cohort.id, pending_version)
+            update_cohort(cohort)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -134,13 +132,31 @@ class CohortSerializer(serializers.ModelSerializer):
                 flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(
                     team_id=self.context["team_id"], active=True, deleted=False
                 )
+                cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.cohort_ids]) > 0
+
                 for prop in parsed_filter.property_groups.flat:
                     if prop.type == "behavioral":
-                        if [flag for flag in flags if cohort_id in flag.cohort_ids]:
+                        if cohort_used_in_flags:
                             raise serializers.ValidationError(
                                 detail=f"Behavioral filters cannot be added to cohorts used in feature flags.",
                                 code="behavioral_cohort_found",
                             )
+
+                    if prop.type == "cohort":
+                        nested_cohort = Cohort.objects.get(pk=prop.value)
+                        dependent_cohorts = get_dependent_cohorts(nested_cohort)
+                        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
+                            if (
+                                cohort_used_in_flags
+                                and len(
+                                    [prop for prop in dependent_cohort.properties.flat if prop.type == "behavioral"]
+                                )
+                                > 0
+                            ):
+                                raise serializers.ValidationError(
+                                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
+                                    code="behavioral_cohort_found",
+                                )
 
             return request_filters
         else:
@@ -182,10 +198,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                # Increment based on pending versions
-                pending_version = get_and_update_pending_version(cohort)
-
-                calculate_cohort_ch.delay(cohort.id, pending_version)
+                update_cohort(cohort)
 
         report_user_action(
             request.user,

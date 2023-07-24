@@ -1,4 +1,3 @@
-import { FilterType, TrendsFilterType } from '~/types'
 import { RefCallback, useEffect, useState } from 'react'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -6,42 +5,45 @@ import { PureField } from 'lib/forms/Field'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
+import { TrendsFilter } from '~/queries/schema'
 
 function chooseFormativeElementValue(
     formativeElement: 'prefix' | 'postfix' | null,
-    filters: Partial<TrendsFilterType>
+    trendsFilter: TrendsFilter | null | undefined
 ): string {
     if (formativeElement === 'prefix') {
-        return filters.aggregation_axis_prefix || ''
+        return trendsFilter?.aggregation_axis_prefix || ''
     }
 
     if (formativeElement === 'postfix') {
-        return filters.aggregation_axis_postfix || ''
+        return trendsFilter?.aggregation_axis_postfix || ''
     }
 
     return ''
+}
+
+type CustomUnitModalProps = {
+    isOpen: boolean
+    onSave: (hx: HandleUnitChange) => void
+    formativeElement: 'prefix' | 'postfix' | null
+    trendsFilter: TrendsFilter | null | undefined
+    onClose: () => void
+    overlayRef: RefCallback<HTMLDivElement>
 }
 
 export function CustomUnitModal({
     isOpen,
     onSave,
     formativeElement,
-    filters,
+    trendsFilter,
     onClose,
     overlayRef,
-}: {
-    isOpen: boolean
-    onSave: (hx: HandleUnitChange) => void
-    formativeElement: 'prefix' | 'postfix' | null
-    filters: Partial<FilterType>
-    onClose: () => void
-    overlayRef: RefCallback<HTMLDivElement>
-}): JSX.Element | null {
+}: CustomUnitModalProps): JSX.Element | null {
     const [localFormativeElementValue, setLocalFormativeElementValue] = useState<string>(
-        chooseFormativeElementValue(formativeElement, filters)
+        chooseFormativeElementValue(formativeElement, trendsFilter)
     )
     useEffect(() => {
-        setLocalFormativeElementValue(chooseFormativeElementValue(formativeElement, filters))
+        setLocalFormativeElementValue(chooseFormativeElementValue(formativeElement, trendsFilter))
     }, [formativeElement])
 
     if (formativeElement === null) {

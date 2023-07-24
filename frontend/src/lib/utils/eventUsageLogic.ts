@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import type { eventUsageLogicType } from './eventUsageLogicType'
@@ -221,9 +221,9 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
 
 export const eventUsageLogic = kea<eventUsageLogicType>({
     path: ['lib', 'utils', 'eventUsageLogic'],
-    connect: {
+    connect: () => ({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
-    },
+    }),
     actions: {
         // persons related
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
@@ -851,7 +851,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 snapshots_load_time: durations.snapshots?.duration,
                 metadata_load_time: durations.metadata?.duration,
                 events_load_time: durations.events?.duration,
-                performance_events_load_time: durations.performanceEvents?.duration,
                 first_paint_load_time: durations.firstPaint?.duration,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.start?.valueOf() ?? 0,

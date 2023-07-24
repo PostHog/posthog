@@ -76,6 +76,7 @@ export function captureIngestionWarning(db: DB, teamId: TeamId, type: string, de
                     }),
                 },
             ],
-        })
+        }),
+        'ingestion_warning'
     )
 }

@@ -59,6 +59,10 @@ ul {
     .ant-form-item {
         margin-bottom: 0 !important;
     }
+
+    .posthog-3000 & {
+        margin-top: 1rem;
+    }
 }
 
 .page-title {

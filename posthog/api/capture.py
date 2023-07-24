@@ -27,7 +27,11 @@ from posthog.kafka_client.client import (
     KafkaProducer,
     sessionRecordingKafkaProducer,
 )
-from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_SESSION_RECORDING_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+)
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
@@ -69,11 +73,6 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
 )
 
-PERFORMANCE_EVENTS_DROPPED_COUNTER = Counter(
-    "capture_events_dropped_performance_events",
-    "We no longer send performance events legitimately, let's drop them and count how many we drop.",
-    labelnames=["token"],
-)
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     "capture_partition_key_capacity_exceeded_total",
@@ -137,7 +136,7 @@ def build_kafka_event_data(
     }
 
 
-def _kafka_topic(event_name: str) -> str:
+def _kafka_topic(event_name: str, data: Dict) -> str:
     # To allow for different quality of service on session recordings
     # and other events, we push to a different topic.
 
@@ -147,11 +146,15 @@ def _kafka_topic(event_name: str) -> str:
         case "$snapshot_items":
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         case _:
+            # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
+            # historical data topic.
+            if data.get("token") in settings.TOKENS_HISTORICAL_DATA:
+                return KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
             return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    kafka_topic = _kafka_topic(event_name)
+    kafka_topic = _kafka_topic(event_name, data)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
@@ -161,6 +164,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
             producer = sessionRecordingKafkaProducer()
         else:
             producer = KafkaProducer()
+
         future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
@@ -243,10 +247,8 @@ def get_distinct_id(data: Dict[str, Any]) -> str:
     return str(raw_value)[0:200]
 
 
-def drop_performance_events(token: str, events: List[Any]) -> List[Any]:
+def drop_performance_events(events: List[Any]) -> List[Any]:
     cleaned_list = [event for event in events if event.get("event") != "$performance_event"]
-    dropped_event_count = len(events) - len(cleaned_list)
-    PERFORMANCE_EVENTS_DROPPED_COUNTER.labels(token=token).inc(dropped_event_count)
     return cleaned_list
 
 
@@ -354,7 +356,7 @@ def get_event(request):
             events = [data]
 
         try:
-            events = drop_performance_events(token, events)
+            events = drop_performance_events(events)
         except Exception as e:
             capture_exception(e)
 
@@ -364,6 +366,8 @@ def get_event(request):
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
+        consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
+
         try:
             replay_events, other_events = split_replay_events(events)
             processed_replay_events = replay_events
@@ -371,6 +375,10 @@ def get_event(request):
             if len(replay_events) > 0:
                 # Legacy solution stays in place
                 processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
+
+                # Mark all events so that they are only consumed by one consumer
+                for event in processed_replay_events:
+                    event["properties"]["$snapshot_consumer"] = consumer_destination
 
             events = processed_replay_events + other_events
 
@@ -444,11 +452,15 @@ def get_event(request):
                 )
 
     try:
-        if replay_events and random() <= settings.REPLAY_BLOB_INGESTION_TRAFFIC_RATIO:
+        if replay_events:
             # The new flow we only enable if the dedicated kafka is enabled
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
+
+            # Mark all events so that they are only consumed by one consumer
+            for event in alternative_replay_events:
+                event["properties"]["$snapshot_consumer"] = consumer_destination
 
             futures = []
 
@@ -535,7 +547,11 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
 
     candidate_partition_key = f"{token}:{distinct_id}"
 
-    if distinct_id.lower() not in LIKELY_ANONYMOUS_IDS and is_randomly_partitioned(candidate_partition_key) is False:
+    if (
+        distinct_id.lower() not in LIKELY_ANONYMOUS_IDS
+        and is_randomly_partitioned(candidate_partition_key) is False
+        or token in settings.TOKENS_HISTORICAL_DATA
+    ):
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
