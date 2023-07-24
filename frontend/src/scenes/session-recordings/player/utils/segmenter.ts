@@ -63,7 +63,7 @@ export const createSegments = (snapshots: RecordingSnapshot[], start?: Dayjs, en
             isNewSegment = true
         }
 
-        // 5. If windowId changes we create a new segment
+        // 4. If windowId changes we create a new segment
         if (activeSegment?.windowId !== snapshot.windowId && eventIsActive) {
             isNewSegment = true
         }
