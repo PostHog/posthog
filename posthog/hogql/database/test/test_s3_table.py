@@ -38,6 +38,7 @@ class TestS3Table(BaseTest):
 
         clickhouse = self._select(query="SELECT High, Low FROM aapl_stock AS a LIMIT 10", dialect="clickhouse")
 
+        # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
             "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT a.High, a.Low FROM a LIMIT 10",
@@ -81,6 +82,7 @@ class TestS3Table(BaseTest):
             dialect="clickhouse",
         )
 
+        # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
             "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)), b AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) SELECT a.High, a.Low FROM a JOIN b ON equals(a.High, b.High) LIMIT 10",
