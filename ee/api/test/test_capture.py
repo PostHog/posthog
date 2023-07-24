@@ -6,7 +6,6 @@ from unittest.mock import patch
 from django.http import HttpResponse
 from django.test.client import Client
 from django.utils import timezone
-from freezegun import freeze_time
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
@@ -262,7 +261,7 @@ class TestCaptureAPI(APIBaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_quota_limited_recordings_return_retry_after_header(self, _kafka_produce) -> None:
-        with self.settings(QUOTA_LIMITING_ENABLED=True), freeze_time("2021-01-01T21:00:00Z"):
+        with self.settings(QUOTA_LIMITING_ENABLED=True):
             from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
 
             replace_limited_team_tokens(
@@ -270,14 +269,15 @@ class TestCaptureAPI(APIBaseTest):
             )
             _, response = self._send_session_recording_event(expected_status_code=status.HTTP_429_TOO_MANY_REQUESTS)
             # it is three hours to midnight
-            self.assertEqual(response["X-Posthog-Retry-After-Recordings"], str(10 * 60 * 1000))
+            self.assertEqual(response["X-Posthog-Retry-After-Recordings"], str(60))
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_quota_limited_events_return_retry_after_header(self, _kafka_produce) -> None:
-        with self.settings(QUOTA_LIMITING_ENABLED=True), freeze_time("2021-01-01T21:00:00Z"):
+        with self.settings(QUOTA_LIMITING_ENABLED=True):
             from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
 
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
+
             response = self._send_event(expected_status_code=status.HTTP_429_TOO_MANY_REQUESTS)
-            # it is three hours to midnight
-            self.assertEqual(response["X-Posthog-Retry-After-Events"], str(10 * 60 * 1000))
+
+            self.assertEqual(response["X-Posthog-Retry-After-Events"], str(60))
