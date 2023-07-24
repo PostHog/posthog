@@ -292,12 +292,14 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
     const schemaRef = useRef<HTMLInputElement>(null)
     const tableNameRef = useRef<HTMLInputElement>(null)
     const intervalRef = useRef<'hour' | 'day' | null>(null)
+    const roleRef = useRef<HTMLInputElement>(null)
 
     const { createExport, loading, error } = useCreateExport()
 
     const handleCreateExport = useCallback(() => {
         if (
             !nameRef.current ||
+            !roleRef.current ||
             !userRef.current ||
             !passwordRef.current ||
             !accountRef.current ||
@@ -319,6 +321,7 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
         const schema = schemaRef.current?.value ?? ''
         const tableName = tableNameRef.current?.value ?? ''
         const interval = intervalRef.current
+        const role = roleRef.current?.value ?? null
 
         const exportData = {
             name,
@@ -331,6 +334,7 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
                     database,
                     warehouse,
                     schema,
+                    role,
                     table_name: tableName,
                 },
             },
