@@ -546,13 +546,12 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
             kafka_partition_key = event["properties"]["$session_id"]
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
-    candidate_partition_key = f"{token}:{distinct_id}"
+    # Obviously anonymous IDs should never be allowed locality constraints
+    if distinct_id.lower() in LIKELY_ANONYMOUS_IDS:
+        return log_event(parsed_event, event["event"], partition_key=None)
 
-    if (
-        distinct_id.lower() not in LIKELY_ANONYMOUS_IDS
-        and is_randomly_partitioned(candidate_partition_key) is False
-        or token in settings.TOKENS_HISTORICAL_DATA
-    ):
+    candidate_partition_key = f"{token}:{distinct_id}"
+    if token in settings.TOKENS_HISTORICAL_DATA or is_randomly_partitioned(candidate_partition_key) is False:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
