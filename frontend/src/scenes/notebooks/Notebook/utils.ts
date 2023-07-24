@@ -21,6 +21,7 @@ export interface NotebookEditor {
     setContent: (content: JSONContent) => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
+    insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
     nextNode: (position: number) => { node: Node; position: number } | null

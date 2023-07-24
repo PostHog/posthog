@@ -1,6 +1,7 @@
 import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
-import { useRef } from 'react'
+import { FloatingMenu } from '@tiptap/extension-floating-menu'
+import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
@@ -21,7 +22,9 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { Node } from '@tiptap/pm/model'
-import { InsertionSuggestions } from '../Suggestions/InsertionSuggestions'
+import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
+import { useActions } from 'kea'
+import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -39,6 +42,15 @@ export function Editor({
     placeholder: ({ node }: { node: any }) => string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
+    const logic = insertionSuggestionsLogic()
+    const { resetSuggestions, setPreviousNode } = useActions(logic)
+
+    const updatePreviousNode = useCallback(() => {
+        const editor = editorRef.current
+        if (editor) {
+            setPreviousNode(getPreviousNode(editor))
+        }
+    }, [editorRef.current])
 
     const _editor = useEditor({
         extensions: [
@@ -48,6 +60,15 @@ export function Editor({
             }),
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
+            }),
+            FloatingMenu.extend({
+                onSelectionUpdate() {
+                    updatePreviousNode()
+                },
+                onUpdate: () => {
+                    updatePreviousNode()
+                    resetSuggestions()
+                },
             }),
             NotebookNodeLink,
             NotebookNodeBacklink,
@@ -124,6 +145,7 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
+                insertContent: (content: JSONContent) => editor.chain().focus().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
@@ -142,7 +164,7 @@ export function Editor({
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {_editor && <InsertionSuggestions editor={_editor} />}
+            {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
 }
@@ -172,4 +194,10 @@ export function hasDirectChildOfType(node: Node, type: string, direct: boolean =
         return !direct
     })
     return types.includes(type)
+}
+
+function getPreviousNode(editor: TTEditor): Node | null {
+    const { $anchor } = editor.state.selection
+    const node = $anchor.node(1)
+    return editor.state.doc.childBefore($anchor.pos - node.nodeSize).node
 }

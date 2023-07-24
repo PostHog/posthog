@@ -117,9 +117,10 @@
         }
 
         &.NotebookRecordingTimestamp--preview {
+            height: 1.375rem;
             border: 1px solid var(--border-light);
             color: var(--mid);
-            padding: 0.1rem 0.25rem;
+            padding: 0rem 0.25rem;
         }
     }
 

@@ -2,56 +2,69 @@ import { kea } from 'kea'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
-import { Editor as TTEditor } from '@tiptap/core'
 import { InsertionSuggestion } from './InsertionSuggestion'
 import { Node } from '@tiptap/pm/model'
-
-type InsertionSuggestionsLogicProps = {
-    editor: TTEditor
-}
 
 const SUGGESTIONS = [ReplayTimestampSuggestion] as InsertionSuggestion[]
 const DEFAULT_SUGGESTION: InsertionSuggestion = SlashCommands
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
-    props: {} as InsertionSuggestionsLogicProps,
     path: ['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic'],
 
     actions: {
+        setPreviousNode: (node) => ({ node }),
+        setSuggestions: (suggestions: InsertionSuggestion[]) => ({ suggestions }),
         dismissSuggestion: (key: string) => ({ key }),
         resetSuggestions: true,
         onTab: true,
         onEscape: true,
     },
 
-    selectors: {
-        previousNode: [
-            () => [(_, props) => props.editor],
-            (editor: TTEditor) => {
-                const { $anchor } = editor.state.selection
-                const node = $anchor.node(1)
-                return editor.state.doc.childBefore($anchor.pos - node.nodeSize).node
+    reducers: {
+        suggestions: [
+            SUGGESTIONS,
+            {
+                setSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
+        previousNode: [
+            null as Node | null,
+            {
+                setPreviousNode: (_, { node }) => node,
+            },
+        ],
+    },
+
+    selectors: {
         activeSuggestion: [
-            (s) => [s.previousNode],
-            (previousNode: Node) =>
-                SUGGESTIONS.find(({ dismissed, shouldShow }) =>
-                    !dismissed && typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow
+            (s) => [s.suggestions, s.previousNode],
+            (suggestions: InsertionSuggestion[], previousNode: Node) =>
+                suggestions.find(
+                    ({ dismissed, shouldShow }) =>
+                        !dismissed && (typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow)
                 ) || DEFAULT_SUGGESTION,
         ],
     },
 
-    listeners: ({ props, values }) => ({
+    listeners: ({ values, actions }) => ({
         resetSuggestions: () => {
-            SUGGESTIONS.forEach((suggestion) => (suggestion.dismissed = false))
+            const nextSuggestions = values.suggestions.map((suggestion) => {
+                return { ...suggestion, dismissed: false }
+            })
+            actions.setSuggestions(nextSuggestions)
         },
+
         onTab: () => {
-            values.activeSuggestion?.onTab({ editor: props.editor, previousNode: values.previousNode })
+            values.activeSuggestion?.onTab({ previousNode: values.previousNode })
         },
+
         onEscape: () => {
-            if (values.activeSuggestion && SUGGESTIONS.includes(values.activeSuggestion)) {
-                values.activeSuggestion.dismissed = true
+            if (values.activeSuggestion) {
+                const newSuggestion = { ...values.activeSuggestion, dismissed: true }
+                const nextSuggestions = values.suggestions.map((suggestion) =>
+                    suggestion === values.activeSuggestion ? newSuggestion : suggestion
+                )
+                actions.setSuggestions(nextSuggestions)
             }
         },
     }),
