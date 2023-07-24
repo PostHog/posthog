@@ -60,6 +60,7 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+    role: str | None = None
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -125,6 +126,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
+            role=inputs.role,
         )
 
         try:
@@ -316,6 +318,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            role=inputs.role,
         )
         try:
             await workflow.execute_activity(
