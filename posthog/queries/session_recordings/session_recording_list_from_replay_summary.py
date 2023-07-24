@@ -11,6 +11,7 @@ from posthog.queries.session_recordings.session_recording_list import SessionRec
 @dataclasses.dataclass(frozen=True)
 class SummaryEventFiltersSQL:
     having_conditions: str
+    having_select: str
     where_conditions: str
     params: Dict[str, Any]
 
@@ -30,8 +31,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
     _raw_persons_or_events_join = """
 join (
             SELECT
-                groupUniqArray(event) as event_names,
-                groupArray(uuid) as event_ids,
+                {event_filter_having_events_select}
                 `$session_id`,
                 pdi.distinct_id,
                 argMax(pdi.person_id, version) as person_id
@@ -68,8 +68,7 @@ join (
 
     _raw_events_join = """ join (
             SELECT
-                groupUniqArray(event) as event_names,
-                groupArray(uuid) as event_ids,
+                {event_filter_having_events_select}
                 `$session_id`
             FROM events e
             WHERE
@@ -99,7 +98,6 @@ join (
        sum(s.console_log_count) as console_log_count,
        sum(s.console_warn_count) as console_warn_count,
        sum(s.console_error_count) as console_error_count
-       {event_ids_selector}
     FROM session_replay_events s
         {persons_or_events_join}
     WHERE s.team_id = %(team_id)s
@@ -144,11 +142,16 @@ join (
         if len(event_names_to_filter) == 0:
             # using "All events"
             having_conditions = ""
+            having_select = ""
         else:
             having_conditions = "AND hasAll(event_names, %(event_names)s)"
+            having_select = """
+            -- select the unique events in this session to support filtering sessions by presence of an event
+                groupUniqArray(event) as event_names,"""
 
         return SummaryEventFiltersSQL(
             having_conditions=having_conditions,
+            having_select=having_select,
             where_conditions=f"AND {condition_sql}" if condition_sql else "",
             params=params,
         )
@@ -170,7 +173,6 @@ join (
             "console_log_count",
             "console_warn_count",
             "console_error_count",
-            "matching_events",
         ]
 
         return [
@@ -221,15 +223,12 @@ join (
 
         persons_or_events_join, persons_or_events_join_params = self._get_persons_or_events_join
 
-        should_join_events = self._determine_should_join_events()
-
         return (
             self._session_recordings_query.format(
                 person_id_clause=person_id_clause,
                 duration_clause=duration_clause,
                 persons_or_events_join=persons_or_events_join,
                 provided_session_ids_clause=provided_session_ids_clause,
-                event_ids_selector=",any(e.event_ids) as matching_events" if should_join_events else "",
                 console_log_clause=console_log_clause,
             ),
             {
@@ -250,6 +249,7 @@ join (
         event_filters_params = {}
         event_filters_where_conditions = ""
         event_filters_having_conditions = ""
+        event_filters_having_select = ""
 
         should_join_events = self._determine_should_join_events()
         if should_join_events:
@@ -257,6 +257,7 @@ join (
             event_filters_params = event_filters.params
             event_filters_where_conditions = event_filters.where_conditions
             event_filters_having_conditions = event_filters.having_conditions
+            event_filters_having_select = event_filters.having_select
 
             events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
 
@@ -291,6 +292,7 @@ join (
             join_clause.format(
                 event_filter_where_conditions=event_filters_where_conditions,
                 event_filter_having_events_condition=event_filters_having_conditions,
+                event_filter_having_events_select=event_filters_having_select,
                 events_timestamp_clause=events_timestamp_clause,
                 filter_persons_clause=filter_persons_clause,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,

@@ -15,12 +15,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -62,12 +60,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -108,12 +104,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -155,12 +149,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -202,12 +194,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`,
             pdi.distinct_id,
             argMax(pdi.person_id, version) as person_id
@@ -259,13 +249,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
-    (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
-            `$session_id`
+    (SELECT `$session_id`
      FROM events e
      WHERE team_id = 2
        and notEmpty(`$session_id`)
@@ -302,13 +289,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
-    (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
-            `$session_id`
+    (SELECT `$session_id`
      FROM events e
      WHERE team_id = 2
        and notEmpty(`$session_id`)
@@ -346,13 +330,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
-    (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
-            `$session_id`
+    (SELECT `$session_id`
      FROM events e
      WHERE team_id = 2
        and notEmpty(`$session_id`)
@@ -390,13 +371,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
-    (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
-            `$session_id`
+    (SELECT `$session_id`
      FROM events e
      WHERE team_id = 2
        and notEmpty(`$session_id`)
@@ -433,13 +411,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
-    (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
-            `$session_id`
+    (SELECT `$session_id`
      FROM events e
      WHERE team_id = 2
        and notEmpty(`$session_id`)
@@ -477,13 +452,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
-    (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
-            `$session_id`
+    (SELECT `$session_id`
      FROM events e
      WHERE team_id = 2
        and notEmpty(`$session_id`)
@@ -1006,12 +978,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1050,12 +1020,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1094,12 +1062,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1168,12 +1134,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1213,12 +1177,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1258,12 +1220,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`,
             pdi.distinct_id,
             argMax(pdi.person_id, version) as person_id
@@ -1315,12 +1275,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1360,12 +1318,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1404,12 +1360,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1497,12 +1451,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1542,12 +1494,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1587,12 +1537,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1632,12 +1580,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1677,12 +1623,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -1722,12 +1666,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -2228,12 +2170,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`,
             pdi.distinct_id,
             argMax(pdi.person_id, version) as person_id
@@ -2288,12 +2228,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`,
             pdi.distinct_id,
             argMax(pdi.person_id, version) as person_id
@@ -2348,12 +2286,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
@@ -2393,12 +2329,10 @@
          duration-active_seconds as inactive_seconds,
          sum(s.console_log_count) as console_log_count,
          sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count ,
-         any(e.event_ids) as matching_events
+         sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
   join
     (SELECT groupUniqArray(event) as event_names,
-            groupArray(uuid) as event_ids,
             `$session_id`
      FROM events e
      WHERE team_id = 2
