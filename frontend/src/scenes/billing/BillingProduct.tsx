@@ -493,7 +493,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <IconInfo className="mr-1" />
                                             Using local evaluation? Here's{' '}
                                             <Link
-                                                to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation"
+                                                to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation#server-side-local-evaluation"
                                                 className="italic"
                                             >
                                                 how we calculate usage
