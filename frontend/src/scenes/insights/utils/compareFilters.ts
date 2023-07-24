@@ -14,7 +14,7 @@ const clean = (
     // do we need an order property on events or actions?
     const needsOrder = (cleanedFilters.events || []).length + (cleanedFilters.actions || []).length > 1
 
-    cleanedFilters.events = cleanedFilters.events?.map((e) => {
+    cleanedFilters.events?.forEach((e) => {
         // event math `total` is the default
         if (e.math === 'total') {
             delete e.math
@@ -24,17 +24,13 @@ const clean = (
         if (!needsOrder) {
             delete e.order
         }
-
-        return e
     })
 
-    cleanedFilters.actions = cleanedFilters.actions?.map((a) => {
+    cleanedFilters.actions?.forEach((a) => {
         // delete unnecessary action order
         if (!needsOrder) {
             delete a.order
         }
-
-        return a
     })
 
     // used only for persons endpoint
