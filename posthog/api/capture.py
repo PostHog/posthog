@@ -1,8 +1,9 @@
+import dataclasses
 import hashlib
 import json
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
@@ -16,7 +17,6 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter
 from rest_framework import status
-from rest_framework.exceptions import Throttled
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
@@ -253,9 +253,16 @@ def drop_performance_events(events: List[Any]) -> List[Any]:
     return cleaned_list
 
 
-def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
+@dataclasses.dataclass(frozen=True)
+class EventsOverQuotaResult:
+    events: List[Any]
+    events_were_limited: bool
+    recordings_were_limited: bool
+
+
+def drop_events_over_quota(token: str, events: List[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return events
+        return EventsOverQuotaResult(events, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
 
@@ -263,29 +270,30 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
     limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
 
+    recordings_were_limited = False
+    events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
-                    # tell clients to wait until midnight before trying again, or at least 1 hour, if midnight is soon
-                    seconds_until_midnight = max(
-                        (datetime.now() + timedelta(days=1)).replace(hour=0, minute=0, second=0) - datetime.now(),
-                        timedelta(hours=1),
-                    ).total_seconds()
-                    raise Throttled(detail="Recording event dropped due to billing limit", wait=seconds_until_midnight)
+                    recordings_were_limited = True
+                    continue
 
         else:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
             if token in limited_tokens_events:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
+                    events_were_limited = True
                     continue
 
         results.append(event)
 
-    return results
+    return EventsOverQuotaResult(
+        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+    )
 
 
 @csrf_exempt
@@ -366,24 +374,15 @@ def get_event(request):
         except Exception as e:
             capture_exception(e)
 
+        events_were_quota_limited = False
+        recordings_were_quota_limited = False
         try:
-            events = drop_events_over_quota(token, events)
+            events_over_quota_result = drop_events_over_quota(token, events)
+            events = events_over_quota_result.events
+            events_were_quota_limited = events_over_quota_result.events_were_limited
+            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
         except Exception as e:
             capture_exception(e)
-            # if the exception is Throttled, we want to return a 429 response
-            # to allow SDKs to decide not to retry
-            if isinstance(e, Throttled):
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "capture",
-                        detail=e.detail,
-                        code="quota_exceeded",
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        # throttled definitely has a wait property
-                        headers={"Retry-After": e.wait},  # type: ignore
-                    ),
-                )
 
         consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
 
@@ -500,7 +499,25 @@ def get_event(request):
         pass
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
-    return cors_response(request, JsonResponse({"status": 1}))
+
+    if events_were_quota_limited or recordings_were_quota_limited:
+        headers = {}
+        if events_were_quota_limited:
+            headers["X-PostHog-Retry-After-Events"] = 10 * 60 * 1000
+        if recordings_were_quota_limited:
+            headers["X-PostHog-Retry-After-Recordings"] = 10 * 60 * 1000
+
+        response = generate_exception_response(
+            "capture",
+            detail="Some events dropped due to billing limit",
+            code="quota_exceeded",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers=headers,
+        )
+    else:
+        response = JsonResponse({"status": 1})
+
+    return cors_response(request, response)
 
 
 def preprocess_events(events: List[Dict[str, Any]]) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
