@@ -54,6 +54,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         draftFromPromptComplete: true,
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
+        setIsValidView: (isValid: boolean) => ({ isValid }),
     }),
     reducers(({ props }) => ({
         queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
@@ -64,6 +65,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
         ],
         promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
+        isValidView: [false, { setIsValidView: (_, { isValid }) => isValid }],
     })),
     selectors({
         hasErrors: [
@@ -132,7 +134,9 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             for (const notice of response?.notices ?? []) {
                 noticeToMarker(notice, 1 /* MarkerSeverity.Hint */)
             }
-
+            console.log(response)
+            const isValidView = response?.isValidView || false
+            actions.setIsValidView(isValidView)
             actions.setModelMarkers(markers)
         },
         draftFromPrompt: async () => {
