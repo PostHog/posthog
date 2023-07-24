@@ -40,10 +40,7 @@ export function DraggableToNotebook({
 
     return (
         <>
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match={false}>
-                {children}
-            </FlaggedFeature>
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
+            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} fallback={children}>
                 <span
                     className={clsx(
                         'DraggableToNotebook',

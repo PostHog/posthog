@@ -314,7 +314,7 @@ export function SitePopoverOverlay(): JSX.Element {
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
-            <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON} match>
+            <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
                 <SitePopoverSection>
                     <FeaturePreviewsButton />
                 </SitePopoverSection>
