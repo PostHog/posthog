@@ -3,18 +3,15 @@ import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicT
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
 import { Editor as TTEditor } from '@tiptap/core'
-
-type InsertionSuggestion = {
-    shouldShow: boolean | (({ editor }: { editor: TTEditor }) => boolean)
-    Component: React.FunctionComponent
-    onTab: ({ editor }: { editor: TTEditor }) => void
-}
+import { InsertionSuggestion } from './InsertionSuggestion'
+import { Node } from '@tiptap/pm/model'
 
 type InsertionSuggestionsLogicProps = {
     editor: TTEditor
 }
 
-const SUGGESTIONS = [ReplayTimestampSuggestion, SlashCommands]
+const SUGGESTIONS = [ReplayTimestampSuggestion] as InsertionSuggestion[]
+const DEFAULT_SUGGESTION: InsertionSuggestion = SlashCommands
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
     props: {} as InsertionSuggestionsLogicProps,
@@ -26,23 +23,8 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
         onTab: true,
         onEscape: true,
     },
-    reducers: () => ({
-        suggestions: [
-            SUGGESTIONS as InsertionSuggestion[],
-            {
-                resetSuggestions: () => [...SUGGESTIONS],
-            },
-        ],
-    }),
+
     selectors: {
-        activeSuggestion: [
-            (s) => [s.suggestions, (_, props) => props.editor],
-            (suggestions: InsertionSuggestion[], editor: TTEditor) =>
-                suggestions.find(({ shouldShow }) => {
-                    return true
-                    return typeof shouldShow === 'function' ? shouldShow({ editor }) : shouldShow
-                }),
-        ],
         previousNode: [
             () => [(_, props) => props.editor],
             (editor: TTEditor) => {
@@ -51,13 +33,29 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>({
                 return editor.state.doc.childBefore($anchor.pos - node.nodeSize).node
             },
         ],
+        activeSuggestion: [
+            (s) => [s.previousNode],
+            (previousNode: Node) =>
+                SUGGESTIONS.find(({ dismissed, shouldShow }) =>
+                    !dismissed && typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow
+                ) || DEFAULT_SUGGESTION,
+        ],
     },
+
     listeners: ({ props, values }) => ({
-        onTab: () => {
-            values.activeSuggestion.onTab({ editor: props.editor, previousNode: values.previousNode })
+        resetSuggestions: () => {
+            SUGGESTIONS.forEach((suggestion) => (suggestion.dismissed = false))
         },
-        onEscape: () => {},
+        onTab: () => {
+            values.activeSuggestion?.onTab({ editor: props.editor, previousNode: values.previousNode })
+        },
+        onEscape: () => {
+            if (values.activeSuggestion && SUGGESTIONS.includes(values.activeSuggestion)) {
+                values.activeSuggestion.dismissed = true
+            }
+        },
     }),
+
     events: ({ cache, actions }) => ({
         afterMount: () => {
             cache.onKeyDown = (e: KeyboardEvent) => {

@@ -7,6 +7,7 @@ import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
 
 export function InsertionSuggestions({ editor }: { editor: TTEditor }): JSX.Element | null {
     const { activeSuggestion, previousNode } = useValues(insertionSuggestionsLogic({ editor }))
+    const { Component } = activeSuggestion
 
     const shouldShow = useCallback((): boolean => {
         if (!editor) {
@@ -26,7 +27,7 @@ export function InsertionSuggestions({ editor }: { editor: TTEditor }): JSX.Elem
             className="NotebookFloatingButton"
             shouldShow={shouldShow}
         >
-            {activeSuggestion && <activeSuggestion.Component previousNode={previousNode} />}
+            {Component && <Component previousNode={previousNode} />}
         </FloatingMenu>
     ) : null
 }

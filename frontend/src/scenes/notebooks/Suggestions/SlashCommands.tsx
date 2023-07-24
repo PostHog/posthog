@@ -1,22 +1,25 @@
 import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { IconPlus } from 'lib/lemon-ui/icons'
 import { SlashCommands } from '../Notebook/SlashCommands'
+import { InsertionSuggestion } from './InsertionSuggestion'
 
-const Component = (): React.ReactNode => (
-    <LemonButtonWithDropdown
-        size="small"
-        icon={<IconPlus />}
-        dropdown={{
-            overlay: <SlashCommands mode="add" range={undefined} />,
-            placement: 'right-start',
-            fallbackPlacements: ['left-start'],
-            actionable: true,
-            closeParentPopoverOnClickInside: true,
-        }}
-    />
-)
+const Component = (): JSX.Element => {
+    return (
+        <LemonButtonWithDropdown
+            size="small"
+            icon={<IconPlus />}
+            dropdown={{
+                overlay: <SlashCommands mode="add" range={undefined} />,
+                placement: 'right-start',
+                fallbackPlacements: ['left-start'],
+                actionable: true,
+                closeParentPopoverOnClickInside: true,
+            }}
+        />
+    )
+}
 
-export default {
+export default InsertionSuggestion.create({
     shouldShow: true,
     Component,
-}
+})

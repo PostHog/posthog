@@ -6,16 +6,9 @@ import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { Node } from '@tiptap/pm/model'
 import { useValues } from 'kea'
+import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 
-function shouldShow({ editor }: { editor: TTEditor }): boolean {
-    const { $anchor } = editor.state.selection
-    const node = $anchor.node(1)
-    const previousNode = editor.state.doc.childBefore($anchor.pos - node.nodeSize).node
-
-    return !!previousNode ? hasDirectChildOfType(previousNode, NotebookNodeType.ReplayTimestamp) : false
-}
-
-const Component = ({ previousNode }: { previousNode: Node | null }): React.ReactNode => {
+const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
     const { currentPlayerTime } = useValues(
         sessionRecordingPlayerLogic(sessionRecordingPlayerProps(previousNode?.attrs.sessionRecordingId))
     )
@@ -27,20 +20,25 @@ const Component = ({ previousNode }: { previousNode: Node | null }): React.React
     )
 }
 
-function onTab({ editor, previousNode }: { editor: TTEditor; previousNode: Node | null }): void {
-    if (previousNode) {
-        const sessionRecordingId = previousNode.attrs.sessionRecordingId
+export default InsertionSuggestion.create({
+    shouldShow: ({ previousNode }) =>
+        !!previousNode ? hasDirectChildOfType(previousNode, NotebookNodeType.ReplayTimestamp) : false,
 
-        const currentPlayerTime =
-            sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
-                .currentPlayerTime || 0
+    onTab: ({ editor, previousNode }: { editor: TTEditor; previousNode: Node | null }) => {
+        if (previousNode) {
+            const sessionRecordingId = previousNode.attrs.sessionRecordingId
 
-        editor.chain().insertContent(buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)).focus().run()
-    }
-}
+            const currentPlayerTime =
+                sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
+                    .currentPlayerTime || 0
 
-export default {
-    shouldShow,
+            editor
+                .chain()
+                .insertContent(buildTimestampCommentContent(currentPlayerTime, sessionRecordingId))
+                .focus()
+                .run()
+        }
+    },
+
     Component,
-    onTab,
-}
+})

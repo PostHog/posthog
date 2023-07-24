@@ -1,0 +1,32 @@
+import { Editor as TTEditor } from '@tiptap/core'
+import { Node } from '@tiptap/pm/model'
+
+export type InsertionSuggestionViewProps = {
+    previousNode?: Node | null
+}
+
+interface InsertionSuggestionConfig {
+    Component: (props: InsertionSuggestionViewProps) => JSX.Element
+    shouldShow: boolean | (({ previousNode }: { previousNode: Node }) => boolean)
+    onTab?: ({ editor, previousNode }: { editor: TTEditor; previousNode: Node | null }) => void
+}
+
+export class InsertionSuggestion {
+    dismissed = false
+    shouldShow: boolean | (({ previousNode }: { previousNode: Node }) => boolean) = false
+    onTab: ({ editor, previousNode }: { editor: TTEditor; previousNode: Node | null }) => void = () => {}
+    Component: (props: InsertionSuggestionViewProps) => JSX.Element
+
+    constructor(config: InsertionSuggestionConfig) {
+        this.shouldShow = config.shouldShow
+        this.Component = config.Component
+
+        if (config.onTab) {
+            this.onTab = config.onTab
+        }
+    }
+
+    static create(config: InsertionSuggestionConfig): InsertionSuggestion {
+        return new InsertionSuggestion(config)
+    }
+}
