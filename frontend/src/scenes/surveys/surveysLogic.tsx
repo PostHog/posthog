@@ -6,7 +6,6 @@ import { urls } from 'scenes/urls'
 
 import type { surveysLogicType } from './surveysLogicType'
 import { lemonToast } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
 
 export function getSurveyStatus(survey: Survey): ProgressStatus {
     if (!survey.start_date) {
@@ -30,12 +29,18 @@ export const surveysLogic = kea<surveysLogicType>([
                 await api.surveys.delete(id)
                 return values.surveys.filter((survey) => survey.id !== id)
             },
+            updateSurvey: async ({ id, updatePayload }) => {
+                const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
+                return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
+            },
         },
     })),
     listeners(() => ({
         deleteSurveySuccess: () => {
             lemonToast.success('Survey deleted')
-            router.actions.replace(urls.surveys())
+        },
+        updateSurveySuccess: () => {
+            lemonToast.success('Survey updated')
         },
     })),
     selectors({
