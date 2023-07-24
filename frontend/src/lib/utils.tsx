@@ -408,7 +408,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
-/** Compare objects deply. */
+/** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
