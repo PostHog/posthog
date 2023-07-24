@@ -40,7 +40,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT a.High, a.Low FROM aapl_stock AS a LIMIT 10",
+            "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT a.High, a.Low FROM a LIMIT 10",
         )
 
     def test_s3_table_select_join(self):
@@ -83,7 +83,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)), b AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) SELECT a.High, a.Low FROM aapl_stock AS a JOIN aapl_stock AS b ON equals(a.High, b.High) LIMIT 10",
+            "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)), b AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) SELECT a.High, a.Low FROM a JOIN b ON equals(a.High, b.High) LIMIT 10",
         )
 
     def test_s3_table_select_and_non_s3_join(self):
