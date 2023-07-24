@@ -189,7 +189,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight('new', teamFilterTestAccounts),
-                            ...(filters ? { filters: cleanFilters(filters || {}, teamFilterTestAccounts) } : {}),
+                            ...(filters
+                                ? { filters: cleanFilters(filters || {}, undefined, teamFilterTestAccounts) }
+                                : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             ...(q ? { query: JSON.parse(q) } : {}),
                         },
