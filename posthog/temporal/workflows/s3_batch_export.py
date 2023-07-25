@@ -150,8 +150,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
-                    result = await results_iterator.__anext__()
-                except StopAsyncIteration:
+                    result = results_iterator.__next__()
+                except StopIteration:
                     break
                 except json.JSONDecodeError:
                     # This is raised by aiochclient as we try to decode an error message from ClickHouse.

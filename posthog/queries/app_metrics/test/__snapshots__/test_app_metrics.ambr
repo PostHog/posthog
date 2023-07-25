@@ -1,10 +1,9 @@
 # name: TestAppMetricsErrorDetailsQuery.test_error_details_query
   '
   
-  SELECT timestamp,
-         error_uuid,
-         error_type,
-         error_details
+  SELECT timestamp, error_uuid,
+                    error_type,
+                    error_details
   FROM app_metrics
   WHERE team_id = 2
     AND plugin_config_id = 3
@@ -17,10 +16,9 @@
 # name: TestAppMetricsErrorDetailsQuery.test_error_details_query_filter_by_job_id
   '
   
-  SELECT timestamp,
-         error_uuid,
-         error_type,
-         error_details
+  SELECT timestamp, error_uuid,
+                    error_type,
+                    error_details
   FROM app_metrics
   WHERE team_id = 2
     AND plugin_config_id = 3
@@ -34,10 +32,9 @@
 # name: TestAppMetricsErrorDetailsQuery.test_ignores_unrelated_data
   '
   
-  SELECT timestamp,
-         error_uuid,
-         error_type,
-         error_details
+  SELECT timestamp, error_uuid,
+                    error_type,
+                    error_details
   FROM app_metrics
   WHERE team_id = 2
     AND plugin_config_id = 3
