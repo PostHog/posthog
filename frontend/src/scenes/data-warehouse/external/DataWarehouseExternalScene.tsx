@@ -40,7 +40,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
                 caption={
                     <div>
-                        These are the database tables you can query under SQL insights with{' '}
+                        These are external data sources you can query under SQL insights with{' '}
                         <a href="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </a>

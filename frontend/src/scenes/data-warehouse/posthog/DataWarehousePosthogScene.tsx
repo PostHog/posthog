@@ -38,25 +38,10 @@ export function DataWarehousePosthogScene(): JSX.Element {
                         <a href="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </a>
-                        . Connect your own tables from S3 to query data from outside posthog.{' '}
-                        <a href="https://posthog.com/docs/data/data-warehouse">Learn more</a>
+                        .
                     </div>
                 }
             />
-            {/* {(shouldShowProductIntroduction || shouldShowEmptyState) && (
-                <ProductIntroduction
-                    productName={'Data Warehouse'}
-                    thingName={'data warehouse table'}
-                    description={
-                        'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
-                    }
-                    action={() => router.actions.push(urls.dataWarehouseTable('new'))}
-                    isEmpty={shouldShowEmptyState}
-                    docsURL="https://posthog.com/docs/data/data-warehouse"
-                    productKey={ProductKey.DATA_WAREHOUSE}
-                />
-            )}
-            {!shouldShowEmptyState && <DataWarehouseTablesContainer />} */}
             <DataWarehousePageTabs tab={DataWarehouseTab.Posthog} />
             <DatabaseTablesContainer />
         </div>

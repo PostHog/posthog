@@ -101,6 +101,7 @@ export enum ProductKey {
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
+    DATA_WAREHOUSE_VIEWS = 'data_warehouse_views',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 

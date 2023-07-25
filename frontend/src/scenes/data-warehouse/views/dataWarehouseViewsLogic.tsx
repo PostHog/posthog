@@ -1,7 +1,7 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { DataWarehouseView } from '~/types'
+import { DataWarehouseView, ProductKey } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
@@ -49,18 +49,18 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
-        // shouldShowEmptyState: [
-        //     (s) => [s.tables, s.dataWarehouseLoading],
-        //     (tables, dataWarehouseLoading): boolean => {
-        //         return tables?.length == 0 && !dataWarehouseLoading
-        //     },
-        // ],
-        // shouldShowProductIntroduction: [
-        //     (s) => [s.user],
-        //     (user): boolean => {
-        //         return !user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE]
-        //     },
-        // ],
+        shouldShowEmptyState: [
+            (s) => [s.views, s.dataWarehouseViewsLoading],
+            (views, dataWarehouseViewsLoading): boolean => {
+                return views?.length == 0 && !dataWarehouseViewsLoading
+            },
+        ],
+        shouldShowProductIntroduction: [
+            (s) => [s.user],
+            (user): boolean => {
+                return !user?.has_seen_product_intro_for?.[ProductKey.DATA_WAREHOUSE_VIEWS]
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadDataWarehouseViews()

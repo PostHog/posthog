@@ -5,6 +5,10 @@ import { urls } from 'scenes/urls'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { DataWarehouseViewsContainer } from './DataWarehouseViewsContainer'
+import { useValues } from 'kea'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { router } from 'kea-router'
+import { ProductKey } from '~/types'
 
 export const scene: SceneExport = {
     component: DataWarehouseViewsScene,
@@ -12,6 +16,7 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseViewsScene(): JSX.Element {
+    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseViewsLogic)
     return (
         <div>
             <PageHeader
@@ -34,31 +39,27 @@ export function DataWarehouseViewsScene(): JSX.Element {
                 }
                 caption={
                     <div>
-                        These are the database tables you can query under SQL insights with{' '}
+                        These are the saved views you can query under SQL insights with{' '}
                         <a href="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </a>
-                        . Connect your own tables from S3 to query data from outside posthog.{' '}
-                        <a href="https://posthog.com/docs/data/data-warehouse">Learn more</a>
+                        . Views can be used as tables in other queries.
                     </div>
                 }
             />
-            {/* {(shouldShowProductIntroduction || shouldShowEmptyState) && (
+            <DataWarehousePageTabs tab={DataWarehouseTab.Views} />
+            {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                 <ProductIntroduction
-                    productName={'Data Warehouse'}
-                    thingName={'data warehouse table'}
-                    description={
-                        'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
-                    }
-                    action={() => router.actions.push(urls.dataWarehouseTable('new'))}
+                    productName={'Data Warehouse Views'}
+                    thingName={'data warehouse view'}
+                    description={'Save your queries as views to use them as tables in other queries.'}
+                    action={() => router.actions.push(urls.insightNewHogQL('SELECT * FROM events LIMIT 100'))}
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
-                    productKey={ProductKey.DATA_WAREHOUSE}
+                    productKey={ProductKey.DATA_WAREHOUSE_VIEWS}
                 />
             )}
-            {!shouldShowEmptyState && <DataWarehouseViewsContainer />} */}
-            <DataWarehousePageTabs tab={DataWarehouseTab.Views} />
-            <DataWarehouseViewsContainer />
+            {!shouldShowEmptyState && <DataWarehouseViewsContainer />}
         </div>
     )
 }
