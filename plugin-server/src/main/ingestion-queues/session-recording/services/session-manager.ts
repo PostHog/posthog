@@ -249,14 +249,14 @@ export class SessionManager {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
-            status.info('🚽', `blob_ingester_session_manager attempting to flushing buffer due to age`, {
+            status.debug('🚽', `blob_ingester_session_manager attempting to flushing buffer due to age`, {
                 ...logContext,
             })
 
             // return the promise and let the caller decide whether to await
             return this.flush(isBufferAgeOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
         } else {
-            status.info('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
+            status.debug('🚽', `blob_ingester_session_manager not flushing buffer due to age`, {
                 ...logContext,
             })
         }
