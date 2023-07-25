@@ -50,3 +50,19 @@ const textContent = (node: any): string => {
         },
     })
 }
+
+export function defaultNotebookContent(title?: string, content?: JSONContent[]): JSONContent {
+    const initialContent = [
+        {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: title }],
+        },
+    ] as JSONContent[]
+
+    if (content) {
+        initialContent.push(...content)
+    }
+
+    return { type: 'doc', content: initialContent }
+}

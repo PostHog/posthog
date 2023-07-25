@@ -100,7 +100,13 @@ export class ReplayEventsIngester {
         }
 
         if (event.replayIngestionConsumer !== 'v2') {
-            return drop('invalid_event_type')
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_replay_events',
+                    drop_cause: 'not_target_consumer',
+                })
+                .inc()
+            return
         }
 
         if (

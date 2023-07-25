@@ -280,14 +280,15 @@ const eachMessage =
                     try {
                         const properties = event.properties || {}
                         const shouldCreateReplayEvents = (properties['$snapshot_consumer'] ?? 'v1') === 'v1'
+                        const eventsSummary: any[] = properties.$snapshot_data?.events_summary || []
 
-                        if (shouldCreateReplayEvents && properties.$snapshot_data?.events_summary.length) {
+                        if (shouldCreateReplayEvents && eventsSummary.length) {
                             replayRecord = createSessionReplayEvent(
                                 messagePayload.uuid,
                                 team.id,
                                 messagePayload.distinct_id,
                                 properties['$session_id'],
-                                properties.$snapshot_data?.events_summary || []
+                                eventsSummary
                             )
                         }
                         // the replay record timestamp has to be valid and be within a reasonable diff from now

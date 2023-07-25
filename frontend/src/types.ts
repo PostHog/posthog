@@ -731,6 +731,7 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -3015,6 +3016,11 @@ export enum NotebookNodeType {
     Link = 'ph-link',
     Backlink = 'ph-backlink',
     ReplayTimestamp = 'ph-replay-timestamp',
+}
+
+export enum NotebookTarget {
+    Sidebar = 'sidebar',
+    Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

@@ -27,7 +27,7 @@ class EnterpriseFeatureException(APIException):
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
                     if is_cloud()
-                    else "To use it, get a self-hosted license: https://license.posthog.com"
+                    else "Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
                 )
             )
         )

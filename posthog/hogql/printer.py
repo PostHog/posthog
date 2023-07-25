@@ -271,7 +271,7 @@ class _Printer(Visitor):
                     cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
 
                     # The table is captured in a CTE so just print the table name in the final select
-                    sql = self._print_identifier(table_type.table.name)
+                    sql = self._print_identifier(node.alias or table_type.table.name)
             else:
                 sql = table_type.table.to_printed_hogql()
             join_strings.append(sql)

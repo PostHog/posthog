@@ -1,7 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookType } from '~/types'
+import { NotebookListItemType, NotebookTarget, NotebookType } from '~/types'
 
 import type { notebooksListLogicType } from './notebooksListLogicType'
 import { router } from 'kea-router'
@@ -13,6 +13,7 @@ import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookSidebarLogic } from './notebookSidebarLogic'
+import { JSONContent, defaultNotebookContent } from './utils'
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<NotebookListItemType> {}
@@ -24,8 +25,12 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     created_by: null,
 }
 
-export const handleNotebookCreation = (notebook: NotebookListItemType): void => {
+export const openNotebook = (notebook: NotebookListItemType, target: NotebookTarget): void => {
     const sidebarLogic = notebookSidebarLogic.findMounted()
+
+    if (NotebookTarget.Sidebar === target) {
+        sidebarLogic?.actions.setNotebookSideBarShown(true)
+    }
 
     if (sidebarLogic?.values.notebookSideBarShown) {
         sidebarLogic?.actions.selectNotebook(notebook.short_id)
@@ -38,7 +43,11 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksListLogic']),
     actions({
         setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
-        createNotebook: (redirect = true) => ({ redirect }),
+        createNotebook: (title?: string, location: NotebookTarget = NotebookTarget.Auto, content?: JSONContent[]) => ({
+            title,
+            location,
+            content,
+        }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
@@ -66,13 +75,15 @@ export const notebooksListLogic = kea<notebooksListLogicType>([
                     const res = await api.notebooks.list()
                     return res.results
                 },
-                createNotebook: async ({ redirect }, breakpoint) => {
+                createNotebook: async ({ title, location, content }, breakpoint) => {
                     await breakpoint(100)
-                    const notebook = await api.notebooks.create()
 
-                    if (redirect) {
-                        handleNotebookCreation(notebook)
-                    }
+                    const notebook = await api.notebooks.create({
+                        title,
+                        content: defaultNotebookContent(title, content),
+                    })
+
+                    openNotebook(notebook, location)
 
                     posthog.capture(`notebook created`, {
                         short_id: notebook.short_id,

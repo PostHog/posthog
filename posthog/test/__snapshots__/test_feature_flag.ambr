@@ -346,8 +346,7 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE
-    EXISTS
+  WHERE EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -396,8 +395,7 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE
-    EXISTS
+  WHERE EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -512,8 +510,7 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE
-    EXISTS
+  WHERE EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
@@ -562,8 +559,7 @@
          'example_id'
   FROM flags_to_override,
        target_person_ids
-  WHERE
-    EXISTS
+  WHERE EXISTS
       (SELECT 1
        FROM posthog_person
        WHERE id = person_id
