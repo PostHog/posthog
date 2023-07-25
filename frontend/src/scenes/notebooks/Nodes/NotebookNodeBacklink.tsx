@@ -21,8 +21,9 @@ const ICON_MAP = {
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const type: TaxonomicFilterGroupType = props.node.attrs.type
-    const href: string = backlinkHref(props.node.attrs.id, type)
     const title: string = props.node.attrs.title
+    const id: string = props.node.attrs.id
+    const href = backlinkHref(id, type)
 
     const { onClick } = useNotebookLink(href)
 
