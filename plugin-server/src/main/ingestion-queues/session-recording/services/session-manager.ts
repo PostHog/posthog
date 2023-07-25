@@ -82,7 +82,7 @@ type SessionBuffer = {
     newestKafkaTimestamp: number | null
     sizeEstimate: number
     count: number
-    file: string
+    file: (type: 'jsonl' | 'gz') => string
     fileStream: Transform
     offsets: {
         lowest?: number
@@ -101,7 +101,6 @@ export class SessionManager {
     buffer: SessionBuffer
     flushBuffer?: SessionBuffer
     destroying = false
-    realtime = false
     inProgressUpload: Upload | null = null
     unsubscribe: () => void
     flushJitterMultiplier: number
@@ -298,6 +297,8 @@ export class SessionManager {
             // We move the buffer to the flush buffer and create a new buffer so that we can safely write the buffer to disk
             this.flushBuffer = this.buffer
             this.buffer = this.createBuffer()
+            this.stopRealtime()
+            // We don't want to keep writing unecessarily...
             const { fileStream, file, count, eventsRange, sizeEstimate } = this.flushBuffer
 
             if (count === 0) {
@@ -318,7 +319,7 @@ export class SessionManager {
                 await new Promise((r) => fileStream.end(r))
             })
 
-            const readStream = createReadStream(file, 'utf-8')
+            const readStream = createReadStream(file('gz'))
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
@@ -335,8 +336,8 @@ export class SessionManager {
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
-                    // ContentEncoding: 'gzip',
-                    // ContentType: 'application/json',
+                    ContentEncoding: 'gzip',
+                    ContentType: 'application/json',
                     Body: readStream,
                 },
             }))
@@ -358,6 +359,9 @@ export class SessionManager {
                 // abort of inProgressUpload while destroying is expected
                 return
             }
+
+            await this.inProgressUpload?.abort()
+
             // TODO: If we fail to write to S3 we should be do something about it
             status.error('🧨', 'blob_ingester_session_manager failed writing session recording blob to S3', {
                 errorMessage: `${error.name || 'Unknown Error Type'}: ${error.message}`,
@@ -383,7 +387,6 @@ export class SessionManager {
         try {
             this.inProgressUpload = null
             // We turn off real time as the file will now be in S3
-            this.realtime = false
             // We want to delete the flush buffer before we proceed so that the onFinish handler doesn't reference it
             void this.destroyBuffer(this.flushBuffer)
             this.flushBuffer = undefined
@@ -404,15 +407,18 @@ export class SessionManager {
     private createBuffer(): SessionBuffer {
         try {
             const id = randomUUID()
-            const file = path.join(
+            const fileBase = path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.sessionId}.${id}.jsonl.gz`
+                `${this.teamId}.${this.sessionId}.${id}`
             )
+
+            const file = (type: 'jsonl' | 'gz') => `${fileBase}.${type}`
 
             const writeStream = new PassThrough()
 
             // The compressed file
-            pipeline(writeStream, zlib.createGzip(), createWriteStream(file, 'utf-8'))
+
+            pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz')))
                 .then(() => {
                     status.info('🥳', 'blob_ingester_session_manager writestream finished', {
                         ...this.logContext(),
@@ -429,7 +435,7 @@ export class SessionManager {
                 })
 
             // The uncompressed file which we need for realtime playback
-            pipeline(writeStream, createWriteStream(file + '.jsonl', 'utf-8')).catch((error) => {
+            pipeline(writeStream, createWriteStream(file('jsonl'), 'utf-8')).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
                 status.error('🧨', 'blob_ingester_session_manager writestream errored', {
                     ...this.logContext(),
@@ -490,7 +496,7 @@ export class SessionManager {
 
         status.info('⚡️', `blob_ingester_session_manager Real-time mode started `, { sessionId: this.sessionId })
 
-        this.realtimeTail = new Tail(this.buffer.file + '.jsonl', {
+        this.realtimeTail = new Tail(this.buffer.file('jsonl'), {
             fromBeginning: true,
         })
 
@@ -546,13 +552,12 @@ export class SessionManager {
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
         await new Promise<void>((resolve) => {
             buffer.fileStream.end(async () => {
-                try {
-                    await stat(buffer.file)
-                    await unlink(buffer.file)
-                } catch (error) {
-                    // Indicates the file was already deleted (i.e. if there was never any data in the buffer)
-                }
-
+                await Promise.allSettled(
+                    [buffer.file('gz'), buffer.file('jsonl')].map(async (file) => {
+                        await stat(file)
+                        await unlink(file)
+                    })
+                )
                 resolve()
             })
         })
