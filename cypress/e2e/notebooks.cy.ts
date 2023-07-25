@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 describe('Notebooks', () => {
     beforeEach(() => {
         cy.fixture('api/session-recordings/recordings.json').then((recordings) => {
@@ -10,6 +12,12 @@ describe('Notebooks', () => {
                 'loadSessionRecording'
             )
         })
+        cy.fixture('api/notebooks/notebooks.json').then((notebook) => {
+            cy.intercept('GET', /api\/projects\/\d+\/notebooks\//, { body: notebook }).as('loadNotebooksList')
+        })
+        cy.fixture('api/notebooks/notebook.json').then((notebook) => {
+            cy.intercept('GET', /api\/projects\/\d+\/notebooks\/.*\//, { body: notebook }).as('loadNotebook')
+        })
 
         cy.clickNavMenu('dashboards')
         cy.location('pathname').should('include', '/dashboard')
@@ -18,5 +26,20 @@ describe('Notebooks', () => {
     it('Notebooks are enabled', () => {
         cy.get('h1').should('contain', 'Dashboards & Notebooks')
         cy.get('li').contains('Notebooks').should('exist').click()
+    })
+
+    it('Notebooks can render rich nodes', () => {
+        cy.visit(urls.notebook('h11RoiwV'))
+        cy.get('.ph-recording.NotebookNode').should('exist')
+    })
+
+    it('Insertion suggestions can be dismissed', () => {
+        cy.visit(urls.notebookEdit('h11RoiwV'))
+        cy.get('.NotebookEditor').type('{enter}')
+
+        cy.get('.NotebookRecordingTimestamp--preview').should('exist')
+
+        cy.get('.NotebookEditor').type('{esc}')
+        cy.get('.NotebookFloatingButton .LemonButton').should('exist')
     })
 })
