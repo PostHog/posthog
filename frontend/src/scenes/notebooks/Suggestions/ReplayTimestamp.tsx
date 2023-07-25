@@ -3,10 +3,9 @@ import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
 import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { Node } from '@tiptap/pm/model'
 import { useValues } from 'kea'
 import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
-import { NotebookEditor } from '../Notebook/utils'
+import { Node, NotebookEditor } from '../Notebook/utils'
 
 const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
     const timestampNode = getTimestampChildNode(previousNode)

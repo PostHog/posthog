@@ -6,12 +6,13 @@ import {
     Range as EditorRange,
     getText,
 } from '@tiptap/core'
-import { Node } from '@tiptap/pm/model'
+import { Node as PMNode } from '@tiptap/pm/model'
 import { NotebookNodeType } from '~/types'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+/* eslint-disable @typescript-eslint/no-empty-interface */
+export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export { ChainedCommands as EditorCommands, Range as EditorRange } from '@tiptap/core'
 
