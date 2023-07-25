@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import pytest
 import responses
-from aiochclient import ChClient
 from django.conf import settings
 from django.test import override_settings
 from requests.models import PreparedRequest
@@ -21,6 +20,7 @@ from posthog.api.test.test_organization import acreate_organization
 from posthog.api.test.test_team import acreate_team
 from posthog.batch_exports.service import acreate_batch_export, afetch_batch_export_runs
 from posthog.temporal.workflows.base import create_export_run, update_export_run_status
+from posthog.temporal.workflows.clickhouse import ClickHouseClient
 from posthog.temporal.workflows.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
@@ -35,20 +35,22 @@ class EventValues(TypedDict):
     event: str
     timestamp: str
     _timestamp: str
+    inserted_at: str
     person_id: str
     team_id: int
     properties: dict
 
 
-async def insert_events(client: ChClient, events: list[EventValues]):
+async def insert_events(client: ClickHouseClient, events: list[EventValues]):
     """Insert some events into the sharded_events table."""
-    await client.execute(
+    await client.execute_query(
         f"""
         INSERT INTO `sharded_events` (
             uuid,
             event,
             timestamp,
             _timestamp,
+            inserted_at,
             person_id,
             team_id,
             properties
@@ -61,13 +63,13 @@ async def insert_events(client: ChClient, events: list[EventValues]):
                 event["event"],
                 event["timestamp"],
                 event["_timestamp"],
+                event["inserted_at"],
                 event["person_id"],
                 event["team_id"],
                 json.dumps(event["properties"]),
             )
             for event in events
         ],
-        json=False,
     )
 
 
@@ -231,7 +233,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
     It should update the batch export run status to completed, as well as updating the record
     count.
     """
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -274,6 +276,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
             "event": "test",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -302,6 +305,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "event": "test",
                 "timestamp": "2023-04-20 13:30:00",
                 "_timestamp": "2023-04-20 13:30:00",
+                "inserted_at": f"2023-04-20 13:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
                 "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -311,6 +315,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "event": "test",
                 "timestamp": "2023-04-20 15:30:00",
                 "_timestamp": "2023-04-20 15:30:00",
+                "inserted_at": f"2023-04-20 15:30:00",
                 "person_id": str(uuid4()),
                 "team_id": team.pk,
                 "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -320,6 +325,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 "event": "test",
                 "timestamp": "2023-04-20 14:30:00",
                 "_timestamp": "2023-04-20 14:30:00",
+                "inserted_at": f"2023-04-20 14:30:00",
                 "person_id": str(uuid4()),
                 "team_id": other_team.pk,
                 "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -385,7 +391,7 @@ async def test_snowflake_export_workflow_exports_events_in_the_last_hour_for_the
                 json_data.sort(key=lambda x: x["timestamp"])
                 # Drop _timestamp and team_id from events
                 events = [
-                    {key: value for key, value in event.items() if key not in ("team_id", "_timestamp")}
+                    {key: value for key, value in event.items() if key not in ("team_id", "_timestamp", "inserted_at")}
                     for event in events
                 ]
                 assert json_data[0] == events[0]
@@ -488,7 +494,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
         interval=batch_export_data["interval"],
     )
 
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -501,6 +507,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail():
             "event": "test",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},
@@ -582,7 +589,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
         interval=batch_export_data["interval"],
     )
 
-    ch_client = ChClient(
+    ch_client = ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
@@ -595,6 +602,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail():
             "event": "test",
             "timestamp": f"2023-04-20 14:30:00.{i:06d}",
             "_timestamp": "2023-04-20 14:30:00",
+            "inserted_at": f"2023-04-20 14:30:00.{i:06d}",
             "person_id": str(uuid4()),
             "team_id": team.pk,
             "properties": {"$browser": "Chrome", "$os": "Mac OS X"},

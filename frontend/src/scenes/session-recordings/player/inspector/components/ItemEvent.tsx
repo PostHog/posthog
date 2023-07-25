@@ -70,7 +70,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         )
                     ) : (
                         <div className="text-muted-alt flex gap-1 items-center">
-                            <Spinner monocolor />
+                            <Spinner textColored />
                             Loading...
                         </div>
                     )}

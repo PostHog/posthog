@@ -33,7 +33,8 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
             (relevantCohorts, cohortsLoading) => [
                 {
                     key: 'cohorts',
-                    title: 'Cohorts',
+                    noun: 'cohort',
+                    onAdd: urls.cohort('new'),
                     items: relevantCohorts.map(
                         ([cohort, matches]) =>
                             ({
@@ -79,8 +80,10 @@ export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
-                return activeScene === Scene.Cohort && sceneParams.params.id ? parseInt(sceneParams.params.id) : null
+            (activeScene, sceneParams): [string, number] | null => {
+                return activeScene === Scene.Cohort && sceneParams.params.id
+                    ? ['cohorts', parseInt(sceneParams.params.id)]
+                    : null
             },
         ],
         relevantCohorts: [

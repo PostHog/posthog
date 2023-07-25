@@ -34,8 +34,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -231,6 +233,30 @@ function InstanceSettings(): JSX.Element | null {
     )
 }
 
+function FeaturePreviewsButton(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
+
+    const isUsingSiteApp = featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] === 'site-app'
+
+    return (
+        <LemonButton
+            onClick={() => {
+                closeSitePopover()
+                if (!isUsingSiteApp) {
+                    showFeaturePreviewsModal()
+                }
+            }}
+            data-attr={isUsingSiteApp ? 'early-access-feature-button' : undefined}
+            icon={<IconRedeem />}
+            fullWidth
+        >
+            Feature previews
+        </LemonButton>
+    )
+}
+
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -247,7 +273,6 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -268,18 +293,6 @@ export function SitePopoverOverlay(): JSX.Element {
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />
-                {featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] && (
-                    <div
-                        className="LemonButton LemonButton--tertiary LemonButton--status-primary LemonButton--full-width LemonButton__content flex items-center  LemonButton--has-icon"
-                        data-attr="early-access-feature-button"
-                        onClick={closeSitePopover}
-                    >
-                        <span className="LemonButton__icon">
-                            <IconRedeem />
-                        </span>
-                        Enable beta features
-                    </div>
-                )}
             </SitePopoverSection>
             {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                 <SitePopoverSection title="Other organizations">
@@ -301,6 +314,11 @@ export function SitePopoverOverlay(): JSX.Element {
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
+            <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
+                <SitePopoverSection>
+                    <FeaturePreviewsButton />
+                </SitePopoverSection>
+            </FlaggedFeature>
             <SitePopoverSection>
                 <SignOutButton />
             </SitePopoverSection>
