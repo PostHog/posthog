@@ -4,12 +4,14 @@ import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
 import { cleanFilters } from './cleanFilters'
 
 /** clean filters so that we can check for semantic equality with a deep equality check */
-const clean = (
-    f: Partial<AnyFilterType>,
+export const clean = (
+    filters: Partial<AnyFilterType>,
     test_account_filters_default_checked: boolean | undefined
 ): Partial<AnyFilterType> => {
+    const dupFilters = JSON.parse(JSON.stringify(filters))
+
     // remove undefined values, empty array and empty objects
-    const cleanedFilters = objectCleanWithEmpty(cleanFilters(f, test_account_filters_default_checked))
+    const cleanedFilters = objectCleanWithEmpty(cleanFilters(dupFilters, test_account_filters_default_checked))
 
     // do we need an order property on events or actions?
     const needsOrder = (cleanedFilters.events || []).length + (cleanedFilters.actions || []).length > 1
@@ -34,7 +36,7 @@ const clean = (
     })
 
     // used only for persons endpoint
-    delete f.entity_type
+    delete cleanedFilters.entity_type
 
     return cleanedFilters
 }
