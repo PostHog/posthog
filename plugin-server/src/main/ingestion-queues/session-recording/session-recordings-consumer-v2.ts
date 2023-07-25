@@ -130,7 +130,7 @@ export class SessionRecordingIngesterV2 {
         // lag does not distribute evenly across partitions, so track timestamps per partition
         this.partitionNow[partition] = timestamp
         // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset - 1
+        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
         gaugeLagMilliseconds
             .labels({
                 partition: partition.toString(),
@@ -160,19 +160,11 @@ export class SessionRecordingIngesterV2 {
                 this.serverConfig,
                 this.objectStorage.s3,
                 this.realtimeManager,
+                this.offsetHighWaterMarker,
                 team_id,
                 session_id,
                 partition,
-                topic,
-                (offsets) => {
-                    if (offsets.length === 0) {
-                        return
-                    }
-
-                    this.commitOffsets(topic, partition, session_id, offsets)
-                    // We don't want to block if anything fails here. Watermarks are best effort
-                    void this.offsetHighWaterMarker.add({ topic, partition }, session_id, offsets.slice(-1)[0])
-                }
+                topic
             )
 
             this.sessions[key] = sessionManager
@@ -184,7 +176,7 @@ export class SessionRecordingIngesterV2 {
             })
         }
 
-        this.sessions[key]?.add(event)
+        await this.sessions[key]?.add(event)
         // TODO: If we error here, what should we do...?
         // If it is unrecoverable we probably want to remove the offset
         // If it is recoverable, we probably want to retry?
@@ -279,6 +271,9 @@ export class SessionRecordingIngesterV2 {
             })
 
             await this.consume(message, consumeSpan)
+            // TODO: We could do this as batch of offsets for the whole lot...
+            await this.commitOffset(message.metadata.topic, message.metadata.partition, message.metadata.offset)
+
             consumeSpan?.finish()
         }
 
@@ -308,12 +303,12 @@ export class SessionRecordingIngesterV2 {
 
         await this.replayEventsIngester.start()
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
+        const recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars(recordingConsumerConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
 
-        const recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
         this.batchConsumer = await startBatchConsumer({
             connectionConfig,
             groupId,
@@ -466,52 +461,37 @@ export class SessionRecordingIngesterV2 {
         gaugeRealtimeSessions.reset()
     }
 
-    async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
-        const destroyPromises: Promise<void>[] = []
-
-        sessionsToDestroy.forEach(([key, sessionManager]) => {
-            delete this.sessions[key]
-            destroyPromises.push(sessionManager.destroy())
-        })
-
-        await Promise.allSettled(destroyPromises)
-    }
-
     // Given a topic and partition and a list of offsets, commit the highest offset
     // that is no longer found across any of the existing sessions.
     // This approach is fault-tolerant in that if anything goes wrong, the next commit on that partition will work
-    private commitOffsets(topic: string, partition: number, sessionId: string, offsets: number[]): void {
+    public async commitOffset(topic: string, partition: number, offset: number): Promise<void> {
         let potentiallyBlockingSession: SessionManager | undefined
 
         for (const sessionManager of Object.values(this.sessions)) {
             if (sessionManager.partition === partition && sessionManager.topic === topic) {
                 const lowestOffset = sessionManager.getLowestOffset()
-                if (lowestOffset && lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)) {
+                if (
+                    lowestOffset !== null &&
+                    lowestOffset < (potentiallyBlockingSession?.getLowestOffset() || Infinity)
+                ) {
                     potentiallyBlockingSession = sessionManager
                 }
             }
         }
 
-        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset()
+        const potentiallyBlockingOffset = potentiallyBlockingSession?.getLowestOffset() ?? null
 
         // If we have any other session for this topic-partition then we can only commit offsets that are lower than it
-        const commitableOffsets = potentiallyBlockingOffset
-            ? offsets.filter((offset) => offset < potentiallyBlockingOffset)
-            : offsets
+        const highestOffsetToCommit =
+            potentiallyBlockingOffset !== null && potentiallyBlockingOffset < offset
+                ? potentiallyBlockingOffset
+                : offset
 
-        // Now we can commit the highest offset in our offsets list that is lower than the lowest offset in use
-        const highestOffsetToCommit = Math.max(...commitableOffsets, (potentiallyBlockingOffset || 0) - 1)
-
-        // Check that we haven't already commited a higher offset
         const lastKnownCommit = this.partitionLastKnownCommit[partition] || 0
+        // TODO: Check how long we have been blocked by any individual session and if it is too long then we should
+        // capture an exception to figure out why
         if (lastKnownCommit >= highestOffsetToCommit) {
-            status.warn('🚫', `blob_ingester_consumer.commitOffsets - offset already committed`, {
-                partition,
-                offsetToCommit: highestOffsetToCommit,
-                lastKnownCommit,
-                sessionId,
-            })
-
+            // If we have already commited this offset then we don't need to do it again
             return
         }
 
@@ -522,23 +502,26 @@ export class SessionRecordingIngesterV2 {
             offsetToCommit: highestOffsetToCommit,
         })
 
-        void this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
+        this.batchConsumer?.consumer.commit({
+            topic,
+            partition,
+            // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
+            // for some reason you commit the next offset you expect to read and not the one you actually have
+            offset: highestOffsetToCommit + 1,
+        })
 
-        try {
-            this.batchConsumer?.consumer.commit({
-                topic,
-                partition,
-                // see https://kafka.apache.org/10/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html for example
-                // for some reason you commit the next offset you expect to read and not the one you actually have
-                offset: highestOffsetToCommit + 1,
-            })
-            gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
-        } catch (e) {
-            gaugeOffsetCommitFailed.inc({ partition })
-            captureException(e, {
-                extra: { partition, offsetToCommit: highestOffsetToCommit, sessionId },
-                tags: { partition },
-            })
-        }
+        await this.offsetHighWaterMarker.clear({ topic, partition }, highestOffsetToCommit)
+        gaugeOffsetCommitted.set({ partition }, highestOffsetToCommit)
+    }
+
+    public async destroySessions(sessionsToDestroy: [string, SessionManager][]): Promise<void> {
+        const destroyPromises: Promise<void>[] = []
+
+        sessionsToDestroy.forEach(([key, sessionManager]) => {
+            delete this.sessions[key]
+            destroyPromises.push(sessionManager.destroy())
+        })
+
+        await Promise.allSettled(destroyPromises)
     }
 }

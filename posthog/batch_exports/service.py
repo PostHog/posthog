@@ -69,6 +69,7 @@ class SnowflakeBatchExportInputs:
     schema: str
     table_name: str = "events"
     data_interval_end: str | None = None
+    role: str | None = None
 
 
 DESTINATION_WORKFLOWS = {
@@ -196,7 +197,13 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
-def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetime, end_at: dt.datetime):
+def backfill_export(
+    temporal: Client,
+    batch_export_id: str,
+    start_at: dt.datetime,
+    end_at: dt.datetime,
+    overlap: ScheduleOverlapPolicy = ScheduleOverlapPolicy.BUFFER_ALL,
+):
     """Creates an export run for the given BatchExport, and specified time range.
 
     Arguments:
@@ -208,7 +215,7 @@ def backfill_export(temporal: Client, batch_export_id: str, start_at: dt.datetim
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
-    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=ScheduleOverlapPolicy.ALLOW_ALL)
+    schedule_backfill = ScheduleBackfill(start_at=start_at, end_at=end_at, overlap=overlap)
     backfill_schedule(temporal=temporal, schedule_id=batch_export_id, schedule_backfill=schedule_backfill)
 
 
