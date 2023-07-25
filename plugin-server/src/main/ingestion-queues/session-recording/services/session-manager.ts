@@ -417,7 +417,6 @@ export class SessionManager {
             const writeStream = new PassThrough()
 
             // The compressed file
-
             pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz')))
                 .then(() => {
                     status.info('🥳', 'blob_ingester_session_manager writestream finished', {
@@ -435,7 +434,7 @@ export class SessionManager {
                 })
 
             // The uncompressed file which we need for realtime playback
-            pipeline(writeStream, createWriteStream(file('jsonl'), 'utf-8')).catch((error) => {
+            pipeline(writeStream, createWriteStream(file('jsonl'))).catch((error) => {
                 // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
                 status.error('🧨', 'blob_ingester_session_manager writestream errored', {
                     ...this.logContext(),
