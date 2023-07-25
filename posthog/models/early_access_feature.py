@@ -18,7 +18,7 @@ class EarlyAccessFeature(UUIDModel):
         "posthog.FeatureFlag",
         null=True,
         blank=True,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="features",
         related_query_name="feature",
     )
