@@ -53,9 +53,8 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onComment = (): void => {
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
         if (nodeLogic) {
-            const currentPlayerTime = getCurrentPlayerTime()
-
             nodeLogic.actions.insertAfterLastNodeOfType(
                 NotebookNodeType.ReplayTimestamp,
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
@@ -67,16 +66,7 @@ export function PlayerMetaLinks(): JSX.Element {
                     type: NotebookNodeType.Recording,
                     attrs: { id: sessionRecordingId },
                 },
-                {
-                    type: 'paragraph',
-                    content: [
-                        {
-                            type: NotebookNodeType.ReplayTimestamp,
-                            attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
-                        },
-                        { type: 'text', text: ' ' },
-                    ],
-                },
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
             ])
         }
     }

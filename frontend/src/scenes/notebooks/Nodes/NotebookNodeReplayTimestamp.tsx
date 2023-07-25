@@ -1,6 +1,6 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
+import { NotebookNodeType, NotebookTarget } from '~/types'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
@@ -9,28 +9,35 @@ import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
 import clsx from 'clsx'
-import { findPositionOfClosestNodeMatchingAttrs, lastChildOfType, useNotebookLink } from '../Notebook/Editor'
+import { findPositionOfClosestNodeMatchingAttrs, lastChildOfType } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
+import { Link } from '@posthog/lemon-ui'
+import { openNotebook } from '../Notebook/notebooksListLogic'
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { useValues } from 'kea'
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const { shortId } = useValues(notebookLogic)
     const sessionRecordingId: string = props.node.attrs.sessionRecordingId
     const playbackTime: number = props.node.attrs.playbackTime
     const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
-    const logic = sessionRecordingPlayerLogic.findMounted(logicProps)
 
-    const { onClick } = useNotebookLink(urls.replaySingle(sessionRecordingId) + `?timestamp=${playbackTime}`)
+    const recordingNodePosition = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), {
+        id: sessionRecordingId,
+    })
 
     const handleOnClick = (): void => {
+        const logic = sessionRecordingPlayerLogic.findMounted(logicProps)
+
         if (logic) {
             logic.actions.seekToTime(props.node.attrs.playbackTime)
             logic.actions.setPlay()
-            const pos = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), { id: sessionRecordingId })
-            if (pos) {
-                const domEl = props.editor.view.nodeDOM(pos) as HTMLElement
+            if (recordingNodePosition) {
+                const domEl = props.editor.view.nodeDOM(recordingNodePosition) as HTMLElement
                 domEl.scrollIntoView()
             }
         } else {
-            onClick()
+            openNotebook(shortId, NotebookTarget.Sidebar)
         }
     }
 
@@ -39,7 +46,16 @@ const Component = (props: NodeViewProps): JSX.Element => {
             as="span"
             class={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
-            <span onClick={handleOnClick}>{formatTimestamp(playbackTime)}</span>
+            <Link
+                to={
+                    !!recordingNodePosition
+                        ? undefined
+                        : urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`
+                }
+                onClick={handleOnClick}
+            >
+                {formatTimestamp(playbackTime)}
+            </Link>
         </NodeViewWrapper>
     )
 }

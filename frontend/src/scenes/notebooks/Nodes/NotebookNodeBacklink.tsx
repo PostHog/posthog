@@ -1,13 +1,15 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { InsightModel, NotebookNodeType } from '~/types'
+import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
 import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import { useNotebookLink } from '../Notebook/Editor'
+import { openNotebook } from '../Notebook/notebooksListLogic'
+import { useValues } from 'kea'
+import { notebookLogic } from '../Notebook/notebookLogic'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -20,12 +22,12 @@ const ICON_MAP = {
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
+    const { shortId } = useValues(notebookLogic)
+
     const type: TaxonomicFilterGroupType = props.node.attrs.type
     const title: string = props.node.attrs.title
     const id: string = props.node.attrs.id
     const href = backlinkHref(id, type)
-
-    const { onClick } = useNotebookLink(href)
 
     const isViewing = router.values.location.pathname === href
 
@@ -34,7 +36,12 @@ const Component = (props: NodeViewProps): JSX.Element => {
             as="span"
             class={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
-            <Link onClick={onClick} className="space-x-1">
+            <Link
+                to={href}
+                onClick={() => openNotebook(shortId, NotebookTarget.Sidebar)}
+                target={undefined}
+                className="space-x-1"
+            >
                 <span>{ICON_MAP[type]}</span>
                 <span className="Backlink__label">{title}</span>
             </Link>

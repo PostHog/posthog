@@ -1,6 +1,6 @@
 import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
-import { useMemo, useRef } from 'react'
+import { useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
@@ -22,11 +22,6 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { Node } from '@tiptap/pm/model'
-import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
-import { router } from 'kea-router'
-import { openNotebook } from './notebooksListLogic'
-import { NotebookTarget } from '~/types'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -227,28 +222,4 @@ export function lastChildOfType(node: Node, type: string, direct: boolean = true
         return !direct
     })
     return latestNode
-}
-
-export function useNotebookLink(href: string): { onClick: () => void } {
-    const { shortId } = useValues(notebookLogic)
-
-    const [path, search, internal] = useMemo(() => {
-        const url = new URL(href, window.location.origin)
-        const path = url.pathname
-        const search = url.search
-        const internal = window.location.origin === url.origin
-
-        return [path, search, internal]
-    }, [href])
-
-    const onClick = (): void => {
-        if (internal) {
-            router.actions.push(path + search)
-            openNotebook(shortId, NotebookTarget.Sidebar)
-        } else {
-            window.open(href, '_blank')
-        }
-    }
-
-    return { onClick }
 }
