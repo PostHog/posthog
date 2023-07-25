@@ -38,7 +38,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     selectors({
         activeSuggestion: [
             (s) => [s.suggestions, s.previousNode],
-            (suggestions, previousNode): InsertionSuggestion =>
+            (suggestions: InsertionSuggestion[], previousNode: Node): InsertionSuggestion =>
                 suggestions.find(
                     ({ dismissed, shouldShow }) =>
                         !dismissed && (typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow)
