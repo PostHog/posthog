@@ -123,7 +123,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
         filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-        filters.lifecyclesOrder = query.lifecycleFilter?.lifecyclesOrder
         filters.shown_as = query.lifecycleFilter?.shown_as
     }
 

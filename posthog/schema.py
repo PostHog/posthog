@@ -585,7 +585,6 @@ class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    lifecyclesOrder: Optional[List[LifecycleToggle]] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = None

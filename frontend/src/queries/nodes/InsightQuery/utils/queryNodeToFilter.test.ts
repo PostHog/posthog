@@ -10,7 +10,6 @@ describe('queryNodeToFilter', () => {
             insight: InsightType.LIFECYCLE,
             shown_as: ShownAsValue.LIFECYCLE,
             toggledLifecycles: ['new', 'dormant'],
-            lifecyclesOrder: ['new', 'dormant', 'resurrecting', 'returning'],
         }
 
         const query: LifecycleQuery = {
@@ -18,7 +17,6 @@ describe('queryNodeToFilter', () => {
             lifecycleFilter: {
                 shown_as: ShownAsValue.LIFECYCLE,
                 toggledLifecycles: ['new', 'dormant'],
-                lifecyclesOrder: ['new', 'dormant', 'resurrecting', 'returning'],
             },
             series: [],
         }

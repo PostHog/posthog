@@ -1,68 +1,47 @@
 import { LifecycleQuery } from '~/queries/schema'
 import { LifecycleToggle } from '~/types'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
-import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { useState, DragEventHandler } from 'react'
-import './LifecycleToggles.scss'
 
-export type DragAndDropState = {
-    draggedFrom: number | null
-    draggedTo: number | null
-    isDragging: boolean
-}
-
-const lifecycles: { [key: string]: { name: LifecycleToggle; tooltip: string; color: string } } = {
-    new: {
+const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
+    {
         name: 'new',
         tooltip: 'Users who were first seen on this period and did the activity during the period.',
         color: 'var(--lifecycle-new)',
     },
-    returning: {
+    {
         name: 'returning',
         tooltip: 'Users who did activity both this and previous period.',
         color: 'var(--lifecycle-returning)',
     },
-    resurrecting: {
+    {
         name: 'resurrecting',
         tooltip:
             'Users who did the activity this period but did not do the activity on the previous period (i.e. were inactive for 1 or more periods).',
         color: 'var(--lifecycle-resurrecting)',
     },
-    dormant: {
+    {
         name: 'dormant',
         tooltip:
             'Users who went dormant on this period, i.e. users who did not do the activity this period but did the activity on the previous period.',
         color: 'var(--lifecycle-dormant)',
     },
-}
+]
 
 type LifecycleTogglesProps = {
     query: LifecycleQuery
     setQuery: (node: LifecycleQuery) => void
 }
 
-const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'dormant', 'resurrecting']
+const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
 
 export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JSX.Element {
     const toggledLifecycles = query.lifecycleFilter?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
-    const lifecyclesOrder = query.lifecycleFilter?.lifecyclesOrder || DEFAULT_LIFECYCLE_TOGGLES
-
     const setToggledLifecycles = (lifecycles: LifecycleToggle[]): void => {
         setQuery({
             ...query,
             lifecycleFilter: {
                 ...query.lifecycleFilter,
                 toggledLifecycles: lifecycles,
-            },
-        })
-    }
-
-    const setLifecyclesOrder = (lifecycles: LifecycleToggle[]): void => {
-        setQuery({
-            ...query,
-            lifecycleFilter: {
-                ...query.lifecycleFilter,
-                lifecyclesOrder: lifecycles,
             },
         })
     }
@@ -75,80 +54,17 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
         }
     }
 
-    // basic starting state for holding and handling the drag data
-    const [dragAndDrop, setDragAndDrop] = useState<DragAndDropState>({
-        draggedFrom: null,
-        draggedTo: null,
-        isDragging: false,
-    })
-
-    const onDragStart: DragEventHandler<HTMLDivElement> = (event): void => {
-        const initialPosition = Number(event.currentTarget.dataset.position)
-
-        setDragAndDrop({
-            draggedTo: null,
-            draggedFrom: initialPosition,
-            isDragging: true,
-        })
-    }
-
-    const onDragOver: DragEventHandler<HTMLDivElement> = (event): void => {
-        event.preventDefault()
-
-        setDragAndDrop({
-            ...dragAndDrop,
-            draggedTo: Number(event.currentTarget.dataset.position),
-        })
-    }
-
-    const onDrop: DragEventHandler<HTMLDivElement> = (): void => {
-        const draggedFrom = dragAndDrop.draggedFrom
-        const draggedTo = dragAndDrop.draggedTo
-
-        // valid this is a valid place to move over
-        if (draggedFrom == null || draggedTo == null) {
-            return
-        }
-
-        let copiedList = lifecyclesOrder
-        const itemDragged = copiedList[draggedFrom]
-
-        // remove item and re-add it where we want it
-        const remainingItems = copiedList.filter((_, index) => index !== draggedFrom)
-        copiedList = [...remainingItems.slice(0, draggedTo), itemDragged, ...remainingItems.slice(draggedTo)]
-
-        // updated the query, so the order persists.
-        setLifecyclesOrder(copiedList)
-
-        setDragAndDrop({
-            draggedFrom: null,
-            draggedTo: null,
-            isDragging: false,
-        })
-    }
-
     return (
-        <div className="flex flex-col -mt-1 uppercase LifecycleToggles">
-            {lifecyclesOrder.map((key, i) => (
-                <div
-                    key={key}
-                    data-position={i}
-                    draggable="true"
-                    onDragStart={onDragStart}
-                    onDragOver={onDragOver}
-                    onDrop={onDrop}
-                    className={dragAndDrop && dragAndDrop.draggedTo === i ? 'LifecycleToggles__item--hover' : ''}
-                >
-                    <LemonLabel info={lifecycles[key].tooltip}>
-                        <IconDragHandle />
-                        <LemonCheckbox
-                            label={lifecycles[key].name}
-                            color={lifecycles[key].color}
-                            checked={toggledLifecycles.includes(lifecycles[key].name)}
-                            onChange={() => toggleLifecycle(lifecycles[key].name)}
-                        />
-                    </LemonLabel>
-                </div>
+        <div className="flex flex-col -mt-1 uppercase">
+            {lifecycles.map((lifecycle) => (
+                <LemonLabel key={lifecycle.name} info={lifecycle.tooltip}>
+                    <LemonCheckbox
+                        label={lifecycle.name}
+                        color={lifecycle.color}
+                        checked={toggledLifecycles.includes(lifecycle.name)}
+                        onChange={() => toggleLifecycle(lifecycle.name)}
+                    />
+                </LemonLabel>
             ))}
         </div>
     )

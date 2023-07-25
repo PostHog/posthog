@@ -1298,12 +1298,6 @@
             "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
-                "lifecyclesOrder": {
-                    "items": {
-                        "$ref": "#/definitions/LifecycleToggle"
-                    },
-                    "type": "array"
-                },
                 "show_values_on_series": {
                     "type": "boolean"
                 },

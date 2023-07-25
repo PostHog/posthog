@@ -1715,7 +1715,6 @@ export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
-    lifecyclesOrder?: LifecycleToggle[]
 }
 
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'

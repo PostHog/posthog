@@ -97,8 +97,9 @@ export const trendsLogic = kea<trendsLogicType>([
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         indexedResults: [
-            (s) => [s.filters, s.results, s.toggledLifecycles, s.lifecyclesOrder],
-            (filters, _results, toggledLifecycles, lifecyclesOrder): IndexedTrendResult[] => {
+            (s) => [s.filters, s.results, s.toggledLifecycles],
+            (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
+                const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let results = _results || []
                 results = results.map((result, index) => ({ ...result, seriesIndex: index }))
                 if (
@@ -112,7 +113,8 @@ export const trendsLogic = kea<trendsLogicType>([
                         .filter((result) => toggledLifecycles.includes(String(result.status)))
                         .sort(
                             (a, b) =>
-                                lifecyclesOrder.indexOf(String(b.status)) - lifecyclesOrder.indexOf(String(a.status))
+                                defaultLifecyclesOrder.indexOf(String(b.status)) -
+                                defaultLifecyclesOrder.indexOf(String(a.status))
                         )
                 }
                 return results.map((result, index) => ({ ...result, id: index } as IndexedTrendResult))
@@ -162,19 +164,6 @@ export const trendsLogic = kea<trendsLogicType>([
                     return (loadedFilters as Partial<LifecycleFilterType>).toggledLifecycles || defaultToggleState
                 } else {
                     return defaultToggleState
-                }
-            },
-        ],
-        lifecyclesOrder: [
-            (s) => [s.filters, s.loadedFilters],
-            (inflightFilters, loadedFilters): string[] => {
-                const defaultOrderedLifecycles = ['new', 'resurrecting', 'returning', 'dormant']
-                if (isLifecycleFilter(inflightFilters)) {
-                    return inflightFilters.lifecyclesOrder || defaultOrderedLifecycles
-                } else if (isLifecycleFilter(loadedFilters)) {
-                    return (loadedFilters as Partial<LifecycleFilterType>).lifecyclesOrder || defaultOrderedLifecycles
-                } else {
-                    return defaultOrderedLifecycles
                 }
             },
         ],

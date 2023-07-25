@@ -267,7 +267,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             shown_as: filters.shown_as,
             toggledLifecycles: filters.toggledLifecycles,
             show_values_on_series: filters.show_values_on_series,
-            lifecyclesOrder: filters.lifecyclesOrder,
         })
     }
 
