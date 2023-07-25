@@ -108,7 +108,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
-                    {showSurveyAppWarning && (
+                    {!surveyLoading && showSurveyAppWarning && (
                         <LemonBanner type="error">
                             Surveys requires the{' '}
                             <a onClick={() => surveyPlugin?.id && editPlugin(surveyPlugin.id)}>survey app</a> to be

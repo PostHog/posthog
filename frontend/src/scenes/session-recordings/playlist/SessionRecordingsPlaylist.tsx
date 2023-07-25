@@ -266,7 +266,7 @@ export function RecordingsLists({
                             <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                                 {sessionRecordingsResponseLoading ? (
                                     <>
-                                        <Spinner monocolor /> Loading older recordings
+                                        <Spinner textColored /> Loading older recordings
                                     </>
                                 ) : hasNext ? (
                                     <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
