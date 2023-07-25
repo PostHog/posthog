@@ -112,15 +112,14 @@ export const FEATURE_FLAGS = {
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
-    RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
+    RETENTION_BREAKDOWN: 'retention-breakdown', // TODO: Dropped, remove
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
-    NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
-    REGION_SELECT: 'region-select', //owner: @kappa90
+    REGION_SELECT: 'region-select', // TODO: Rolled out, unflag
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
@@ -128,7 +127,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
-    YULE_HOG: 'yule-hog', // owner: @benjackwhite
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
@@ -145,6 +143,7 @@ export const FEATURE_FLAGS = {
     SESSION_RECORDING_BLOB_REPLAY: 'session-recording-blob-replay', // owner: #team-monitoring
     SESSION_RECORDING_SUMMARY_LISTING: 'session-recording-summary-listing', // owner: #team-monitoring
     SURVEYS: 'surveys', // owner: @liyiy
+    SURVEYS_RATING_TYPE: 'surveys-rating-type', // owner: @liyiy
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     // owner: team monitoring, only to be enabled for PostHog team testing
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
@@ -154,7 +153,9 @@ export const FEATURE_FLAGS = {
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
-}
+    SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
+} as const
+export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
 export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale

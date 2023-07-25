@@ -6,7 +6,6 @@ import {
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
-    isRecentPerformancePageViewNode,
     isDataTableNode,
     isTimeToSeeDataSessionsNode,
     isHogQLQuery,
@@ -90,8 +89,6 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
-    } else if (isRecentPerformancePageViewNode(query)) {
-        return { path: api.performanceEvents.recentPageViewsURL() }
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }
