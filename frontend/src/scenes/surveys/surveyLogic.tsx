@@ -138,6 +138,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyEdited',
                 'reportSurveyArchived',
                 'reportSurveyStopped',
+                'reportSurveyResumed',
                 'reportSurveyViewed',
             ],
         ],
@@ -148,6 +149,7 @@ export const surveyLogic = kea<surveyLogicType>([
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
+        resumeSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
         setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
         setHasTargetingFlag: (hasTargetingFlag: boolean) => ({ hasTargetingFlag }),
@@ -174,6 +176,9 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             stopSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+            },
+            resumeSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: null })
             },
         },
     })),
@@ -209,6 +214,10 @@ export const surveyLogic = kea<surveyLogicType>([
         stopSurveySuccess: ({ survey }) => {
             actions.loadSurveys()
             actions.reportSurveyStopped(survey)
+        },
+        resumeSurveySuccess: ({ survey }) => {
+            actions.loadSurveys()
+            actions.reportSurveyResumed(survey)
         },
         archiveSurvey: async () => {
             actions.updateSurvey({ archived: true })
