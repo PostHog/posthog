@@ -11,13 +11,17 @@ import { Link } from '@posthog/lemon-ui'
 export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
     const showRefreshOnInsight = !disableRefresh
 
-    const { lastRefresh } = useValues(dataNodeLogic)
+    const { lastRefresh, response } = useValues(dataNodeLogic)
 
     const { insightProps } = useValues(insightLogic)
     const { getInsightRefreshButtonDisabledReason } = useValues(insightDataLogic(insightProps))
     const { loadData } = useActions(insightDataLogic(insightProps))
 
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `insightRefreshButtonDisabledReason`
+
+    if (!response || !response.result) {
+        return null
+    }
 
     return (
         <div className="flex items-center text-muted-alt">

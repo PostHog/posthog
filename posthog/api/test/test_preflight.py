@@ -45,7 +45,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "opt_out_capture": False,
             "posthog_version": VERSION,
             "is_debug": False,
-            "is_event_property_usage_enabled": True,
             "licensed_users_available": None,
             "site_url": "http://localhost:8000",
             "can_create_org": False,

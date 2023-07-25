@@ -471,16 +471,7 @@ export const insightLogic = kea<insightLogicType>([
                 return toLocalFilters(filters)
             },
         ],
-        isSingleSeries: [
-            (s) => [s.filters, s.localFilters],
-            (filters, localFilters): boolean => {
-                return (
-                    ((isTrendsFilter(filters) && !!filters.formula) || localFilters.length <= 1) && !filters.breakdown
-                )
-            },
-        ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
-        timezone: [(s) => [s.insight], (insight) => insight?.timezone || 'UTC'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (

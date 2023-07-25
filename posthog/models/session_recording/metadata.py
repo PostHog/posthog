@@ -53,8 +53,13 @@ class RecordingMetadata(TypedDict):
     end_time: datetime
     click_count: int
     keypress_count: int
-    urls: List[str]
+    mouse_activity_count: int
+    console_log_count: int
+    console_warn_count: int
+    console_error_count: int
+    first_url: str
     duration: int
+    active_seconds: int
 
 
 class RecordingMatchingEvents(TypedDict):

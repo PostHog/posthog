@@ -330,6 +330,38 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
+    def test_can_report_event_property_coexistence_when_custom_event_has_no_session_id(self) -> None:
+        EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"custom_event": False, "$pageview": True}
+
+    def test_can_report_event_property_coexistence_when_custom_event_has_session_id(self) -> None:
+        EventProperty.objects.create(team=self.team, event="custom_event", property="$session_id")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"custom_event": True, "$pageview": False}
+
+    def test_cannot_search_other_teams_properties(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Another Team")
+
+        EventProperty.objects.create(team=other_team, event="custom_event", property="$session_id")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"custom_event": False, "$pageview": False}
+
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):
     def test_validation(self):

@@ -24,7 +24,6 @@ const DEFAULT_DATATABLE_QUERY: DataTableNode = {
     propertiesViaUrl: true,
     showExport: true,
     showReload: true,
-    showColumnConfigurator: true,
     showEventFilter: true,
     showPropertyFilter: true,
 }

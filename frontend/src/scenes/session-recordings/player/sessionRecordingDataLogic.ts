@@ -111,7 +111,7 @@ const generateRecordingReportDurations = (
     cache: Record<string, any>,
     values: Record<string, any>
 ): RecordingReportLoadTimes => {
-    // TODO: This anytyping is super hard to manage - we should either type it or move it to a selector.
+    // TODO: This any typing is super hard to manage - we should either type it or move it to a selector.
     return {
         metadata: {
             size: values.segments.length,
@@ -151,11 +151,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        loadRecording: (full: boolean = false) => ({ full }),
         loadRecordingMeta: true,
+        maybeLoadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
-        loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
+        loadRecordingSnapshotsV1: (nextUrl?: string) => ({ nextUrl }),
         loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
+        loadRecordingSnapshots: true,
+        loadRecordingSnapshotsSuccess: true,
+        loadRecordingSnapshotsFailure: true,
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
@@ -163,12 +166,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
-        fullLoad: [
-            false as boolean,
-            {
-                loadRecording: (_, { full }) => full,
-            },
-        ],
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -195,42 +192,44 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaFailure: () => true,
             },
         ],
+        snapshotsLoaded: [
+            false as boolean,
+            {
+                loadRecordingSnapshotsSuccess: () => true,
+                loadRecordingSnapshotsFailure: () => true,
+            },
+        ],
     })),
     listeners(({ values, actions, cache }) => ({
-        loadRecording: ({ full }) => {
-            // If we don't have metadata then we load that first, which will trigger this again
-            if (!values.sessionPlayerMetaData) {
+        maybeLoadRecordingMeta: () => {
+            if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
+            }
+        },
+        loadRecordingSnapshots: () => {
+            if (values.sessionPlayerSnapshotDataLoading) {
                 return
             }
-
-            if (!full) {
-                return
-            }
-
             if (!values.sessionPlayerSnapshotData?.snapshots) {
                 if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
                     actions.loadRecordingSnapshotsV2()
                 } else {
-                    actions.loadRecordingSnapshots()
+                    actions.loadRecordingSnapshotsV1()
                 }
             }
             actions.loadEvents()
             actions.loadPerformanceEvents()
-        },
-        loadRecordingMetaSuccess: () => {
-            if (values.fullLoad) {
-                actions.loadRecording(true)
-            }
         },
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
                 // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
                 // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
-                actions.loadRecordingSnapshots()
+                actions.loadRecordingSnapshotsV1()
                 return
             }
+
+            actions.loadRecordingSnapshotsSuccess()
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)
 
@@ -240,9 +239,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.reportUsageIfFullyLoaded()
             }
         },
-        loadRecordingSnapshotsSuccess: () => {
+        loadRecordingSnapshotsV1Success: () => {
+            actions.loadRecordingSnapshotsSuccess()
+
             if (!!values.sessionPlayerSnapshotData?.next) {
-                actions.loadRecordingSnapshots(values.sessionPlayerSnapshotData?.next)
+                actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
@@ -257,6 +258,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                 actions.reportViewed()
             }
+        },
+        loadRecordingSnapshotsV1Failure: () => {
+            actions.loadRecordingSnapshotsFailure()
+        },
+        loadRecordingSnapshotsV2Failure: () => {
+            actions.loadRecordingSnapshotsFailure()
         },
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
@@ -332,7 +339,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
-                loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
+                loadRecordingSnapshotsV1: async (
+                    { nextUrl },
+                    breakpoint
+                ): Promise<SessionPlayerSnapshotData | null> => {
                     cache.snapshotsStartTime = performance.now()
 
                     if (!props.sessionRecordingId) {

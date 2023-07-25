@@ -169,8 +169,7 @@
                         "generic-signup-benefits",
                         "exception-autocapture",
                         "ff-dashboard-templates",
-                        "show-product-intro-existing-products",
-                        "session-recording-show-console-logs-filter"
+                        "show-product-intro-existing-products"
                     ],
                     "$feature/funnels-cue-opt-out-7301": true,
                     "$feature/retention-breakdown": true,
@@ -213,7 +212,6 @@
                     "$feature/exception-autocapture": true,
                     "$feature/ff-dashboard-templates": true,
                     "$feature/show-product-intro-existing-products": true,
-                    "$feature/session-recording-show-console-logs-filter": true,
                     "$feature_flag_payloads": {},
                     "posthog_version": "1.43.0",
                     "realm": "hosted-clickhouse",
@@ -391,8 +389,7 @@
                         "generic-signup-benefits",
                         "exception-autocapture",
                         "ff-dashboard-templates",
-                        "show-product-intro-existing-products",
-                        "session-recording-show-console-logs-filter"
+                        "show-product-intro-existing-products"
                     ],
                     "$feature/funnels-cue-opt-out-7301": true,
                     "$feature/retention-breakdown": true,
@@ -435,7 +432,6 @@
                     "$feature/exception-autocapture": true,
                     "$feature/ff-dashboard-templates": true,
                     "$feature/show-product-intro-existing-products": true,
-                    "$feature/session-recording-show-console-logs-filter": true,
                     "$feature_flag_payloads": {},
                     "posthog_version": "1.43.0",
                     "realm": "hosted-clickhouse",
@@ -613,8 +609,7 @@
                         "generic-signup-benefits",
                         "exception-autocapture",
                         "ff-dashboard-templates",
-                        "show-product-intro-existing-products",
-                        "session-recording-show-console-logs-filter"
+                        "show-product-intro-existing-products"
                     ],
                     "$feature/funnels-cue-opt-out-7301": true,
                     "$feature/retention-breakdown": true,
@@ -657,7 +652,6 @@
                     "$feature/exception-autocapture": true,
                     "$feature/ff-dashboard-templates": true,
                     "$feature/show-product-intro-existing-products": true,
-                    "$feature/session-recording-show-console-logs-filter": true,
                     "$feature_flag_payloads": {},
                     "posthog_version": "1.43.0",
                     "realm": "hosted-clickhouse",
@@ -835,8 +829,7 @@
                         "generic-signup-benefits",
                         "exception-autocapture",
                         "ff-dashboard-templates",
-                        "show-product-intro-existing-products",
-                        "session-recording-show-console-logs-filter"
+                        "show-product-intro-existing-products"
                     ],
                     "$feature/funnels-cue-opt-out-7301": true,
                     "$feature/retention-breakdown": true,
@@ -879,7 +872,6 @@
                     "$feature/exception-autocapture": true,
                     "$feature/ff-dashboard-templates": true,
                     "$feature/show-product-intro-existing-products": true,
-                    "$feature/session-recording-show-console-logs-filter": true,
                     "$feature_flag_payloads": {},
                     "posthog_version": "1.43.0",
                     "realm": "hosted-clickhouse",
@@ -1071,8 +1063,7 @@
                         "generic-signup-benefits",
                         "exception-autocapture",
                         "ff-dashboard-templates",
-                        "show-product-intro-existing-products",
-                        "session-recording-show-console-logs-filter"
+                        "show-product-intro-existing-products"
                     ],
                     "$feature/funnels-cue-opt-out-7301": true,
                     "$feature/retention-breakdown": true,
@@ -1115,7 +1106,6 @@
                     "$feature/exception-autocapture": true,
                     "$feature/ff-dashboard-templates": true,
                     "$feature/show-product-intro-existing-products": true,
-                    "$feature/session-recording-show-console-logs-filter": true,
                     "$feature_flag_payloads": {},
                     "posthog_version": "1.43.0",
                     "realm": "hosted-clickhouse",

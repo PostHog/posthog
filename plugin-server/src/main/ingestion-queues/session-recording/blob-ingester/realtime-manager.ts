@@ -1,7 +1,7 @@
 import { captureException } from '@sentry/node'
+import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
-import { Counter } from 'prom-client'
 
 import { PluginsServerConfig, RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
@@ -9,12 +9,6 @@ import { status } from '../../../../utils/status'
 import { createRedis } from '../../../../utils/utils'
 import { IncomingRecordingMessage } from './types'
 import { convertToPersistedMessage } from './utils'
-
-export const counterRealtimeSnapshotSubscriptionFinished = new Counter({
-    name: 'realtime_snapshots_subscription_finished_counter',
-    help: 'Indicates that this consumer finished providing realtime snapshots for a session',
-    labelNames: ['team_id'],
-})
 
 const Keys = {
     snapshots(teamId: number, suffix: string): string {
@@ -50,8 +44,6 @@ export class RealtimeManager extends EventEmitter {
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
-            status.info('🔌', 'RealtimeManager unsubscribed from realtime snapshots', { teamId, sessionId })
-            counterRealtimeSnapshotSubscriptionFinished.inc({ team_id: teamId.toString() })
         }
     }
 
@@ -152,7 +144,28 @@ export class RealtimeManager extends EventEmitter {
 
         try {
             await this.run(`clearAllMessages ${key} `, async (client) => {
-                return client.del(key)
+                /**
+                 * We could delete the key here but (https://redis.io/commands/del/) del is O(M)
+                 * where M is the number of items in the sorted set, for a large buffer this could be
+                 * a lot of work.
+                 *
+                 * Whereas RENAME (https://redis.io/commands/rename/) is O(1)
+                 * (_almost_ always O(1))
+                 * """
+                 *  If newkey already exists it is overwritten, when this happens RENAME executes an implicit DEL operation,
+                 *  so if the deleted key contains a very big value it may cause high latency
+                 *  even if RENAME itself is usually a constant-time operation.
+                 *  """
+                 *  So, we rename the key to expired-<key>-<uuid>, so that it can't possibly clash
+                 *  and let it expire
+                 */
+                const pipeline = client.pipeline()
+                const newKey = `expired-${key}-${randomUUID()}`
+                pipeline.rename(`${key}`, newKey)
+                // renaming shouldn't affect the existing TTL
+                // but, we set one anyway to be sure
+                pipeline.expire(newKey, 1)
+                return pipeline.exec()
             })
         } catch (error) {
             captureException(error, { tags: { teamId, sessionId }, extra: { key } })

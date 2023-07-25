@@ -76,7 +76,7 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
 }
 
 export function PlayerInspectorList(): JSX.Element {
-    const { logicProps, fullLoad } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
@@ -158,7 +158,7 @@ export function PlayerInspectorList(): JSX.Element {
 
     return (
         <div className="flex flex-col bg-side flex-1 overflow-hidden relative">
-            {!fullLoad ? (
+            {!snapshotsLoaded ? (
                 <div className="p-16 text-center text-muted-alt">Data will be shown once playback starts</div>
             ) : items.length ? (
                 <div

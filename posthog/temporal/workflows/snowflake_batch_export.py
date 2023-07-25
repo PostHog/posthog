@@ -339,9 +339,6 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(
                     maximum_attempts=3,
                     non_retryable_error_types=[
-                        # If we can't connect to ClickHouse, no point in
-                        # retrying.
-                        "ConnectionError",
                         # Validation failed, and will keep failing.
                         "ValueError",
                     ],

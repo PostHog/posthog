@@ -279,6 +279,8 @@ export const experimentLogic = kea<experimentLogicType>([
                             // These were used to change feature flag targeting, but this is controlled directly
                             // on the feature flag now.
                             filters: {
+                                events: [],
+                                actions: [],
                                 ...values.experiment.filters,
                                 properties: [],
                             },
@@ -339,11 +341,15 @@ export const experimentLogic = kea<experimentLogicType>([
                     aggregationGroupTypeIndex !== undefined
                         ? { math: 'unique_group', math_group_type_index: aggregationGroupTypeIndex }
                         : {}
+                const eventAddition =
+                    filters?.actions || filters?.events
+                        ? {}
+                        : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
                 newInsightFilters = cleanFilters({
                     insight: InsightType.TRENDS,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                    events: [{ ...getDefaultEvent(), ...groupAggregation }],
+                    ...eventAddition,
                     ...filters,
                 })
             }

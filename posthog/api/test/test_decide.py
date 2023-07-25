@@ -8,7 +8,7 @@ from django.conf import settings
 
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, TestCase
 from django.test.client import Client
 from freezegun import freeze_time
 import pytest
@@ -18,6 +18,7 @@ from posthog.models.group.group import Group
 
 
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
+from posthog.api.decide import label_for_team_id_to_track
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
@@ -64,6 +65,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         groups={},
         geoip_disable=False,
         ip="127.0.0.1",
+        disable_flags=False,
     ):
         return self.client.post(
             f"/decide/?v={api_version}",
@@ -75,6 +77,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         "distinct_id": distinct_id,
                         "groups": groups,
                         "geoip_disable": geoip_disable,
+                        "disable_flags": disable_flags,
                     },
                 )
             },
@@ -1203,6 +1206,110 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
             mock_counter.labels.assert_called_once_with(reason="timeout")
 
+    @patch("posthog.api.decide.FLAG_EVALUATION_COUNTER")
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_metric_counter(self, mock_error_counter, mock_counter, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        # use a non-csrf client to make requests to add feature flags
+        client = Client()
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "value": "tim", "type": "person", "operator": "icontains"}],
+                            "rollout_percentage": 50,
+                        }
+                    ]
+                },
+                "name": "Beta feature",
+                "key": "beta-feature",
+            },
+            content_type="application/json",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            format="json",
+            content_type="application/json",
+        )  # Should be enabled for everyone
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "multivariate-flag",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # At this stage, our cache should have all 3 flags
+
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["all"]):
+            # also adding team to cache
+            self._post_decide(api_version=3)
+
+            mock_counter.labels.assert_called_once_with(team_id=str(self.team.pk), errors_computing=False)
+            mock_counter.labels.return_value.inc.assert_called_once()
+            mock_error_counter.labels.assert_not_called()
+            client.logout()
+
+            mock_counter.reset_mock()
+
+            with self.assertNumQueries(4):
+                response = self._post_decide(api_version=3)
+                self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+                self.assertTrue(response.json()["featureFlags"]["default-flag"])
+                self.assertEqual(
+                    "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+                )  # assigned by distinct_id hash
+                self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+            mock_counter.labels.assert_called_once_with(team_id=str(self.team.pk), errors_computing=False)
+            mock_counter.labels.return_value.inc.assert_called_once()
+            mock_error_counter.labels.assert_not_called()
+
+            mock_counter.reset_mock()
+
+            # now database is down
+            with connection.execute_wrapper(QueryTimeoutWrapper()):
+                response = self._post_decide(api_version=3, distinct_id="example_id")
+                self.assertTrue("beta-feature" not in response.json()["featureFlags"])
+                self.assertTrue(response.json()["featureFlags"]["default-flag"])
+                self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+                self.assertTrue(response.json()["errorsWhileComputingFlags"])
+
+                mock_counter.labels.assert_called_once_with(team_id=str(self.team.pk), errors_computing=True)
+                mock_counter.labels.return_value.inc.assert_called_once()
+                mock_error_counter.labels.assert_called_once_with(reason="timeout")
+
     def test_feature_flags_v3_with_database_errors_and_no_flags(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -1597,6 +1704,62 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
         self.assertEqual(geoip_disabled_res.json()["featureFlags"], {"australia-feature": False, "india-feature": True})
+
+    def test_disable_flags(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$geoip_country_name": "India"})
+
+        australia_ip = "13.106.122.3"
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 1",
+            key="australia-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "Australia", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Beta feature 2",
+            key="india-feature",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "$geoip_country_name", "value": "India", "type": "person"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        with self.assertNumQueries(0):
+            flag_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags=True)
+            self.assertEqual(flag_disabled_res.json()["featureFlags"], {})
+
+        # test for falsy/truthy values
+        flags_not_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="0")
+        flags_disabled_res = self._post_decide(api_version=3, ip=australia_ip, disable_flags="yes")
+
+        # person has geoip_country_name set to India, but australia-feature is true, because geoip resolution of current IP is enabled
+        self.assertEqual(
+            flags_not_disabled_res.json()["featureFlags"], {"australia-feature": True, "india-feature": False}
+        )
+        # person has geoip_country_name set to India, and australia-feature is false, because geoip resolution of current IP is disabled
+        self.assertEqual(flags_disabled_res.json()["featureFlags"], {})
 
     @snapshot_postgres_queries
     def test_decide_doesnt_error_out_when_database_is_down(self, *args):
@@ -2756,3 +2919,50 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             response = self._post_decide(distinct_id="example_id", groups={"organization": "foo", "project": "bar"})
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True, "default-no-prop-group-flag": True})
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
+
+
+class TestDecideMetricLabel(TestCase):
+    def test_simple_team_ids(self):
+
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "3"]):
+
+            self.assertEqual(label_for_team_id_to_track(3), "3")
+            self.assertEqual(label_for_team_id_to_track(2), "2")
+            self.assertEqual(label_for_team_id_to_track(1), "1")
+            self.assertEqual(label_for_team_id_to_track(0), "unknown")
+            self.assertEqual(label_for_team_id_to_track(4), "unknown")
+            self.assertEqual(label_for_team_id_to_track(40), "unknown")
+            self.assertEqual(label_for_team_id_to_track(10), "unknown")
+            self.assertEqual(label_for_team_id_to_track(20), "unknown")
+            self.assertEqual(label_for_team_id_to_track(31), "unknown")
+
+    def test_all_team_ids(self):
+
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "3", "all"]):
+
+            self.assertEqual(label_for_team_id_to_track(3), "3")
+            self.assertEqual(label_for_team_id_to_track(2), "2")
+            self.assertEqual(label_for_team_id_to_track(1), "1")
+            self.assertEqual(label_for_team_id_to_track(0), "0")
+            self.assertEqual(label_for_team_id_to_track(4), "4")
+            self.assertEqual(label_for_team_id_to_track(40), "40")
+            self.assertEqual(label_for_team_id_to_track(10), "10")
+            self.assertEqual(label_for_team_id_to_track(20), "20")
+            self.assertEqual(label_for_team_id_to_track(31), "31")
+
+    def test_range_team_ids(self):
+
+        with self.settings(DECIDE_TRACK_TEAM_IDS=["1", "2", "1:3", "10:20", "30:40"]):
+
+            self.assertEqual(label_for_team_id_to_track(3), "3")
+            self.assertEqual(label_for_team_id_to_track(2), "2")
+            self.assertEqual(label_for_team_id_to_track(1), "1")
+            self.assertEqual(label_for_team_id_to_track(0), "unknown")
+            self.assertEqual(label_for_team_id_to_track(4), "unknown")
+            self.assertEqual(label_for_team_id_to_track(40), "40")
+            self.assertEqual(label_for_team_id_to_track(41), "unknown")
+            self.assertEqual(label_for_team_id_to_track(10), "10")
+            self.assertEqual(label_for_team_id_to_track(9), "unknown")
+            self.assertEqual(label_for_team_id_to_track(20), "20")
+            self.assertEqual(label_for_team_id_to_track(25), "unknown")
+            self.assertEqual(label_for_team_id_to_track(31), "31")

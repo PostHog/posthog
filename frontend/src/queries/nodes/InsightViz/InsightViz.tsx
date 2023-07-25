@@ -7,8 +7,6 @@ import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { InsightQueryNode, InsightVizNode, QueryContext } from '../../schema'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
@@ -38,10 +36,10 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
         query: query.source,
         key: insightVizDataNodeKey(insightProps),
         cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+        doNotLoad: insightProps.doNotLoad,
     }
 
     const { insightMode } = useValues(insightSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
 
@@ -55,11 +53,9 @@ export function InsightViz({ query, setQuery, context, readOnly }: InsightVizPro
     const disableCorrelationTable = query.showCorrelationTable ? !query.showCorrelationTable : !showIfFull
     const disableLastComputation = query.showLastComputation ? !query.showLastComputation : !showIfFull
     const disableLegendButton = query.showLegendButton ? !query.showLegendButton : !showIfFull
-
-    const disableLastComputationRefresh =
-        query.showLastComputationRefresh !== undefined
-            ? !query.showLastComputationRefresh
-            : !featureFlags[FEATURE_FLAGS.REFRESH_BUTTON_ON_INSIGHT]
+    const disableLastComputationRefresh = query.showLastComputationRefresh
+        ? !query.showLastComputationRefresh
+        : !showIfFull
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>

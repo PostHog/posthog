@@ -263,6 +263,19 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public propertyDefinitionSeenTogether(
+        eventNames: string[],
+        propertyDefinitionName: PropertyDefinition['name'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
+
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent('seen_together')
+            .withQueryString(queryParams)
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -752,6 +765,15 @@ const api = {
             propertyDefinitionId: PropertyDefinition['id']
         }): Promise<PropertyDefinition> {
             return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
+        },
+        async seenTogether({
+            eventNames,
+            propertyDefinitionName,
+        }: {
+            eventNames: string[]
+            propertyDefinitionName: PropertyDefinition['name']
+        }): Promise<Record<string, boolean>> {
+            return new ApiRequest().propertyDefinitionSeenTogether(eventNames, propertyDefinitionName).get()
         },
         async update({
             propertyDefinitionId,
@@ -1407,11 +1429,11 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            const sessionId = posthog.get_session_id()
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
-                    'X-POSTHOG-SESSION-ID': sessionId,
+                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
                 },
             })
         } catch (e) {
@@ -1436,7 +1458,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1468,7 +1491,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1494,6 +1518,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
                 // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })

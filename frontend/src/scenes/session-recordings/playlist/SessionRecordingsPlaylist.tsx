@@ -11,7 +11,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { IconMagnifier, IconPause, IconPlay, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import clsx from 'clsx'
@@ -29,10 +29,32 @@ import { router } from 'kea-router'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
 )
+
+function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
+    // TODO add docs on how to enrich custom events with session_id and link to it from here
+    return (
+        <LemonBanner type="warning">
+            <p>Cannot use these events to filter for session recordings:</p>
+            <li className={'my-1'}>
+                {props.unusableEventsInFilter.map((event) => (
+                    <span key={event}>"{event}"</span>
+                ))}
+            </li>
+            <p>
+                Events have to have a <PropertyKeyInfo value={'$session_id'} /> to be used to filter recordings. This is
+                added automatically by{' '}
+                <Link to={'https://posthog.com/docs/libraries/js'} target={'_blank'}>
+                    the Web SDK
+                </Link>
+            </p>
+        </LemonBanner>
+    )
+}
 
 export function RecordingsLists({
     playlistShortId,
@@ -60,6 +82,7 @@ export function RecordingsLists({
         listingVersion,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
+        unusableEventsInFilter,
     } = useValues(logic)
     const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
         useActions(logic)
@@ -108,6 +131,8 @@ export function RecordingsLists({
                         empty={
                             pinnedRecordingsAPIErrored ? (
                                 <LemonBanner type="error">Error while trying to load pinned recordings.</LemonBanner>
+                            ) : !!unusableEventsInFilter.length ? (
+                                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                             ) : undefined
                         }
                     />
@@ -209,6 +234,8 @@ export function RecordingsLists({
                     empty={
                         sessionRecordingsAPIErrored ? (
                             <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                        ) : !!unusableEventsInFilter.length ? (
+                            <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
                             <div className={'flex flex-col items-center space-y-2'}>
                                 <span>No matching recordings found</span>

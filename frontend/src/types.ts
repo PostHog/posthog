@@ -717,7 +717,7 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
-export type DurationTypeFilter = 'duration' | 'active_seconds' | 'inactive_seconds'
+export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'log' | 'warn' | 'error'
 export interface RecordingFilters {
@@ -727,7 +727,7 @@ export interface RecordingFilters {
     actions?: FilterType['actions']
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
-    duration_type_filter?: DurationTypeFilter
+    duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
 }
 
@@ -991,6 +991,8 @@ export interface SessionRecordingType {
     viewed: boolean
     /** Length of recording in seconds. */
     recording_duration: number
+    active_seconds?: number
+    inactive_seconds?: number
     /** When the recording starts in ISO format. */
     start_time: string
     /** When the recording ends in ISO format. */
@@ -1002,9 +1004,14 @@ export interface SessionRecordingType {
     person?: PersonType
     click_count?: number
     keypress_count?: number
+    /** count of all mouse activity in the recording, not just clicks */
+    mouse_activity_count?: number
     start_url?: string
     /** Count of number of playlists this recording is pinned to. **/
     pinned_count?: number
+    console_log_count?: number
+    console_warn_count?: number
+    console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'clickhouse' | 'object_storage'
 }
@@ -2055,6 +2062,7 @@ export enum SurveyType {
     Button = 'button',
     FullScreen = 'full_screen',
     Email = 'email',
+    API = 'api',
 }
 
 export interface SurveyAppearance {
@@ -2228,7 +2236,6 @@ export interface PreflightStatus {
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
-    is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
     site_url?: string
@@ -2495,7 +2502,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface KeyMapping {
     label: string
     description?: string | JSX.Element
-    examples?: string[]
+    examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
 }

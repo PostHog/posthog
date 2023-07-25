@@ -1420,7 +1420,7 @@ export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
 
-export function isMultiSeriesFormula(formula?: string): boolean {
+export function isMultiSeriesFormula(formula?: string | null): boolean {
     if (!formula) {
         return false
     }

@@ -74,7 +74,7 @@ class EventDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
 
     search_fields = ["name"]
-    ordering_fields = ["name"]
+    ordering_fields = ["name", "last_seen_at"]
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -125,8 +125,8 @@ class EventDefinitionViewSet(
             else:
                 order_direction = "ASC"
         else:
-            order = "name"
-            order_direction = "ASC"
+            order = "last_seen_at"
+            order_direction = "DESC"
 
         return order, order_direction
 

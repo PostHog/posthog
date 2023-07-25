@@ -186,7 +186,8 @@ export function addHistoricalEventsExportCapabilityV2(
         Object.keys(JOB_SPEC.payload!).length
     ) {
         hub.promiseManager.trackPromise(
-            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
+            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC),
+            'exports v2 addOrUpdatePublicJob'
         )
     }
     const oldRunEveryMinute = tasks.schedule.runEveryMinute
@@ -783,7 +784,8 @@ export function addHistoricalEventsExportCapabilityV2(
                 type: PluginLogEntryType.Log,
                 instanceId: hub.instanceId,
                 ...overrides,
-            })
+            }),
+            'exports v2 - createLog'
         )
     }
 

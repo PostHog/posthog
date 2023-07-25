@@ -247,7 +247,6 @@ def get_static_cohort_size(cohort: Cohort) -> Optional[int]:
 
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
-
     hogql_context = HogQLContext(within_non_hogql_query=True, team_id=cohort.team_id)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
@@ -286,12 +285,11 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     return count
 
 
-def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
-
+def clear_stale_cohortpeople(cohort: Cohort, before_version: int) -> None:
     if cohort.version and cohort.version > 0:
         stale_count_result = sync_execute(
             STALE_COHORTPEOPLE,
-            {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": current_version},
+            {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": before_version},
         )
 
         if stale_count_result and len(stale_count_result) and len(stale_count_result[0]):
@@ -299,7 +297,9 @@ def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
             if stale_count > 0:
                 # Don't do anything if it already exists
                 AsyncDeletion.objects.get_or_create(
-                    deletion_type=DeletionType.Cohort_stale, team_id=cohort.team.pk, key=f"{cohort.pk}_{cohort.version}"
+                    deletion_type=DeletionType.Cohort_stale,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{before_version}",
                 )
 
 

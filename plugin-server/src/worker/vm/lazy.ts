@@ -63,10 +63,6 @@ export class LazyPluginVM {
         return await this.getVmMethod('onEvent')
     }
 
-    public async getOnSnapshot(): Promise<PluginConfigVMResponse['methods']['onSnapshot'] | null> {
-        return await this.getVmMethod('onSnapshot')
-    }
-
     public async getProcessEvent(): Promise<PluginConfigVMResponse['methods']['processEvent'] | null> {
         return await this.getVmMethod('processEvent')
     }

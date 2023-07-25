@@ -1,6 +1,6 @@
 .PlayerSeekbar {
     --bar-height: 4px;
-    --slider-height: 16px;
+    --slider-height: 20px;
     --thumb-size: 15px;
 
     width: 100%;
@@ -82,7 +82,7 @@
         }
     }
 
-    .PlayerSeekBarInspector {
+    .PlayerSeekBarPreview {
         position: absolute;
         z-index: 6;
         bottom: 100%;
@@ -91,97 +91,96 @@
         pointer-events: none;
         transition: opacity 150ms ease-in-out;
 
-        .PlayerSeekBarInspector__tooltip {
+        .PlayerSeekBarPreview__tooltip {
             width: 100%;
 
-            .PlayerSeekBarInspector__tooltip__content {
+            .PlayerSeekBarPreview__tooltip__content {
                 display: inline-block;
                 border-radius: var(--radius);
-                padding: 0.25rem 0.4rem;
+                padding: 0.1rem;
                 font-size: 0.8rem;
                 font-weight: 600;
                 color: #fff;
                 background-color: var(--muted-dark);
 
                 transform: translateX(-50%);
-                margin-bottom: 0.25rem;
+                margin-bottom: 0.5rem;
             }
         }
     }
 
-    .PlayerSeekbar__slider:hover,
+    &:hover,
     &--scrubbing {
-        .PlayerSeekBarInspector {
+        .PlayerSeekBarPreview {
             opacity: 1;
         }
     }
+}
 
-    .PlayerSeekbar__ticks {
-        z-index: 1;
+.PlayerSeekbarTicks {
+    z-index: 1;
+    width: 100%;
+    height: 0.75rem;
+    position: relative;
+
+    .PlayerSeekbarTick {
+        --tick-color: var(--muted-alt);
+        --tick-width: 3px;
+
+        cursor: pointer;
         position: absolute;
-        width: 100%;
-        bottom: 100%;
-        height: 0.75rem;
+        height: 100%;
+        top: 0px;
+        transition: transform 150ms ease-in-out;
 
-        .PlayerSeekbarTick {
-            --tick-color: var(--muted-alt);
-            --tick-width: 3px;
+        &--warning {
+            --tick-color: var(--warning);
+        }
 
-            cursor: pointer;
+        &--danger {
+            --tick-color: var(--danger);
+        }
+
+        &--primary {
+            --tick-color: var(--primary);
+        }
+
+        .PlayerSeekbarTick__line {
             position: absolute;
+            width: var(--tick-width);
+            margin-left: calc(var(--tick-width) / 2 * -1);
+            border-radius: 2px;
+            opacity: 0.5;
             height: 100%;
-            top: 0px;
-            transition: transform 150ms ease-in-out;
+            background-color: var(--tick-color);
+        }
 
-            &--warning {
-                --tick-color: var(--warning);
-            }
+        .PlayerSeekbarTick__info {
+            position: absolute;
+            bottom: 100%;
+            background-color: var(--tick-color);
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+            border-radius: 0.25rem;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            color: #fff;
+            margin-bottom: 0.25rem;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 150ms ease-in-out;
+            max-width: 20rem;
+        }
 
-            &--danger {
-                --tick-color: var(--danger);
-            }
-
-            &--primary {
-                --tick-color: var(--primary);
-            }
-
-            .PlayerSeekbarTick__line {
-                position: absolute;
-                width: var(--tick-width);
-                margin-left: calc(var(--tick-width) / 2 * -1);
-                border-radius: 2px;
-                opacity: 0.5;
-                height: 100%;
-                background-color: var(--tick-color);
-            }
+        &:hover {
+            --tick-width: 5px;
 
             .PlayerSeekbarTick__info {
-                position: absolute;
-                bottom: 100%;
-                background-color: var(--tick-color);
-                padding: 0.25rem 0.5rem;
-                font-size: 0.8rem;
-                border-radius: 0.25rem;
-                transform: translateX(-50%);
-                white-space: nowrap;
-                color: #fff;
-                margin-bottom: 0.25rem;
-                opacity: 0;
-                visibility: hidden;
-                transition: opacity 150ms ease-in-out;
-                max-width: 20rem;
+                opacity: 1;
+                visibility: visible;
             }
-
-            &:hover {
-                --tick-width: 5px;
-
-                .PlayerSeekbarTick__info {
-                    opacity: 1;
-                    visibility: visible;
-                }
-                .PlayerSeekbarTick__line {
-                    opacity: 1;
-                }
+            .PlayerSeekbarTick__line {
+                opacity: 1;
             }
         }
     }
