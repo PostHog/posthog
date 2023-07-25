@@ -455,7 +455,7 @@ export class SessionRecordingIngesterV2 {
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(
-            Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0), 0)
+            Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtimeTail ? 1 : 0), 0)
         )
     }
 
