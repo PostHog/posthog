@@ -1,5 +1,5 @@
 import { NotebookNodeType } from '~/types'
-import { hasDirectChildOfType } from '../Notebook/Editor'
+import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
 import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -9,8 +9,9 @@ import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSu
 import { NotebookEditor } from '../Notebook/utils'
 
 const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
+    const timestampNode = getTimestampChildNode(previousNode)
     const { currentPlayerTime } = useValues(
-        sessionRecordingPlayerLogic(sessionRecordingPlayerProps(previousNode?.attrs.sessionRecordingId))
+        sessionRecordingPlayerLogic(sessionRecordingPlayerProps(timestampNode.attrs.sessionRecordingId))
     )
 
     return (
@@ -22,11 +23,12 @@ const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element 
 
 export default InsertionSuggestion.create({
     shouldShow: ({ previousNode }) =>
-        !!previousNode ? hasDirectChildOfType(previousNode, NotebookNodeType.ReplayTimestamp) : false,
+        !!previousNode ? hasChildOfType(previousNode, NotebookNodeType.ReplayTimestamp) : false,
 
     onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => {
         if (!!previousNode && !!editor) {
-            const sessionRecordingId = previousNode.attrs.sessionRecordingId
+            const timestampNode = getTimestampChildNode(previousNode)
+            const sessionRecordingId = timestampNode.attrs.sessionRecordingId
 
             const currentPlayerTime =
                 sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
@@ -38,3 +40,7 @@ export default InsertionSuggestion.create({
 
     Component,
 })
+
+function getTimestampChildNode(node: Node | null): Node {
+    return firstChildOfType(node as Node, NotebookNodeType.ReplayTimestamp) as Node
+}

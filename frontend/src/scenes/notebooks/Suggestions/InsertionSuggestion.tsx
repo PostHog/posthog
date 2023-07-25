@@ -2,7 +2,7 @@ import { Node } from '@tiptap/pm/model'
 import { NotebookEditor } from '../Notebook/utils'
 
 export type InsertionSuggestionViewProps = {
-    previousNode?: Node | null
+    previousNode: Node | null
 }
 
 interface InsertionSuggestionConfig {

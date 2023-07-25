@@ -159,7 +159,7 @@ export function Editor({
                 },
                 findNode: (position: number) => findNode(editor, position),
                 nextNode: (position: number) => nextNode(editor, position),
-                hasChildOfType: (node: Node, type: string) => hasDirectChildOfType(node, type),
+                hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
             })
         },
         onUpdate: onUpdate,
@@ -191,7 +191,7 @@ function nextNode(editor: TTEditor, position: number): { node: Node; position: n
     return result.node ? { node: result.node, position: result.offset } : null
 }
 
-export function hasDirectChildOfType(node: Node, type: string, direct: boolean = true): boolean {
+export function hasChildOfType(node: Node, type: string, direct: boolean = true): boolean {
     const types: string[] = []
     node.descendants((child) => {
         types.push(child.type.name)
@@ -200,8 +200,22 @@ export function hasDirectChildOfType(node: Node, type: string, direct: boolean =
     return types.includes(type)
 }
 
+export function firstChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
+    const children = getChildren(node, direct)
+    return children.find((child) => child.type.name === type) || null
+}
+
+function getChildren(node: Node, direct: boolean = true): Node[] {
+    const children: Node[] = []
+    node.descendants((child) => {
+        children.push(child)
+        return !direct
+    })
+    return children
+}
+
 function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
-    return editor.state.doc.childBefore($anchor.pos - node.nodeSize).node
+    return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
 }

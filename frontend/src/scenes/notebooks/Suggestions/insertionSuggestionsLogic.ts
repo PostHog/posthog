@@ -3,8 +3,8 @@ import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicT
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
 import { InsertionSuggestion } from './InsertionSuggestion'
-import { Node } from '@tiptap/pm/model'
 import { NotebookEditor } from '../Notebook/utils'
+import { Node } from '@tiptap/pm/model'
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
