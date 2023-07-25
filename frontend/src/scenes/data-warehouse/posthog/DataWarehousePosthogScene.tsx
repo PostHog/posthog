@@ -1,7 +1,6 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
@@ -22,15 +21,6 @@ export function DataWarehousePosthogScene(): JSX.Element {
                             Beta
                         </LemonTag>
                     </div>
-                }
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        to={urls.dataWarehouseTable('new')}
-                        data-attr="new-data-warehouse-table"
-                    >
-                        New Table
-                    </LemonButton>
                 }
                 caption={
                     <div>

@@ -12,10 +12,11 @@ import type { editor, MarkerSeverity } from 'monaco-editor'
 import { query } from '~/queries/query'
 import type { Monaco } from '@monaco-editor/react'
 import api from 'lib/api'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/views/dataWarehouseViewsLogic'
 import { promptLogic } from 'lib/logic/promptLogic'
+import { urls } from 'scenes/urls'
 
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
@@ -178,7 +179,8 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            actions.createDataWarehouseView({ name, query })
+            await actions.createDataWarehouseView({ name, query })
+            router.actions.push(urls.dataWarehouseViews())
         },
     })),
 ])

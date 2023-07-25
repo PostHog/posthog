@@ -31,10 +31,10 @@ export function DataWarehouseViewsScene(): JSX.Element {
                 buttons={
                     <LemonButton
                         type="primary"
-                        to={urls.dataWarehouseTable('new')}
+                        to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
                         data-attr="new-data-warehouse-table"
                     >
-                        New Table
+                        New View
                     </LemonButton>
                 }
                 caption={
