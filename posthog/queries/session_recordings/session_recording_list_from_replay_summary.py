@@ -135,6 +135,8 @@ join (
             )
             joining = "OR" if index > 0 else ""
             condition_sql += f"{joining} ({this_entity_condition_sql})"
+            # wrap in smooths to constrain the scope of the OR
+            condition_sql = f"( {condition_sql} )"
             params = {**params, **this_entity_filter_params}
 
         params = {**params, "event_names": list(event_names_to_filter)}

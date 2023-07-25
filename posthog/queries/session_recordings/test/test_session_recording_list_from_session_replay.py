@@ -1932,3 +1932,52 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_two_events_and_multiple_teams(self):
+        another_team = Team.objects.create(organization=self.organization)
+
+        # two teams, user with the same properties
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
+
+        # a recording session with a pageview and a pageleave
+        self._a_session_with_two_events(self.team, "1")
+        self._a_session_with_two_events(another_team, "2")
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "$pageleave", "type": "events", "order": 0, "name": "$pageleave"},
+                ],
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        self.assertEqual([sr["session_id"] for sr in session_recordings], ["1"])
+
+    def _a_session_with_two_events(self, team: Team, session_id: str) -> None:
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            first_timestamp=self.base_time,
+            team_id=team.pk,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            team=team,
+            event_name="$pageview",
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            team=team,
+            event_name="$pageleave",
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )
