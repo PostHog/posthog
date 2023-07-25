@@ -8,7 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DataWarehouseSceneRow } from '../types'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { router } from 'kea-router'
 
 export function DataWarehouseViewsContainer(): JSX.Element {
     const { views, dataWarehouseViewsLoading } = useValues(dataWarehouseViewsLogic)
@@ -37,7 +38,7 @@ export function DataWarehouseViewsContainer(): JSX.Element {
                         const query: DataTableNode = {
                             kind: NodeKind.DataTableNode,
                             full: true,
-                            source: obj.query || {
+                            source: {
                                 kind: NodeKind.HogQLQuery,
                                 query: `SELECT ${obj.columns
                                     .filter(({ table, fields, chain }) => !table && !fields && !chain)
@@ -75,6 +76,23 @@ export function DataWarehouseViewsContainer(): JSX.Element {
                                         >
                                             Delete view
                                         </LemonButton>
+                                        {warehouseView.query && (
+                                            <LemonButton
+                                                onClick={() => {
+                                                    const query: DataTableNode = {
+                                                        kind: NodeKind.DataTableNode,
+                                                        full: true,
+                                                        source: warehouseView.query as HogQLQuery,
+                                                    }
+                                                    router.actions.push(
+                                                        urls.insightNew(undefined, undefined, JSON.stringify(query))
+                                                    )
+                                                }}
+                                                fullWidth
+                                            >
+                                                View definition
+                                            </LemonButton>
+                                        )}
                                     </>
                                 }
                             />
