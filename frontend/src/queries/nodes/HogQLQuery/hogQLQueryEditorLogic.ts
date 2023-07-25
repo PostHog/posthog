@@ -134,9 +134,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             for (const notice of response?.notices ?? []) {
                 noticeToMarker(notice, 1 /* MarkerSeverity.Hint */)
             }
-            console.log(response)
-            const isValidView = response?.isValidView || false
-            actions.setIsValidView(isValidView)
+            actions.setIsValidView(response?.isValidView || false)
             actions.setModelMarkers(markers)
         },
         draftFromPrompt: async () => {
