@@ -141,7 +141,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [pluginsLogic, ['installedPlugins', 'enabledPlugins']],
+        values: [pluginsLogic, ['installedPlugins', 'loading as pluginsLoading', 'enabledPlugins']],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -265,10 +265,12 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         showSurveyAppWarning: [
-            (s) => [s.survey, s.enabledPlugins],
-            (survey: Survey, enabledPlugins: PluginType[]): boolean => {
+            (s) => [s.survey, s.enabledPlugins, s.pluginsLoading],
+            (survey: Survey, enabledPlugins: PluginType[], pluginsLoading: boolean): boolean => {
                 return !!(
-                    survey.type !== SurveyType.API && !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+                    survey.type !== SurveyType.API &&
+                    !pluginsLoading &&
+                    !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
                 )
             },
         ],
