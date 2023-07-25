@@ -318,37 +318,39 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
 
     const firstRowLeft = [
         showDateRange && isEventsQuery(query.source) ? (
-            <DateRange query={query.source} setQuery={setQuerySource} />
+            <DateRange key="dr" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
-            <EventName query={query.source} setQuery={setQuerySource} />
+            <EventName key="en" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSearch && isPersonsNode(query.source) ? (
-            <PersonsSearch query={query.source} setQuery={setQuerySource} />
+            <PersonsSearch key="ps" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && isEventsQuery(query.source) ? (
-            <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+            <EventPropertyFilters key="epf" query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && isPersonsNode(query.source) ? (
-            <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
+            <PersonPropertyFilters key="ppf" query={query.source} setQuery={setQuerySource} />
         ) : null,
     ].filter((x) => !!x)
 
     const firstRowRight = [
-        showSavedQueries && isEventsQuery(query.source) ? <SavedQueries query={query} setQuery={setQuery} /> : null,
+        showSavedQueries && isEventsQuery(query.source) ? (
+            <SavedQueries key="sq" query={query} setQuery={setQuery} />
+        ) : null,
     ].filter((x) => !!x)
 
     const secondRowLeft = [
-        showReload ? <Reload /> : null,
-        showReload && canLoadNewData ? <AutoLoad /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
+        showReload ? <Reload key="r" /> : null,
+        showReload && canLoadNewData ? <AutoLoad key="al" /> : null,
+        showElapsedTime ? <ElapsedTime key="el" /> : null,
     ].filter((x) => !!x)
 
     const secondRowRight = [
         showColumnConfigurator && isEventsQuery(query.source) ? (
-            <ColumnConfigurator query={query} setQuery={setQuery} />
+            <ColumnConfigurator key="cc" query={query} setQuery={setQuery} />
         ) : null,
-        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+        showExport ? <DataTableExport key="dte" query={query} setQuery={setQuery} /> : null,
     ].filter((x) => !!x)
 
     const showFirstRow = !isReadOnly && (firstRowLeft.length > 0 || firstRowRight.length > 0)
@@ -363,24 +365,25 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-4 items-center">
-                            {firstRowLeft}
-                            <div className="flex-1" />
-                            {firstRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
+                        <div className="flex gap-4 items-center justify-between flex-wrap">
+                            <div className="flex grow gap-4 items-center flex-wrap">{firstRowLeft}</div>
+                            <div className="flex grow gap-4 items-center justify-end">
+                                {showOpenEditorButton && inlineEditorButtonOnRow === 1 && !isReadOnly ? (
+                                    <OpenEditorButton query={query} />
+                                ) : null}
+                            </div>
                         </div>
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
-                        <div className="flex gap-4 items-center">
-                            {secondRowLeft}
-                            <div className="flex-1" />
-                            {secondRowRight}
-                            {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
-                                <OpenEditorButton query={query} />
-                            ) : null}
+                        <div className="flex gap-4 items-center justify-between flex-wrap">
+                            <div className="flex grow gap-4 items-center">{secondRowLeft}</div>
+                            <div className="flex grow gap-4 items-center justify-end">
+                                {secondRowRight}
+                                {showOpenEditorButton && inlineEditorButtonOnRow === 2 && !isReadOnly ? (
+                                    <OpenEditorButton query={query} />
+                                ) : null}
+                            </div>
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (

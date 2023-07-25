@@ -4,6 +4,7 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import './LemonSelectMultiple.scss'
 import { ReactNode } from 'react'
+import { Placement } from 'rc-select/lib/generate'
 
 export interface LemonSelectMultipleOption {
     label: string
@@ -33,6 +34,8 @@ export interface LemonSelectMultipleProps {
     filterOption?: boolean
     mode?: 'single' | 'multiple' | 'multiple-custom'
     'data-attr'?: string
+    dropdownMatchSelectWidth?: boolean
+    placement?: Placement
 }
 
 export type LabelInValue = { value: string; label: ReactNode }
@@ -51,6 +54,8 @@ export function LemonSelectMultiple({
     filterOption = true,
     mode = 'single',
     selectClassName,
+    dropdownMatchSelectWidth,
+    placement,
     ...props
 }: LemonSelectMultipleProps): JSX.Element {
     const optionsAsList: LemonSelectMultipleOptionItem[] = Array.isArray(options)
@@ -80,6 +85,8 @@ export function LemonSelectMultiple({
                 onFocus={onFocus}
                 onBlur={onBlur}
                 showAction={['focus']}
+                dropdownMatchSelectWidth={dropdownMatchSelectWidth}
+                placement={placement}
                 onChange={(v) => {
                     if (onChange) {
                         if (labelInValue) {

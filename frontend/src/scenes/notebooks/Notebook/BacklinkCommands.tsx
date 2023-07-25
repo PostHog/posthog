@@ -38,6 +38,7 @@ const BacklinkCommands = forwardRef<ReactRenderer, BacklinkCommandsProps>(functi
     query,
     onClose,
 }): JSX.Element | null {
+    // TODO: Use ref, otherwise React complaints
     const { editor } = useValues(notebookLogic)
 
     const onSelect = (

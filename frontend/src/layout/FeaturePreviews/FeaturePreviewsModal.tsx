@@ -1,7 +1,7 @@
 import { LemonButton, LemonDivider, LemonModal, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues, useAsyncActions } from 'kea'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import { useLayoutEffect, useState } from 'react'
+import React, { useLayoutEffect, useState } from 'react'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 import clsx from 'clsx'
 
@@ -32,17 +32,12 @@ export function FeaturePreviewsModal({
                     earlyAccessFeatures.length === 0 && 'items-center justify-center'
                 )}
             >
-                {earlyAccessFeatures.map((feature, i) => {
-                    if (!feature.flagKey) {
-                        return false
-                    }
-                    return (
-                        <>
-                            {i > 0 && <LemonDivider className="my-4" />}
-                            <FeaturePreview key={feature.flagKey} feature={feature} />
-                        </>
-                    )
-                })}
+                {earlyAccessFeatures.map((feature, i) => (
+                    <React.Fragment key={feature.flagKey}>
+                        {i > 0 && <LemonDivider className="my-4" />}
+                        <FeaturePreview key={feature.flagKey} feature={feature} />
+                    </React.Fragment>
+                ))}
                 {rawEarlyAccessFeaturesLoading ? (
                     <SpinnerOverlay />
                 ) : earlyAccessFeatures.length === 0 ? (

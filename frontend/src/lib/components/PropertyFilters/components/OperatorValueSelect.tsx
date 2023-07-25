@@ -12,6 +12,7 @@ import {
 import { PropertyValue } from './PropertyValue'
 import { dayjs } from 'lib/dayjs'
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType
@@ -21,7 +22,7 @@ export interface OperatorValueSelectProps {
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
-    operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
+    operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange' | 'className'>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
@@ -93,40 +94,40 @@ export function OperatorValueSelect({
 
     return (
         <>
-            <div data-attr="taxonomic-operator">
-                <OperatorSelect
-                    operator={currentOperator || PropertyOperator.Exact}
-                    operators={operators}
-                    onChange={(newOperator: PropertyOperator) => {
-                        const tentativeValidationError =
-                            newOperator && value ? getValidationError(newOperator, value, propkey) : null
-                        if (tentativeValidationError) {
-                            setValidationError(tentativeValidationError)
-                            return
-                        } else {
-                            setValidationError(null)
-                        }
-                        setCurrentOperator(newOperator)
-                        if (isOperatorFlag(newOperator)) {
-                            onChange(newOperator, newOperator)
-                        } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
-                            onChange(newOperator, null)
-                        } else if (
-                            isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
-                            !isOperatorMulti(newOperator) &&
-                            Array.isArray(value)
-                        ) {
-                            onChange(newOperator, value[0])
-                        } else if (value) {
-                            onChange(newOperator, value)
-                        }
-                    }}
-                    {...operatorSelectProps}
-                    defaultOpen={defaultOpen}
-                />
-            </div>
+            <OperatorSelect
+                operator={currentOperator || PropertyOperator.Exact}
+                operators={operators}
+                onChange={(newOperator: PropertyOperator) => {
+                    const tentativeValidationError =
+                        newOperator && value ? getValidationError(newOperator, value, propkey) : null
+                    if (tentativeValidationError) {
+                        setValidationError(tentativeValidationError)
+                        return
+                    } else {
+                        setValidationError(null)
+                    }
+                    setCurrentOperator(newOperator)
+                    if (isOperatorFlag(newOperator)) {
+                        onChange(newOperator, newOperator)
+                    } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
+                        onChange(newOperator, null)
+                    } else if (
+                        isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
+                        !isOperatorMulti(newOperator) &&
+                        Array.isArray(value)
+                    ) {
+                        onChange(newOperator, value[0])
+                    } else if (value) {
+                        onChange(newOperator, value)
+                    }
+                }}
+                {...operatorSelectProps}
+                defaultOpen={defaultOpen}
+                data-attr="taxonomic-operator"
+            />
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <div className="flex-1" style={{ minWidth: '10rem' }} data-attr="taxonomic-value-select">
+                // eslint-disable-next-line react/forbid-dom-props
+                <div className="flex-1 min-w-80 max-w-160" data-attr="taxonomic-value-select">
                     <PropertyValue
                         type={type}
                         key={propkey}
@@ -152,9 +153,14 @@ export function OperatorValueSelect({
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                     />
+                    {validationError && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-danger">
+                            <IconErrorOutline className="text-xl shrink-0" />
+                            {validationError}
+                        </div>
+                    )}
                 </div>
             )}
-            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
         </>
     )
 }
@@ -170,7 +176,6 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             value={operator || '='}
             placeholder="Property key"
             dropdownMatchSelectWidth={false}
-            fullWidth
             onChange={(op) => {
                 op && onChange(op)
             }}

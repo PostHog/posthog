@@ -6,7 +6,6 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useActions, useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
-import './PropertyValue.scss'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import clsx from 'clsx'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
@@ -117,7 +116,6 @@ export function PropertyValue({
         ['data-attr']: 'prop-val',
         dropdownMatchSelectWidth: 350,
         placeholder,
-        allowClear: Boolean(value),
         onKeyDown: (e: React.KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setInput('')
@@ -134,7 +132,7 @@ export function PropertyValue({
                 }
             }
         },
-        handleBlur: () => {
+        onBlur: () => {
             if (input != '') {
                 if (Array.isArray(value) && !value.includes(input)) {
                     setValue([...value, ...[input]])
@@ -154,13 +152,12 @@ export function PropertyValue({
             <LemonSelectMultiple
                 loading={options[propertyKey]?.status === 'loading'}
                 {...commonInputProps}
-                selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
+                selectClassName={clsx(className, 'w-full')}
                 value={formattedValues}
                 mode="multiple-custom"
                 onChange={(nextVal: string[]) => {
                     setValue(nextVal)
                 }}
-                onBlur={commonInputProps.handleBlur}
                 // TODO: When LemonSelectMultiple is free of AntD, add footnote that pressing comma applies the value
                 options={Object.fromEntries([
                     ...displayOptions.map(({ name: _name }, index) => {
@@ -187,6 +184,8 @@ export function PropertyValue({
                         ]
                     }),
                 ])}
+                dropdownMatchSelectWidth={false}
+                placement="bottomRight"
             />
         )
     }
@@ -200,7 +199,7 @@ export function PropertyValue({
             {...commonInputProps}
             autoFocus={autoFocus}
             value={input}
-            className="h-10 w-full property-filters-property-value"
+            className="flex h-10 w-full text-sm overflow-hidden"
             onClear={() => {
                 setInput('')
                 setValue('')
@@ -218,7 +217,11 @@ export function PropertyValue({
                     setValue(toString(input))
                 }
             }}
+            dropdownMatchSelectWidth={false}
+            placement="bottomRight"
             ref={autoCompleteRef}
+            size="large"
+            allowClear
         >
             {[
                 ...(input && allowCustom && !displayOptions.some(({ name }) => input === toString(name))

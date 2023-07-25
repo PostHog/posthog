@@ -270,7 +270,8 @@ export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
 /**
  * Styled button that opens a dropdown menu on click.
  * The difference vs. plain `LemonButton` is dropdown visibility being controlled internally, which is more convenient.
- * @deprecated In almost all cases you should use the newer `LemonMenu` with a `LemonButton` child.
+ * @deprecated In most cases you should use the newer `LemonMenu` with a `LemonButton` child.
+ * Otherwise wrap a `LemonButton` in a `LemonDropdown`.
  */
 export const LemonButtonWithDropdown: React.FunctionComponent<
     LemonButtonWithDropdownProps & React.RefAttributes<HTMLButtonElement>
