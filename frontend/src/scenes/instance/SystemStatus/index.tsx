@@ -1,6 +1,6 @@
 import './index.scss'
 
-import { Alert, Tabs } from 'antd'
+import { Alert } from 'antd'
 import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -16,6 +16,7 @@ import { StaffUsersTab } from './StaffUsersTab'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { KafkaInspectorTab } from './KafkaInspectorTab'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -28,6 +29,56 @@ export function SystemStatus(): JSX.Element {
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const tabs = [
+        {
+            key: 'overview',
+            label: 'System overview',
+            content: <OverviewTab />,
+        },
+    ] as LemonTab<InstanceStatusTabName>[]
+
+    if (user?.is_staff) {
+        tabs.concat([
+            {
+                key: 'metrics',
+                label: 'Internal metrics',
+                content: <InternalMetricsTab />,
+            },
+            {
+                key: 'settings',
+                label: (
+                    <>
+                        Settings{' '}
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                content: <InstanceConfigTab />,
+            },
+            {
+                key: 'staff_users',
+                label: 'Staff Users',
+                content: <StaffUsersTab />,
+            },
+        ])
+
+        if (featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR]) {
+            tabs.push({
+                key: 'kafka_inspector',
+                label: (
+                    <>
+                        Kafka Inspector{' '}
+                        <LemonTag type="warning" className="uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                content: <KafkaInspectorTab />,
+            })
+        }
+    }
 
     return (
         <div className="system-status-scene">
@@ -87,56 +138,7 @@ export function SystemStatus(): JSX.Element {
                 />
             )}
 
-            <Tabs
-                tabPosition="top"
-                animated={false}
-                activeKey={tab}
-                onTabClick={(key) => setTab(key as InstanceStatusTabName)}
-            >
-                <Tabs.TabPane tab="System overview" key="overview">
-                    <OverviewTab />
-                </Tabs.TabPane>
-                {user?.is_staff && (
-                    <>
-                        <Tabs.TabPane tab="Internal metrics" key="metrics">
-                            <InternalMetricsTab />
-                        </Tabs.TabPane>
-                        <Tabs.TabPane
-                            tab={
-                                <>
-                                    Settings{' '}
-                                    <LemonTag type="warning" className="uppercase">
-                                        Beta
-                                    </LemonTag>
-                                </>
-                            }
-                            key="settings"
-                        >
-                            <InstanceConfigTab />
-                        </Tabs.TabPane>
-                    </>
-                )}
-                {user?.is_staff && (
-                    <Tabs.TabPane tab={<>Staff Users</>} key="staff_users">
-                        <StaffUsersTab />
-                    </Tabs.TabPane>
-                )}
-                {user?.is_staff && featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR] && (
-                    <Tabs.TabPane
-                        tab={
-                            <>
-                                Kafka Inspector{' '}
-                                <LemonTag type="warning" className="uppercase">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        }
-                        key="kafka_inspector"
-                    >
-                        <KafkaInspectorTab />
-                    </Tabs.TabPane>
-                )}
-            </Tabs>
+            <LemonTabs activeKey={tab} onChange={setTab} tabs={tabs} />
         </div>
     )
 }
