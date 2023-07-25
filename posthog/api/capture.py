@@ -374,12 +374,13 @@ def get_event(request):
         except Exception as e:
             capture_exception(e)
 
-        events_were_quota_limited = False
+        # TODO we're not going to return 429 on events before we audit our SDKs
+        # events_were_quota_limited = False
         recordings_were_quota_limited = False
         try:
             events_over_quota_result = drop_events_over_quota(token, events)
             events = events_over_quota_result.events
-            events_were_quota_limited = events_over_quota_result.events_were_limited
+            # events_were_quota_limited = events_over_quota_result.events_were_limited
             recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
         except Exception as e:
             capture_exception(e)
@@ -500,11 +501,13 @@ def get_event(request):
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
 
-    if events_were_quota_limited or recordings_were_quota_limited:
+    if recordings_were_quota_limited:
         headers = {}
         one_minute_in_seconds = 60
-        if events_were_quota_limited:
-            headers["X-PostHog-Retry-After-Events"] = one_minute_in_seconds
+        # TODO we need to audit our SDKs to see how they'd handle a 429 response
+        # posthog-js ignores a 429 but others might treat it as an error
+        # if events_were_quota_limited:
+        #     headers["X-PostHog-Retry-After-Events"] = one_minute_in_seconds
         if recordings_were_quota_limited:
             headers["X-PostHog-Retry-After-Recordings"] = one_minute_in_seconds
 

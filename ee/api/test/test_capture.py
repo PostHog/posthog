@@ -1,6 +1,7 @@
 import hashlib
 import json
 from typing import Any, Tuple
+from unittest import skip
 from unittest.mock import patch
 
 from django.http import HttpResponse
@@ -235,11 +236,15 @@ class TestCaptureAPI(APIBaseTest):
             self._send_event(expected_status_code=expected_event_status)
 
         with self.settings(QUOTA_LIMITING_ENABLED=True):
+            replace_limited_team_tokens(QuotaResource.EVENTS, {})
+            replace_limited_team_tokens(QuotaResource.RECORDINGS, {})
+
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 4)
 
             replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
-            _produce_events(expected_event_status=status.HTTP_429_TOO_MANY_REQUESTS)
+            # we don't return 429 on limiting events until we've audited our SDKs
+            _produce_events(expected_event_status=status.HTTP_200_OK)
             self.assertEqual(kafka_produce.call_count, 2)  # Only the recording event
 
             replace_limited_team_tokens(
@@ -248,7 +253,8 @@ class TestCaptureAPI(APIBaseTest):
             # recording quota limiting causes a 429 response
             _produce_events(
                 expected_recording_status=status.HTTP_429_TOO_MANY_REQUESTS,
-                expected_event_status=status.HTTP_429_TOO_MANY_REQUESTS,
+                # we don't return 429 on limiting events until we've audited our SDKs
+                expected_event_status=status.HTTP_200_OK,
             )
             self.assertEqual(kafka_produce.call_count, 0)  # No events
 
@@ -272,6 +278,7 @@ class TestCaptureAPI(APIBaseTest):
             self.assertEqual(response["X-Posthog-Retry-After-Recordings"], str(60))
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    @skip("we don't return 429 on limiting events until we've audited our SDKs")
     def test_quota_limited_events_return_retry_after_header(self, _kafka_produce) -> None:
         with self.settings(QUOTA_LIMITING_ENABLED=True):
             from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
