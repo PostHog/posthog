@@ -13,6 +13,7 @@ import { pluralize } from 'lib/utils'
 import type { billingLogicType } from './billingLogicType'
 import { forms } from 'kea-forms'
 import { urls } from 'scenes/urls'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -60,7 +61,7 @@ export const billingLogic = kea<billingLogicType>([
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
     }),
     reducers({
         showLicenseDirectInput: [
@@ -84,7 +85,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    loaders(() => ({
+    loaders(({ actions }) => ({
         billing: [
             null as BillingV2Type | null,
             {
@@ -104,6 +105,7 @@ export const billingLogic = kea<billingLogicType>([
                 deactivateProduct: async (key: string) => {
                     const response = await api.get('api/billing-v2/deactivate?products=' + key)
                     lemonToast.success('Product unsubscribed')
+                    actions.reportProductUnsubscribed(key)
                     return parseBillingResponse(response)
                 },
             },
