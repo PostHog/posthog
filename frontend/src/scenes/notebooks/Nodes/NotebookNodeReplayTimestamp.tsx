@@ -22,7 +22,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
     const handleOnClick = (): void => {
         if (logic) {
-            logic.actions.seekToTime(props.node.attrs.playbackTime, true)
+            logic.actions.seekToTime(props.node.attrs.playbackTime)
+            logic.actions.setPlay()
             const pos = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), { id: sessionRecordingId })
             if (pos) {
                 const domEl = props.editor.view.nodeDOM(pos) as HTMLElement

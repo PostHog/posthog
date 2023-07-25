@@ -137,7 +137,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seekToTimestamp: (timestamp: number, forcePlay: boolean = false) => ({ timestamp, forcePlay }),
-        seekToTime: (timeInMilliseconds: number, forcePlay: boolean = false) => ({ timeInMilliseconds, forcePlay }),
+        seekToTime: (timeInMilliseconds: number) => ({ timeInMilliseconds }),
         seekForward: (amount?: number) => ({ amount }),
         seekBackward: (amount?: number) => ({ amount }),
         resolvePlayerState: true,
@@ -625,7 +625,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.seekToTime((values.currentPlayerTime || 0) - amount)
         },
 
-        seekToTime: ({ timeInMilliseconds, forcePlay }) => {
+        seekToTime: ({ timeInMilliseconds }) => {
             if (values.currentTimestamp === undefined) {
                 return
             }
@@ -640,7 +640,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.sessionPlayerData.end.valueOf()
             )
 
-            actions.seekToTimestamp(newTimestamp, forcePlay)
+            actions.seekToTimestamp(newTimestamp)
         },
 
         togglePlayPause: () => {
