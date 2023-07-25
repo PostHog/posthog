@@ -11,6 +11,7 @@ import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
@@ -28,7 +29,7 @@ require('@sentry/tracing')
 
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
-const flushIntervalTimeoutMs = 30000
+// const flushIntervalTimeoutMs = 30000
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -278,6 +279,9 @@ export class SessionRecordingIngesterV2 {
         }
 
         await this.replayEventsIngester.consumeBatch(recordingMessages)
+        const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
+        await this.flushAllReadySessions(true)
+        clearTimeout(timeout)
 
         transaction.finish()
     }
@@ -400,21 +404,31 @@ export class SessionRecordingIngesterV2 {
             await this.stop()
         })
 
-        // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setInterval(() => {
-            status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
+        // // We trigger the flushes from this level to reduce the number of running timers
+        // this.flushInterval = setInterval(async () => {
+        //     status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
 
-            for (const [key, sessionManager] of Object.entries(this.sessions)) {
-                // in practice, we will always have a values for latestKafkaMessageTimestamp,
-                const referenceTime = this.partitionNow[sessionManager.partition]
-                if (!referenceTime) {
-                    status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
-                        partition: sessionManager.partition,
-                    })
-                    continue
-                }
+        //     await this.flushAllReadySessions(false)
 
-                void sessionManager.flushIfSessionBufferIsOld(referenceTime).catch((err) => {
+        //     status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
+        // }, flushIntervalTimeoutMs)
+    }
+
+    async flushAllReadySessions(wait: boolean): Promise<void> {
+        const promises: Promise<void>[] = []
+        for (const [key, sessionManager] of Object.entries(this.sessions)) {
+            // in practice, we will always have a values for latestKafkaMessageTimestamp,
+            const referenceTime = this.partitionNow[sessionManager.partition]
+            if (!referenceTime) {
+                status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
+                    partition: sessionManager.partition,
+                })
+                continue
+            }
+
+            const flushPromise = sessionManager
+                .flushIfSessionBufferIsOld(referenceTime)
+                .catch((err) => {
                     status.error(
                         '🚽',
                         'blob_ingester_consumer - failed trying to flush on idle session: ' + sessionManager.sessionId,
@@ -424,22 +438,25 @@ export class SessionRecordingIngesterV2 {
                         }
                     )
                     captureException(err, { tags: { session_id: sessionManager.sessionId } })
-                    throw err
+                })
+                .finally(() => {
+                    // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
+                    if (sessionManager.isEmpty) {
+                        void this.destroySessions([[key, sessionManager]])
+                    }
                 })
 
-                // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                if (sessionManager.isEmpty) {
-                    void this.destroySessions([[key, sessionManager]])
-                }
-            }
+            promises.push(flushPromise)
+        }
 
-            gaugeSessionsHandled.set(Object.keys(this.sessions).length)
-            gaugeRealtimeSessions.set(
-                Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0), 0)
-            )
+        if (wait) {
+            await Promise.allSettled(promises)
+        }
 
-            status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
-        }, flushIntervalTimeoutMs)
+        gaugeSessionsHandled.set(Object.keys(this.sessions).length)
+        gaugeRealtimeSessions.set(
+            Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0), 0)
+        )
     }
 
     public async stop(): Promise<void> {

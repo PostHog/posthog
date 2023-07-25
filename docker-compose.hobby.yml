@@ -4,7 +4,7 @@
 # Please take a look at https://posthog.com/docs/self-host/deploy/hobby
 # for more info.
 #
-# PostHog has sunset support for self-hosted K8s deployments. 
+# PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 

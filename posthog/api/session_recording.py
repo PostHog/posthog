@@ -81,7 +81,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "matching_events",
             "person",
             "storage",
             "pinned_count",
@@ -103,7 +102,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "matching_events",
             "storage",
             "pinned_count",
         ]

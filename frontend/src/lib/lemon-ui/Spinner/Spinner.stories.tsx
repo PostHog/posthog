@@ -41,10 +41,10 @@ export function Sizes(): JSX.Element {
     )
 }
 
-export function Monocolor(): JSX.Element {
+export function TextColored(): JSX.Element {
     return (
         <div className="bg-default p-4 text-4xl">
-            <Spinner monocolor className="text-white" />
+            <Spinner textColored className="text-white" />
         </div>
     )
 }
