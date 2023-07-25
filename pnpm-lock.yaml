@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -27,7 +27,7 @@ dependencies:
     specifier: ^2.1.2
     version: 2.1.2(react@16.14.0)
   '@rrweb/types':
-    specifier: ^2.0.0-alpha.9
+    specifier: ^2.0.0-alpha.8
     version: 2.0.0-alpha.9
   '@sentry/react':
     specifier: 7.22.0
@@ -273,7 +273,7 @@ dependencies:
     specifier: ^1.5.1
     version: 1.5.1
   rrweb:
-    specifier: ^2.0.0-alpha.9
+    specifier: ^2.0.0-alpha.8
     version: 2.0.0-alpha.9
   sass:
     specifier: ^1.26.2
