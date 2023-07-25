@@ -4,11 +4,12 @@ from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import FieldTraverserType, ConstantType
-from posthog.hogql.constants import HOGQL_FUNCTIONS
+from posthog.hogql.functions import HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField, FunctionCallTable, LazyTable
 from posthog.hogql.errors import ResolverException
 from posthog.hogql.functions.cohort import cohort
+from posthog.hogql.functions.mapping import validate_function_args
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -277,12 +278,10 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if node.name in HOGQL_FUNCTIONS:
+        if func_meta := HOGQL_POSTHOG_FUNCTIONS.get(node.name):
+            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
-
-            elif node.name == "cohort":
-                return self.visit(cohort(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
         arg_types: List[ast.ConstantType] = []
@@ -291,7 +290,17 @@ class Resolver(CloningVisitor):
                 arg_types.append(arg.type.resolve_constant_type() or ast.UnknownType())
             else:
                 arg_types.append(ast.UnknownType())
-        node.type = ast.CallType(name=node.name, arg_types=arg_types, return_type=ast.UnknownType())
+        param_types: Optional[List[ast.ConstantType]] = None
+        if node.params is not None:
+            param_types = []
+            for param in node.params:
+                if param.type:
+                    param_types.append(param.type.resolve_constant_type() or ast.UnknownType())
+                else:
+                    param_types.append(ast.UnknownType())
+        node.type = ast.CallType(
+            name=node.name, arg_types=arg_types, param_types=param_types, return_type=ast.UnknownType()
+        )
         return node
 
     def visit_lambda(self, node: ast.Lambda):
@@ -355,7 +364,7 @@ class Resolver(CloningVisitor):
             cte = lookup_cte_by_name(self.scopes, name)
             if cte:
                 if len(node.chain) > 1:
-                    raise ResolverException(f"Cannot access fields on CTE {cte.name} yet.")
+                    raise ResolverException(f"Cannot access fields on CTE {cte.name} yet")
                 # SubQuery CTEs ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
                 # which is handled in visit_join_expr. Referring to it here means we want to access its value.
                 if cte.cte_type == "subquery":
@@ -383,6 +392,14 @@ class Resolver(CloningVisitor):
             if loop_type is None:
                 raise ResolverException(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
+
+        if isinstance(node.type, ast.FieldType) and node.start is not None and node.end is not None:
+            self.context.add_notice(
+                start=node.start,
+                end=node.end,
+                message=f"Field '{node.type.name}' is of type '{node.type.resolve_constant_type().print_type()}'",
+            )
+
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):
@@ -443,6 +460,23 @@ class Resolver(CloningVisitor):
         return node
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op == ast.CompareOperationOp.InCohort:
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=node.left,
+                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                )
+            )
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            return self.visit(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=node.left,
+                    right=cohort(node=node.right, args=[node.right], context=self.context),
+                )
+            )
+
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType()
         return node

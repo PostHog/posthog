@@ -53,4 +53,13 @@ describe('property definitions auto discovery', () => {
             expect(detectPropertyDefinitionTypes(12, 'feature_flag')).toEqual(PropertyType.Numeric)
         })
     })
+
+    describe('can detect $feature_flag_response properties', () => {
+        it('detects regular feature flag response properties as string', () => {
+            expect(detectPropertyDefinitionTypes('10', '$feature_flag_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('true', '$feature_flag_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('false', '$feature_flag_response')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes(12, '$feature_flag_response')).toEqual(PropertyType.String)
+        })
+    })
 })

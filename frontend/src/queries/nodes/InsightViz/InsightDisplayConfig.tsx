@@ -1,5 +1,5 @@
 import { PropsWithChildren, ReactNode } from 'react'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
@@ -13,17 +13,16 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { FunnelBinsPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
-import { ValueOnSeriesFilterDataExploration } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
+import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
 }
 
 export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps): JSX.Element {
-    const { insightProps, filters } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         showDateRange,
         disableDateRange,
@@ -81,32 +80,32 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showValueOnSeries && (
                     <ConfigFilter>
-                        <ValueOnSeriesFilterDataExploration />
+                        <ValueOnSeriesFilter />
                     </ConfigFilter>
                 )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {showUnit && (
                     <ConfigFilter>
-                        <UnitPicker filters={filters} setFilters={setFilters} />
+                        <UnitPicker />
                     </ConfigFilter>
                 )}
 
                 {showChart && (
                     <ConfigFilter>
-                        <ChartFilter filters={filters} />
+                        <ChartFilter />
                     </ConfigFilter>
                 )}
 
                 {showFunnelDisplayLayout && (
                     <ConfigFilter>
-                        <FunnelDisplayLayoutPickerDataExploration />
+                        <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
 
                 {showFunnelBins && (
                     <ConfigFilter>
-                        <FunnelBinsPickerDataExploration />
+                        <FunnelBinsPicker />
                     </ConfigFilter>
                 )}
             </div>

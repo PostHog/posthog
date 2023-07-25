@@ -1,6 +1,9 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
+# PostHog has sunset support for self-hosted K8s deployments. 
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
 # The stages are used to:
@@ -51,6 +54,7 @@ RUN apt-get update && \
     "gcc" \
     "python3" \
     "libssl-dev" \
+    "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \

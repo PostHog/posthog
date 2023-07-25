@@ -1,24 +1,21 @@
-import { actions, connect, events, kea, listeners, path, props, key, reducers } from 'kea'
-import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
-import {
-    Experiment,
-    FilterType,
-    FunnelVizType,
-    InsightModel,
-    InsightShortId,
-    InsightType,
-    SecondaryExperimentMetric,
-} from '~/types'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { actions, connect, kea, listeners, path, props, key, reducers } from 'kea'
+import { forms } from 'kea-forms'
+import { dayjs } from 'lib/dayjs'
+
+import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { InsightVizNode } from '~/queries/schema'
+
+import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
-import { dayjs } from 'lib/dayjs'
-import { forms } from 'kea-forms'
-import { loaders } from 'kea-loaders'
 
 const DEFAULT_DURATION = 14
 
@@ -26,6 +23,7 @@ export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void
     initialMetrics: SecondaryExperimentMetric[]
     experimentId: Experiment['id']
+    defaultAggregationType?: number
 }
 
 export interface SecondaryMetricForm {
@@ -33,46 +31,57 @@ export interface SecondaryMetricForm {
     filters: Partial<FilterType>
 }
 
-const defaultFormValues: SecondaryMetricForm = {
-    name: '',
-    filters: {
-        insight: InsightType.TRENDS,
-        events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
-    },
+const defaultFormValuesGenerator: (
+    aggregationType?: number,
+    disableAddEventToDefault?: boolean
+) => SecondaryMetricForm = (aggregationType, disableAddEventToDefault) => {
+    const groupAggregation =
+        aggregationType !== undefined ? { math: 'unique_group', math_group_type_index: aggregationType } : {}
+
+    const eventAddition = disableAddEventToDefault ? {} : { events: [{ ...getDefaultEvent(), ...groupAggregation }] }
+
+    return {
+        name: '',
+        filters: {
+            insight: InsightType.TRENDS,
+            ...eventAddition,
+        },
+    }
 }
 
 export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
-    key((props) => props.experimentId || 'new'),
+    key((props) => `${props.experimentId}-${props.defaultAggregationType}` || `new-${props.defaultAggregationType}`),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
-    connect({ values: [teamLogic, ['currentTeamId']] }),
-    actions({
-        openModalToCreateSecondaryMetric: true,
-        openModalToEditSecondaryMetric: (metric: SecondaryExperimentMetric, metricId: number) => ({
-            metric,
-            metricId,
-        }),
-        closeModal: true,
-        addNewMetric: (metric: SecondaryExperimentMetric) => ({ metric }),
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setPreviewInsightId: (shortId: InsightShortId) => ({ shortId }),
-        createPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
-        deleteMetric: (metricId: number) => ({ metricId }),
-        updateMetric: (metric: SecondaryExperimentMetric, metricId: number) => ({ metric, metricId }),
-        setMetricId: (metricId: number) => ({ metricId }),
-        saveSecondaryMetric: true,
-    }),
-    loaders(({ values }) => ({
-        experiments: [
-            [] as Experiment[],
-            {
-                loadExperiments: async () => {
-                    const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
-                    return response.results as Experiment[]
-                },
-            },
+    connect({
+        logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
+        values: [teamLogic, ['currentTeamId']],
+        actions: [
+            insightDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
+            ['setQuery'],
+            insightVizDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
+            ['updateQuerySource'],
         ],
-    })),
+    }),
+    actions({
+        // modal
+        openModalToCreateSecondaryMetric: true,
+        openModalToEditSecondaryMetric: (metric: SecondaryExperimentMetric, metricIdx: number) => ({
+            metric,
+            metricIdx,
+        }),
+        saveSecondaryMetric: true,
+        closeModal: true,
+
+        // metrics
+        setMetricId: (metricIdx: number) => ({ metricIdx }),
+        addNewMetric: (metric: SecondaryExperimentMetric) => ({ metric }),
+        updateMetric: (metric: SecondaryExperimentMetric, metricIdx: number) => ({ metric, metricIdx }),
+        deleteMetric: (metricIdx: number) => ({ metricIdx }),
+
+        // preview insight
+        setPreviewInsight: (filters?: Partial<FilterType>) => ({ filters }),
+    }),
     reducers(({ props }) => ({
         isModalOpen: [
             false,
@@ -89,36 +98,30 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 openModalToEditSecondaryMetric: (_, { metric }) => metric,
             },
         ],
-        previewInsightId: [
-            null as InsightShortId | null,
-            {
-                setPreviewInsightId: (_, { shortId }) => shortId,
-            },
-        ],
         metrics: [
             props.initialMetrics,
             {
                 addNewMetric: (metrics, { metric }) => {
                     return [...metrics, { ...metric }]
                 },
-                deleteMetric: (metrics, { metricId }) => metrics.filter((_, idx) => idx !== metricId),
-                updateMetric: (metrics, { metric, metricId }) => {
+                updateMetric: (metrics, { metric, metricIdx }) => {
                     const metricsCopy = [...metrics]
-                    metricsCopy[metricId] = metric
+                    metricsCopy[metricIdx] = metric
                     return metricsCopy
                 },
+                deleteMetric: (metrics, { metricIdx }) => metrics.filter((_, idx) => idx !== metricIdx),
             },
         ],
-        metricId: [
+        metricIdx: [
             0 as number,
             {
-                setMetricId: (_, { metricId }) => metricId,
+                setMetricId: (_, { metricIdx }) => metricIdx,
             },
         ],
     })),
-    forms(() => ({
+    forms(({ props }) => ({
         secondaryMetricModal: {
-            defaults: defaultFormValues as SecondaryMetricForm,
+            defaults: defaultFormValuesGenerator(props.defaultAggregationType) as SecondaryMetricForm,
             errors: () => ({}),
             submit: async () => {
                 // We don't use the form submit anymore
@@ -126,16 +129,16 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         },
     })),
     listeners(({ props, actions, values }) => ({
-        openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricId }) => {
-            actions.setSecondaryMetricModalValue('name', name)
-            actions.createPreviewInsight(filters)
-            actions.setMetricId(metricId)
-        },
         openModalToCreateSecondaryMetric: () => {
             actions.resetSecondaryMetricModal()
-            actions.createPreviewInsight(defaultFormValues.filters)
+            actions.setPreviewInsight(defaultFormValuesGenerator(props.defaultAggregationType).filters)
         },
-        createPreviewInsight: async ({ filters }) => {
+        openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricIdx }) => {
+            actions.setSecondaryMetricModalValue('name', name)
+            actions.setPreviewInsight(filters)
+            actions.setMetricId(metricIdx)
+        },
+        setPreviewInsight: async ({ filters }) => {
             let newInsightFilters
             if (filters?.insight === InsightType.FUNNELS) {
                 newInsightFilters = cleanFilters({
@@ -144,6 +147,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
+                    aggregation_group_type_index: props.defaultAggregationType,
                     ...filters,
                 })
             } else {
@@ -151,34 +155,23 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                     insight: InsightType.TRENDS,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    ...defaultFormValuesGenerator(
+                        props.defaultAggregationType,
+                        (filters?.actions?.length || 0) + (filters?.events?.length || 0) > 0
+                    ).filters,
                     ...filters,
                 })
             }
 
-            const newInsight = {
-                description: '',
-                tags: [],
-                filters: newInsightFilters,
-                result: null,
-            }
-
-            const createdInsight: InsightModel = await api.create(
-                `api/projects/${teamLogic.values.currentTeamId}/insights`,
-                newInsight
-            )
-            actions.setPreviewInsightId(createdInsight.short_id)
-            actions.setSecondaryMetricModalValue('filters', newInsight.filters)
+            actions.updateQuerySource(filtersToQueryNode(newInsightFilters))
         },
-        setFilters: ({ filters }) => {
-            if (filters.insight === InsightType.FUNNELS) {
-                funnelLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
-            } else {
-                trendsLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
-            }
+        // sync form value `filters` with query
+        setQuery: ({ query }) => {
+            actions.setSecondaryMetricModalValue('filters', queryNodeToFilter((query as InsightVizNode).source))
         },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {
-                actions.updateMetric(values.secondaryMetricModal, values.metricId)
+                actions.updateMetric(values.secondaryMetricModal, values.metricIdx)
             } else {
                 actions.addNewMetric(values.secondaryMetricModal)
             }
@@ -187,11 +180,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         },
         deleteMetric: () => {
             props.onMetricsChange(values.metrics)
-        },
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.createPreviewInsight()
         },
     })),
 ])

@@ -33,7 +33,7 @@ import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
+import { KeyMappingInterface } from 'lib/taxonomy'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
@@ -408,7 +408,7 @@ export function formatLabel(label: string, action: ActionFilter): string {
     return label.trim()
 }
 
-/** Check objects for deep equality, including "ordering" of properties */
+/** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
@@ -1420,7 +1420,7 @@ export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
 
-export function isMultiSeriesFormula(formula?: string): boolean {
+export function isMultiSeriesFormula(formula?: string | null): boolean {
     if (!formula) {
         return false
     }

@@ -23,6 +23,11 @@ let dlqConsumer: Consumer
 beforeAll(async () => {
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
 
+    // Make sure the dlq topic exists before starting the consumer
+    const admin = kafka.admin()
+    await admin.createTopics({ topics: [{ topic: 'session_recording_events_dlq' }] })
+    await admin.disconnect()
+
     dlq = []
     dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
     await dlqConsumer.subscribe({ topic: 'session_recording_events_dlq', fromBeginning: true })
@@ -37,7 +42,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await Promise.all([await dlqConsumer.disconnect()])
+    await dlqConsumer.disconnect()
 })
 
 test.concurrent(

@@ -3,9 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
-    AvailableFeature,
     EncodedRecordingSnapshot,
-    PerformanceEvent,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingReportLoadTimes,
@@ -30,6 +28,7 @@ import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog from 'posthog-js'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
@@ -110,7 +109,7 @@ const generateRecordingReportDurations = (
     cache: Record<string, any>,
     values: Record<string, any>
 ): RecordingReportLoadTimes => {
-    // TODO: This anytyping is super hard to manage - we should either type it or move it to a selector.
+    // TODO: This any typing is super hard to manage - we should either type it or move it to a selector.
     return {
         metadata: {
             size: values.segments.length,
@@ -123,10 +122,6 @@ const generateRecordingReportDurations = (
         events: {
             size: values.sessionEventsData?.length ?? 0,
             duration: Math.round(performance.now() - cache.eventsStartTime),
-        },
-        performanceEvents: {
-            size: values.performanceEvents?.length ?? 0,
-            duration: Math.round(performance.now() - cache.performanceEventsStartTime),
         },
         firstPaint: cache.firstPaintDurationRow,
     }
@@ -150,24 +145,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
-        loadRecording: (full: boolean = false) => ({ full }),
         loadRecordingMeta: true,
+        maybeLoadRecordingMeta: true,
         addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
-        loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
+        loadRecordingSnapshotsV1: (nextUrl?: string) => ({ nextUrl }),
         loadRecordingSnapshotsV2: (source?: SessionRecordingSnapshotSource) => ({ source }),
+        loadRecordingSnapshots: true,
+        loadRecordingSnapshotsSuccess: true,
+        loadRecordingSnapshotsFailure: true,
         loadEvents: true,
         loadFullEventData: (event: RecordingEventType) => ({ event }),
-        loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
         reportViewed: true,
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
-        fullLoad: [
-            false as boolean,
-            {
-                loadRecording: (_, { full }) => full,
-            },
-        ],
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -194,42 +185,43 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMetaFailure: () => true,
             },
         ],
+        snapshotsLoaded: [
+            false as boolean,
+            {
+                loadRecordingSnapshotsSuccess: () => true,
+                loadRecordingSnapshotsFailure: () => true,
+            },
+        ],
     })),
     listeners(({ values, actions, cache }) => ({
-        loadRecording: ({ full }) => {
-            // If we don't have metadata then we load that first, which will trigger this again
-            if (!values.sessionPlayerMetaData) {
+        maybeLoadRecordingMeta: () => {
+            if (!values.sessionPlayerMetaDataLoading) {
                 actions.loadRecordingMeta()
+            }
+        },
+        loadRecordingSnapshots: () => {
+            if (values.sessionPlayerSnapshotDataLoading) {
                 return
             }
-
-            if (!full) {
-                return
-            }
-
             if (!values.sessionPlayerSnapshotData?.snapshots) {
                 if (values.featureFlags[FEATURE_FLAGS.SESSION_RECORDING_BLOB_REPLAY]) {
                     actions.loadRecordingSnapshotsV2()
                 } else {
-                    actions.loadRecordingSnapshots()
+                    actions.loadRecordingSnapshotsV1()
                 }
             }
             actions.loadEvents()
-            actions.loadPerformanceEvents()
-        },
-        loadRecordingMetaSuccess: () => {
-            if (values.fullLoad) {
-                actions.loadRecording(true)
-            }
         },
         loadRecordingSnapshotsV2Success: () => {
             const { snapshots, sources } = values.sessionPlayerSnapshotData ?? {}
             if (snapshots && !snapshots.length && sources?.length === 1) {
-                // We got the snapshot response for realtime and it was empty, so we fallback to the old API
-                // Until we migrate over we need to fallback to the old API if the new one returns no snapshots
-                actions.loadRecordingSnapshots()
+                // We got the snapshot response for realtime, and it was empty, so we fall back to the old API
+                // Until we migrate over we need to fall back to the old API if the new one returns no snapshots
+                actions.loadRecordingSnapshotsV1()
                 return
             }
+
+            actions.loadRecordingSnapshotsSuccess()
 
             const nextSourceToLoad = sources?.find((s) => !s.loaded)
 
@@ -239,9 +231,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.reportUsageIfFullyLoaded()
             }
         },
-        loadRecordingSnapshotsSuccess: () => {
+        loadRecordingSnapshotsV1Success: () => {
+            actions.loadRecordingSnapshotsSuccess()
+
             if (!!values.sessionPlayerSnapshotData?.next) {
-                actions.loadRecordingSnapshots(values.sessionPlayerSnapshotData?.next)
+                actions.loadRecordingSnapshotsV1(values.sessionPlayerSnapshotData?.next)
             } else {
                 actions.reportUsageIfFullyLoaded()
             }
@@ -257,21 +251,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 actions.reportViewed()
             }
         },
+        loadRecordingSnapshotsV1Failure: () => {
+            actions.loadRecordingSnapshotsFailure()
+        },
+        loadRecordingSnapshotsV2Failure: () => {
+            actions.loadRecordingSnapshotsFailure()
+        },
         loadEventsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
         },
-        loadPerformanceEventsSuccess: () => {
-            actions.reportUsageIfFullyLoaded()
-        },
         reportUsageIfFullyLoaded: () => {
-            const partsOfRecordingAreStillLoading =
-                values.sessionPlayerMetaDataLoading ||
-                values.sessionPlayerSnapshotDataLoading ||
-                values.sessionEventsDataLoading ||
-                (values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-                    ? values.performanceEventsLoading
-                    : false)
-            if (!partsOfRecordingAreStillLoading) {
+            if (values.fullyLoaded) {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache, values),
@@ -282,7 +272,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.metaStartTime = null
                 cache.snapshotsStartTime = null
                 cache.eventsStartTime = null
-                cache.performanceEventsStartTime = null
                 cache.firstPaintDurationRow = null
             }
         },
@@ -338,7 +327,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerSnapshotData: [
             null as SessionPlayerSnapshotData | null,
             {
-                loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerSnapshotData | null> => {
+                loadRecordingSnapshotsV1: async (
+                    { nextUrl },
+                    breakpoint
+                ): Promise<SessionPlayerSnapshotData | null> => {
                     cache.snapshotsStartTime = performance.now()
 
                     if (!props.sessionRecordingId) {
@@ -363,6 +355,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             response.snapshot_data_by_window_id,
                             nextUrl ? values.sessionPlayerSnapshotData?.snapshots ?? [] : []
                         )
+
+                        posthog.capture('recording_snapshot_loaded', {
+                            source: 'clickhouse',
+                        })
+
                         return {
                             snapshots,
                             next: response.next,
@@ -418,6 +415,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     if (source) {
                         source.loaded = true
+
+                        posthog.capture('recording_snapshot_loaded', {
+                            source: source.source,
+                        })
                     }
 
                     return data
@@ -537,39 +538,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
-
-        performanceEvents: [
-            null as null | PerformanceEvent[],
-            {
-                loadPerformanceEvents: async ({}, breakpoint) => {
-                    const { start, end } = values.sessionPlayerData
-
-                    if (
-                        !props.sessionRecordingId ||
-                        !start ||
-                        !end ||
-                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-                    ) {
-                        return []
-                    }
-
-                    cache.performanceEventsStartTime = performance.now()
-
-                    await breakpoint(1)
-
-                    // Use `nextUrl` if there is a `next` url to fetch
-                    const response = await api.performanceEvents.list({
-                        session_id: props.sessionRecordingId,
-                        date_from: start.subtract(BUFFER_MS, 'ms').format(),
-                        date_to: end.add(BUFFER_MS, 'ms').format(),
-                    })
-
-                    breakpoint()
-
-                    return response.results
-                },
-            },
-        ],
     })),
     selectors({
         sessionPlayerData: [
@@ -581,8 +549,18 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 s.start,
                 s.end,
                 s.durationMs,
+                s.fullyLoaded,
             ],
-            (meta, snapshotsByWindowId, segments, bufferedToTime, start, end, durationMs): SessionPlayerData => ({
+            (
+                meta,
+                snapshotsByWindowId,
+                segments,
+                bufferedToTime,
+                start,
+                end,
+                durationMs,
+                fullyLoaded
+            ): SessionPlayerData => ({
                 pinnedCount: meta?.pinned_count ?? 0,
                 person: meta?.person ?? null,
                 start,
@@ -591,7 +569,31 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 snapshotsByWindowId,
                 segments,
                 bufferedToTime,
+                fullyLoaded,
             }),
+        ],
+
+        fullyLoaded: [
+            (s) => [
+                s.sessionPlayerSnapshotData,
+                s.sessionPlayerMetaDataLoading,
+                s.sessionPlayerSnapshotDataLoading,
+                s.sessionEventsDataLoading,
+                s.hasAvailableFeature,
+            ],
+            (
+                sessionPlayerSnapshotData,
+                sessionPlayerMetaDataLoading,
+                sessionPlayerSnapshotDataLoading,
+                sessionEventsDataLoading
+            ): boolean => {
+                return (
+                    !!sessionPlayerSnapshotData?.snapshots?.length &&
+                    !sessionPlayerMetaDataLoading &&
+                    !sessionPlayerSnapshotDataLoading &&
+                    !sessionEventsDataLoading
+                )
+            },
         ],
 
         start: [

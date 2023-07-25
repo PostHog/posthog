@@ -31,7 +31,11 @@ def escape_param_clickhouse(value: str) -> str:
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes. Added a $.
-def escape_hogql_identifier(identifier: str) -> str:
+def escape_hogql_identifier(identifier: str | int) -> str:
+    if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
+        return str(identifier)
+    if "%" in identifier:
+        raise HogQLException(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
@@ -42,6 +46,8 @@ def escape_hogql_identifier(identifier: str) -> str:
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
+    if "%" in identifier:
+        raise HogQLException(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`%s`" % "".join(backquote_escape_chars_map.get(c, c) for c in identifier)

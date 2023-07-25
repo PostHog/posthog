@@ -25,6 +25,7 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
 
 export const defaultMocks: Mocks = {
     get: {
+        '/api/projects/:team_id/activity_log/important_changes/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -40,12 +41,14 @@ export const defaultMocks: Mocks = {
         } as SharingConfigurationType,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/explicit_members/': [],
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
         ],
+        '/api/organizations/@current/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/members/': toPaginatedResponse([
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
             MOCK_SECOND_ORGANIZATION_MEMBER,
@@ -72,6 +75,11 @@ export const defaultMocks: Mocks = {
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
         'https://update.posthog.com/': [{ version: '1.42.0', release_date: '2022-11-30' }],
+        // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
+        '/api/sentry_stats/': {
+            error: 'Error fetching stats from sentry',
+            exception: "[ErrorDetail(string='Sentry integration not configured', code='invalid')]",
+        },
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],

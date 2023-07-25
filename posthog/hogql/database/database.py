@@ -1,7 +1,6 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
-from pydantic.fields import ModelField
 
 from posthog.hogql.database.models import (
     FieldTraverser,
@@ -11,6 +10,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     BooleanDatabaseField,
     StringJSONDatabaseField,
+    StringArrayDatabaseField,
     LazyJoin,
     VirtualTable,
     Table,
@@ -72,33 +72,9 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise HogQLException(f'Table "{table_name}" not found in database')
 
-    @classmethod
-    def add_warehouse_tables(cls, **field_definitions: Any):
-        new_fields: Dict[str, ModelField] = {}
-        new_annotations: Dict[str, Optional[type]] = {}
-
+    def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
-            if isinstance(f_def, tuple):
-                try:
-                    f_annotation, f_value = f_def
-                except ValueError as e:
-                    raise Exception(
-                        "field definitions should either be a tuple of (<type>, <default>) or just a "
-                        "default value, unfortunately this means tuples as "
-                        "default values are not allowed"
-                    ) from e
-            else:
-                f_annotation, f_value = None, f_def
-
-            if f_annotation:
-                new_annotations[f_name] = f_annotation
-
-            new_fields[f_name] = ModelField.infer(
-                name=f_name, value=f_value, annotation=f_annotation, class_validators=None, config=cls.__config__
-            )
-
-        cls.__fields__.update(new_fields)
-        cls.__annotations__.update(new_annotations)
+            setattr(self, f_name, f_def)
 
 
 def create_hogql_database(team_id: int) -> Database:
@@ -113,15 +89,37 @@ def create_hogql_database(team_id: int) -> Database:
         database.events.fields["person_id"] = StringDatabaseField(name="person_id")
 
     tables = {}
-    for table in DataWarehouseTable.objects.filter(team=team):
+    for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
     database.add_warehouse_tables(**tables)
 
     return database
 
 
-def serialize_database(database: Database) -> dict:
-    tables: Dict[str, List[Dict[str, Any]]] = {}
+class _SerializedFieldBase(TypedDict):
+    key: str
+    type: Literal[
+        "integer",
+        "float",
+        "string",
+        "datetime",
+        "date",
+        "boolean",
+        "json",
+        "lazy_table",
+        "virtual_table",
+        "field_traverser",
+    ]
+
+
+class SerializedField(_SerializedFieldBase, total=False):
+    fields: List[str]
+    table: str
+    chain: List[str]
+
+
+def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
+    tables: Dict[str, List[SerializedField]] = {}
 
     for table_key in database.__fields__.keys():
         field_input: Dict[str, Any] = {}
@@ -131,14 +129,14 @@ def serialize_database(database: Database) -> dict:
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[Dict[str, Any]] = serialize_fields(field_input)
+        field_output: List[SerializedField] = serialize_fields(field_input)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[Dict[str, Any]]:
-    field_output: List[Dict[str, Any]] = []
+def serialize_fields(field_input) -> List[SerializedField]:
+    field_output: List[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
             pass
@@ -157,6 +155,8 @@ def serialize_fields(field_input) -> List[Dict[str, Any]]:
                 field_output.append({"key": field_key, "type": "boolean"})
             elif isinstance(field, StringJSONDatabaseField):
                 field_output.append({"key": field_key, "type": "json"})
+            elif isinstance(field, StringArrayDatabaseField):
+                field_output.append({"key": field_key, "type": "array"})
         elif isinstance(field, LazyJoin):
             field_output.append({"key": field_key, "type": "lazy_table", "table": field.join_table.to_printed_hogql()})
         elif isinstance(field, VirtualTable):

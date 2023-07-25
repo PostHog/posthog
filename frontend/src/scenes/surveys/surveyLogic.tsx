@@ -6,11 +6,11 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import {
-    AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagFilters,
-    FeatureFlagGroupType,
     PluginType,
+    PropertyFilterType,
+    PropertyOperator,
     Survey,
     SurveyQuestionType,
     SurveyType,
@@ -21,6 +21,7 @@ import { surveysLogic } from './surveysLogic'
 import { dayjs } from 'lib/dayjs'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 export interface NewSurvey
     extends Pick<
@@ -36,9 +37,18 @@ export interface NewSurvey
         | 'linked_flag'
         | 'targeting_flag'
         | 'archived'
+        | 'appearance'
     > {
     linked_flag_id: number | undefined
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
+}
+
+export const defaultSurveyAppearance = {
+    backgroundColor: 'white',
+    submitButtonColor: '#2C2C2C',
+    textColor: 'black',
+    submitButtonText: 'Submit',
+    descriptionTextColor: '#4b4b52',
 }
 
 const NEW_SURVEY: NewSurvey = {
@@ -55,29 +65,34 @@ const NEW_SURVEY: NewSurvey = {
     end_date: null,
     conditions: null,
     archived: false,
+    appearance: defaultSurveyAppearance,
 }
 
-export const getSurveyEventName = (surveyName: string): string => {
-    return `${surveyName} survey sent`
-}
+export const surveyEventName = 'survey sent'
 
 const SURVEY_RESPONSE_PROPERTY = '$survey_response'
 
-export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
+export const getSurveyDataQuery = (survey: Survey): DataTableNode => {
     const surveyDataQuery: DataTableNode = {
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
-            select: ['*', 'event', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
+            select: ['*', `properties.${SURVEY_RESPONSE_PROPERTY}`, 'timestamp', 'person'],
             orderBy: ['timestamp DESC'],
-            after: '-30d',
-            limit: 100,
-            event: getSurveyEventName(surveyName),
+            where: [`event == 'survey sent' or event == '${survey.name} survey sent'`],
+            after: survey.created_at,
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$survey_id',
+                    operator: PropertyOperator.Exact,
+                    value: survey.id,
+                },
+            ],
         },
         propertiesViaUrl: true,
         showExport: true,
         showReload: true,
-        showColumnConfigurator: true,
         showEventFilter: true,
         showPropertyFilter: true,
     }
@@ -85,8 +100,8 @@ export const getSurveyDataQuery = (surveyName: string): DataTableNode => {
 }
 
 export const getSurveyMetricsQueries = (surveyId: string): SurveyMetricsQueries => {
-    const surveysShownHogqlQuery = `select count() as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
-    const surveysDismissedHogqlQuery = `select count() as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
+    const surveysShownHogqlQuery = `select count(distinct person.id) as 'survey shown' from events where event == 'survey shown' and properties.$survey_id == '${surveyId}'`
+    const surveysDismissedHogqlQuery = `select count(distinct person.id) as 'survey dismissed' from events where event == 'survey dismissed' and properties.$survey_id == '${surveyId}'`
     return {
         surveysShown: {
             kind: NodeKind.DataTableNode,
@@ -126,19 +141,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
             ],
         ],
-        values: [pluginsLogic, ['installedPlugins']],
+        values: [pluginsLogic, ['installedPlugins', 'enabledPlugins']],
     })),
     actions({
         editingSurvey: (editing: boolean) => ({ editing }),
-        setTargetingFlagFilters: (groups: FeatureFlagGroupType[]) => ({ groups }),
-        updateTargetingFlagFilters: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
-        addConditionSet: true,
-        removeConditionSet: (index: number) => ({ index }),
         launchSurvey: true,
         stopSurvey: true,
         archiveSurvey: true,
         setDataTableQuery: (query: DataTableNode) => ({ query }),
         setSurveyMetricsQueries: (surveyMetricsQueries: SurveyMetricsQueries) => ({ surveyMetricsQueries }),
+        setHasTargetingFlag: (hasTargetingFlag: boolean) => ({ hasTargetingFlag }),
     }),
     loaders(({ props, actions }) => ({
         survey: {
@@ -167,12 +179,12 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions }) => ({
         loadSurveySuccess: ({ survey }) => {
-            if (survey.start_date) {
-                actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            if (survey.start_date && survey.id !== 'new') {
+                actions.setDataTableQuery(getSurveyDataQuery(survey as Survey))
                 actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
             }
-            if (survey.targeting_flag?.filters?.groups) {
-                actions.setTargetingFlagFilters(survey.targeting_flag.filters.groups)
+            if (survey.targeting_flag) {
+                actions.setHasTargetingFlag(true)
             }
         },
         createSurveySuccess: ({ survey }) => {
@@ -189,7 +201,8 @@ export const surveyLogic = kea<surveyLogicType>([
         },
         launchSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} launched</>)
-            actions.setDataTableQuery(getSurveyDataQuery(survey.name))
+            actions.setSurveyMetricsQueries(getSurveyMetricsQueries(survey.id))
+            actions.setDataTableQuery(getSurveyDataQuery(survey))
             actions.loadSurveys()
             actions.reportSurveyLaunched(survey)
         },
@@ -208,39 +221,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 editingSurvey: (_, { editing }) => editing,
             },
         ],
-        targetingFlagFilters: [
-            null as Pick<FeatureFlagFilters, 'groups'> | null,
-            {
-                setTargetingFlagFilters: (_, { groups }) => {
-                    return { groups }
-                },
-                updateTargetingFlagFilters: (state, { index, properties }) => {
-                    if (state?.groups) {
-                        const groups = [...state.groups]
-                        if (properties !== undefined) {
-                            groups[index] = { ...groups[index], properties, rollout_percentage: 100 }
-                        }
-                        return { ...state, groups }
-                    }
-                    return state
-                },
-                removeConditionSet: (state, { index }) => {
-                    const groups = [...(state?.groups || [])]
-                    groups.splice(index, 1)
-                    return { ...state, groups }
-                },
-                addConditionSet: (state) => {
-                    if (state?.groups) {
-                        const groups = [...state.groups, { properties: [], rollout_percentage: 0, variant: null }]
-                        return { ...state, groups }
-                    } else {
-                        return {
-                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
-                        }
-                    }
-                },
-            },
-        ],
         dataTableQuery: [
             null as DataTableNode | null,
             {
@@ -253,27 +233,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 setSurveyMetricsQueries: (_, { surveyMetricsQueries }) => surveyMetricsQueries,
             },
         ],
+        hasTargetingFlag: [
+            false,
+            {
+                setHasTargetingFlag: (_, { hasTargetingFlag }) => hasTargetingFlag,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
                 return !!(survey.start_date && !survey.end_date)
-            },
-        ],
-        propertySelectErrors: [
-            (s) => [s.survey],
-            (survey: NewSurvey) => {
-                return survey.targeting_flag_filters?.groups?.map(({ properties }: FeatureFlagGroupType) => ({
-                    properties: properties?.map((property: AnyPropertyFilter) => ({
-                        value:
-                            property.value === null ||
-                            property.value === undefined ||
-                            (Array.isArray(property.value) && property.value.length === 0)
-                                ? "Property filters can't be empty"
-                                : undefined,
-                    })),
-                }))
             },
         ],
         breadcrumbs: [
@@ -293,18 +264,42 @@ export const surveyLogic = kea<surveyLogicType>([
                 return installedPlugins.find((plugin) => plugin.name === 'Surveys app')
             },
         ],
+        showSurveyAppWarning: [
+            (s) => [s.survey, s.enabledPlugins],
+            (survey: Survey, enabledPlugins: PluginType[]): boolean => {
+                return !!(
+                    survey.type !== SurveyType.API && !enabledPlugins.find((plugin) => plugin.name === 'Surveys app')
+                )
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name, questions }) => ({
                 name: !name && 'Please enter a name.',
-                questions: questions.map(({ question }) => ({ question: !question && 'Please enter a question.' })),
+                questions: questions.map((question) => ({
+                    question: !question.question && 'Please enter a question.',
+                    ...(question.type === SurveyQuestionType.Link
+                        ? { link: !question.link && 'Please enter a url for the link.' }
+                        : {}),
+                    ...(question.type === SurveyQuestionType.Rating
+                        ? {
+                              display: !question.display && 'Please choose a display type.',
+                              scale: !question.scale && 'Please choose a scale.',
+                          }
+                        : {}),
+                })),
             }),
             submit: async (surveyPayload) => {
-                const surveyPayloadWithTargetingFlagFilters = {
-                    ...surveyPayload,
-                    ...(values.targetingFlagFilters ? { targeting_flag_filters: values.targetingFlagFilters } : {}),
+                let surveyPayloadWithTargetingFlagFilters = surveyPayload
+                const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
+                if (values.hasTargetingFlag) {
+                    const targetingFlag = flagLogic.values.featureFlag
+                    surveyPayloadWithTargetingFlagFilters = {
+                        ...surveyPayload,
+                        ...{ targeting_flag_filters: targetingFlag.filters },
+                    }
                 }
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)

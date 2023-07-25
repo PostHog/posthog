@@ -1,12 +1,10 @@
 import * as Sentry from '@sentry/node'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
-import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 
 interface FunctionInstrumentation<T, E> {
-    server: Hub
     event: E
     timeoutMessage: string
     statsKey: string
@@ -15,7 +13,6 @@ interface FunctionInstrumentation<T, E> {
 }
 
 export async function runInstrumentedFunction<T, E>({
-    server,
     timeoutMessage,
     event,
     func,
@@ -28,7 +25,6 @@ export async function runInstrumentedFunction<T, E>({
     const end = instrumentedFunctionDuration.startTimer({
         function: statsKey,
     })
-    const timer = new Date()
     try {
         const result = await func(event)
         end({ success: 'true' })
@@ -39,8 +35,6 @@ export async function runInstrumentedFunction<T, E>({
         Sentry.captureException(error, { tags: { team_id: teamId } })
         throw error
     } finally {
-        server.statsd?.increment(`${statsKey}_total`)
-        server.statsd?.timing(statsKey, timer)
         clearTimeout(timeout)
     }
 }

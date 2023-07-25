@@ -98,6 +98,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 targetBlank,
                 disableClientSideRouting,
                 getTooltipPopupContainer,
+                onClick,
                 ...buttonProps
             },
             ref
@@ -118,7 +119,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 }
             }
             if (loading) {
-                icon = <Spinner monocolor />
+                icon = <Spinner textColored />
+                disabled = true // Cannot interact with a loading button
             }
 
             let tooltipContent: TooltipProps['title']
@@ -158,9 +160,9 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         'LemonButton',
                         `LemonButton--${type}`,
                         `LemonButton--status-${status}`,
+                        loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
                         size && `LemonButton--${size}`,
-                        disabled && 'LemonButton--disabled',
                         active && 'LemonButton--active',
                         fullWidth && 'LemonButton--full-width',
                         center && 'LemonButton--centered',
@@ -169,7 +171,10 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !!sideIcon && `LemonButton--has-side-icon`,
                         className
                     )}
-                    disabled={disabled || loading}
+                    onClick={!disabled ? onClick : undefined}
+                    // We are using the ARIA disabled instead of native HTML because of this:
+                    // https://css-tricks.com/making-disabled-buttons-more-inclusive/
+                    aria-disabled={disabled}
                     {...linkDependentProps}
                     {...buttonProps}
                 >

@@ -16,6 +16,10 @@ Cypress.on('window:before:load', (win) => {
 })
 
 beforeEach(() => {
+    Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_TITLE', Cypress.currentTest.title)
+    Cypress.env('POSTHOG_PROPERTY_CURRENT_TEST_FULL_TITLE', Cypress.currentTest.titlePath.join(' > '))
+    Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
+
     cy.intercept('api/prompts/my_prompts/', { sequences: [], state: {} })
 
     cy.intercept('https://app.posthog.com/decide/*', (req) =>
@@ -24,6 +28,7 @@ beforeEach(() => {
                 // set feature flags here e.g.
                 // 'toolbar-launch-side-action': true,
                 'auto-redirect': true,
+                notebooks: true,
             })
         )
     )
@@ -52,6 +57,22 @@ beforeEach(() => {
         cy.visit('/insights')
         cy.wait('@getInsights').then(() => {
             cy.get('.saved-insights tr').should('exist')
+        })
+    }
+})
+
+afterEach(() => {
+    if (process.env.E2E_TESTING) {
+        cy.window().then((win) => {
+            ;(win as any).posthog?.capture('e2e_testing_test_passed')
+        })
+    }
+})
+
+Cypress.on('fail', (error: Cypress.CypressError) => {
+    if (process.env.E2E_TESTING) {
+        cy.window().then((win) => {
+            ;(win as any).posthog?.capture('e2e_testing_test_failed', { e2e_testing_error_message: error.message })
         })
     }
 })

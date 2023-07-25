@@ -5,8 +5,10 @@ from typing import List, Optional
 import structlog
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
+from django.utils.timezone import now
 from rest_framework.exceptions import NotFound
 from sentry_sdk import capture_exception
 
@@ -27,7 +29,17 @@ def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)
 
 
+class ExportedAssetManager(models.Manager):
+    def get_queryset(self):
+        # keep assets whose TTL has not passed or who have no TTL set
+        return super().get_queryset().filter(Q(expires_after__gte=now()) | Q(expires_after__isnull=True))
+
+
 class ExportedAsset(models.Model):
+    # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
+    objects = ExportedAssetManager()
+    objects_including_ttl_deleted = models.Manager()
+
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -42,6 +54,11 @@ class ExportedAsset(models.Model):
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    # DateTime after the created_at after which this asset should be deleted
+    # ExportedAssets are *not* deleted immediately after the TTL period has passed
+    # the object manager has been altered to exclude these assets
+    # to allow for lazy deletes
+    expires_after: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context: models.JSONField = models.JSONField(null=True, blank=True)
@@ -85,6 +102,12 @@ class ExportedAsset(models.Model):
         token = get_public_access_token(self, expiry_delta)
         return absolute_uri(f"/exporter/{self.filename}?token={token}")
 
+    @classmethod
+    def delete_expired_assets(cls):
+        expired_assets = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__lte=now())
+        logger.info("deleting_expired_assets", count=expired_assets.count())
+        expired_assets.delete()
+
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
     if not expiry_delta:
@@ -105,6 +128,10 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
         content = object_storage.read_bytes(asset.content_location)
 
     if not content:
+        # if we don't have content, the asset is invalid, so, expire it
+        asset.expires_after = now()
+        asset.save()
+
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)

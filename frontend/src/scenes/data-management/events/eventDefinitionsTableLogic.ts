@@ -2,7 +2,7 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { AnyPropertyFilter, Breadcrumb, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
-import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
+import { keyMappingKeys } from 'lib/taxonomy'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -33,7 +33,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
         event: '',
         properties: [],
         event_type: EventDefinitionType.Event,
-        ordering: '-volume_30_day',
+        ordering: 'event',
         ...filter,
     }
 }

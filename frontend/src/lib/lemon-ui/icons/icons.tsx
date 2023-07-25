@@ -45,40 +45,6 @@ const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...p
     />
 )
 
-export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { monocolor?: boolean }): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
-            {/* top-left */}
-            <circle
-                cx="7"
-                cy="7.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
-                fillOpacity={monocolor ? 0.75 : 1}
-            />
-
-            {/* bottom-left */}
-            <circle
-                cx="7"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
-                fillOpacity={monocolor ? 0.5 : 1}
-            />
-            {/* bottom-right */}
-            <circle
-                cx="17"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
-                fillOpacity={monocolor ? 0.25 : 1}
-            />
-        </LemonIconBase>
-    )
-}
-
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
     return (
@@ -282,12 +248,12 @@ export function IconSelectAll(props: LemonIconProps): JSX.Element {
 /** Material Design Rate Review icon. */
 export function IconSurveys(props: LemonIconProps): JSX.Element {
     return (
-        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" {...props}>
+        <LemonIconBase {...props}>
             <path
-                d="M240-400h98l236-234q6-6 6-15t-6-15l-70-70q-6-6-15-6t-15 6L240-498v98Zm180 0h300v-80H500l-80 80ZM80-80v-720q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v480q0 33-23.5 56.5T800-240H240L80-80Zm126-240h594v-480H160v525l46-45Zm-46 0v-480 480Z"
+                d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17l-.59.59-.58.58V4h16v12zm-9.5-2H18v-2h-5.5zm3.86-5.87c.2-.2.2-.51 0-.71l-1.77-1.77c-.2-.2-.51-.2-.71 0L6 11.53V14h2.47l5.89-5.87z"
                 fill="currentColor"
             />
-        </svg>
+        </LemonIconBase>
     )
 }
 
@@ -1328,6 +1294,19 @@ export function IconQueryEditor(props: LemonIconProps): JSX.Element {
                 fill="currentColor"
                 d="M4,14V17C4,19 7.05,20.72 11,21V18.11L11.13,18C7.12,17.76 4,16.06 4,14M12,13C7.58,13 4,11.21 4,9V12C4,14.21 7.58,16 12,16C12.39,16 12.77,16 13.16,16L17,12.12C15.4,12.72 13.71,13 12,13M12,3C7.58,3 4,4.79 4,7C4,9.21 7.58,11 12,11C16.42,11 20,9.21 20,7C20,4.79 16.42,3 12,3M21,11.13C20.85,11.13 20.71,11.19 20.61,11.3L19.61,12.3L21.66,14.3L22.66,13.3C22.87,13.1 22.88,12.76 22.66,12.53L21.42,11.3C21.32,11.19 21.18,11.13 21.04,11.13M19.04,12.88L13,18.94V21H15.06L21.12,14.93L19.04,12.88Z"
             />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Auto Awesome icon. */
+export function IconAutoAwesome(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <g fill="currentColor">
+                <polygon points="19,9 20.25,6.25 23,5 20.25,3.75 19,1 17.75,3.75 15,5 17.75,6.25" />
+                <polygon points="19,15 17.75,17.75 15,19 17.75,20.25 19,23 20.25,20.25 23,19 20.25,17.75" />
+                <path d="M11.5,9.5L9,4L6.5,9.5L1,12l5.5,2.5L9,20l2.5-5.5L17,12L11.5,9.5z M9.99,12.99L9,15.17l-0.99-2.18L5.83,12l2.18-0.99 L9,8.83l0.99,2.18L12.17,12L9.99,12.99z" />
+            </g>
         </LemonIconBase>
     )
 }

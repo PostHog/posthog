@@ -19,6 +19,7 @@ export interface SignupForm {
     first_name: string
     organization_name: string
     role_at_organization: string
+    referral_source: string
 }
 
 export const emailRegex: RegExp =
@@ -73,6 +74,7 @@ export const signupLogic = kea<signupLogicType>([
                 first_name: '',
                 organization_name: '',
                 role_at_organization: '',
+                referral_source: '',
             } as SignupForm,
             errors: ({ first_name, organization_name }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,

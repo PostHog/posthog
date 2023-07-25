@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -79,6 +79,7 @@ import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { PostHogFeature } from 'posthog-js/react'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -129,6 +130,91 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         )
     }
 
+    const tabs = [
+        {
+            label: 'Overview',
+            key: FeatureFlagsTab.OVERVIEW,
+            content: (
+                <>
+                    <Row>
+                        <Col span={13}>
+                            <FeatureFlagRollout readOnly />
+                            {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
+                            <FeatureFlagReleaseConditions readOnly />
+                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                <FeatureFlagAutoRollback readOnly />
+                            )}
+                        </Col>
+                        <Col span={11} className="pl-4">
+                            <RecentFeatureFlagInsights />
+                            <div className="my-4" />
+                        </Col>
+                    </Row>
+                    <LemonDivider className="mb-4" />
+                    <FeatureFlagCodeExample featureFlag={featureFlag} />
+                </>
+            ),
+        },
+    ] as LemonTab<FeatureFlagsTab>[]
+
+    if (featureFlag.key && id) {
+        tabs.push({
+            label: 'Usage',
+            key: FeatureFlagsTab.USAGE,
+            content: <UsageTab id={id} featureFlag={featureFlag} />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>Analysis</div>
+                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                        {' '}
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.Analysis,
+            content: (
+                <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
+                    <AnalysisTab id={id} featureFlag={featureFlag} />
+                </PostHogFeature>
+            ),
+        })
+    }
+
+    if (featureFlag.id) {
+        tabs.push({
+            label: 'History',
+            key: FeatureFlagsTab.HISTORY,
+            content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit) {
+        tabs.push({
+            label: 'Permissions',
+            key: FeatureFlagsTab.PERMISSIONS,
+            content: (
+                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                    <ResourcePermission
+                        resourceType={Resource.FEATURE_FLAGS}
+                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                        rolesToAdd={rolesToAdd}
+                        addableRoles={addableRoles}
+                        addableRolesLoading={unfilteredAddableRolesLoading}
+                        onAdd={() => addAssociatedRoles()}
+                        roles={derivedRoles}
+                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                        canEdit={featureFlag.can_edit}
+                    />
+                </PayGateMini>
+            ),
+        })
+    }
+
     return (
         <>
             <div className="feature-flag">
@@ -174,10 +260,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
-                                This feature flag is linked to an experiment. It's recommended to only make changes to
-                                this flag{' '}
+                                This feature flag is linked to an experiment. Edit settings here only for advanced
+                                functionality. If unsure, go back to{' '}
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                    using the experiment creation screen.
+                                    the experiment creation screen.
                                 </Link>
                             </LemonBanner>
                         )}
@@ -283,7 +369,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
                                                     target="_blank"
                                                 >
-                                                    Learn more <IconOpenInNew />
+                                                    Learn more
                                                 </Link>
                                             </div>
                                         </div>
@@ -496,79 +582,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </>
                                     }
                                 />
-                                <Tabs
-                                    activeKey={activeTab}
-                                    destroyInactiveTabPane
-                                    onChange={(t) => setActiveTab(t as FeatureFlagsTab)}
-                                >
-                                    <Tabs.TabPane tab="Overview" key="overview">
-                                        <Row>
-                                            <Col span={13}>
-                                                <FeatureFlagRollout readOnly />
-                                                {featureFlag.filters.super_groups && (
-                                                    <FeatureFlagReleaseConditions readOnly isSuper />
-                                                )}
-                                                <FeatureFlagReleaseConditions readOnly />
-                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                                    <FeatureFlagAutoRollback readOnly />
-                                                )}
-                                            </Col>
-                                            <Col span={11} className="pl-4">
-                                                <RecentFeatureFlagInsights />
-                                                <div className="my-4" />
-                                            </Col>
-                                        </Row>
-                                        <LemonDivider className="mb-4" />
-                                        <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                    </Tabs.TabPane>
-                                    {featureFlag.key && id && (
-                                        <Tabs.TabPane tab={<div>Usage</div>} key="usage">
-                                            <UsageTab id={id} featureFlag={featureFlag} />
-                                        </Tabs.TabPane>
-                                    )}
-
-                                    {featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id && (
-                                        <Tabs.TabPane
-                                            tab={
-                                                <div className="flex flex-row">
-                                                    <div>Analysis</div>
-                                                    <LemonTag className="ml-1 float-right uppercase" type="warning">
-                                                        {' '}
-                                                        Beta
-                                                    </LemonTag>
-                                                </div>
-                                            }
-                                            key="analysis"
-                                        >
-                                            <PostHogFeature flag={FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES} match={true}>
-                                                <AnalysisTab id={id} featureFlag={featureFlag} />
-                                            </PostHogFeature>
-                                        </Tabs.TabPane>
-                                    )}
-
-                                    {featureFlag.id && (
-                                        <Tabs.TabPane tab="History" key="history">
-                                            <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
-                                        </Tabs.TabPane>
-                                    )}
-                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
-                                        <Tabs.TabPane tab="Permissions" key="permissions">
-                                            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                <ResourcePermission
-                                                    resourceType={Resource.FEATURE_FLAGS}
-                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                    rolesToAdd={rolesToAdd}
-                                                    addableRoles={addableRoles}
-                                                    addableRolesLoading={unfilteredAddableRolesLoading}
-                                                    onAdd={() => addAssociatedRoles()}
-                                                    roles={derivedRoles}
-                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                                    canEdit={featureFlag.can_edit}
-                                                />
-                                            </PayGateMini>
-                                        </Tabs.TabPane>
-                                    )}
-                                </Tabs>
+                                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
                             </>
                         )}
                     </>
@@ -625,7 +639,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                             ...defaultDataTableColumns(NodeKind.EventsQuery),
                             featureFlag.filters.multivariate
                                 ? 'properties.$feature_flag_response'
-                                : "if(properties.$feature_flag_response == 1, 'true', 'false') -- Feature Flag Response",
+                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', 'false') -- Feature Flag Response",
                         ],
                         event: '$feature_flag_called',
                         properties: propertyFilter,
@@ -642,6 +656,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
+    excludeTitle?: boolean
 }
 
 function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
@@ -756,6 +771,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     {
                                         label: 'Release toggle (boolean)',
                                         value: false,
+                                        disabled: !!(
+                                            featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                        ),
                                     },
                                     {
                                         label: (
@@ -886,6 +904,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
+                                                disabled={
+                                                    !!(
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                    )
+                                                }
                                             />
                                         </Field>
                                     </Col>
@@ -940,6 +964,13 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     data-attr={`delete-prop-filter-${index}`}
                                                     noPadding
                                                     onClick={() => removeVariant(index)}
+                                                    disabledReason={
+                                                        featureFlag.experiment_set &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                            ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="topRight"
                                                 />
                                             )}
                                         </Row>
@@ -961,6 +992,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 focusVariantKeyField(newIndex)
                             }}
                             icon={<IconPlus />}
+                            disabledReason={
+                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
+                                    : undefined
+                            }
+                            tooltipPlacement="topLeft"
                             center
                         >
                             Add variant
@@ -972,7 +1009,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     )
 }
 
-function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnlyProps): JSX.Element {
+export function FeatureFlagReleaseConditions({
+    readOnly,
+    isSuper,
+    excludeTitle,
+}: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -1334,17 +1375,23 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
 
     return (
         <>
-            <div className="feature-flag-form-row">
+            <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
                 <div data-attr="feature-flag-release-conditions">
                     {readOnly ? (
-                        <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        excludeTitle ? null : (
+                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
+                        )
                     ) : (
                         <>
-                            <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb-4">
-                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
-                                condition sets are rolled out independently of each other.
-                            </div>
+                            {!excludeTitle && (
+                                <>
+                                    <h3 className="l3">Release conditions</h3>
+                                    <div className="text-muted mb-4">
+                                        Specify the {aggregationTargetName} to which you want to release this flag. Note
+                                        that condition sets are rolled out independently of each other.
+                                    </div>
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -1388,7 +1435,7 @@ function FeatureFlagReleaseConditions({ readOnly, isSuper }: FeatureFlagReadOnly
                 )}
             </Row>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set
                 </LemonButton>
             )}

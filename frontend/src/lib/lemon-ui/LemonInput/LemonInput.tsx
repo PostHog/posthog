@@ -41,6 +41,7 @@ interface LemonInputPropsBase
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
     size?: 'small' | 'medium'
+    onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
 }
@@ -50,7 +51,6 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
 }
 
 export interface LemonInputPropsNumber
@@ -60,7 +60,6 @@ export interface LemonInputPropsNumber
     value?: number
     defaultValue?: number
     onChange?: (newValue: number | undefined) => void
-    onPressEnter?: (newValue: number | undefined) => void
 }
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
@@ -145,22 +144,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 status !== 'default' && `LemonInput--status-${status}`,
                 type && `LemonInput--type-${type}`,
                 size && `LemonInput--${size}`,
-                textProps.disabled && 'LemonInput--disabled',
                 fullWidth && 'LemonInput--full-width',
                 value && 'LemonInput--has-content',
                 !textProps.disabled && focused && 'LemonInput--focused',
                 transparentBackground && 'LemonInput--transparent-background',
                 className
             )}
-            onKeyDown={(event) => {
-                if (onPressEnter && event.key === 'Enter') {
-                    if (type === 'number') {
-                        onPressEnter(value ?? 0)
-                    } else {
-                        onPressEnter(value?.toString() ?? '')
-                    }
-                }
-            }}
+            aria-disabled={textProps.disabled}
             onClick={() => focus()}
         >
             {prefix}
@@ -185,6 +175,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 onBlur={(event) => {
                     setFocused(false)
                     onBlur?.(event)
+                }}
+                onKeyDown={(event) => {
+                    if (onPressEnter && event.key === 'Enter') {
+                        onPressEnter(event)
+                    }
                 }}
                 {...textProps}
             />

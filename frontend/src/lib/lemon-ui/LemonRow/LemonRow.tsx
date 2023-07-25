@@ -16,8 +16,6 @@ declare module 'react' {
 
 export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     extends Omit<React.HTMLProps<JSX.IntrinsicElements[T]>, 'ref' | 'size'> {
-    /** If icon width is relaxed, width of icon box is set to auto. Default icon width is 1em  */
-    relaxedIconWidth?: boolean
     icon?: React.ReactElement | null
     /** HTML tag to render the row with. */
     tag?: T
@@ -54,7 +52,6 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
     {
         children,
         icon,
-        relaxedIconWidth = false,
         className,
         tag,
         status = 'default',
@@ -97,23 +94,9 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         },
         <>
             <div className="LemonRow__main-area">
-                {icon && (
-                    <span
-                        className={clsx(
-                            'LemonRow__icon',
-                            'LemonRow__icon--prefix',
-                            relaxedIconWidth && 'LemonRow__icon--relaxed-width'
-                        )}
-                    >
-                        {icon}
-                    </span>
-                )}
+                {icon && <span className="LemonRow__icon">{icon}</span>}
                 {!symbolic && <div className="LemonRow__content">{children}</div>}
-                {sideIcon && (
-                    <span className={clsx('LemonRow__icon', relaxedIconWidth && 'LemonRow__icon--relaxed-width')}>
-                        {sideIcon}
-                    </span>
-                )}
+                {sideIcon && <span className="LemonRow__icon">{sideIcon}</span>}
             </div>
             {extendedContent && <div className="LemonRow__extended-area">{extendedContent}</div>}
         </>

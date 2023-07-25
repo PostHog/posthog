@@ -1,6 +1,9 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
-import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
+import {
+    eachBatchAppsOnEventHandlers,
+    eachBatchWebhooksHandlers,
+} from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
@@ -18,7 +21,17 @@ import {
     RawClickHouseEvent,
 } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
+import { ActionManager } from '../../../src/worker/ingestion/action-manager'
+import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
+import { HookCommander } from '../../../src/worker/ingestion/hooks'
 
+jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
+    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
+    return {
+        ...originalModule,
+        processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
+    }
+})
 jest.mock('../../../src/utils/status')
 jest.mock('./../../../src/worker/ingestion/utils')
 
@@ -123,7 +136,8 @@ describe('eachBatchX', () => {
                 },
             },
             workerMethods: {
-                runAsyncHandlersEventPipeline: jest.fn(),
+                runAppsOnEventPipeline: jest.fn(),
+                runWebhooksHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(() => Promise.resolve({})),
             },
         }
@@ -131,7 +145,7 @@ describe('eachBatchX', () => {
 
     describe('eachBatch', () => {
         it('calls eachMessage with the correct arguments', async () => {
-            const eachMessage = jest.fn()
+            const eachMessage = jest.fn(() => Promise.resolve())
             const batch = createKafkaJSBatch(event)
             await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
 
@@ -139,7 +153,7 @@ describe('eachBatchX', () => {
         })
 
         it('tracks metrics based on the key', async () => {
-            const eachMessage = jest.fn()
+            const eachMessage = jest.fn(() => Promise.resolve())
             await eachBatch(createKafkaJSBatch(event), queue, eachMessage, groupIntoBatches, 'my_key')
 
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
@@ -149,18 +163,55 @@ describe('eachBatchX', () => {
         })
     })
 
-    describe('eachBatchAsyncHandlers', () => {
-        it('calls runAsyncHandlersEventPipeline', async () => {
-            await eachBatchAsyncHandlers(createKafkaJSBatch(clickhouseEvent), queue)
+    describe('eachBatchWebhooksHandlers', () => {
+        it('calls runWebhooksHandlersEventPipeline', async () => {
+            await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
 
-            expect(queue.workerMethods.runAsyncHandlersEventPipeline).toHaveBeenCalledWith({
+            expect(queue.workerMethods.runAppsOnEventPipeline).toHaveBeenCalledWith({
                 ...event,
                 properties: {
                     $ip: '127.0.0.1',
                 },
             })
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers',
+                'kafka_queue.each_batch_async_handlers_on_event',
+                expect.any(Date)
+            )
+        })
+    })
+
+    describe('eachBatchWebhooksHandlers', () => {
+        it('calls runWebhooksHandlersEventPipeline', async () => {
+            const actionManager = new ActionManager(queue.pluginsServer.postgres)
+            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
+            const hookCannon = new HookCommander(
+                queue.pluginsServer.postgres,
+                queue.pluginsServer.teamManager,
+                queue.pluginsServer.organizationManager
+            )
+            const matchSpy = jest.spyOn(actionMatcher, 'match')
+            await eachBatchWebhooksHandlers(
+                createKafkaJSBatch(clickhouseEvent),
+                actionMatcher,
+                hookCannon,
+                queue.pluginsServer.statsd,
+                10
+            )
+
+            // NOTE: really it would be nice to verify that fire has been called
+            // on hookCannon, but that would require a little more setup, and it
+            // is at the least testing a little bit more than we were before.
+            expect(matchSpy).toHaveBeenCalledWith(
+                {
+                    ...event,
+                    properties: {
+                        $ip: '127.0.0.1',
+                    },
+                },
+                []
+            )
+            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
+                'kafka_queue.each_batch_async_handlers_webhooks',
                 expect.any(Date)
             )
         })

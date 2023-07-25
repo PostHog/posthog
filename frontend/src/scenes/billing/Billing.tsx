@@ -17,6 +17,7 @@ import { IconPlus } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Field, Form } from 'kea-forms'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -170,18 +171,26 @@ export function Billing(): JSX.Element {
             )}
             <div
                 className={clsx('flex flex-wrap gap-4', {
-                    'flex-col pb-4 items-stretch': size === 'small',
+                    'flex-col items-stretch': size === 'small',
                     'items-center': size !== 'small',
                 })}
             >
                 {!isOnboarding && billing?.billing_period && (
                     <div className="flex-1">
                         <div className="space-y-2">
-                            <p>
-                                Your current {billing?.has_active_subscription ? 'billing period' : 'cycle'} is from{' '}
-                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                <b>{billing.billing_period.current_period_end.format('LL')}</b>
-                            </p>
+                            <div>
+                                <p className="ml-0 mb-0">
+                                    {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
+                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                    <b>{billing.billing_period.current_period_end.format('LL')}</b> (
+                                    {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
+                                </p>
+                                {!billing.has_active_subscription && (
+                                    <p className="italic ml-0 text-muted">
+                                        Monthly free allocation resets at the end of the cycle.
+                                    </p>
+                                )}
+                            </div>
 
                             {billing?.has_active_subscription && (
                                 <>
@@ -194,25 +203,35 @@ export function Billing(): JSX.Element {
                                         ${billing.current_total_amount_usd_after_discount}
                                     </div>
                                     {billing.discount_percent && (
-                                        <div className="text-xl">
-                                            ({billing.discount_percent}% off discount applied)
+                                        <div>
+                                            <p className="ml-0">
+                                                <strong>{billing.discount_percent}%</strong> off discount applied
+                                            </p>
                                         </div>
                                     )}
                                     {billing.discount_amount_usd && (
-                                        <div className="text-xl">
-                                            (-${billing.discount_amount_usd} discount applied)
+                                        <div>
+                                            <p className="ml-0">
+                                                <Tooltip
+                                                    title={
+                                                        billing?.amount_off_expires_at
+                                                            ? `Expires on ${billing?.amount_off_expires_at?.format(
+                                                                  'LL'
+                                                              )}`
+                                                            : null
+                                                    }
+                                                    placement="bottomLeft"
+                                                >
+                                                    <strong>
+                                                        ${parseInt(billing.discount_amount_usd).toLocaleString()}
+                                                    </strong>{' '}
+                                                </Tooltip>
+                                                remaining credits applied to your bill.
+                                            </p>
                                         </div>
                                     )}
                                 </>
                             )}
-
-                            <p>
-                                <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
-                                in your{' '}
-                                {billing?.has_active_subscription
-                                    ? 'billing period.'
-                                    : 'cycle. Your free allocation will reset at the end of the cycle.'}
-                            </p>
                         </div>
                     </div>
                 )}

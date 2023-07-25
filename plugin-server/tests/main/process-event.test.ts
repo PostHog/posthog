@@ -11,7 +11,6 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { RRWebEventSummary } from '../../src/main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
     ClickHouseEvent,
     Database,
@@ -20,6 +19,7 @@ import {
     Person,
     PluginsServerConfig,
     PropertyDefinitionTypeEnum,
+    RRWebEvent,
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -1191,14 +1191,10 @@ test('capture first team event', async () => {
 })
 
 test('snapshot event stored as session_recording_event', () => {
-    const data = createSessionRecordingEvent(
-        'some-id',
-        team.id,
-        '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-        now,
-        '',
-        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties
-    )
+    const data = createSessionRecordingEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', now, {
+        $session_id: 'abcf-efg',
+        $snapshot_data: { timestamp: 123 },
+    } as any as Properties)
 
     expect(data).toEqual({
         created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
@@ -1212,7 +1208,7 @@ test('snapshot event stored as session_recording_event', () => {
     })
 })
 const sessionReplayEventTestCases: {
-    snapshotData: { events_summary: RRWebEventSummary[] }
+    snapshotData: { events_summary: RRWebEvent[] }
     expected: Pick<
         SummarizedSessionRecordingEvent,
         | 'click_count'
@@ -1225,6 +1221,7 @@ const sessionReplayEventTestCases: {
         | 'console_log_count'
         | 'console_warn_count'
         | 'console_error_count'
+        | 'size'
     >
 }[] = [
     {
@@ -1240,6 +1237,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
+            size: 73,
         },
     },
     {
@@ -1255,6 +1253,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
+            size: 73,
         },
     },
     {
@@ -1310,6 +1309,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 2,
             console_warn_count: 3,
             console_error_count: 1,
+            size: 762,
         },
     },
     {
@@ -1347,6 +1347,7 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
+            size: 213,
         },
     },
     {
@@ -1373,15 +1374,19 @@ const sessionReplayEventTestCases: {
             console_log_count: 0,
             console_warn_count: 0,
             console_error_count: 0,
+            size: 433,
         },
     },
 ]
 sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
     test(`snapshot event ${JSON.stringify(snapshotData)} can be stored as session_replay_event`, () => {
-        const data = createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
-            $session_id: 'abcf-efg',
-            $snapshot_data: snapshotData,
-        } as any as Properties)
+        const data = createSessionReplayEvent(
+            'some-id',
+            team.id,
+            '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            'abcf-efg',
+            snapshotData.events_summary
+        )
 
         const expectedEvent: SummarizedSessionRecordingEvent = {
             distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
@@ -1396,37 +1401,29 @@ sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
 
 test(`snapshot event with no event summary is ignored`, () => {
     expect(() => {
-        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
-            $session_id: 'abcf-efg',
-            $snapshot_data: {},
-        } as any as Properties)
+        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', 'abcf-efg', [])
     }).toThrowError()
 })
 
 test(`snapshot event with no event summary timestamps is ignored`, () => {
     expect(() => {
-        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', '', {
-            $session_id: 'abcf-efg',
-            $snapshot_data: {
-                events_summary: [
-                    {
-                        type: 5,
-                        data: {
-                            payload: {
-                                // doesn't match because href is nested in payload
-                                href: 'http://127.0.0.1:8000/home',
-                            },
-                        },
+        createSessionReplayEvent('some-id', team.id, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', 'abcf-efg', [
+            {
+                type: 5,
+                data: {
+                    payload: {
+                        // doesn't match because href is nested in payload
+                        href: 'http://127.0.0.1:8000/home',
                     },
-                    {
-                        type: 4,
-                        data: {
-                            href: 'http://127.0.0.1:8000/second/url',
-                        },
-                    },
-                ],
+                },
             },
-        } as any as Properties)
+            {
+                type: 4,
+                data: {
+                    href: 'http://127.0.0.1:8000/second/url',
+                },
+            },
+        ] as any[])
     }).toThrowError()
 })
 

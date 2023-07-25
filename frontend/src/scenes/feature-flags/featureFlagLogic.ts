@@ -236,7 +236,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeVariant: (index: number) => ({ index }),
         editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
-        setFilters: (filters) => ({ filters }),
         loadInsightAtIndex: (index: number, filters: Partial<FilterType>) => ({ index, filters }),
         setInsightResultAtIndex: (index: number, average: number) => ({ index, average }),
         loadAllInsightsForFlag: true,
@@ -422,13 +421,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
 
+                    const originalRolloutPercentage = state.filters.groups[0].rollout_percentage
+
                     return {
                         ...state,
                         filters: {
                             ...state.filters,
                             aggregation_group_type_index: value,
                             // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: originalRolloutPercentage, variant: null }],
                         },
                     }
                 },

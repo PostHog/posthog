@@ -23,7 +23,7 @@ const interceptPropertyDefinitions = (): void => {
 }
 
 const selectNewTimestampPropertyFilter = (): void => {
-    cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+    cy.get('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
     cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
     cy.get('.taxonomic-list-row').should('have.length', 1)
     cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
@@ -58,25 +58,25 @@ describe('Events', () => {
     })
 
     it('Events loaded', () => {
-        cy.get('[data-attr=events-table]').should('exist')
+        cy.get('.DataTable').should('exist')
     })
 
     it('Click on an event', () => {
-        cy.get('[data-attr=events-table] .event-row:nth-child(2) td:first-child').click()
+        cy.get('.DataTable [data-row-key]:nth-child(2) td:first-child').click()
         cy.get('[data-attr=event-details]').should('exist')
     })
 
     it('Apply 1 overall filter', () => {
-        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-0]').click()
         cy.get('[data-attr=prop-val] .ant-select-selector').click({ force: true })
         cy.get('[data-attr=prop-val-0]').click()
-        cy.get('[data-attr=events-table]').should('exist')
+        cy.get('.DataTable').should('exist')
     })
 
     it('separates feature flag properties into their own tab', () => {
-        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         cy.get('[data-attr="taxonomic-tab-event_feature_flags"]').should('contain.text', 'Feature flags: 2').click()
         // some virtualized rows remain in the dom, but hidden
         cy.get('.taxonomic-list-row:visible').should('have.length', 2)
@@ -91,7 +91,7 @@ describe('Events', () => {
     })
 
     it('use less than and greater than with a numeric property', () => {
-        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 
@@ -105,13 +105,13 @@ describe('Events', () => {
         cy.get('[data-attr=events-table-column-selector]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
-        cy.get('.column-display-item').should('have.length', 5)
+        cy.get('.SelectedColumn').should('have.length', 7)
         cy.get('[data-attr=column-display-item-remove-icon').last().click()
-        cy.get('.column-display-item').should('have.length', 4)
+        cy.get('.SelectedColumn').should('have.length', 6)
     })
 
     it('keeps the popop open after selecting an option', () => {
-        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
         cy.get('.taxonomic-list-row').should('have.length', 1).click()
 

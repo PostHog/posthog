@@ -1,5 +1,4 @@
 import { useValues, useActions } from 'kea'
-// import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { InsightType, FilterType, InsightLogicProps } from '~/types'

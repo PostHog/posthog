@@ -10,6 +10,15 @@
       }
     </script>
     {% include "head.html" %}
+      {% if add_og_tags %}
+          <meta property="og:title" content="{{ asset_title }}">
+          <meta property="og:type" content="website">
+          <meta property="og:description" content="{{ asset_description }}">
+          <meta property="og:url" content="{{ request.build_absolute_uri }}">
+          <meta property="og:image" content="{{ asset_opengraph_image_url }}">
+          <meta property="og:image:alt" content="A screenshot of the PostHog asset">
+          <meta name="twitter:card" content="summary_large_image">
+      {% endif %}
   </head>
   <body>
     <script>

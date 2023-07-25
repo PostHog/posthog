@@ -1,6 +1,6 @@
 import { EventType, RecordingEventType } from '~/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconFlag } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import posthog from 'posthog-js'
 import { Link } from 'lib/lemon-ui/Link'
@@ -145,7 +145,7 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
                                     to={$sentry_url}
                                     target={'_blank'}
                                 >
-                                    Sentry <IconOpenInNew />
+                                    Sentry
                                 </Link>
                             ) : (
                                 <>PostHog</>

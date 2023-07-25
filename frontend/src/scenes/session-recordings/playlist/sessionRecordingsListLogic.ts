@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import posthog from 'posthog-js'
 
 export type PersonUUID = string
 
@@ -50,6 +51,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
     ...DEFAULT_RECORDING_FILTERS,
+    date_from: '-21d',
     session_recording_duration: {
         type: PropertyFilterType.Recording,
         key: 'duration',
@@ -157,6 +159,22 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadPrev: true,
     }),
     loaders(({ props, values, actions }) => ({
+        eventsHaveSessionId: [
+            {} as Record<string, boolean>,
+            {
+                loadEventsHaveSessionId: async () => {
+                    const events = values.filters.events
+                    if (events === undefined || events.length === 0) {
+                        return {}
+                    }
+
+                    return await api.propertyDefinitions.seenTogether({
+                        eventNames: events.map((event) => event.name),
+                        propertyDefinitionName: '$session_id',
+                    })
+                },
+            },
+        ],
         sessionRecordingsResponse: [
             {
                 results: [],
@@ -224,6 +242,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        unusableEventsInFilter: [
+            [] as string[],
+            {
+                loadEventsHaveSessionIdSuccess: (_, { eventsHaveSessionId }) => {
+                    return Object.entries(eventsHaveSessionId)
+                        .filter(([, hasSessionId]) => !hasSessionId)
+                        .map(([eventName]) => eventName)
+                },
+            },
+        ],
         customFilters: [
             (props.filters ?? null) as RecordingFilters | null,
             {
@@ -280,15 +308,45 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
+        sessionRecordingsAPIErrored: [
+            false,
+            {
+                loadSessionRecordingsFailure: () => true,
+                loadSessionRecordingSuccess: () => false,
+                setFilters: () => false,
+                loadNext: () => false,
+                loadPrev: () => false,
+            },
+        ],
+        pinnedRecordingsAPIErrored: [
+            false,
+            {
+                loadPinnedRecordingsFailure: () => true,
+                loadPinnedRecordingsSuccess: () => false,
+                setFilters: () => false,
+                loadNext: () => false,
+                loadPrev: () => false,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
             actions.loadSessionRecordings()
             actions.loadPinnedRecordings()
         },
-        setFilters: () => {
+        setFilters: ({ filters }) => {
             actions.loadSessionRecordings()
             props.onFiltersChange?.(values.filters)
+
+            // capture only the partial filters applied (not the full filters object)
+            // take each key from the filter and change it to `partial_filter_chosen_${key}`
+            const partialFilters = Object.keys(filters).reduce((acc, key) => {
+                acc[`partial_filter_chosen_${key}`] = filters[key]
+                return acc
+            }, {})
+            posthog.capture('recording list filters changed', { ...partialFilters })
+
+            actions.loadEventsHaveSessionId()
         },
 
         resetFilters: () => {
@@ -307,7 +365,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
 
         loadSessionRecordingsSuccess: () => {
-            actions.maybeLoadPropertiesForSessions(values.sessionRecordings.map((s) => s.id))
+            actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
         },
 
         setSelectedRecordingId: () => {
@@ -320,9 +378,27 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     selectors({
         shouldShowEmptyState: [
-            (s) => [s.sessionRecordings, s.customFilters, s.sessionRecordingsResponseLoading],
-            (sessionRecordings, customFilters, sessionRecordingsResponseLoading): boolean => {
-                return !sessionRecordingsResponseLoading && sessionRecordings.length === 0 && !customFilters
+            (s) => [
+                s.sessionRecordings,
+                s.customFilters,
+                s.sessionRecordingsResponseLoading,
+                s.sessionRecordingsAPIErrored,
+                s.pinnedRecordingsAPIErrored,
+            ],
+            (
+                sessionRecordings,
+                customFilters,
+                sessionRecordingsResponseLoading,
+                sessionRecordingsAPIErrored,
+                pinnedRecordingsAPIErrored
+            ): boolean => {
+                return (
+                    !sessionRecordingsAPIErrored &&
+                    !pinnedRecordingsAPIErrored &&
+                    !sessionRecordingsResponseLoading &&
+                    sessionRecordings.length === 0 &&
+                    !customFilters
+                )
             },
         ],
 
