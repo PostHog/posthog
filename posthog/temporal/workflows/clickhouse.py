@@ -235,7 +235,9 @@ class ClickHouseClient:
             request_data = query.encode("utf-8")
 
         with requests.Session() as s:
-            response = s.post(url=self.url, params=params, headers=self.headers, data=request_data, stream=True)
+            response = s.post(
+                url=self.url, params=params, headers=self.headers, data=request_data, stream=True, verify=False
+            )
             self.check_response(response, query)
             yield response
 
