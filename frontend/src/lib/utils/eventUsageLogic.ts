@@ -515,6 +515,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
+        reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
     },
     listeners: ({ values }) => ({
@@ -1225,6 +1226,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 created_at: survey.created_at,
                 start_date: survey.start_date,
                 end_date: survey.end_date,
+            })
+        },
+        reportSurveyResumed: ({ survey }) => {
+            posthog.capture('survey resumed', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
             })
         },
         reportSurveyArchived: ({ survey }) => {
