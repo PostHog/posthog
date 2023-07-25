@@ -97,6 +97,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                 className={clsx(
                                     columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
                                     column.align && `text-${column.align}`,
+                                    column.sticky && 'LemonTable__td--sticky',
                                     column.className
                                 )}
                                 {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}

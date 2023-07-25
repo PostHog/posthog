@@ -99,6 +99,7 @@ export function InsightsTable({
                 />
             ),
             width: 0,
+            sticky: true,
         })
     }
 
@@ -120,6 +121,8 @@ export function InsightsTable({
             const labelB = b.action?.name || b.label || ''
             return labelA.localeCompare(labelB)
         },
+        width: 2000,
+        sticky: true,
     })
 
     if (breakdown?.breakdown) {

@@ -177,3 +177,15 @@
     border-top: 1px solid var(--border);
     cursor: default;
 }
+
+.LemonTable__header--sticky,
+.LemonTable__td--sticky {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--bg-light);
+}
+
+.LemonTable__header--sticky {
+    background-color: var(--mid);
+}

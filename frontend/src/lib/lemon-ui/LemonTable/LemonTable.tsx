@@ -264,6 +264,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
                                                         'LemonTable__boundary',
+                                                    column.sticky && 'LemonTable__header--sticky',
                                                     column.className
                                                 )}
                                                 /* eslint-disable-next-line react/forbid-dom-props */
@@ -387,6 +388,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                         className={clsx(
                                                             columnIndex === columnGroup.children.length - 1 &&
                                                                 'LemonTable__boundary',
+                                                            column.sticky && 'LemonTable__td--sticky',
                                                             column.className
                                                         )}
                                                     >
