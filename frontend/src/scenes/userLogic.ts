@@ -8,6 +8,7 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -25,6 +26,7 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        setUserSceneDashboardChoice: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
     })),
     forms(({ actions }) => ({
@@ -68,6 +70,20 @@ export const userLogic = kea<userLogicType>([
                         const response = await api.update('api/users/@me/', user)
                         successCallback && successCallback()
                         return response
+                    } catch (error: any) {
+                        console.error(error)
+                        actions.updateUserFailure(error.message)
+                    }
+                },
+                setUserSceneDashboardChoice: async ({ scene, dashboard }) => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    try {
+                        return await api.create('api/users/@me/scene_dashboard_choice', {
+                            scene,
+                            dashboard,
+                        })
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
