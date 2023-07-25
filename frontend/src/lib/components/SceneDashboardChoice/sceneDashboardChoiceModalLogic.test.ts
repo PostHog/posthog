@@ -20,7 +20,6 @@ describe('sceneDashboardChoiceModalLogic ', () => {
                         {
                             ...MOCK_DEFAULT_TEAM,
                             primary_dashboard: data?.primary_dashboard,
-                            scene_dashboards: data?.scene_dashboards,
                         },
                     ]
                 },

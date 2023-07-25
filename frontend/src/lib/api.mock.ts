@@ -75,7 +75,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
-    scene_dashboards: null,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     groups_on_events_querying_enabled: true,

@@ -7,6 +7,7 @@ import { posthog } from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
 
 import type { sceneDashboardChoiceModalLogicType } from './sceneDashboardChoiceModalLogicType'
+import { userLogic } from 'scenes/userLogic'
 
 export type DashboardCompatibleScenes = Scene.ProjectHomepage | Scene.Person | Scene.Group
 
@@ -27,7 +28,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     connect({
         logic: [eventUsageLogic],
         actions: [teamLogic, ['updateCurrentTeam']],
-        values: [teamLogic, ['currentTeam'], dashboardsModel, ['nameSortedDashboards']],
+        values: [teamLogic, ['currentTeam'], userLogic, ['user'], dashboardsModel, ['nameSortedDashboards']],
     }),
     actions({
         showSceneDashboardChoiceModal: () => true,
@@ -41,11 +42,18 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     }),
     selectors(({ props }) => ({
         currentDashboardId: [
-            (s) => [s.currentTeam],
-            (currentTeam) =>
-                props.scene === Scene.ProjectHomepage
-                    ? currentTeam?.primary_dashboard
-                    : currentTeam?.scene_dashboards?.[props.scene] || null,
+            (s) => [s.currentTeam, s.user],
+            (currentTeam, user) => {
+                let currentDashboard = user?.scene_dashboard_choices?.find(
+                    (choice) => choice.scene === props.scene
+                )?.dashboard
+
+                if (!currentDashboard && props.scene === Scene.ProjectHomepage) {
+                    currentDashboard = currentTeam?.primary_dashboard
+                }
+
+                return (typeof currentDashboard === 'number' ? currentDashboard : currentDashboard?.id) ?? null
+            },
         ],
         dashboards: [
             (s) => [s.searchTerm, s.nameSortedDashboards],
@@ -65,19 +73,19 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
             },
         ],
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props }) => ({
         setSceneDashboardChoice: async ({ dashboardId }) => {
             // TODO needs to report scene and dashboard
             if (props.scene === Scene.ProjectHomepage) {
                 actions.updateCurrentTeam({ primary_dashboard: dashboardId })
                 posthog.capture('primary dashboard changed')
             } else {
-                actions.updateCurrentTeam({
-                    scene_dashboards: {
-                        ...(values.currentTeam?.scene_dashboards || ({} as Record<DashboardCompatibleScenes, number>)),
-                        [props.scene]: dashboardId,
-                    },
-                })
+                // actions.updateCurrentTeam({
+                //     scene_dashboards: {
+                //         ...(values.currentTeam?.scene_dashboards || ({} as Record<DashboardCompatibleScenes, number>)),
+                //         [props.scene]: dashboardId,
+                //     },
+                // })
                 posthog.capture('scene dashboard choice set', { scene: props.scene, dashboardId: dashboardId })
             }
         },

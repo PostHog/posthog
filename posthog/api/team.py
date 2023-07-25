@@ -130,7 +130,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "access_control",
             "has_group_types",
             "primary_dashboard",
-            "scene_dashboards",
             "live_events_columns",
             "recording_domains",
             "person_on_events_querying_enabled",

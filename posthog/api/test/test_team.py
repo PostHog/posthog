@@ -249,15 +249,6 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/reset_token/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_update_linked_scene_dashboards(self):
-        original_get = self.client.get("/api/projects/@current/").json()
-        assert original_get["scene_dashboards"] is None
-
-        response = self.client.patch("/api/projects/@current/", {"scene_dashboards": {"Person": 123}})
-        response_data = response.json()
-
-        assert response_data["scene_dashboards"] == {"Person": 123}
-
     def test_update_primary_dashboard(self):
         d = Dashboard.objects.create(name="Test", team=self.team)
 

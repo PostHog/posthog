@@ -160,12 +160,6 @@ class Team(UUIDClassicModel):
         "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
     )  # Dashboard shown on project homepage
 
-    # some scenes can have dashboards added to them, like person, or groups.
-    # we don't want a new column for every scene since they're not loaded individually
-    # so, we dump them in a bag
-    # this is very loosely typed since in future it might link a scene to a Notebook instead
-    scene_dashboards: models.JSONField = models.JSONField(blank=True, null=True)
-
     # Generic field for storing any team-specific context that is more temporary in nature and thus
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.

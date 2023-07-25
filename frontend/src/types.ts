@@ -149,6 +149,15 @@ export interface UserBasicType extends UserBaseType {
     id: number
 }
 
+/**
+ * A user can have scene dashboard choices for multiple teams
+ * TODO does this only have the current team's choices?
+ */
+export interface SceneDashboardChoice {
+    scene: DashboardCompatibleScenes
+    dashboard: number | DashboardBasicType
+}
+
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
@@ -170,6 +179,7 @@ export interface UserType extends UserBaseType {
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
+    scene_dashboard_choices?: SceneDashboardChoice[]
 }
 
 export interface NotificationSettings {
@@ -334,8 +344,6 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
-    // Dashboards associated on particular scenes e.g. Persons or Groups
-    scene_dashboards: Record<DashboardCompatibleScenes, number> | null
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
