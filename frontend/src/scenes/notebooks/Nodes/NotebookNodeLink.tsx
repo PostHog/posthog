@@ -57,7 +57,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper as="span">
             <Link
-                to={path}
+                to={href}
                 onClick={() => openNotebook(shortId, NotebookTarget.Sidebar)}
                 target={internal ? undefined : '_blank'}
                 className="p-1 rounded"
