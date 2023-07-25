@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import cast
+from typing import cast, Dict, List
 from unittest.mock import ANY, Mock, patch
 from urllib.parse import quote
 
@@ -14,7 +14,7 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.models import Tag, Team, User
+from posthog.models import Tag, Team, User, Dashboard
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
@@ -246,6 +246,124 @@ class TestUserAPI(APIBaseTest):
             },
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_dashboard_choice_for_user_dashboard_must_be_in_current_team(
+        self, _mock_capture, _mock_identify_task
+    ):
+        a_third_team = Team.objects.create(name="A Third Team", organization=self.organization)
+
+        dashboard_one = Dashboard.objects.create(team=a_third_team, name="Dashboard 1")
+
+        response = self.client.post(
+            "/api/users/@me/scene_dashboard_choice",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "dashboard": str(dashboard_one.id), "scene": "Person"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_dashboard_choice_for_user_dashboard_must_exist(self, _mock_capture, _mock_identify_task):
+        response = self.client.post(
+            "/api/users/@me/scene_dashboard_choice",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_dashboard_choice_for_user_must_send_dashboard(self, _mock_capture, _mock_identify_task):
+        response = self.client.post(
+            "/api/users/@me/scene_dashboard_choice",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "scene": "Person"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_dashboard_choice_for_user_must_send_scene(self, _mock_capture, _mock_identify_task):
+        dashboard_one = Dashboard.objects.create(team=self.team, name="Dashboard 1")
+
+        response = self.client.post(
+            "/api/users/@me/scene_dashboard_choice",
+            # even if someone tries to send a different user or team they are ignored
+            {
+                "user": 12345,
+                "team": 12345,
+                "dashboard": str(dashboard_one.id),
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_set_scene_dashboard_choice_for_user(self, _mock_capture, _mock_identify_task):
+        another_org = Organization.objects.create(name="Another Org")
+        another_team = Team.objects.create(name="Another Team", organization=another_org)
+        user = self._create_user("the-user@posthog.com", password="12345678")
+        user.current_team = another_team
+        user.save()
+        self.client.force_login(user)
+
+        dashboard_one = Dashboard.objects.create(team=another_team, name="Dashboard 1")
+        dashboard_two = Dashboard.objects.create(team=another_team, name="Dashboard 2")
+
+        self._assert_set_scene_choice(
+            "Person",
+            dashboard_one,
+            user,
+            [
+                {
+                    "dashboard": dashboard_one.pk,
+                    "scene": "Person",
+                },
+            ],
+        )
+
+        self._assert_set_scene_choice(
+            "Person",
+            dashboard_two,
+            user,
+            [
+                {
+                    "dashboard": dashboard_two.pk,
+                    "scene": "Person",
+                },
+            ],
+        )
+
+        self._assert_set_scene_choice(
+            "Group",
+            dashboard_two,
+            user,
+            [
+                {
+                    "dashboard": dashboard_two.pk,
+                    "scene": "Person",
+                },
+                {
+                    "dashboard": dashboard_two.pk,
+                    "scene": "Group",
+                },
+            ],
+        )
+
+    def _assert_set_scene_choice(
+        self, scene: str, dashboard: Dashboard, user: User, expected_choices: List[Dict]
+    ) -> None:
+        response = self.client.post(
+            "/api/users/@me/scene_dashboard_choice",
+            # even if someone tries to send a different user or team they are ignored
+            {"user": 12345, "team": 12345, "dashboard": str(dashboard.id), "scene": scene},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["uuid"] == str(user.uuid)
+        assert response_data["scene_dashboard_choices"] == expected_choices
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -582,7 +700,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_cant_update_to_insecure_password(self, mock_capture, mock_identify):
+    def test_cannot_update_to_insecure_password(self, mock_capture, mock_identify):
         response = self.client.patch("/api/users/@me/", {"current_password": self.CONFIG_PASSWORD, "password": "123"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
