@@ -367,11 +367,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 {!billing?.has_active_subscription && (
                                     <p className="ml-0">
                                         Every product subsciption comes with free platform features such as{' '}
-                                        <b>
-                                            Multiple projects, Feature flags, Experimentation, Integrations, Apps, and
-                                            more
-                                        </b>
-                                        . Subscribe to one of the products above to get instant access.
+                                        <b>Multiple projects, Integrations, Apps, and more</b>. Subscribe to one of the
+                                        products above to get instant access.
                                     </p>
                                 )}
                                 <p className="m-0">
