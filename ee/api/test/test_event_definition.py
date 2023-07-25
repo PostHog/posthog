@@ -211,7 +211,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -222,7 +222,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
