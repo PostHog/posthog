@@ -1,11 +1,14 @@
 import { Upload } from '@aws-sdk/lib-storage'
 import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
-import { createReadStream, createWriteStream, WriteStream } from 'fs'
-import { readFile, stat, unlink } from 'fs/promises'
+import { createReadStream, createWriteStream } from 'fs'
+import { stat, unlink } from 'fs/promises'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Counter, Histogram } from 'prom-client'
+import { PassThrough, Transform } from 'stream'
+import { pipeline } from 'stream/promises'
+import { Tail } from 'tail'
 import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
@@ -80,7 +83,7 @@ type SessionBuffer = {
     sizeEstimate: number
     count: number
     file: string
-    fileStream: WriteStream
+    fileStream: Transform
     offsets: {
         lowest?: number
         highest?: number
@@ -102,6 +105,7 @@ export class SessionManager {
     inProgressUpload: Upload | null = null
     unsubscribe: () => void
     flushJitterMultiplier: number
+    realtimeTail: Tail | null = null
 
     constructor(
         public readonly serverConfig: PluginsServerConfig,
@@ -156,7 +160,6 @@ export class SessionManager {
         })
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
             return
@@ -182,16 +185,9 @@ export class SessionManager {
             this.buffer.offsets.lowest = minDefined(this.buffer.offsets.lowest, message.metadata.offset)
             this.buffer.offsets.highest = maxDefined(this.buffer.offsets.highest, message.metadata.offset)
 
-            if (this.realtime) {
-                // We don't care about the response here as it is an optimistic call
-                void this.realtimeManager.addMessage(message)
-            }
-
-            // NOTE: If write returns false we are supposed to wait for drain
-            if (!this.buffer.fileStream.write(content)) {
+            if (!this.buffer.fileStream.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()
-                // NOTE: We aren't doing this yet as it doesn't seem to work
-                // await new Promise((r) => this.buffer.fileStream.once('drain', r))
+                await new Promise((r) => this.buffer.fileStream.once('drain', r))
             }
         } catch (error) {
             this.captureException(error, { message })
@@ -200,7 +196,7 @@ export class SessionManager {
 
         // NOTE: This is uncompressed size estimate but thats okay as we currently want to over-flush to see if we can shake out a bug
         if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
-            void this.flush('buffer_size')
+            await this.flush('buffer_size')
         }
     }
 
@@ -323,7 +319,6 @@ export class SessionManager {
             })
 
             const readStream = createReadStream(file, 'utf-8')
-            const gzippedStream = readStream.pipe(zlib.createGzip())
 
             readStream.on('error', (err) => {
                 // TODO: What should we do here?
@@ -340,7 +335,9 @@ export class SessionManager {
                 params: {
                     Bucket: this.serverConfig.OBJECT_STORAGE_BUCKET,
                     Key: dataKey,
-                    Body: gzippedStream,
+                    // ContentEncoding: 'gzip',
+                    // ContentType: 'application/json',
+                    Body: readStream,
                 },
             }))
 
@@ -409,8 +406,39 @@ export class SessionManager {
             const id = randomUUID()
             const file = path.join(
                 bufferFileDir(this.serverConfig.SESSION_RECORDING_LOCAL_DIRECTORY),
-                `${this.teamId}.${this.sessionId}.${id}.jsonl`
+                `${this.teamId}.${this.sessionId}.${id}.jsonl.gz`
             )
+
+            const writeStream = new PassThrough()
+
+            // The compressed file
+            pipeline(writeStream, zlib.createGzip(), createWriteStream(file, 'utf-8'))
+                .then(() => {
+                    status.info('🥳', 'blob_ingester_session_manager writestream finished', {
+                        ...this.logContext(),
+                    })
+                })
+                .catch((error) => {
+                    // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
+                    status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                        ...this.logContext(),
+                        error,
+                    })
+
+                    this.captureException(error)
+                })
+
+            // The uncompressed file which we need for realtime playback
+            pipeline(writeStream, createWriteStream(file + '.jsonl', 'utf-8')).catch((error) => {
+                // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
+                status.error('🧨', 'blob_ingester_session_manager writestream errored', {
+                    ...this.logContext(),
+                    error,
+                })
+
+                this.captureException(error)
+            })
+
             const buffer: SessionBuffer = {
                 id,
                 createdAt: now(),
@@ -419,20 +447,10 @@ export class SessionManager {
                 oldestKafkaTimestamp: null,
                 newestKafkaTimestamp: null,
                 file,
-                fileStream: createWriteStream(file, 'utf-8'),
+                fileStream: writeStream,
                 offsets: {},
                 eventsRange: null,
             }
-
-            buffer.fileStream.on('error', (err) => {
-                // TODO: What should we do here?
-                status.error('🧨', 'blob_ingester_session_manager writestream errored', {
-                    ...this.logContext(),
-                    error: err,
-                })
-
-                this.captureException(err)
-            })
 
             return buffer
         } catch (error) {
@@ -465,29 +483,39 @@ export class SessionManager {
         this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
 
-    private async startRealtime() {
-        if (this.realtime) {
+    private startRealtime() {
+        if (this.realtimeTail) {
             return
         }
 
         status.info('⚡️', `blob_ingester_session_manager Real-time mode started `, { sessionId: this.sessionId })
 
-        this.realtime = true
+        this.realtimeTail = new Tail(this.buffer.file + '.jsonl', {
+            fromBeginning: true,
+        })
 
-        try {
-            const timestamp = this.buffer.oldestKafkaTimestamp ?? 0
-            const existingContent = await readFile(this.buffer.file, 'utf-8')
-            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, existingContent, timestamp)
-            status.info('⚡️', 'blob_ingester_session_manager loaded existing snapshot buffer into realtime', {
+        this.realtimeTail.on('line', async (data: string) => {
+            status.info('⚡️', 'blob_ingester_session_manager realtime adding to redis', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
-        } catch (e) {
-            status.error('🧨', 'blob_ingester_session_manager failed loading existing snapshot buffer', {
+            await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, data, Date.now())
+        })
+
+        this.realtimeTail.on('error', (error) => {
+            status.error('🧨', 'blob_ingester_session_manager failed tailing buffer file', {
                 sessionId: this.sessionId,
                 teamId: this.teamId,
             })
-            this.captureException(e)
+            this.captureException(error)
+            this.stopRealtime()
+        })
+    }
+
+    private stopRealtime() {
+        if (this.realtimeTail) {
+            this.realtimeTail.unwatch()
+            this.realtimeTail = null
         }
     }
 
@@ -517,7 +545,7 @@ export class SessionManager {
 
     private async destroyBuffer(buffer: SessionBuffer): Promise<void> {
         await new Promise<void>((resolve) => {
-            buffer.fileStream.close(async () => {
+            buffer.fileStream.end(async () => {
                 try {
                     await stat(buffer.file)
                     await unlink(buffer.file)
