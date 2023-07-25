@@ -29,7 +29,7 @@ require('@sentry/tracing')
 
 const groupId = 'session-recordings-blob'
 const sessionTimeout = 30000
-const flushIntervalTimeoutMs = 30000
+// const flushIntervalTimeoutMs = 30000
 
 const gaugeSessionsHandled = new Gauge({
     name: 'recording_blob_ingestion_session_manager_count',
@@ -404,17 +404,17 @@ export class SessionRecordingIngesterV2 {
             await this.stop()
         })
 
-        // We trigger the flushes from this level to reduce the number of running timers
-        this.flushInterval = setInterval(async () => {
-            status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
+        // // We trigger the flushes from this level to reduce the number of running timers
+        // this.flushInterval = setInterval(async () => {
+        //     status.info('🚽', `blob_ingester_session_manager flushInterval fired`)
 
-            await this.flushAllReadySessions(false)
+        //     await this.flushAllReadySessions(false)
 
-            status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
-        }, flushIntervalTimeoutMs)
+        //     status.info('🚽', `blob_ingester_session_manager flushInterval completed`)
+        // }, flushIntervalTimeoutMs)
     }
 
-    private async flushAllReadySessions(wait: boolean): Promise<void> {
+    async flushAllReadySessions(wait: boolean): Promise<void> {
         const promises: Promise<void>[] = []
         for (const [key, sessionManager] of Object.entries(this.sessions)) {
             // in practice, we will always have a values for latestKafkaMessageTimestamp,

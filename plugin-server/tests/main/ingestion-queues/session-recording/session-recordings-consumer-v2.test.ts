@@ -134,7 +134,8 @@ describe('ingester', () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
         expect(ingester.sessions['1-session_id_1']).toBeDefined()
-        await ingester.sessions['1-session_id_1']?.flush('buffer_age')
+        ingester.sessions['1-session_id_1'].buffer.createdAt = 0 // Force the flush
+        await ingester.flushAllReadySessions(true)
 
         jest.runOnlyPendingTimers() // flush timer
 
