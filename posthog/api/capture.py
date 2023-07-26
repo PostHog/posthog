@@ -501,27 +501,12 @@ def get_event(request):
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
 
+    response_payload: Dict[str, Any] = {"status": 1}
+
     if recordings_were_quota_limited:
-        headers = {}
-        one_minute_in_seconds = 60
-        # TODO we need to audit our SDKs to see how they'd handle a 429 response
-        # posthog-js ignores a 429 but others might treat it as an error
-        # if events_were_quota_limited:
-        #     headers["X-PostHog-Retry-After-Events"] = one_minute_in_seconds
-        if recordings_were_quota_limited:
-            headers["X-PostHog-Retry-After-Recordings"] = one_minute_in_seconds
+        response_payload["quota_limited"] = ["session-recordings"]
 
-        response = generate_exception_response(
-            "capture",
-            detail="Some events dropped due to billing limit",
-            code="quota_exceeded",
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            headers=headers,
-        )
-    else:
-        response = JsonResponse({"status": 1})
-
-    return cors_response(request, response)
+    return cors_response(request, JsonResponse(response_payload))
 
 
 def preprocess_events(events: List[Dict[str, Any]]) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
