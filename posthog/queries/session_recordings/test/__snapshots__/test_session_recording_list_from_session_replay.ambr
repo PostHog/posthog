@@ -1363,31 +1363,30 @@
        from
          (SELECT groupUniqArray(event) as event_names,
                  `$session_id`
-          FROM events e PREWHERE team_id = 2
+          FROM events e
+          JOIN
+            (SELECT distinct_id,
+                    argMax(person_id, version) as person_id ,
+                    argMax(person_props, version) as person_props
+             FROM person_distinct_id2 as pdi
+             INNER JOIN
+               (SELECT id,
+                       argMax(properties, version) as person_props
+                FROM person
+                WHERE team_id = 2
+                GROUP BY id
+                HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             WHERE team_id = 2
+             GROUP BY distinct_id
+             HAVING argMax(is_deleted, version) = 0
+             AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
           WHERE notEmpty(`$session_id`)
             AND timestamp >= '2021-01-13 12:00:00'
             AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
-            AND e.distinct_id in
-              (select distinct_id
-               from
-                 (SELECT distinct_id,
-                         argMax(person_id, version) as person_id ,
-                         argMax(person_props, version) as person_props
-                  FROM person_distinct_id2 as pdi
-                  INNER JOIN
-                    (SELECT id,
-                            argMax(properties, version) as person_props
-                     FROM person
-                     WHERE team_id = 2
-                     GROUP BY id
-                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-                  WHERE team_id = 2
-                  GROUP BY distinct_id
-                  HAVING argMax(is_deleted, version) = 0
-                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as events_persons_sub_query)
+            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))
           GROUP BY `$session_id`
           HAVING 1=1
           AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
@@ -2123,7 +2122,8 @@
             AND timestamp >= '2021-01-13 12:00:00'
             AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
-            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
+            AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', ''))
+                 AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
                from
@@ -2256,7 +2256,8 @@
             AND timestamp >= '2021-01-13 12:00:00'
             AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
-            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
+            AND (has(['false'], "mat_is_internal_user")
+                 AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
                from

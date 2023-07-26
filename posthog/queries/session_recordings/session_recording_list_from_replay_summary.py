@@ -187,8 +187,7 @@ class SessionIdEventsQuery(SessionRecordingList):
                     g
                     for g in self._filter.property_groups.flat
                     if (g.type == "hogql" and "person.properties" not in g.key)
-                    and "cohort" not in g.type
-                    and g.type != "person"
+                    or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
