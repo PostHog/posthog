@@ -1,15 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import requests
 import structlog
 
-from posthog import settings
+from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
 
 _site_reachable = None
+_site_reachable_exception: Optional[Exception] = None
 _site_reachable_checked_at: Optional[datetime] = None
 
 
@@ -21,11 +22,12 @@ def is_site_url_reachable() -> bool:
 
     global _site_reachable
     global _site_reachable_checked_at
+    global _site_reachable_exception
 
     if not settings.SITE_URL:
         return False
 
-    if _site_reachable_checked_at and _site_reachable_checked_at > datetime.now() - datetime.timedelta(minutes=1):
+    if _site_reachable_checked_at and _site_reachable_checked_at > datetime.now() - timedelta(minutes=1):
         _site_reachable_checked_at = None
 
     if _site_reachable_checked_at is None:
@@ -34,7 +36,11 @@ def is_site_url_reachable() -> bool:
         try:
             response = requests.get(settings.SITE_URL, timeout=5)
             _site_reachable = response.status_code < 400
-        except Exception:
+            _site_reachable_exception = (
+                None if _site_reachable else Exception(f"HTTP status code: {response.status_code}")
+            )
+        except Exception as e:
+            _site_reachable_exception = e
             _site_reachable = False
 
     return _site_reachable
@@ -44,4 +50,4 @@ def log_error_if_site_url_not_reachable() -> None:
     if not settings.SITE_URL:
         logger.error("site_url_not_set")
     elif not is_site_url_reachable():
-        logger.error("site_url_not_reachable", site_url=settings.SITE_URL)
+        logger.error("site_url_not_reachable", site_url=settings.SITE_URL, exception=_site_reachable_exception)

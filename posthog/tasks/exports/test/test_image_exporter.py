@@ -2,8 +2,6 @@ from unittest.mock import mock_open, patch
 
 from boto3 import resource
 from botocore.client import Config
-import pytest
-from requests import RequestException
 
 from posthog.models import ExportedAsset, Insight
 from posthog.settings import (
@@ -83,50 +81,3 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content_location is None
 
             assert self.exported_asset.content == b"image_data"
-
-    def test_url_not_reachable_exception(self, mock_absolute_uri, *args):
-        with self.assertLogs(level="ERROR") as log:
-            test_url = "http://some-bad-url.test"
-            try:
-                image_exporter.log_error_if_url_not_reachable(test_url)
-            except Exception as e:
-                raise pytest.fail(f"Should not have raised exception: {e}")
-
-            logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "ERROR")
-            msg = logged_warning["msg"]
-
-            self.assertDictContainsSubset(
-                {
-                    "url": test_url,
-                    "event": "get_url_exception",
-                    "logger": "posthog.tasks.exports.image_exporter",
-                },
-                msg,
-            )
-            self.assertIsInstance(msg["exception"], RequestException)
-
-    def test_url_not_reachable_error_status(self, *args):
-        test_url = "http://google.com"
-
-        with self.assertLogs(level="ERROR") as log, patch("requests.get") as mock_request:
-            mock_request.return_value.status_code = 500
-            try:
-                image_exporter.log_error_if_url_not_reachable(test_url)
-            except Exception as e:
-                raise pytest.fail(f"Should not have raised exception: {e}")
-
-            logged_warning = log.records[0].__dict__
-            self.assertEqual(logged_warning["levelname"], "ERROR")
-
-            msg = logged_warning["msg"]
-
-            self.assertDictContainsSubset(
-                {
-                    "url": test_url,
-                    "status_code": 500,
-                    "event": "get_url_error_status",
-                    "logger": "posthog.tasks.exports.image_exporter",
-                },
-                msg,
-            )
