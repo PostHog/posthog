@@ -499,7 +499,7 @@ export function HedgehogBuddy({
                             </div>
                         ))}
 
-                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG} match>
+                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG}>
                             <>
                                 <LemonDivider />
                                 <div className="flex gap-2 my-2 overflow-y-auto">

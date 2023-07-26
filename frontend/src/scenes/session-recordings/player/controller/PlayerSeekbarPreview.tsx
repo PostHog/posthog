@@ -86,7 +86,7 @@ export function PlayerSeekbarPreview({ minMs, maxMs }: PlayerSeekbarPreviewProps
                 }}
             >
                 <div className="PlayerSeekBarPreview__tooltip__content">
-                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_PLAYER_PREVIEW} match>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_PLAYER_PREVIEW}>
                         <PlayerSeekbarPreviewFrame minMs={minMs} maxMs={maxMs} percentage={percentage} />
                     </FlaggedFeature>
                     <div className="text-center p-2">{content}</div>
