@@ -22,7 +22,7 @@ import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import './CodeSnippet.scss'
-import { IconCopy } from 'lib/lemon-ui/icons'
+import { IconCopy, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -138,7 +138,14 @@ export function CodeSnippet({
                 {displayedText}
             </SyntaxHighlighter>
             {indexOfLimitNewline !== -1 && (
-                <LemonButton onClick={() => setExpanded(!expanded)} fullWidth center size="small" type="secondary">
+                <LemonButton
+                    onClick={() => setExpanded(!expanded)}
+                    fullWidth
+                    center
+                    size="small"
+                    type="secondary"
+                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                >
                     {expanded ? 'Collapse' : 'Expand'} snippet
                 </LemonButton>
             )}
