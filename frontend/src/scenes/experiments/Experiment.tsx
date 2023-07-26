@@ -545,38 +545,112 @@ export function Experiment(): JSX.Element {
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="w-full pb-4">
-                            <Col>
-                                <Row>
-                                    <PageHeader
-                                        style={{ paddingRight: 8 }}
-                                        title={`${experiment?.name}`}
-                                        buttons={
-                                            <>
-                                                <CopyToClipboardInline
-                                                    explicitValue={experiment.feature_flag?.key}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
+                            <Row>
+                                <PageHeader
+                                    style={{ paddingRight: 8 }}
+                                    title={`${experiment?.name}`}
+                                    buttons={
+                                        <>
+                                            <CopyToClipboardInline
+                                                explicitValue={experiment.feature_flag?.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            >
+                                                <span className="text-muted">{experiment.feature_flag?.key}</span>
+                                            </CopyToClipboardInline>
+                                            <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
+                                                <b className="uppercase">{status()}</b>
+                                            </Tag>
+                                            {experimentResults && experiment.end_date && (
+                                                <Tag
+                                                    style={{ alignSelf: 'center' }}
+                                                    color={areResultsSignificant ? 'green' : 'geekblue'}
                                                 >
-                                                    <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                                </CopyToClipboardInline>
-                                                <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
-                                                    <b className="uppercase">{status()}</b>
+                                                    <b className="uppercase">
+                                                        {areResultsSignificant
+                                                            ? 'Significant Results'
+                                                            : 'Results not significant'}
+                                                    </b>
                                                 </Tag>
-                                                {experimentResults && experiment.end_date && (
-                                                    <Tag
-                                                        style={{ alignSelf: 'center' }}
-                                                        color={areResultsSignificant ? 'green' : 'geekblue'}
+                                            )}
+                                            {experiment && !isExperimentRunning && (
+                                                <div className="flex items-center">
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        className="mr-2"
+                                                        onClick={() => setEditExperiment(true)}
                                                     >
-                                                        <b className="uppercase">
-                                                            {areResultsSignificant
-                                                                ? 'Significant Results'
-                                                                : 'Results not significant'}
-                                                        </b>
-                                                    </Tag>
-                                                )}
-                                            </>
-                                        }
-                                    />
-                                </Row>
+                                                        Edit
+                                                    </LemonButton>
+                                                    <LemonButton type="primary" onClick={() => launchExperiment()}>
+                                                        Launch
+                                                    </LemonButton>
+                                                </div>
+                                            )}
+                                            {experiment && isExperimentRunning && (
+                                                <div className="flex flex-row gap-2">
+                                                    <>
+                                                        <More
+                                                            overlay={
+                                                                <>
+                                                                    <LemonButton
+                                                                        status="stealth"
+                                                                        onClick={() => loadExperimentResults(true)}
+                                                                        fullWidth
+                                                                        data-attr="refresh-experiment"
+                                                                    >
+                                                                        Refresh experiment results
+                                                                    </LemonButton>
+                                                                </>
+                                                            }
+                                                        />
+                                                        <LemonDivider vertical />
+                                                    </>
+                                                    <Popconfirm
+                                                        placement="bottomLeft"
+                                                        title={
+                                                            <div>
+                                                                Reset this experiment and go back to draft mode?
+                                                                <div className="text-sm text-muted">
+                                                                    All collected data so far will be discarded.
+                                                                </div>
+                                                                {experiment.archived && (
+                                                                    <div className="text-sm text-muted">
+                                                                        Resetting will also unarchive the experiment.
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        }
+                                                        onConfirm={() => resetRunningExperiment()}
+                                                    >
+                                                        <LemonButton type="secondary" status="primary">
+                                                            Reset
+                                                        </LemonButton>
+                                                    </Popconfirm>
+                                                    {!experiment.end_date && (
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            status="danger"
+                                                            onClick={() => endExperiment()}
+                                                        >
+                                                            Stop
+                                                        </LemonButton>
+                                                    )}
+                                                    {experiment?.end_date &&
+                                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                                        !experiment.archived && (
+                                                            <LemonButton
+                                                                type="secondary"
+                                                                status="danger"
+                                                                onClick={() => archiveExperiment()}
+                                                            >
+                                                                <b>Archive</b>
+                                                            </LemonButton>
+                                                        )}
+                                                </div>
+                                            )}
+                                        </>
+                                    }
+                                />
                                 <span className="exp-description">
                                     {isExperimentRunning ? (
                                         <EditableField
@@ -593,74 +667,7 @@ export function Experiment(): JSX.Element {
                                         <>{experiment.description || 'There is no description for this experiment.'}</>
                                     )}
                                 </span>
-                            </Col>
-                            {experiment && !isExperimentRunning && (
-                                <div className="flex items-center">
-                                    <LemonButton
-                                        type="secondary"
-                                        className="mr-2"
-                                        onClick={() => setEditExperiment(true)}
-                                    >
-                                        Edit
-                                    </LemonButton>
-                                    <LemonButton type="primary" onClick={() => launchExperiment()}>
-                                        Launch
-                                    </LemonButton>
-                                </div>
-                            )}
-                            {experiment && isExperimentRunning && (
-                                <div className="flex flex-row gap-2">
-                                    <>
-                                        <More
-                                            overlay={
-                                                <>
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadExperimentResults(true)}
-                                                        fullWidth
-                                                        data-attr="refresh-experiment"
-                                                    >
-                                                        Refresh experiment results
-                                                    </LemonButton>
-                                                </>
-                                            }
-                                        />
-                                        <LemonDivider vertical />
-                                    </>
-                                    <Popconfirm
-                                        placement="topLeft"
-                                        title={
-                                            <div>
-                                                Reset this experiment and go back to draft mode?
-                                                <div className="text-sm text-muted">
-                                                    All collected data so far will be discarded.
-                                                </div>
-                                            </div>
-                                        }
-                                        onConfirm={() => resetRunningExperiment()}
-                                    >
-                                        <LemonButton type="secondary" status="primary">
-                                            Reset
-                                        </LemonButton>
-                                    </Popconfirm>
-                                    {!experiment.end_date && (
-                                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                            Stop
-                                        </LemonButton>
-                                    )}
-                                    {experiment?.end_date &&
-                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                        !experiment.archived && (
-                                            <LemonButton
-                                                type="secondary"
-                                                status="danger"
-                                                onClick={() => archiveExperiment()}
-                                            >
-                                                <b>Archive</b>
-                                            </LemonButton>
-                                        )}
-                                </div>
-                            )}
+                            </Row>
                         </Row>
                     </Row>
                     <Row>
