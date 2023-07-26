@@ -27,7 +27,7 @@ black==22.8.0
     #   datamodel-code-generator
 build==0.10.0
     # via pip-tools
-certifi==2019.11.28
+certifi==2023.7.22
     # via
     #   -c requirements.txt
     #   requests
