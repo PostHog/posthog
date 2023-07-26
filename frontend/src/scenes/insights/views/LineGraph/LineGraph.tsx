@@ -27,7 +27,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue, formatYAxisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -393,7 +393,7 @@ export function LineGraph_({
                         const { datasetIndex, dataIndex } = context
                         const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
                         if (showPercentStackView && percentageValue) {
-                            return formatYAxisLabel(trendsFilter, percentageValue)
+                            return formatPercentStackAxisValue(trendsFilter, percentageValue)
                         }
                         return formatAggregationAxisValue(trendsFilter, value)
                     },
@@ -546,7 +546,7 @@ export function LineGraph_({
                         precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatYAxisLabel(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value)
                         },
                     },
                 },
@@ -572,7 +572,7 @@ export function LineGraph_({
                         precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatYAxisLabel(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value)
                         },
                     },
                     grid: {
