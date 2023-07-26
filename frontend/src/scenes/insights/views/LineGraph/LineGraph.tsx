@@ -391,8 +391,9 @@ export function LineGraph_({
                     formatter: (value: number, context) => {
                         const data = context.chart.data as ExtendedChartData
                         const { datasetIndex, dataIndex } = context
-                        if (showPercentStackView) {
-                            return `${data.calculatedData?.[datasetIndex][dataIndex]}%`
+                        const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
+                        if (showPercentStackView && percentageValue) {
+                            return formatYAxisLabel(trendsFilter, percentageValue)
                         }
                         return formatAggregationAxisValue(trendsFilter, value)
                     },

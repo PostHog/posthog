@@ -107,19 +107,11 @@ export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefin
 }
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
-    if (PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(getDisplay(query) as ChartDisplayType)) {
-        if (isLifecycleQuery(query)) {
-            return query.lifecycleFilter?.show_percent_stack_view
-        } else if (isStickinessQuery(query)) {
-            return query.stickinessFilter?.show_percent_stack_view
-        } else if (isTrendsQuery(query)) {
-            return query.trendsFilter?.show_percent_stack_view
-        } else {
-            return undefined
-        }
-    } else {
-        return undefined
-    }
+    return PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(
+        getDisplay(query) || (ChartDisplayType.ActionsLineGraph as ChartDisplayType)
+    ) && isTrendsQuery(query)
+        ? query.trendsFilter?.show_percent_stack_view
+        : undefined
 }
 
 export const getCachedResults = (
