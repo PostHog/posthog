@@ -2,9 +2,10 @@ import dataclasses
 import datetime
 from typing import Any, Dict, List, Tuple, Union, Literal
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.property import PropertyGroup
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -27,12 +28,29 @@ class PersonsQuery(SessionRecordingList):
         GROUP BY distinct_id
         HAVING
             argMax(is_deleted, version) = 0
+            {prop_having_clause}
             {filter_by_person_uuid_condition}
     """
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[g for g in self._filter.property_groups.flat if g.type == "person" or "cohort" in g.type],
+            ),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+        )
+
+        # hogql person props queries rely on an aggregated column and so have to go in the having clause
+        # not the where clause
+        having_prop_query, having_prop_params = self._get_prop_groups(
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    g for g in self._filter.property_groups.flat if g.type == "hogql" and "person.properties" in g.key
+                ],
+            ),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         person_query, person_query_params = self._get_person_query()
@@ -49,12 +67,14 @@ class PersonsQuery(SessionRecordingList):
                 if "person_props" in filter_persons_clause
                 else "",
                 prop_filter_clause=prop_query,
+                prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
             ), {
                 "team_id": self._team_id,
                 **person_query_params,
                 "person_uuid": self._filter.person_uuid,
                 **prop_params,
+                **having_prop_params,
             }
 
 
@@ -158,8 +178,20 @@ class SessionIdEventsQuery(SessionRecordingList):
         event_filters_params = event_filters.params
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
 
+        # these will be applied to the events table,
+        # so we only want property filters that make sense in that context
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    g
+                    for g in self._filter.property_groups.flat
+                    if (g.type == "hogql" and "person.properties" not in g.key)
+                    and "cohort" not in g.type
+                    and g.type != "person"
+                ],
+            ),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
