@@ -123,6 +123,18 @@ services:
             service: temporal
         ports:
             - 7233:7233
+    temporal-add-search-attributes:
+        depends_on:
+            - temporal
+        environment:
+            - TEMPORAL_CLI_ADDRESS=temporal:7233
+        image: temporalio/admin-tools:1.20.0
+        stdin_open: true
+        tty: true
+        entrypoint: /bin/bash
+        command: ./temporal-add-search-attributes
+        volumes:
+            - ./bin/temporal-add-search-attributes:/etc/temporal/temporal-add-search-attributes
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml

@@ -125,6 +125,12 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-admin-tools
+    temporal-add-search-attributes:
+        extends:
+            file: docker-compose.base.yml
+            service: temporal-add-search-attributes
+        volumes:
+            - ./posthog/bin/temporal-add-search-attributes:/etc/temporal/temporal-add-search-attributes
     temporal-ui:
         extends:
             file: docker-compose.base.yml
