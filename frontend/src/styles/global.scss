@@ -87,6 +87,10 @@ h6 {
     font-weight: 500;
 }
 
+img {
+    vertical-align: middle;
+}
+
 // This may look odd but sets up our utility classes
 * {
     border: solid 0 var(--border);
