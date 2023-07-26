@@ -33,7 +33,7 @@ function QueryCol({ item }: { item: Query }): JSX.Element {
     const has5lines = nthChar(item.query, '\n', 5)
     if (has5lines === -1) {
         return (
-            <CodeSnippet language={Language.SQL} copyDescription="Copy query" style={{ maxWidth: 600, fontSize: 12 }}>
+            <CodeSnippet language={Language.SQL} thing="query" style={{ maxWidth: 600, fontSize: 12 }}>
                 {item.query}
             </CodeSnippet>
         )
@@ -43,7 +43,7 @@ function QueryCol({ item }: { item: Query }): JSX.Element {
             <CodeSnippet
                 hideCopyButton={!expanded}
                 language={Language.SQL}
-                copyDescription="Copy query"
+                thing="query"
                 style={{ maxWidth: 600, fontSize: 12 }}
             >
                 {expanded ? item.query : item.query.slice(0, has5lines)}

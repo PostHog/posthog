@@ -84,8 +84,9 @@ export interface CodeSnippetProps {
     wrap?: boolean
     actions?: Action[]
     style?: React.CSSProperties
-    copyDescription?: string
-    hideCopyButton?: boolean
+    /** What is being copied. @example 'link' */
+    thing?: string
+    allowCopy?: boolean
 }
 
 export function CodeSnippet({
@@ -94,8 +95,8 @@ export function CodeSnippet({
     wrap = false,
     style,
     actions,
-    copyDescription = 'code snippet',
-    hideCopyButton = false,
+    thing = 'snippet',
+    allowCopy: hideCopyButton = false,
 }: CodeSnippetProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -118,7 +119,7 @@ export function CodeSnippet({
                         data-attr="copy-code-button"
                         icon={<IconCopy />}
                         onClick={async () => {
-                            children && (await copyToClipboard(children, copyDescription))
+                            children && (await copyToClipboard(children, thing))
                         }}
                     />
                 )}
