@@ -45,8 +45,10 @@ export function queryExportContext<N extends DataNode = DataNode>(
             path: api.queryURL(),
             method: 'POST',
             body: {
-                ...query,
-                after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString(),
+                query: {
+                    ...query,
+                    after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString(),
+                },
             },
         }
     } else if (isHogQLQuery(query)) {
