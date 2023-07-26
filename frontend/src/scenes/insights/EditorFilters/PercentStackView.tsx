@@ -11,7 +11,7 @@ export function PercentStackView(): JSX.Element {
 
     return (
         <LemonCheckbox
-            checked={showPercentStackView}
+            checked={!!showPercentStackView}
             onChange={setShowPercentStackView}
             label={<span className="font-normal">Show 100% Stacked</span>}
             bordered
