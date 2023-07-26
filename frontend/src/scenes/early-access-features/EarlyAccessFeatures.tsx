@@ -36,7 +36,7 @@ export function EarlyAccessFeatures(): JSX.Element {
             <PageHeader
                 title={
                     <div className="flex items-center gap-2">
-                        Early Access Management
+                        Beta Creator
                         <LemonTag type="warning" className="uppercase">
                             Beta
                         </LemonTag>
@@ -48,7 +48,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                             Allow your users to enable or disable features that are in public beta. Check out our{' '}
                             <Link
                                 data-attr="early-access-management-help"
-                                to="https://posthog.com/docs/feature-flags/early-access-feature-management?utm_medium=in-product&utm_campaign=learn-more"
+                                to="https://posthog.com/docs/feature-flags/beta-creator?utm_medium=in-product&utm_campaign=learn-more"
                                 target="_blank"
                             >
                                 {' '}
@@ -60,19 +60,19 @@ export function EarlyAccessFeatures(): JSX.Element {
                 }
                 buttons={
                     <LemonButton type="primary" to={urls.earlyAccessFeature('new')}>
-                        New public beta
+                        Create new beta
                     </LemonButton>
                 }
                 delimited
             />
             {showIntro && (
                 <ProductIntroduction
-                    productName="Early access features"
+                    productName="Beta features"
                     productKey={ProductKey.EARLY_ACCESS_FEATURES}
                     thingName="feature"
                     description="Allow your users to individually enable or disable features that are in public beta."
                     isEmpty={shouldShowEmptyState}
-                    docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
+                    docsURL="https://posthog.com/docs/feature-flags/beta-creator"
                     action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 />
             )}
