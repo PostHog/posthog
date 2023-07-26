@@ -48,11 +48,48 @@ ul {
     padding-left: 0;
 }
 
+a {
+    color: var(--primary);
+    text-decoration: none;
+    background-color: transparent;
+    outline: none;
+    cursor: pointer;
+    transition: color 0.3s;
+    -webkit-text-decoration-skip: objects;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+    font-family: inherit;
+    line-height: inherit;
+}
+
+p {
+    margin-top: 0;
+    margin-bottom: 1em;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    margin-top: 0;
+    margin-bottom: 0.5em;
+    color: var(--default);
+    font-weight: 500;
+}
+
 // This may look odd but sets up our utility classes
 * {
-    border-style: solid;
-    border-width: 0;
-    border-color: var(--border);
+    border: solid 0 var(--border);
 }
 
 *,
@@ -397,6 +434,7 @@ input {
     background: #000;
     color: #fff;
     font-size: 0.75rem;
+    font-family: var(--font-sans);
     line-height: 1.5rem;
 
     code {
