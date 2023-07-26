@@ -167,7 +167,11 @@ class SessionIdEventsQuery(SessionRecordingList):
         persons_sub_query = ""
         if persons_select:
             # we want to join as infrequently as possible so only join if there are filters that expect it
-            if "person_props" in prop_query or "pdi.person_id":
+            if (
+                "person_props" in prop_query
+                or "pdi.person_id" in prop_query
+                or "person_props" in event_filters.where_conditions
+            ):
                 persons_join = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = e.distinct_id"
             else:
                 persons_sub_query = (
