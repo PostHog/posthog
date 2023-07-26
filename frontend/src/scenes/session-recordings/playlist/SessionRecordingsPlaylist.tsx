@@ -185,7 +185,7 @@ export function RecordingsLists({
                                                 className={clsx(
                                                     'transition-all flex items-center',
                                                     !autoplayDirection && 'text-border text-sm',
-                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    !!autoplayDirection && 'text-white text-xs pl-px',
                                                     autoplayDirection === 'newer' && 'rotate-180'
                                                 )}
                                             >
