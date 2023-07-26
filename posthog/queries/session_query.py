@@ -1,5 +1,7 @@
 from typing import Dict, Optional, Tuple, Union
 
+from dateutil.parser import parse
+
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -28,6 +30,10 @@ class SessionQuery:
         self._filter = filter
         self._team = team
         self._session_id_alias = session_id_alias
+        # the session_replay_events table couldn't have existed before this date in any instance of PostHog
+        self._can_use_session_replay_events = self._filter.date_from and self._filter.date_from > parse(
+            "2023-05-10T00:00:00Z"
+        )
 
     def get_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk}
@@ -38,18 +44,32 @@ class SessionQuery:
         params.update(date_from_params)
         params.update(date_to_params)
 
+        column_to_select = "$session_id"
+        timestamp_from_column = "timestamp"
+        timestamp_to_column = "timestamp"
+        check_for_empty_sessions = f"AND {self._session_id_alias or '$session_id'} != ''"
+        table = "events"
+        if self._can_use_session_replay_events:
+            parsed_date_from = parsed_date_from.replace("timestamp", "min_first_timestamp")
+            parsed_date_to = parsed_date_to.replace("timestamp", "max_last_timestamp")
+            column_to_select = "session_id"
+            self._session_id_alias = "$session_id"
+            timestamp_from_column = "min_first_timestamp"
+            timestamp_to_column = "max_last_timestamp"
+            check_for_empty_sessions = ""
+            table = "session_replay_events"
+
         return (
             f"""
                 SELECT
-                    $session_id{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
-                    dateDiff('second',min(timestamp), max(timestamp)) as session_duration
+                    {column_to_select}{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
+                    dateDiff('second',min({timestamp_from_column}), max({timestamp_to_column})) as session_duration
                 FROM
-                    events
-                WHERE
-                    {self._session_id_alias or "$session_id"} != ''
-                    AND team_id = %(team_id)s
+                    {table}
+                WHERE team_id = %(team_id)s
                     {parsed_date_from} - INTERVAL 24 HOUR
                     {parsed_date_to} + INTERVAL 24 HOUR
+                    {check_for_empty_sessions}
                 GROUP BY {self._session_id_alias or "$session_id"}
             """,
             params,
