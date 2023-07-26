@@ -65,9 +65,9 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
             },
         ],
         showPercentStackView: [
-            (s) => [s.isTrends, s.isLifecycle, s.display],
-            (isTrends, isLifecycle, display) =>
-                isTrends && display ? PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display) : isLifecycle,
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) =>
+                isTrends && PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
         ],
         showUnit: [(s) => [s.supportsDisplay, s.isTrends], (supportsDisplay, isTrends) => supportsDisplay && isTrends],
         showChart: [(s) => [s.supportsDisplay], (supportsDisplay) => supportsDisplay],

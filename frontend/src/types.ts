@@ -1665,7 +1665,6 @@ export interface StickinessFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
-    show_percent_stack_view?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
@@ -1722,7 +1721,6 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
     show_values_on_series?: boolean
-    show_percent_stack_view?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }
 
