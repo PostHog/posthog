@@ -727,6 +727,78 @@
         ORDER BY day_start)) as sub_B
   '
 ---
+# name: TestFormula.test_regression_formula_with_session_duration_aggregation
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A / B, arrayResize(sub_A.total, max_length, 0), arrayResize(sub_B.total, max_length, 0)) ,
+         arrayMax([length(sub_A.total), length(sub_B.total)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) AS total
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+           UNION ALL SELECT avg(session_duration) AS total, date
+           FROM
+             (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date,
+                     any(sessions.session_duration) as session_duration
+              FROM events e
+              INNER JOIN
+                (SELECT $session_id AS session_id_0,
+                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                 FROM events
+                 WHERE session_id_0 != ''
+                   AND team_id = 2
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                 GROUP BY session_id_0) as sessions ON sessions.session_id_0 = e.$session_id
+              WHERE team_id = 2
+                AND event = 'session start'
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+              GROUP BY e.$session_id, date)
+           GROUP BY date)
+        GROUP BY day_start
+        ORDER BY day_start)) as sub_A
+  CROSS JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) AS total
+     FROM
+       (SELECT SUM(total) AS count,
+               day_start
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+           FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+           UNION ALL SELECT toUInt16(0) AS total,
+                            toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+           UNION ALL SELECT count(*) AS total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM events e
+           INNER JOIN
+             (SELECT $session_id AS session_id_1,
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE session_id_1 != ''
+                AND team_id = 2
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY session_id_1) as sessions ON sessions.session_id_1 = e.$session_id
+           WHERE team_id = 2
+             AND event = 'session end'
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+           GROUP BY date)
+        GROUP BY day_start
+        ORDER BY day_start)) as sub_B
+  '
+---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
   '
   SELECT sub_A.date,

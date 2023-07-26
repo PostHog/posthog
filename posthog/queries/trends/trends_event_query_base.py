@@ -52,6 +52,14 @@ class TrendsEventQueryBase(EventQuery):
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
 
+        whitespace_padding = " " * self._entity.index
+        # You may be wondering what the hell is this for. Well, in MOST cases, this padding has absolutely zero effect.
+        # However, unfortunately, it's critical for the success of formula queries that involve statistical math over
+        # session duration. Why exactly? No idea (https://posthog.slack.com/archives/C0113360FFV/p1690377791876449),
+        # but this is the only thing that fixes the case. A bewildering ClickHouse parsing bug - it's important that
+        # the padding is different for each entity's (series') SQL, hence using the index!
+        # Remove this hack once test_regression_formula_with_session_duration_aggregation passes without it.
+
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
@@ -60,7 +68,7 @@ class TrendsEventQueryBase(EventQuery):
             {groups_query}
             {session_query}
             WHERE team_id = %(team_id)s
-            {entity_query}
+            {whitespace_padding}{entity_query}
             {date_query}
             {prop_query}
             {self._get_not_null_actor_condition()}
