@@ -43,7 +43,7 @@ def is_site_url_reachable() -> bool:
             _site_reachable_exception = e
             _site_reachable = False
 
-    return _site_reachable
+    return _site_reachable or False
 
 
 def log_error_if_site_url_not_reachable() -> None:
