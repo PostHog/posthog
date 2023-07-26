@@ -504,7 +504,7 @@ def get_event(request):
     response_payload: Dict[str, Any] = {"status": 1}
 
     if recordings_were_quota_limited:
-        response_payload["quota_limited"] = ["session-recordings"]
+        response_payload["quotaLimited"] = ["sessionRecordings"]
 
     return cors_response(request, JsonResponse(response_payload))
 
