@@ -224,8 +224,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(s.console_warn_count) as console_warn_count,
        sum(s.console_error_count) as console_error_count
     FROM session_replay_events s
-        {events_join}
-        {persons_join}
     WHERE s.team_id = %(team_id)s
         -- regardless of what other filters are applied
         -- limit by storage TTL
@@ -235,6 +233,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- and any not-the-highest max value is _less_ lower than the max value
         AND s.min_first_timestamp >= %(start_time)s
         AND s.max_last_timestamp <= %(end_time)s
+        {persons_sub_query}
+        {events_sub_query}
     {provided_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
@@ -292,19 +292,21 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             filter=self._filter,
         ).get_query()
         if events_select:
-            events_select = f"JOIN ({events_select}) as e on s.session_id = e.`$session_id`"
+            events_select = f"AND s.session_id in (select `$session_id` as session_id from ({events_select}) as session_events_sub_query)"
 
-        persons_select, persons_join_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
         if persons_select:
-            persons_select = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = s.distinct_id"
+            persons_select = (
+                f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"
+            )
 
         return (
             self._session_recordings_query.format(
                 duration_clause=duration_clause,
-                events_join=events_select,
                 provided_session_ids_clause=provided_session_ids_clause,
                 console_log_clause=console_log_clause,
-                persons_join=persons_select,
+                persons_sub_query=persons_select,
+                events_sub_query=events_select,
             ),
             {
                 **base_params,
@@ -312,7 +314,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 **recording_start_time_params,
                 **duration_params,
                 **provided_session_ids_params,
-                **persons_join_params,
+                **persons_select_params,
             },
         )
 
