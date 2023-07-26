@@ -23,6 +23,7 @@ import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 import { SuperpowersPanel } from 'scenes/ingestion/panels/SuperpowersPanel'
+import { useBreakpointValue } from 'lib/utils/responsiveUtils'
 
 export function IngestionWizard(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogic)
@@ -54,7 +55,9 @@ export function IngestionWizard(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen } = useValues(ingestionLogic)
+    const breakpoint = useBreakpointValue('md')
+
+    const isSmallScreen = window.innerWidth < breakpoint
 
     return (
         <div className="flex flex-col h-screen overflow-hidden">

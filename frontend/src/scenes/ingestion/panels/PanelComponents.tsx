@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useBreakpointValue } from 'lib/utils/responsiveUtils'
 
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 
@@ -51,8 +52,9 @@ export function PanelFooter({
 }
 
 export function PanelHeader(): JSX.Element | null {
-    const { isSmallScreen, previousStep, currentStep, hasInvitedMembers } = useValues(ingestionLogic)
+    const { previousStep, currentStep, hasInvitedMembers } = useValues(ingestionLogic)
     const { onBack } = useActions(ingestionLogic)
+    const breakpoint = useBreakpointValue('md')
 
     // no back buttons on the Getting Started step
     // but only if it's not the MembersInvited panel
@@ -60,6 +62,8 @@ export function PanelHeader(): JSX.Element | null {
     if (currentStep === INGESTION_STEPS.START && !hasInvitedMembers) {
         return null
     }
+
+    const isSmallScreen = window.innerWidth < breakpoint
 
     return (
         <div className="flex items-center mb-2" data-attr="wizard-step-counter">

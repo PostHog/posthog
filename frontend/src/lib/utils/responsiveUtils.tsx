@@ -21,7 +21,7 @@ export function parsePixelValue(cssStatement: string): number {
     return parseFloat(cssStatement.replace(/[^\d.]/g, ''))
 }
 
-export function getActiveBreakpointValue(): number {
+export function useActiveBreakpointValue(): number {
     const { responsiveMap } = useResponsiveObserver()
     const breakpointValues = useMemo(() => getBreakpointValues(responsiveMap), [responsiveMap])
     const windowWidth = window.innerWidth
@@ -29,7 +29,7 @@ export function getActiveBreakpointValue(): number {
     return lastMatchingBreakpoint || breakpointValues[0]
 }
 
-export function getBreakpoint(breakpointKey: string): number {
+export function useBreakpointValue(breakpointKey: string): number {
     const { responsiveMap } = useResponsiveObserver()
     const map = useMemo(() => getBreakpointMap(responsiveMap), [responsiveMap])
     return map[breakpointKey] || -1

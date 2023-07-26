@@ -8,8 +8,6 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { windowValues } from 'kea-window-values'
 import { subscriptions } from 'kea-subscriptions'
 import { TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -234,9 +232,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
     }),
-    windowValues({
-        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
-    }),
+
     reducers({
         isTechnicalUser: [
             null as null | boolean,

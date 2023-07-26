@@ -12,7 +12,6 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -25,7 +24,6 @@ import {
     SessionRecordingId,
     SessionRecordingType,
 } from '~/types'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -815,9 +813,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
     })),
-    windowValues({
-        isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
-    }),
 
     beforeUnmount(({ values, actions, cache }) => {
         cache.resetConsoleWarn?.()
