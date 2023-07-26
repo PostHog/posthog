@@ -94,12 +94,19 @@ class BatchExportServiceRPCError(BatchExportServiceError):
 
 
 @async_to_sync
-async def create_schedule(temporal: Client, id: str, schedule: Schedule, trigger_immediately: bool = False):
+async def create_schedule(
+    temporal: Client,
+    id: str,
+    schedule: Schedule,
+    trigger_immediately: bool = False,
+    search_attributes: dict[str, list[str]] | None = None,
+):
     """Create a Temporal Schedule."""
     return await temporal.create_schedule(
         id=id,
         schedule=schedule,
         trigger_immediately=trigger_immediately,
+        search_attributes=search_attributes,
     )
 
 
@@ -393,6 +400,11 @@ def create_batch_export(
                 ),
                 id=str(batch_export.id),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
+                # Add search attributes to the scheduled Workflow
+                search_attributes={
+                    "TeamId": [team_id],
+                    "DestinationType": [batch_export.destination.type],
+                },
             ),
             spec=ScheduleSpec(
                 start_at=start_at,
@@ -402,6 +414,11 @@ def create_batch_export(
             state=state,
             policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
         ),
+        # Add search attributes to the Schedule
+        search_attributes={
+            "TeamId": [team_id],
+            "DestinationType": [batch_export.destination.type],
+        },
         trigger_immediately=trigger_immediately,
     )
 

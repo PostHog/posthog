@@ -1,0 +1,13 @@
+#!/bin/bash
+
+until temporal operator search-attribute list --namespace ${TEMPORAL_NAMESPACE:-default}
+do
+    echo "Waiting for namespace cache to refresh..."
+    sleep 1
+done
+echo "Namespace cache refreshed."
+
+echo "Adding search attributes."
+temporal operator search-attribute create -y --namespace ${TEMPORAL_NAMESPACE:-default} \
+        --name DestinationType --type Text \
+        --name TeamId --type Int
