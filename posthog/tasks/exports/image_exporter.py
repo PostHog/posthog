@@ -16,7 +16,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from sentry_sdk import capture_exception, configure_scope, push_scope
 
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
+from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.logging.timing import timed
