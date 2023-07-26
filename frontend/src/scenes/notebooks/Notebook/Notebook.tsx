@@ -21,7 +21,7 @@ export type NotebookProps = {
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
 
 export function Notebook({ shortId, editable = false }: NotebookProps): JSX.Element {
-    const logic = notebookLogic({ shortId })
+    const logic = notebookLogic({ shortId, editable })
     const { notebook, content, notebookLoading, isEmpty, editor, conflictWarningVisible } = useValues(logic)
     const { setEditor, onEditorUpdate, duplicateNotebook, loadNotebook } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)

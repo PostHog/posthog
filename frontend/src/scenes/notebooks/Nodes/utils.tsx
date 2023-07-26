@@ -33,17 +33,55 @@ export function reportNotebookNodeCreation(nodeType: string): void {
 export function posthogNodePasteRule(options: {
     find: string
     type: NodeType
-    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+    getAttributes: (
+        match: ExtendedRegExpMatchArray
+    ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
 }): PasteRule {
-    return nodePasteRule({
+    // return new PasteRule({
+    //     find: createUrlRegex(options.find),
+    //     handler: async ({ match, chain, range }) => {
+    //         const attributes = await options.getAttributes(match)
+
+    //         if (attributes && match.input) {
+    //             chain()
+    //                 .deleteRange(range)
+    //                 .insertContentAt(range.from, {
+    //                     type: options.type.name,
+    //                     attrs: attributes,
+    //                 })
+    //                 .run()
+    //         }
+    //     },
+    // })
+
+    return new PasteRule({
         find: createUrlRegex(options.find),
-        type: options.type,
-        getAttributes: (match) => {
-            const attrs = options.getAttributes(match)
-            posthog.capture('notebook node pasted', { node_type: options.type.name })
-            return attrs
+        handler: ({ match, chain, range }) => {
+            const attributes = options.getAttributes(match)
+
+            if (attributes === false || attributes === null) {
+                return null
+            }
+
+            if (match.input) {
+                chain().deleteRange(range).insertContentAt(range.from, {
+                    type: options.type.name,
+                    attrs: attributes,
+                })
+            }
         },
     })
+
+    // return nodePasteRule({
+    //     find: createUrlRegex(options.find),
+    //     type: options.type,
+    //     getAttributes: async (match) => {
+    //         debugger
+    //         const attrs = await options.getAttributes(match)
+    //         posthog.capture('notebook node pasted', { node_type: options.type.name })
+    //         return attrs
+    //     },
+    // })
 }
 
 export function externalLinkPasteRule(options: {

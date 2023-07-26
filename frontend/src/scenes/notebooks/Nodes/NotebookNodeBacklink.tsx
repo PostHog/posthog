@@ -10,6 +10,8 @@ import { notebookSidebarLogic } from '../Notebook/notebookSidebarLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import clsx from 'clsx'
 import { router } from 'kea-router'
+import { posthogNodePasteRule } from './utils'
+import api from 'lib/api'
 
 const ICON_MAP = {
     dashboards: <IconGauge />,
@@ -77,11 +79,7 @@ export const NotebookNodeBacklink = Node.create({
     },
 
     parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Backlink,
-            },
-        ]
+        return [{ tag: NotebookNodeType.Backlink }]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -90,5 +88,28 @@ export const NotebookNodeBacklink = Node.create({
 
     addNodeView() {
         return ReactNodeViewRenderer(Component)
+    },
+
+    addPasteRules() {
+        return [
+            posthogNodePasteRule({
+                find: urls.eventDefinition('(.+)'),
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.eventDefinitions.get({ eventDefinitionId: id })
+                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name }
+                },
+            }),
+            // posthogNodePasteRule({
+            //     // TODO: Regex to match all the supported types
+            //     find: '(.+)',
+            //     type: this.type,
+            //     getAttributes: (match) => {
+            //         // TODO: Figure out if we can get the title from some universal api request
+            //         return { id: match[0], type: match[1], title: match[2] }
+            //     },
+            // }),
+        ]
     },
 })

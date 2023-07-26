@@ -97,7 +97,7 @@ export const NotebookNodeFlag = Node.create({
             posthogNodePasteRule({
                 find: urls.featureFlag('') + '(.+)',
                 type: this.type,
-                getAttributes: (match) => {
+                getAttributes: async (match) => {
                     return { id: match[1] }
                 },
             }),

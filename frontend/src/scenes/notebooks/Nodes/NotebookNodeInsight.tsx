@@ -51,7 +51,7 @@ export const NotebookNodeInsight = Node.create({
             posthogNodePasteRule({
                 find: urls.insightView('(.+)' as InsightShortId),
                 type: this.type,
-                getAttributes: (match) => {
+                getAttributes: async (match) => {
                     return { id: match[1] }
                 },
             }),

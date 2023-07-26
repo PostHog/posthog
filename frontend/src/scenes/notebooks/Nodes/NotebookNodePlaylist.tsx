@@ -107,7 +107,7 @@ export const NotebookNodePlaylist = Node.create({
             posthogNodePasteRule({
                 find: urls.replay() + '(.+)',
                 type: this.type,
-                getAttributes: (match) => {
+                getAttributes: async (match) => {
                     const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
                     return { filters: searchParams.filters }
                 },

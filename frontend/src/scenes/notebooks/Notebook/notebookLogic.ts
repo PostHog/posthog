@@ -15,6 +15,7 @@ const SYNC_DELAY = 1000
 
 export type NotebookLogicProps = {
     shortId: string
+    editable: boolean
 }
 
 export const notebookLogic = kea<notebookLogicType>([
