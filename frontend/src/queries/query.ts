@@ -46,7 +46,7 @@ export function queryExportContext<N extends DataNode = DataNode>(
             max_limit: EXPORT_MAX_LIMIT,
         }
     } else if (isHogQLQuery(query)) {
-        return { path: api.queryURL(), method: 'POST', body: query }
+        return { source: query }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     } else if (isInsightQueryNode(query)) {
