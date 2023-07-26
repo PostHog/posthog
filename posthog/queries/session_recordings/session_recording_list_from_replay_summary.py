@@ -73,6 +73,7 @@ class SessionIdEventsQuery(SessionRecordingList):
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
+        -- sometimes we have to join on persons so we can access person_props in filters
         {persons_join}
         PREWHERE
             team_id = %(team_id)s
@@ -86,6 +87,8 @@ class SessionIdEventsQuery(SessionRecordingList):
             {event_filter_where_conditions}
             {prop_filter_clause}
             {provided_session_ids_clause}
+            -- other times we can check distinct id against a sub query which should be faster than joining
+            {persons_sub_query}
         GROUP BY `$session_id`
         HAVING 1=1 {event_filter_having_events_condition}
     """
@@ -159,9 +162,17 @@ class SessionIdEventsQuery(SessionRecordingList):
             self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
         )
 
-        persons_select, persons_join_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_join = ""
+        persons_sub_query = ""
         if persons_select:
-            persons_select = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = e.distinct_id"
+            # we want to join as infrequently as possible so only join if there are filters that expect it
+            if "person_props" in prop_query or "pdi.person_id":
+                persons_join = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = e.distinct_id"
+            else:
+                persons_sub_query = (
+                    f"AND e.distinct_id in (select distinct_id from ({persons_select}) as events_persons_sub_query)"
+                )
 
         return (
             self._raw_events_query.format(
@@ -171,7 +182,8 @@ class SessionIdEventsQuery(SessionRecordingList):
                 events_timestamp_clause=events_timestamp_clause,
                 prop_filter_clause=prop_query,
                 provided_session_ids_clause=provided_session_ids_clause,
-                persons_join=persons_select,
+                persons_join=persons_join,
+                persons_sub_query=persons_sub_query,
             ),
             {
                 **base_params,
@@ -180,7 +192,7 @@ class SessionIdEventsQuery(SessionRecordingList):
                 **events_timestamp_params,
                 **event_filters_params,
                 **prop_params,
-                **persons_join_params,
+                **persons_select_params,
             },
         )
 
