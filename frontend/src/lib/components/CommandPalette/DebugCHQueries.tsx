@@ -41,7 +41,7 @@ function QueryCol({ item }: { item: Query }): JSX.Element {
     return (
         <>
             <CodeSnippet
-                hideCopyButton={!expanded}
+                allowCopy={!expanded}
                 language={Language.SQL}
                 thing="query"
                 style={{ maxWidth: 600, fontSize: 12 }}

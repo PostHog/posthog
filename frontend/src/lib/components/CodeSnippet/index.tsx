@@ -96,7 +96,7 @@ export function CodeSnippet({
     style,
     actions,
     thing = 'snippet',
-    allowCopy: hideCopyButton = false,
+    allowCopy = false,
 }: CodeSnippetProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -114,7 +114,7 @@ export function CodeSnippet({
                             </Popconfirm>
                         )
                     )}
-                {!hideCopyButton && (
+                {!allowCopy && (
                     <LemonButton
                         data-attr="copy-code-button"
                         icon={<IconCopy />}
