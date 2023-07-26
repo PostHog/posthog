@@ -1,4 +1,3 @@
-import dataclasses
 import hashlib
 import json
 import re
@@ -253,16 +252,9 @@ def drop_performance_events(events: List[Any]) -> List[Any]:
     return cleaned_list
 
 
-@dataclasses.dataclass(frozen=True)
-class EventsOverQuotaResult:
-    events: List[Any]
-    events_were_limited: bool
-    recordings_were_limited: bool
-
-
-def drop_events_over_quota(token: str, events: List[Any]) -> EventsOverQuotaResult:
+def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     if not settings.EE_AVAILABLE:
-        return EventsOverQuotaResult(events, False, False)
+        return events
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
 
@@ -270,15 +262,12 @@ def drop_events_over_quota(token: str, events: List[Any]) -> EventsOverQuotaResu
     limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
     limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
 
-    recordings_were_limited = False
-    events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
-                    recordings_were_limited = True
                     continue
 
         else:
@@ -286,14 +275,11 @@ def drop_events_over_quota(token: str, events: List[Any]) -> EventsOverQuotaResu
             if token in limited_tokens_events:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
-                    events_were_limited = True
                     continue
 
         results.append(event)
 
-    return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
-    )
+    return results
 
 
 @csrf_exempt
@@ -374,15 +360,10 @@ def get_event(request):
         except Exception as e:
             capture_exception(e)
 
-        # TODO we're not going to return 429 on events before we audit our SDKs
-        # events_were_quota_limited = False
-        recordings_were_quota_limited = False
         try:
-            events_over_quota_result = drop_events_over_quota(token, events)
-            events = events_over_quota_result.events
-            # events_were_quota_limited = events_over_quota_result.events_were_limited
-            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
+            events = drop_events_over_quota(token, events)
         except Exception as e:
+            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
         consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
@@ -500,28 +481,7 @@ def get_event(request):
         pass
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
-
-    if recordings_were_quota_limited:
-        headers = {}
-        one_minute_in_seconds = 60
-        # TODO we need to audit our SDKs to see how they'd handle a 429 response
-        # posthog-js ignores a 429 but others might treat it as an error
-        # if events_were_quota_limited:
-        #     headers["X-PostHog-Retry-After-Events"] = one_minute_in_seconds
-        if recordings_were_quota_limited:
-            headers["X-PostHog-Retry-After-Recordings"] = one_minute_in_seconds
-
-        response = generate_exception_response(
-            "capture",
-            detail="Some events dropped due to billing limit",
-            code="quota_exceeded",
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            headers=headers,
-        )
-    else:
-        response = JsonResponse({"status": 1})
-
-    return cors_response(request, response)
+    return cors_response(request, JsonResponse({"status": 1}))
 
 
 def preprocess_events(events: List[Dict[str, Any]]) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
