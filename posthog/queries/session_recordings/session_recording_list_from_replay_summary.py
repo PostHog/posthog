@@ -73,7 +73,7 @@ class SessionIdEventsQuery(SessionRecordingList):
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
-        -- sometimes we have to join on persons so we can access person_props in filters
+        -- sometimes we have to join on persons so we can access e.g. person_props in filters
         {persons_join}
         PREWHERE
             team_id = %(team_id)s
