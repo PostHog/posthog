@@ -328,12 +328,12 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
-def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_billable_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -540,8 +540,8 @@ def send_all_org_usage_reports(
     try:
         all_data = dict(
             teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-            teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
-            teams_with_event_count_in_month=get_teams_with_event_count_in_period(
+            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
                 period_start.replace(day=1), period_end
             ),
             teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
