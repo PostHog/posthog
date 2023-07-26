@@ -1,6 +1,5 @@
 import '~/styles'
 
-import { StrictMode } from 'react'
 import ReactDOM from 'react-dom'
 import { getContext } from 'kea'
 
@@ -32,17 +31,15 @@ function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         ReactDOM.render(
-            <StrictMode>
-                <ConfigProvider theme={theme}>
-                    <AntdApp>
-                        <ErrorBoundary>
-                            <PostHogProvider client={posthog}>
-                                <App />
-                            </PostHogProvider>
-                        </ErrorBoundary>
-                    </AntdApp>
-                </ConfigProvider>
-            </StrictMode>,
+            <ConfigProvider theme={theme}>
+                <AntdApp>
+                    <ErrorBoundary>
+                        <PostHogProvider client={posthog}>
+                            <App />
+                        </PostHogProvider>
+                    </ErrorBoundary>
+                </AntdApp>
+            </ConfigProvider>,
             root
         )
     } else {

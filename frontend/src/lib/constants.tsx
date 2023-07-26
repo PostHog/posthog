@@ -154,6 +154,7 @@ export const FEATURE_FLAGS = {
     REFERRAL_SOURCE_SELECT: 'referral-source-select', // owner: @raquelmsmith
     SESSION_RECORDING_PLAYER_PREVIEW: 'session-recording-player-preview', // owner: #team-monitoring
     SESSION_RECORDING_TEST_ACCOUNTS_FILTER: 'session-recording-test-accounts-filter', // owner: #team-monitoring
+    SESSION_RECORDING_SHOW_FILTERS_BY_DEFAULT: 'session-recording-show-filters-by-default', // owner: #team-monitoring
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

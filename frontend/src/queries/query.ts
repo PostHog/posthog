@@ -13,7 +13,7 @@ import {
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { AnyPartialFilterType, OnlineExportContext } from '~/types'
+import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -28,26 +28,22 @@ import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 
-const EVENTS_DAYS_FIRST_FETCH = 5
+const EXPORT_MAX_LIMIT = 10000
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
-): OnlineExportContext {
+): OnlineExportContext | QueryExportContext {
     if (isInsightVizNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataTableNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isEventsQuery(query)) {
         return {
-            path: api.queryURL(),
-            method: 'POST',
-            body: {
-                ...query,
-                after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString(),
-            },
+            source: query,
+            max_limit: EXPORT_MAX_LIMIT,
         }
     } else if (isHogQLQuery(query)) {
         return { path: api.queryURL(), method: 'POST', body: query }
