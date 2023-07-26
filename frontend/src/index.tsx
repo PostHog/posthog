@@ -12,6 +12,8 @@ import { ErrorBoundary } from './layout/ErrorBoundary'
 
 import { PostHogProvider } from 'posthog-js/react'
 import posthog from 'posthog-js'
+import { App as AntdApp, ConfigProvider } from 'antd'
+import theme from './styles/antd-theme'
 
 loadPostHogJS()
 initKea()
@@ -31,11 +33,15 @@ function renderApp(): void {
     if (root) {
         ReactDOM.render(
             <StrictMode>
-                <ErrorBoundary>
-                    <PostHogProvider client={posthog}>
-                        <App />
-                    </PostHogProvider>
-                </ErrorBoundary>
+                <ConfigProvider theme={theme}>
+                    <AntdApp>
+                        <ErrorBoundary>
+                            <PostHogProvider client={posthog}>
+                                <App />
+                            </PostHogProvider>
+                        </ErrorBoundary>
+                    </AntdApp>
+                </ConfigProvider>
             </StrictMode>,
             root
         )

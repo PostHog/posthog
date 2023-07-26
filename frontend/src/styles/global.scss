@@ -19,6 +19,17 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
     @include root-variables;
 }
 
+body {
+    margin: 0;
+    color: var(--default);
+    font-size: 14px;
+    font-family: var(--font-sans);
+    font-variant: tabular-nums;
+    line-height: 1.5715;
+    background-color: var(--bg-light);
+    font-feature-settings: 'tnum';
+}
+
 // Text styles
 body b,
 body strong {
@@ -42,6 +53,12 @@ ul {
     border-style: solid;
     border-width: 0;
     border-color: var(--border);
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
 }
 
 .page-title-row {
@@ -263,6 +280,12 @@ input::-ms-clear {
 }
 
 // Form & input styles
+
+input {
+    font-size: inherit;
+    font-family: inherit;
+    line-height: inherit;
+}
 
 .input-set {
     padding-bottom: 1rem;
