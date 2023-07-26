@@ -65,13 +65,10 @@ def generate_exception_response(
     type: str = "validation_error",
     attr: Optional[str] = None,
     status_code: int = status.HTTP_400_BAD_REQUEST,
-    headers: Optional[dict] = None,
 ) -> JsonResponse:
     """
     Generates a friendly JSON error response in line with drf-exceptions-hog for endpoints not under DRF.
     """
-    if headers is None:
-        headers = {}
 
     # Importing here because this module is loaded before Django settings are configured,
     # and statshog relies on those being ready
@@ -80,6 +77,4 @@ def generate_exception_response(
     statsd.incr(
         f"posthog_cloud_raw_endpoint_exception", tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr}
     )
-    return JsonResponse(
-        {"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code, headers=headers
-    )
+    return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)

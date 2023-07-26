@@ -1,14 +1,12 @@
 import hashlib
 import json
-from typing import Any, Tuple
-from unittest import skip
+from typing import Any
 from unittest.mock import patch
 
-from django.http import HttpResponse
 from django.test.client import Client
-from django.utils import timezone
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
+
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
@@ -21,56 +19,6 @@ class TestCaptureAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = Client()
-
-    def _send_event(self, expected_status_code: int = status.HTTP_200_OK) -> HttpResponse:
-        event_response = self.client.post(
-            "/e/",
-            data={
-                "data": json.dumps(
-                    [
-                        {"event": "beep", "properties": {"distinct_id": "eeee", "token": self.team.api_token}},
-                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token}},
-                    ]
-                ),
-                "api_key": self.team.api_token,
-            },
-        )
-        assert event_response.status_code == expected_status_code
-        return event_response
-
-    def _send_session_recording_event(
-        self,
-        number_of_events=1,
-        event_data={},
-        snapshot_source=3,
-        snapshot_type=1,
-        session_id="abc123",
-        window_id="def456",
-        distinct_id="ghi789",
-        timestamp=1658516991883,
-        expected_status_code: int = status.HTTP_200_OK,
-    ) -> Tuple[dict, HttpResponse]:
-        event = {
-            "event": "$snapshot",
-            "properties": {
-                "$snapshot_data": {
-                    "type": snapshot_type,
-                    "data": {"source": snapshot_source, "data": event_data},
-                    "timestamp": timestamp,
-                },
-                "$session_id": session_id,
-                "$window_id": window_id,
-                "distinct_id": distinct_id,
-            },
-            "offset": 1993,
-        }
-
-        capture_recording_response = self.client.post(
-            "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token}
-        )
-        assert capture_recording_response.status_code == expected_status_code
-
-        return event, capture_recording_response
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_produce_to_kafka(self, kafka_produce):
@@ -193,7 +141,7 @@ class TestCaptureAPI(APIBaseTest):
             },
         )
 
-        # By default, we use (the hash of) <team_id:distinct_id> as the partition key
+        # By default we use (the hash of) <team_id:distinct_id> as the partition key
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
         self.assertEqual(kafka_produce_call["key"], hashlib.sha256(default_partition_key.encode()).hexdigest())
 
@@ -214,77 +162,3 @@ class TestCaptureAPI(APIBaseTest):
 
             kafka_produce_call = kafka_produce.call_args_list[1].kwargs
             self.assertEqual(kafka_produce_call["key"], None)
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_quota_limits_ignored_if_disabled(self, kafka_produce) -> None:
-        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
-
-        replace_limited_team_tokens(QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000})
-        replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
-        self._send_session_recording_event()
-        self.assertEqual(kafka_produce.call_count, 2)
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_quota_limits(self, kafka_produce) -> None:
-        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
-
-        def _produce_events(
-            expected_recording_status: int = status.HTTP_200_OK, expected_event_status=status.HTTP_200_OK
-        ):
-            kafka_produce.reset_mock()
-            self._send_session_recording_event(expected_status_code=expected_recording_status)
-            self._send_event(expected_status_code=expected_event_status)
-
-        with self.settings(QUOTA_LIMITING_ENABLED=True):
-            replace_limited_team_tokens(QuotaResource.EVENTS, {})
-            replace_limited_team_tokens(QuotaResource.RECORDINGS, {})
-
-            _produce_events()
-            self.assertEqual(kafka_produce.call_count, 4)
-
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
-            # we don't return 429 on limiting events until we've audited our SDKs
-            _produce_events(expected_event_status=status.HTTP_200_OK)
-            self.assertEqual(kafka_produce.call_count, 2)  # Only the recording event
-
-            replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}
-            )
-            # recording quota limiting causes a 429 response
-            _produce_events(
-                expected_recording_status=status.HTTP_429_TOO_MANY_REQUESTS,
-                # we don't return 429 on limiting events until we've audited our SDKs
-                expected_event_status=status.HTTP_200_OK,
-            )
-            self.assertEqual(kafka_produce.call_count, 0)  # No events
-
-            replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() - 10000}
-            )
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() - 10000})
-            _produce_events()
-            self.assertEqual(kafka_produce.call_count, 4)  # All events as limit-until timestamp is in the past
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_quota_limited_recordings_return_retry_after_header(self, _kafka_produce) -> None:
-        with self.settings(QUOTA_LIMITING_ENABLED=True):
-            from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
-
-            replace_limited_team_tokens(
-                QuotaResource.RECORDINGS, {self.team.api_token: timezone.now().timestamp() + 10000}
-            )
-            _, response = self._send_session_recording_event(expected_status_code=status.HTTP_429_TOO_MANY_REQUESTS)
-            # it is three hours to midnight
-            self.assertEqual(response["X-Posthog-Retry-After-Recordings"], str(60))
-
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    @skip("we don't return 429 on limiting events until we've audited our SDKs")
-    def test_quota_limited_events_return_retry_after_header(self, _kafka_produce) -> None:
-        with self.settings(QUOTA_LIMITING_ENABLED=True):
-            from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
-
-            replace_limited_team_tokens(QuotaResource.EVENTS, {self.team.api_token: timezone.now().timestamp() + 10000})
-
-            response = self._send_event(expected_status_code=status.HTTP_429_TOO_MANY_REQUESTS)
-
-            self.assertEqual(response["X-Posthog-Retry-After-Events"], str(60))
