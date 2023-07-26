@@ -52,7 +52,7 @@ class TrendsEventQueryBase(EventQuery):
         sample_clause = "SAMPLE %(sampling_factor)s" if self._filter.sampling_factor else ""
         self.params.update({"sampling_factor": self._filter.sampling_factor})
 
-        whitespace_padding = " " * self._entity.index
+        whitespace_padding = " " * getattr(self._entity, "index", 0)
         # You may be wondering what the hell is this for. Well, in MOST cases, this padding has absolutely zero effect.
         # However, unfortunately, it's critical for the success of formula queries that involve statistical math over
         # session duration. Why exactly? No idea (https://posthog.slack.com/archives/C0113360FFV/p1690377791876449),
