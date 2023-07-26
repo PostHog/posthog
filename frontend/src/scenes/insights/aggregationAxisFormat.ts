@@ -57,7 +57,7 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined)
     }
 }
 
-export const formatYAxisLabel = (
+export const formatPercentStackAxisValue = (
     trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
     value: number | string
 ): string => {
