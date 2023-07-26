@@ -246,58 +246,61 @@ export class SessionRecordingIngesterV2 {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
-        await asyncTimeoutGuard({ message: 'Processing batch timed out.', timeout: 120 * 1000 }, async () => {
-            const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
+        await asyncTimeoutGuard(
+            { message: 'Processing batch is taking longer than 60 seconds', timeout: 60 * 1000 },
+            async () => {
+                const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
 
-            histogramKafkaBatchSize.observe(messages.length)
+                histogramKafkaBatchSize.observe(messages.length)
 
-            const recordingMessages: IncomingRecordingMessage[] = []
+                const recordingMessages: IncomingRecordingMessage[] = []
 
-            for (const message of messages) {
-                const { partition, offset, timestamp } = message
+                for (const message of messages) {
+                    const { partition, offset, timestamp } = message
 
-                if (timestamp) {
-                    // For some reason timestamp can be null. If it isn't, update our ingestion metrics
-                    counterKafkaMessageReceived.inc({ partition })
-                    this.partitionNow[partition] = timestamp
-                    // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-                    this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
-                    gaugeLagMilliseconds
-                        .labels({
-                            partition: partition.toString(),
-                        })
-                        .set(now() - timestamp)
+                    if (timestamp) {
+                        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
+                        counterKafkaMessageReceived.inc({ partition })
+                        this.partitionNow[partition] = timestamp
+                        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+                        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
+                        gaugeLagMilliseconds
+                            .labels({
+                                partition: partition.toString(),
+                            })
+                            .set(now() - timestamp)
+                    }
+
+                    const recordingMessage = await this.parseKafkaMessage(message)
+                    if (recordingMessage) {
+                        recordingMessages.push(recordingMessage)
+                    }
                 }
 
-                const recordingMessage = await this.parseKafkaMessage(message)
-                if (recordingMessage) {
-                    recordingMessages.push(recordingMessage)
+                for (const message of recordingMessages) {
+                    const consumeSpan = transaction?.startChild({
+                        op: 'blobConsume',
+                    })
+
+                    await this.consume(message, consumeSpan)
+                    // TODO: We could do this as batch of offsets for the whole lot...
+                    consumeSpan?.finish()
                 }
+
+                for (const message of messages) {
+                    // Now that we have consumed everything, attempt to commit all messages in this batch
+                    const { partition, offset } = message
+                    await this.commitOffset(message.topic, partition, offset)
+                }
+
+                await this.replayEventsIngester.consumeBatch(recordingMessages)
+                const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
+                await this.flushAllReadySessions(true)
+                clearTimeout(timeout)
+
+                transaction.finish()
             }
-
-            for (const message of recordingMessages) {
-                const consumeSpan = transaction?.startChild({
-                    op: 'blobConsume',
-                })
-
-                await this.consume(message, consumeSpan)
-                // TODO: We could do this as batch of offsets for the whole lot...
-                consumeSpan?.finish()
-            }
-
-            for (const message of messages) {
-                // Now that we have consumed everything, attempt to commit all messages in this batch
-                const { partition, offset } = message
-                await this.commitOffset(message.topic, partition, offset)
-            }
-
-            await this.replayEventsIngester.consumeBatch(recordingMessages)
-            const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
-            await this.flushAllReadySessions(true)
-            clearTimeout(timeout)
-
-            transaction.finish()
-        })
+        )
     }
 
     public async start(): Promise<void> {
