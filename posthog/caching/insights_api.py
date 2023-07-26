@@ -52,6 +52,7 @@ def should_refresh_insight(
     refresh_insight_now = False
     if refresh_requested_by_client(request):
         now = datetime.now(tz=zoneinfo.ZoneInfo("UTC"))
+        refresh_threshold = now - timedelta(hours=24)
         target: Union[Insight, DashboardTile] = insight if dashboard_tile is None else dashboard_tile
         cache_key = calculate_cache_key(target)
         # Most recently queued caching state
@@ -63,7 +64,7 @@ def should_refresh_insight(
         refresh_insight_now = (
             caching_state is None
             or caching_state.last_refresh is None
-            or (caching_state.last_refresh + refresh_frequency <= now)
+            or (caching_state.last_refresh <= refresh_threshold)
         )
 
         if refresh_insight_now:
