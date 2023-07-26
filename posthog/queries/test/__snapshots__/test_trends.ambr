@@ -4154,10 +4154,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4186,10 +4186,10 @@
           (SELECT $session_id,
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
            FROM events
-           WHERE $session_id != ''
-             AND team_id = 2
+           WHERE team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+             AND $session_id != ''
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
@@ -4214,10 +4214,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4246,10 +4246,10 @@
           (SELECT $session_id,
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
            FROM events
-           WHERE $session_id != ''
-             AND team_id = 2
+           WHERE team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+             AND $session_id != ''
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
@@ -4581,10 +4581,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4627,10 +4627,10 @@
           (SELECT $session_id,
                   dateDiff('second', min(timestamp), max(timestamp)) as session_duration
            FROM events
-           WHERE $session_id != ''
-             AND team_id = 2
+           WHERE team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+             AND $session_id != ''
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
@@ -4680,10 +4680,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4703,10 +4703,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4738,10 +4738,10 @@
              (SELECT $session_id,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
-                AND team_id = 2
+              WHERE team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                AND $session_id != ''
               GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
            WHERE team_id = 2
              AND event = 'sign up'
@@ -4776,10 +4776,10 @@
              (SELECT $session_id,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
-              WHERE $session_id != ''
-                AND team_id = 2
+              WHERE team_id = 2
                 AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                AND $session_id != ''
               GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
            WHERE team_id = 2
              AND event = 'sign up'
@@ -4803,10 +4803,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4862,10 +4862,10 @@
                    (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
                     FROM events
-                    WHERE $session_id != ''
-                      AND team_id = 2
+                    WHERE team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                      AND $session_id != ''
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
@@ -4897,10 +4897,10 @@
        (SELECT $session_id,
                dateDiff('second', min(timestamp), max(timestamp)) as session_duration
         FROM events
-        WHERE $session_id != ''
-          AND team_id = 2
+        WHERE team_id = 2
           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND $session_id != ''
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
@@ -4956,10 +4956,10 @@
                    (SELECT $session_id,
                            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
                     FROM events
-                    WHERE $session_id != ''
-                      AND team_id = 2
+                    WHERE team_id = 2
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                      AND $session_id != ''
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
