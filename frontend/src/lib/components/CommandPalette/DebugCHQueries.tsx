@@ -15,46 +15,6 @@ interface Query {
     path: string
 }
 
-function nthChar(string: string, character: string, n: number): number {
-    let count = 0,
-        i = 0
-    while (count < n && (i = string.indexOf(character, i) + 1)) {
-        count++
-    }
-    if (count == n) {
-        return i - 1
-    }
-    return -1
-}
-
-function QueryCol({ item }: { item: Query }): JSX.Element {
-    const [expanded, setExpanded] = useState(false as boolean)
-
-    const has5lines = nthChar(item.query, '\n', 5)
-    if (has5lines === -1) {
-        return (
-            <CodeSnippet language={Language.SQL} thing="query" style={{ maxWidth: 600, fontSize: 12 }}>
-                {item.query}
-            </CodeSnippet>
-        )
-    }
-    return (
-        <>
-            <CodeSnippet
-                allowCopy={!expanded}
-                language={Language.SQL}
-                thing="query"
-                style={{ maxWidth: 600, fontSize: 12 }}
-            >
-                {expanded ? item.query : item.query.slice(0, has5lines)}
-            </CodeSnippet>
-            <LemonButton size="small" onClick={() => setExpanded(!expanded)}>
-                {expanded ? 'Show less' : 'Show more'}
-            </LemonButton>
-        </>
-    )
-}
-
 function ModalContent({ origResult }: { origResult: Query[] }): JSX.Element {
     const [pathFilter, setPathFilter] = useState(null as string | null)
 
@@ -92,7 +52,14 @@ function ModalContent({ origResult }: { origResult: Query[] }): JSX.Element {
                             return (
                                 <>
                                     {item.exception}
-                                    <QueryCol item={item} />
+                                    <CodeSnippet
+                                        language={Language.SQL}
+                                        thing="query"
+                                        maxLinesWithoutExpansion={5}
+                                        style={{ maxWidth: 600, fontSize: 12 }}
+                                    >
+                                        {item.query}
+                                    </CodeSnippet>
                                 </>
                             )
                         },
