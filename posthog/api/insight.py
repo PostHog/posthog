@@ -750,6 +750,10 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         serialized_data = self.get_serializer(instance, context=serializer_context).data
 
+        last_refresh_threshold = datetime.now(tz=zoneinfo.ZoneInfo("UTC")) - timedelta(minutes=1)
+        if serialized_data["last_refresh"] <= last_refresh_threshold:
+            serialized_data["last_refresh"] = "Just now"
+
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
             layouts = dashboard_tile.layouts
