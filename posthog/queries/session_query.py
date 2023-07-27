@@ -41,16 +41,16 @@ class SessionQuery:
         return (
             f"""
                 SELECT
-                    $session_id{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
+                    "$session_id"{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
                     dateDiff('second',min(timestamp), max(timestamp)) as session_duration
                 FROM
                     events
                 WHERE
-                    {self._session_id_alias or "$session_id"} != ''
+                    {self._session_id_alias or '"$session_id"'} != ''
                     AND team_id = %(team_id)s
                     {parsed_date_from} - INTERVAL 24 HOUR
                     {parsed_date_to} + INTERVAL 24 HOUR
-                GROUP BY {self._session_id_alias or "$session_id"}
+                GROUP BY {self._session_id_alias or '"$session_id"'}
             """,
             params,
         )

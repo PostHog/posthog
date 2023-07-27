@@ -6,13 +6,13 @@ from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from rest_framework import status
 
+from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
-from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.test.base import APIBaseTest
 
 
@@ -214,9 +214,17 @@ class TestTeamAPI(APIBaseTest):
             team_id=team.pk, person_id=person.id, feature_flag_key=flag.key, hash_key="test"
         )
         CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+        EarlyAccessFeature.objects.create(
+            team=team,
+            name="Test flag",
+            description="A fancy new flag.",
+            stage="beta",
+            feature_flag=flag,
+        )
 
         # if something is missing then teardown fails
-        delete_bulky_postgres_data([team.pk])
+        response = self.client.delete(f"/api/projects/{team.id}")
+        self.assertEqual(response.status_code, 204)
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
