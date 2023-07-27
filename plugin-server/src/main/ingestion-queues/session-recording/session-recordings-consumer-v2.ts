@@ -458,7 +458,6 @@ export class SessionRecordingIngesterV2 {
                 })
                 .finally(() => {
                     // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
-                    console.log('wat', sessionManager.isEmpty)
                     if (sessionManager.isEmpty) {
                         void this.destroySessions([[key, sessionManager]])
                     }
