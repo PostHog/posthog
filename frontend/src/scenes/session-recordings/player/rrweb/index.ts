@@ -16,6 +16,10 @@ export const CorsPlugin: ReplayPlugin & { _replaceFontURLs: (value: string) => s
                 regex.lastIndex++
             }
 
+            if (matches) {
+                console.log(value)
+            }
+
             matches.forEach((match, groupIndex) => {
                 if (groupIndex === 0) {
                     // Trim the start and end
