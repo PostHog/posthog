@@ -1,11 +1,11 @@
 import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
-import { useRef } from 'react'
+import { FloatingMenu } from '@tiptap/extension-floating-menu'
+import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
-import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, isCurrentNodeEmpty } from './utils'
+import { EditorRange, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -16,12 +16,14 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
-import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
+import { SlashCommandsExtension } from './SlashCommands'
 import { JSONContent, NotebookEditor } from './utils'
 import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
-import { Node } from '@tiptap/pm/model'
+import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
+import { useActions } from 'kea'
+import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -39,6 +41,15 @@ export function Editor({
     placeholder: ({ node }: { node: any }) => string
 }): JSX.Element {
     const editorRef = useRef<TTEditor>()
+    const logic = insertionSuggestionsLogic()
+    const { resetSuggestions, setPreviousNode } = useActions(logic)
+
+    const updatePreviousNode = useCallback(() => {
+        const editor = editorRef.current
+        if (editor) {
+            setPreviousNode(getPreviousNode(editor))
+        }
+    }, [editorRef.current])
 
     const _editor = useEditor({
         extensions: [
@@ -49,22 +60,18 @@ export function Editor({
             ExtensionPlaceholder.configure({
                 placeholder: placeholder,
             }),
-            FloatingMenu.configure({
-                shouldShow: ({ editor }) => {
-                    console.log('Floating extension')
-                    if (!editor) {
-                        return false
+            FloatingMenu.extend({
+                onSelectionUpdate() {
+                    updatePreviousNode()
+                },
+                onUpdate: () => {
+                    updatePreviousNode()
+                    resetSuggestions()
+                },
+                addKeyboardShortcuts() {
+                    return {
+                        Tab: () => true,
                     }
-                    if (
-                        editor.view.hasFocus() &&
-                        editor.isEditable &&
-                        editor.isActive('paragraph') &&
-                        isCurrentNodeEmpty(editor)
-                    ) {
-                        return true
-                    }
-
-                    return false
                 },
             }),
             NotebookNodeLink,
@@ -123,7 +130,7 @@ export function Editor({
                         // if dropping external files
                         const file = event.dataTransfer.files[0] // the dropped file
 
-                        console.log('TODO: Dropped file!', file)
+                        console.warn('TODO: Dropped file!', file)
                         // TODO: Detect if it is an image and add image upload handler
 
                         return true
@@ -142,6 +149,7 @@ export function Editor({
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
+                insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
@@ -150,17 +158,16 @@ export function Editor({
                 },
                 findNode: (position: number) => findNode(editor, position),
                 nextNode: (position: number) => nextNode(editor, position),
-                hasChildOfType: (node: Node, type: string) => hasDirectChildOfType(node, type),
+                hasChildOfType: (node: Node, type: string) => !!firstChildOfType(node, type),
             })
         },
         onUpdate: onUpdate,
-        onDestroy: () => {},
     })
 
     return (
         <>
             <EditorContent editor={_editor} className="flex flex-col flex-1" />
-            {_editor && <FloatingSlashCommands editor={_editor} />}
+            {_editor && <FloatingSuggestions editor={_editor} />}
         </>
     )
 }
@@ -183,7 +190,7 @@ function nextNode(editor: TTEditor, position: number): { node: Node; position: n
     return result.node ? { node: result.node, position: result.offset } : null
 }
 
-function hasDirectChildOfType(node: Node, type: string, direct: boolean = true): boolean {
+export function hasChildOfType(node: Node, type: string, direct: boolean = true): boolean {
     const types: string[] = []
     node.descendants((child) => {
         types.push(child.type.name)
@@ -192,13 +199,22 @@ function hasDirectChildOfType(node: Node, type: string, direct: boolean = true):
     return types.includes(type)
 }
 
-export function lastChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
-    let latestNode: Node | null = null
+export function firstChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
+    const children = getChildren(node, direct)
+    return children.find((child) => child.type.name === type) || null
+}
+
+function getChildren(node: Node, direct: boolean = true): Node[] {
+    const children: Node[] = []
     node.descendants((child) => {
-        if (child.type.name === type) {
-            latestNode = child
-        }
+        children.push(child)
         return !direct
     })
-    return latestNode
+    return children
+}
+
+function getPreviousNode(editor: TTEditor): Node | null {
+    const { $anchor } = editor.state.selection
+    const node = $anchor.node(1)
+    return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
 }

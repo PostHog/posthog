@@ -3,7 +3,7 @@
 # For more info, see:
 # https://posthog.com/handbook/engineering/developing-locally
 #
-# PostHog has sunset support for self-hosted K8s deployments. 
+# PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 

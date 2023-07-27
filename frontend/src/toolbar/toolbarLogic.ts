@@ -57,7 +57,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         },
         tokenExpired: () => {
             posthog.capture('toolbar token expired')
-            console.log('PostHog Toolbar API token expired. Clearing session.')
+            console.warn('PostHog Toolbar API token expired. Clearing session.')
             if (values.source !== 'localstorage') {
                 lemonToast.error('PostHog Toolbar API token expired.')
             }

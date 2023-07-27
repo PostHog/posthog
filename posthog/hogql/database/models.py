@@ -21,8 +21,8 @@ class DatabaseField(FieldOrTable):
         extra = Extra.forbid
 
     name: str
-    array: Optional[bool]
-    nullable: Optional[bool]
+    array: Optional[bool] = None
+    nullable: Optional[bool] = None
 
 
 class IntegerDatabaseField(DatabaseField):

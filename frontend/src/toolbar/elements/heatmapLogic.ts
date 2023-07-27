@@ -218,24 +218,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                             if (domElements.length === 0) {
                                 if (i === event.elements.length - 1) {
-                                    console.log(
-                                        'For event: ',
-                                        event,
-                                        '. Found a case with 0 elements using: ',
-                                        combinedSelector
-                                    )
                                     return null
                                 } else if (i > 0 && lastSelector) {
                                     // We already have something, but found nothing when adding the next selector.
                                     // Skip it and try with the next one...
                                     lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
                                     continue
-                                } else {
-                                    console.log('Found empty selector: ', combinedSelector)
                                 }
                             }
                         } catch (error) {
-                            console.log('Invalid selector!', combinedSelector)
                             break
                         }
 
