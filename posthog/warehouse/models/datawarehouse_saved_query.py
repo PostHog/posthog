@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from posthog.warehouse.models.util import remove_named_tuples
 
 
-def validate_database_name(value):
+def validate_saved_query_name(value):
     if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", value):
         raise ValidationError(
             f"{value} is not a valid view name. View names can only contain letters, numbers, '_', or '$' ",
@@ -25,7 +25,7 @@ def validate_database_name(value):
 
 
 class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
-    name: models.CharField = models.CharField(max_length=128, validators=[validate_database_name])
+    name: models.CharField = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns: models.JSONField = models.JSONField(
         default=dict, null=True, blank=True, help_text="Dict of all columns with ClickHouse type (including Nullable())"

@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
                     "name",
                     models.CharField(
                         max_length=128,
-                        validators=[posthog.warehouse.models.datawarehouse_saved_query.validate_database_name],
+                        validators=[posthog.warehouse.models.datawarehouse_saved_query.validate_saved_query_name],
                     ),
                 ),
                 (
