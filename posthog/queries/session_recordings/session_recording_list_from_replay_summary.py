@@ -2,9 +2,10 @@ import dataclasses
 import datetime
 from typing import Any, Dict, List, Tuple, Union, Literal
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.property import PropertyGroup
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -27,12 +28,29 @@ class PersonsQuery(SessionRecordingList):
         GROUP BY distinct_id
         HAVING
             argMax(is_deleted, version) = 0
+            {prop_having_clause}
             {filter_by_person_uuid_condition}
     """
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[g for g in self._filter.property_groups.flat if g.type == "person" or "cohort" in g.type],
+            ),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+        )
+
+        # hogql person props queries rely on an aggregated column and so have to go in the having clause
+        # not the where clause
+        having_prop_query, having_prop_params = self._get_prop_groups(
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    g for g in self._filter.property_groups.flat if g.type == "hogql" and "person.properties" in g.key
+                ],
+            ),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         person_query, person_query_params = self._get_person_query()
@@ -49,12 +67,14 @@ class PersonsQuery(SessionRecordingList):
                 if "person_props" in filter_persons_clause
                 else "",
                 prop_filter_clause=prop_query,
+                prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
             ), {
                 "team_id": self._team_id,
                 **person_query_params,
                 "person_uuid": self._filter.person_uuid,
                 **prop_params,
+                **having_prop_params,
             }
 
 
@@ -73,6 +93,7 @@ class SessionIdEventsQuery(SessionRecordingList):
             {event_filter_having_events_select}
             `$session_id`
         FROM events e
+        -- sometimes we have to join on persons so we can access e.g. person_props in filters
         {persons_join}
         PREWHERE
             team_id = %(team_id)s
@@ -86,6 +107,8 @@ class SessionIdEventsQuery(SessionRecordingList):
             {event_filter_where_conditions}
             {prop_filter_clause}
             {provided_session_ids_clause}
+            -- other times we can check distinct id against a sub query which should be faster than joining
+            {persons_sub_query}
         GROUP BY `$session_id`
         HAVING 1=1 {event_filter_having_events_condition}
     """
@@ -155,13 +178,36 @@ class SessionIdEventsQuery(SessionRecordingList):
         event_filters_params = event_filters.params
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
 
+        # these will be applied to the events table,
+        # so we only want property filters that make sense in that context
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[
+                    g
+                    for g in self._filter.property_groups.flat
+                    if (g.type == "hogql" and "person.properties" not in g.key)
+                    or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                ],
+            ),
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
-        persons_select, persons_join_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_join = ""
+        persons_sub_query = ""
         if persons_select:
-            persons_select = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = e.distinct_id"
+            # we want to join as infrequently as possible so only join if there are filters that expect it
+            if (
+                "person_props" in prop_query
+                or "pdi.person_id" in prop_query
+                or "person_props" in event_filters.where_conditions
+            ):
+                persons_join = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = e.distinct_id"
+            else:
+                persons_sub_query = (
+                    f"AND e.distinct_id in (select distinct_id from ({persons_select}) as events_persons_sub_query)"
+                )
 
         return (
             self._raw_events_query.format(
@@ -171,7 +217,8 @@ class SessionIdEventsQuery(SessionRecordingList):
                 events_timestamp_clause=events_timestamp_clause,
                 prop_filter_clause=prop_query,
                 provided_session_ids_clause=provided_session_ids_clause,
-                persons_join=persons_select,
+                persons_join=persons_join,
+                persons_sub_query=persons_sub_query,
             ),
             {
                 **base_params,
@@ -180,7 +227,7 @@ class SessionIdEventsQuery(SessionRecordingList):
                 **events_timestamp_params,
                 **event_filters_params,
                 **prop_params,
-                **persons_join_params,
+                **persons_select_params,
             },
         )
 
@@ -224,8 +271,6 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
        sum(s.console_warn_count) as console_warn_count,
        sum(s.console_error_count) as console_error_count
     FROM session_replay_events s
-        {events_join}
-        {persons_join}
     WHERE s.team_id = %(team_id)s
         -- regardless of what other filters are applied
         -- limit by storage TTL
@@ -235,6 +280,8 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
         -- and any not-the-highest max value is _less_ lower than the max value
         AND s.min_first_timestamp >= %(start_time)s
         AND s.max_last_timestamp <= %(end_time)s
+        {persons_sub_query}
+        {events_sub_query}
     {provided_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
@@ -292,19 +339,21 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
             filter=self._filter,
         ).get_query()
         if events_select:
-            events_select = f"JOIN ({events_select}) as e on s.session_id = e.`$session_id`"
+            events_select = f"AND s.session_id in (select `$session_id` as session_id from ({events_select}) as session_events_sub_query)"
 
-        persons_select, persons_join_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
         if persons_select:
-            persons_select = f"JOIN ({persons_select}) as pdi on pdi.distinct_id = s.distinct_id"
+            persons_select = (
+                f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"
+            )
 
         return (
             self._session_recordings_query.format(
                 duration_clause=duration_clause,
-                events_join=events_select,
                 provided_session_ids_clause=provided_session_ids_clause,
                 console_log_clause=console_log_clause,
-                persons_join=persons_select,
+                persons_sub_query=persons_select,
+                events_sub_query=events_select,
             ),
             {
                 **base_params,
@@ -312,7 +361,7 @@ class SessionRecordingListFromReplaySummary(SessionRecordingList):
                 **recording_start_time_params,
                 **duration_params,
                 **provided_session_ids_params,
-                **persons_join_params,
+                **persons_select_params,
             },
         )
 

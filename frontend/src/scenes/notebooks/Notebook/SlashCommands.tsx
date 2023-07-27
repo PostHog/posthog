@@ -1,11 +1,11 @@
-import { Editor as TTEditor, Extension } from '@tiptap/core'
+import { Extension } from '@tiptap/core'
 import Suggestion from '@tiptap/suggestion'
 
-import { FloatingMenu, ReactRenderer } from '@tiptap/react'
-import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
-import { IconCohort, IconPlus, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
+import { ReactRenderer } from '@tiptap/react'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconCohort, IconQueryEditor, IconRecording, IconTableChart } from 'lib/lemon-ui/icons'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorCommands, EditorRange, isCurrentNodeEmpty } from './utils'
+import { EditorCommands, EditorRange } from './utils'
 import { NotebookNodeType } from '~/types'
 import { examples } from '~/queries/examples'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -85,7 +85,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
     },
 ]
 
-const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
+export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
     { mode, range = { from: 0, to: 0 }, query },
     ref
 ): JSX.Element | null {
@@ -172,10 +172,8 @@ const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function 
             return
         }
 
-        console.log('Listening')
         // If not opened from a slash command, we want to add our own keyboard listeners
         const keyDownListener = (event: KeyboardEvent): void => {
-            console.log('keydown', event)
             const preventDefault = onKeyDown(event)
             if (preventDefault) {
                 event.preventDefault()
@@ -252,40 +250,6 @@ const SlashCommandsPopover = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         />
     )
 })
-
-export function FloatingSlashCommands({ editor }: { editor: TTEditor }): JSX.Element | null {
-    const shouldShow = useCallback((): boolean => {
-        if (!editor) {
-            return false
-        }
-        if (editor.view.hasFocus() && editor.isEditable && editor.isActive('paragraph') && isCurrentNodeEmpty(editor)) {
-            return true
-        }
-
-        return false
-    }, [editor])
-
-    return editor ? (
-        <FloatingMenu
-            editor={editor}
-            tippyOptions={{ duration: 100, placement: 'left' }}
-            className="NotebookFloatingButton"
-            shouldShow={shouldShow}
-        >
-            <LemonButtonWithDropdown
-                size="small"
-                icon={<IconPlus />}
-                dropdown={{
-                    overlay: <SlashCommands mode="add" range={undefined} />,
-                    placement: 'right-start',
-                    fallbackPlacements: ['left-start'],
-                    actionable: true,
-                    closeParentPopoverOnClickInside: true,
-                }}
-            />
-        </FloatingMenu>
-    ) : null
-}
 
 export const SlashCommandsExtension = Extension.create({
     name: 'slash-commands',
