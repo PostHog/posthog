@@ -1,29 +1,29 @@
+import posthog from 'posthog-js'
+import { useActions } from 'kea'
+import { useCallback, useRef } from 'react'
+
 import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
-import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
-import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
-import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
-import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
+import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
+import { NotebookNodeInsight } from '../Nodes/NotebookNodeInsight'
+import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
+import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
-
-import posthog from 'posthog-js'
-import { SlashCommandsExtension } from './SlashCommands'
-import { JSONContent, NotebookEditor } from './utils'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { useActions } from 'kea'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
+
+import { JSONContent, NotebookEditor, EditorRange, Node } from './utils'
+import { SlashCommandsExtension } from './SlashCommands'
+import { BacklinkCommandsExtension } from './BacklinkCommands'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
