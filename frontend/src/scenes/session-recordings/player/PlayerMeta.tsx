@@ -77,6 +77,7 @@ export function PlayerMeta(): JSX.Element {
         sessionPerson,
         resolution,
         lastPageviewEvent,
+        lastUrl,
         scale,
         currentWindowIndex,
         startTime,
@@ -202,7 +203,7 @@ export function PlayerMeta(): JSX.Element {
             >
                 {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3 my-1" />
-                ) : currentWindowIndex >= 0 ? (
+                ) : (
                     <>
                         <Tooltip
                             title={
@@ -216,23 +217,19 @@ export function PlayerMeta(): JSX.Element {
                             <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
                         </Tooltip>
 
-                        {lastPageviewEvent?.properties?.['$current_url'] && (
+                        {lastUrl && (
                             <span className="flex items-center gap-2 truncate">
                                 <span>·</span>
                                 <span className="flex items-center gap-1 truncate">
                                     <Tooltip title="Click to open url">
-                                        <Link
-                                            to={lastPageviewEvent?.properties['$current_url']}
-                                            target="_blank"
-                                            className="truncate"
-                                        >
-                                            {lastPageviewEvent?.properties['$current_url']}
+                                        <Link to={lastUrl} target="_blank" className="truncate">
+                                            {lastUrl}
                                         </Link>
                                     </Tooltip>
                                     <span className="flex items-center">
                                         <CopyToClipboardInline
                                             description="current url"
-                                            explicitValue={lastPageviewEvent?.properties['$current_url']}
+                                            explicitValue={lastUrl}
                                             iconStyle={{ color: 'var(--muted-alt)' }}
                                         />
                                     </span>
@@ -248,7 +245,7 @@ export function PlayerMeta(): JSX.Element {
                             </span>
                         )}
                     </>
-                ) : null}
+                )}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {resolutionView}
             </div>
