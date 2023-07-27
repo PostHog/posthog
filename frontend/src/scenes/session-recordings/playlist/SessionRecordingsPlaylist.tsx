@@ -84,8 +84,8 @@ export function RecordingsLists({
         unusableEventsInFilter,
     } = useValues(logic)
     const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection, showFilters, setShowFilters } = useActions(playerSettingsLogic)
+    const { autoplayDirection, showFilters } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection, setShowFilters } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
