@@ -5,7 +5,6 @@ import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isFunnelsFilter, isPathsFilter } from 'scenes/insights/sharedUtils'
 import {
-    ActionFilter,
     FunnelsFilterType,
     FunnelVizType,
     GraphDataset,
@@ -115,13 +114,8 @@ export const urlsForDatasets = (
 }
 
 interface PeopleUrlBuilderParams {
-    action?: ActionFilter
-    date_to?: string | number
-    date_from?: string | number
-    breakdown_value?: string | number
-    target_date?: number | string
-    lifecycle_type?: string | number
     filters: Partial<FunnelsFilterType> | Partial<PathsFilterType>
+    date_from?: string | number
     funnelStep?: number
 }
 

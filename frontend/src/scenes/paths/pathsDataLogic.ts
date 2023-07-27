@@ -108,7 +108,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
             const personsUrl = buildPeopleUrl({
                 date_from: '',
-                date_to: '',
                 filters,
             })
             if (personsUrl) {

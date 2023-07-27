@@ -1,5 +1,5 @@
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { ChartParams, GraphType, GraphDataset, EntityTypes } from '~/types'
+import { ChartParams, GraphType, GraphDataset } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
@@ -67,18 +67,13 @@ export function FunnelLineGraph({
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
                           const filters = queryNodeToFilter(querySource) // for persons modal
-                          const props = {
-                              action: { id: index, name: label ?? null, properties: [], type: EntityTypes.ACTIONS },
-                              date_from: day ?? '',
-                              date_to: day ?? '',
+                          const personsUrl = buildPeopleUrl({
                               filters,
-                          }
-
-                          const url = buildPeopleUrl(props)
-
-                          if (url) {
+                              date_from: day ?? '',
+                          })
+                          if (personsUrl) {
                               openPersonsModal({
-                                  url,
+                                  url: personsUrl,
                                   title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
                                       label
                                   ).format('MMMM Do YYYY')}`,
