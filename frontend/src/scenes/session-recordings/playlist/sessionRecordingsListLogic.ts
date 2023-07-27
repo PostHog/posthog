@@ -264,7 +264,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
         showFilters: [
             true,
-            { persist: true, storageKey: 'scenes-session-recordings-playlist-sessionRecordingsListLogic-universal' },
+            {
+                persist: true,
+                storageKey: 'scenes-session-recordings-playlist-sessionRecordingsListLogic-showFilters-universal',
+            },
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
             },
