@@ -20,7 +20,8 @@ export async function debugCHQueries(): Promise<void> {
 }
 
 export interface Query {
-    timestamp: number
+    /** @example '2023-07-27T10:06:11' */
+    timestamp: string
     query: string
     exception: string
     type: number
@@ -111,7 +112,7 @@ function DebugCHQueries(): JSX.Element {
                         title: 'Timestamp',
                         render: (_, item) => (
                             <span className="font-mono whitespace-pre">
-                                {dayjs(item.timestamp).format().replace('T', '\n')}
+                                {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
                             </span>
                         ),
                         width: 160,
@@ -139,10 +140,11 @@ function DebugCHQueries(): JSX.Element {
                         },
                     },
                     {
-                        title: 'Execution duration',
+                        title: 'Duration',
                         render: function exec(_, item) {
                             return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
                         },
+                        align: 'right',
                     },
                 ]}
                 dataSource={filteredQueries}
