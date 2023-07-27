@@ -146,7 +146,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
-        setShowFilters: (showFilters: boolean) => ({ showFilters }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -260,16 +259,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     ...filters,
                 }),
                 resetFilters: () => null,
-            },
-        ],
-        showFilters: [
-            true,
-            {
-                persist: true,
-                storageKey: 'scenes-session-recordings-playlist-sessionRecordingsListLogic-showFilters-universal',
-            },
-            {
-                setShowFilters: (_, { showFilters }) => showFilters,
             },
         ],
         sessionRecordings: [

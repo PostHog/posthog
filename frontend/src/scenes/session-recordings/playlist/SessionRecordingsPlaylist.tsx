@@ -75,7 +75,6 @@ export function RecordingsLists({
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
-        showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
@@ -84,10 +83,9 @@ export function RecordingsLists({
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
-        useActions(logic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
+    const { toggleAutoplayDirection, showFilters, setShowFilters } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
