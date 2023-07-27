@@ -6,37 +6,7 @@ const PROXY_URL = 'https://replay-proxy.posthog.com' as const
 
 export const CorsPlugin: ReplayPlugin & { _replaceFontURLs: (value: string) => string } = {
     _replaceFontURLs: (value: string): string => {
-        const regex = /url\("https:\/\/\S*(.eot|.woff2|.ttf|.woff)\S*"\)/gm
-        let matches
-        const fontUrls: { original: string; replacement: string }[] = []
-
-        while ((matches = regex.exec(value)) !== null) {
-            // This is necessary to avoid infinite loops with zero-width matches
-            if (matches.index === regex.lastIndex) {
-                regex.lastIndex++
-            }
-
-            matches.forEach((match, groupIndex) => {
-                if (groupIndex === 0) {
-                    // Trim the start and end
-                    // example: url("https://app.posthog.com/fonts/my-font.woff2")
-                    // gets trimmed to https://app.posthog.com/fonts/my-font.woff2
-                    const url = match.slice(5, match.length - 2)
-
-                    fontUrls.push({
-                        original: url,
-                        replacement: url.replace(url, `${PROXY_URL}?url=${url}`),
-                    })
-                }
-            })
-        }
-
-        // Replace all references to the old URL to our proxy URL in the stylesheet.
-        fontUrls.forEach((urlPair) => {
-            value = (value as string).replace(urlPair.original, urlPair.replacement)
-        })
-
-        return value
+        return value.replace(/url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi, `url("${PROXY_URL}?url=$1")`)
     },
 
     onBuild: (node) => {
