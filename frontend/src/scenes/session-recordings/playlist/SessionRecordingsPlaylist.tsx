@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
@@ -75,7 +75,6 @@ export function RecordingsLists({
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
-        showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
@@ -84,10 +83,9 @@ export function RecordingsLists({
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
-        useActions(logic)
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
+    const { autoplayDirection, showFilters } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection, setShowFilters } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -97,14 +95,6 @@ export function RecordingsLists({
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowFiltersByDefaultFlag = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SHOW_FILTERS_BY_DEFAULT]
-    useEffect(() => {
-        if (shouldShowFiltersByDefaultFlag === 'always_open') {
-            setShowFilters(true)
-        }
-    }, [shouldShowFiltersByDefaultFlag])
 
     return (
         <>
