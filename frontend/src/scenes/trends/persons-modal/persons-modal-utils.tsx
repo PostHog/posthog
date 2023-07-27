@@ -1,23 +1,18 @@
 import * as Sentry from '@sentry/react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { isFunnelsFilter, isPathsFilter, isStickinessFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isPathsFilter } from 'scenes/insights/sharedUtils'
 import {
     ActionFilter,
-    ChartDisplayType,
-    FilterLogicalOperator,
-    FilterType,
     FunnelsFilterType,
     FunnelVizType,
     GraphDataset,
     LifecycleToggle,
     PathsFilterType,
     StepOrderValue,
-    TrendsFilterType,
 } from '~/types'
-import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
 
@@ -119,50 +114,13 @@ export const urlsForDatasets = (
     )
 }
 
-export interface PeopleParamType {
+interface PeopleUrlBuilderParams {
     action?: ActionFilter
     date_to?: string | number
     date_from?: string | number
     breakdown_value?: string | number
     target_date?: number | string
     lifecycle_type?: string | number
-}
-
-export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
-    const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
-    const params = filterTrendsClientSideParams({
-        ...filters,
-        entity_id: action?.id || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
-        entity_type: action?.type || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
-        entity_math: action?.math || undefined,
-        breakdown_value,
-    } as TrendsFilterType)
-
-    // casting here is not the best
-    if (isStickinessFilter(filters)) {
-        params.stickiness_days = date_from as number
-    } else if (params.display === ChartDisplayType.ActionsLineGraphCumulative) {
-        params.date_to = date_from as string
-    } else {
-        params.date_from = date_from as string
-        params.date_to = date_to as string
-    }
-
-    // Ensure properties are property groups
-    params.properties = convertPropertiesToPropertyGroup(params.properties)
-
-    // Merge action property group
-    if (action?.properties?.values && (action.properties.values?.length ?? 0) > 0) {
-        params.properties = {
-            type: FilterLogicalOperator.And,
-            values: [params.properties, convertPropertiesToPropertyGroup(action.properties)],
-        }
-    }
-
-    return toParams({ ...params, ...restParams })
-}
-
-export interface PeopleUrlBuilderParams extends PeopleParamType {
     filters: Partial<FunnelsFilterType> | Partial<PathsFilterType>
     funnelStep?: number
 }
