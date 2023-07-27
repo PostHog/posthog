@@ -1,5 +1,13 @@
 import { kea, path, props, key, connect, selectors, actions, listeners } from 'kea'
-import { InsightLogicProps, PathType, PathsFilterType, InsightType } from '~/types'
+import {
+    InsightLogicProps,
+    PathType,
+    PathsFilterType,
+    InsightType,
+    ActionFilter,
+    PropertyOperator,
+    PropertyFilterType,
+} from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -122,9 +130,9 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
         },
         viewPathToFunnel: ({ pathItemCard }) => {
-            const events = []
+            const events: ActionFilter[] = []
             let currentItemCard = pathItemCard
-            while (currentItemCard.targetLinks.length > 0) {
+            while (currentItemCard) {
                 const name = currentItemCard.name.includes('http')
                     ? '$pageview'
                     : currentItemCard.name.replace(/(^[0-9]+_)/, '')
@@ -132,27 +140,31 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     id: name,
                     name: name,
                     type: 'events',
-                    order: currentItemCard.depth - 1,
+                    order: currentItemCard.depth,
                     ...(currentItemCard.name.includes('http') && {
                         properties: [
                             {
                                 key: '$current_url',
-                                operator: 'exact',
-                                type: 'event',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
                                 value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
                             },
                         ],
                     }),
                 })
-                currentItemCard = currentItemCard.targetLinks[0].source
+                currentItemCard = currentItemCard.targetLinks[0]?.source
             }
-            router.actions.push(
-                urls.insightNew({
-                    insight: InsightType.FUNNELS,
-                    events,
-                    date_from: values.dateRange?.date_from,
-                })
-            )
+            events.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+            if (events.length > 0) {
+                router.actions.push(
+                    urls.insightNew({
+                        insight: InsightType.FUNNELS,
+                        events: events.reverse(),
+                        date_from: values.dateRange?.date_from,
+                    })
+                )
+            }
         },
     })),
 ])
