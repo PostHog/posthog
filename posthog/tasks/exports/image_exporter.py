@@ -3,6 +3,7 @@ import os
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
+import requests
 
 import structlog
 from django.conf import settings
@@ -47,6 +48,7 @@ TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 ScreenWidth = Literal[800, 1920]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
+
 
 # NOTE: We purporsefully DONT re-use the driver. It would be slightly faster but would keep an in-memory browser
 # window permanently around which is unnecessary
@@ -124,6 +126,9 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         if image_path and os.path.exists(image_path):
             os.remove(image_path)
 
+        if settings.SITE_URL:
+            log_error_if_url_not_reachable(settings.SITE_URL)
+
         raise err
 
 
@@ -198,3 +203,23 @@ def export_image(exported_asset: ExportedAsset) -> None:
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             IMAGE_EXPORT_FAILED_COUNTER.labels(team_id=team_id).inc()
             raise e
+
+
+def log_error_if_url_not_reachable(url: str) -> None:
+    """
+    Attempt to GET a URL and log an error if it's not reachable
+    or if the HTTP status code indicates an error
+    """
+
+    try:
+        if not url:
+            raise Exception("No url provided to log_error_if_url_not_reachable")
+
+        # try to request the url
+        response = requests.get(url, timeout=5)
+
+        # if the status code is an error, log it
+        if response.status_code >= 400:
+            logger.error("get_url_error_status", url=url, status_code=response.status_code)
+    except Exception as e:
+        logger.error("get_url_exception", exception=e, url=url)

@@ -60,6 +60,7 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str
     data_interval_end: str
+    role: str | None = None
 
 
 def put_file_to_snowflake_table(cursor: SnowflakeCursor, file_name: str, table_name: str):
@@ -125,6 +126,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
+            role=inputs.role,
         )
 
         try:
@@ -164,9 +166,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             try:
                 while True:
                     try:
-                        result = await results_iterator.__anext__()
+                        result = results_iterator.__next__()
 
-                    except StopAsyncIteration:
+                    except StopIteration:
                         break
 
                     except json.JSONDecodeError:
@@ -232,15 +234,23 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 )
                 results = cursor.fetchall()
 
-                for result in results:
-                    if not isinstance(result, tuple):
+                for query_result in results:
+                    if not isinstance(query_result, tuple):
                         # Mostly to appease mypy, as this query should always return a tuple.
                         raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
 
-                    file_name, status = result[0:2]
+                    if len(query_result) < 2:
+                        raise SnowflakeFileNotLoadedError(
+                            inputs.table_name,
+                            "NO STATUS",
+                            0,
+                            query_result[1] if len(query_result) == 1 else "NO ERROR MESSAGE",
+                        )
+
+                    _, status = query_result[0:2]
 
                     if status != "LOADED":
-                        errors_seen, first_error = result[5:7]
+                        errors_seen, first_error = query_result[5:7]
                         raise SnowflakeFileNotLoadedError(
                             inputs.table_name,
                             status or "NO STATUS",
@@ -286,10 +296,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
@@ -307,6 +318,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            role=inputs.role,
         )
         try:
             await workflow.execute_activity(
@@ -334,9 +346,13 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 update_export_run_status,
                 update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
             )
 
 

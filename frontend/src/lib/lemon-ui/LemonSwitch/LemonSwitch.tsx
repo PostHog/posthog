@@ -13,7 +13,6 @@ export interface LemonSwitchProps {
     bordered?: boolean
     disabled?: boolean
     'data-attr'?: string
-    size?: 'small' | 'medium'
     icon?: React.ReactElement | null
     handleContent?: React.ReactElement | null
     'aria-label'?: string

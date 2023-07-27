@@ -330,7 +330,7 @@ class CloningVisitor(Visitor):
             index=node.index,
         )
 
-    def visit_tuple(self, node: ast.Array):
+    def visit_tuple(self, node: ast.Tuple):
         return ast.Tuple(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
@@ -377,7 +377,7 @@ class CloningVisitor(Visitor):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            chain=node.chain,
+            chain=node.chain.copy(),
         )
 
     def visit_placeholder(self, node: ast.Placeholder):

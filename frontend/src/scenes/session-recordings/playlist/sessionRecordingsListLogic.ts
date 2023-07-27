@@ -384,20 +384,23 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 s.sessionRecordingsResponseLoading,
                 s.sessionRecordingsAPIErrored,
                 s.pinnedRecordingsAPIErrored,
+                (_, props) => props.personUUID,
             ],
             (
                 sessionRecordings,
                 customFilters,
                 sessionRecordingsResponseLoading,
                 sessionRecordingsAPIErrored,
-                pinnedRecordingsAPIErrored
+                pinnedRecordingsAPIErrored,
+                personUUID
             ): boolean => {
                 return (
                     !sessionRecordingsAPIErrored &&
                     !pinnedRecordingsAPIErrored &&
                     !sessionRecordingsResponseLoading &&
                     sessionRecordings.length === 0 &&
-                    !customFilters
+                    !customFilters &&
+                    !personUUID
                 )
             },
         ],

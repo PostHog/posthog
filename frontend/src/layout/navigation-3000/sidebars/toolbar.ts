@@ -11,9 +11,11 @@ import {
     AuthorizedUrlListType,
     KeyedAppUrl,
     authorizedUrlListLogic,
+    validateProposedUrl,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 
 import type { toolbarSidebarLogicType } from './toolbarType'
+import { teamLogic } from 'scenes/teamLogic'
 
 const fuse = new Fuse<KeyedAppUrl>([], {
     keys: ['url'],
@@ -27,7 +29,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
     connect(() => ({
         values: [
             authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
-            ['urlsKeyed', 'suggestionsLoading'],
+            ['urlsKeyed', 'suggestionsLoading', 'launchUrl'],
             sceneLogic,
             ['activeScene', 'sceneParams'],
         ],
@@ -36,14 +38,27 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
             ['addUrl', 'removeUrl', 'updateUrl'],
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(({ values, actions }) => ({
         contents: [
             (s) => [s.relevantUrls, s.suggestionsLoading],
             (relevantUrls, suggestionsLoading) => [
                 {
                     key: 'sites',
-                    title: 'Sites',
+                    noun: 'site',
                     loading: suggestionsLoading,
+                    onAdd: async (url) => {
+                        await authorizedUrlListLogic({
+                            actionId: null,
+                            type: AuthorizedUrlListType.TOOLBAR_URLS,
+                        }).asyncActions.addUrl(url)
+                    },
+                    validateName: (url) => {
+                        const { currentTeam } = teamLogic.values
+                        if (!currentTeam) {
+                            throw new Error('Project not loaded')
+                        }
+                        return validateProposedUrl(url, currentTeam.app_urls || [])
+                    },
                     items: relevantUrls.map(
                         ([url, matches]) =>
                             ({
@@ -67,7 +82,7 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
                                               {
                                                   items: [
                                                       {
-                                                          to: urls.site(url.url),
+                                                          to: values.launchUrl(url.url),
                                                           targetBlank: true,
                                                           label: 'Open with Toolbar in new tab',
                                                       },
@@ -96,8 +111,8 @@ export const toolbarSidebarLogic = kea<toolbarSidebarLogicType>([
         ],
         activeListItemKey: [
             (s) => [s.activeScene, s.sceneParams],
-            (activeScene, sceneParams) => {
-                return activeScene === Scene.Site ? decodeURIComponent(sceneParams.params.url) : null
+            (activeScene, sceneParams): [string, string] | null => {
+                return activeScene === Scene.Site ? ['sites', decodeURIComponent(sceneParams.params.url)] : null
             },
         ],
         relevantUrls: [

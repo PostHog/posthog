@@ -1,7 +1,12 @@
-from django.test.client import Client as HttpClient
-import pytest
+import datetime as dt
+import json
 
+import pytest
+from asgiref.sync import async_to_sync
+from django.conf import settings
+from django.test.client import Client as HttpClient
 from rest_framework import status
+
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
@@ -12,13 +17,20 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-
-
 from posthog.temporal.client import sync_connect
+from posthog.temporal.codec import EncryptionCodec
 
 pytestmark = [
     pytest.mark.django_db,
 ]
+
+
+@async_to_sync
+async def describe_schedule(temporal, schedule_id: str):
+    """Return the description of a Temporal Schedule with the given id."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    temporal_schedule = await handle.describe()
+    return temporal_schedule
 
 
 def test_can_put_config(client: HttpClient):
@@ -40,6 +52,8 @@ def test_can_put_config(client: HttpClient):
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "start_at": "2023-07-19 00:00:00",
+        "end_at": "2023-07-20 00:00:00",
     }
 
     organization = create_organization("Test Org")
@@ -54,28 +68,46 @@ def test_can_put_config(client: HttpClient):
             batch_export_data,
         )
 
-    # If we try to update without all fields, it should fail with a 400 error
-    new_batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "interval": "hour",
-    }
+        # If we try to update without all fields, it should fail with a 400 error
+        new_batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "interval": "hour",
+        }
+        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
+        old_schedule = describe_schedule(temporal, batch_export["id"])
 
-    # We should be able to update if we specify all fields
-    new_batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "day",
-    }
+        # We should be able to update if we specify all fields
+        new_destination_data = {**destination_data}
+        new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
+        new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
+        new_batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "destination": new_destination_data,
+            "interval": "day",
+            "start_at": "2022-07-19 00:00:00",
+        }
 
-    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-    assert response.status_code == status.HTTP_200_OK
+        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        assert response.status_code == status.HTTP_200_OK
 
-    # get the batch export and validate e.g. that interval has been updated to day
-    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert batch_export["interval"] == "day"
+        # get the batch export and validate e.g. that interval has been updated to day
+        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert batch_export["interval"] == "day"
+
+        # validate the underlying temporal schedule has been updated
+        codec = EncryptionCodec(settings=settings)
+        new_schedule = describe_schedule(temporal, batch_export["id"])
+        assert old_schedule.schedule.spec.intervals[0].every != new_schedule.schedule.spec.intervals[0].every
+        assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+        assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.timezone.utc)
+        assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.timezone.utc)
+
+        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["bucket_name"] == "my-new-production-s3-bucket"
+        assert args["aws_secret_access_key"] == "new-secret"
 
 
 def test_can_patch_config(client: HttpClient):
@@ -110,29 +142,38 @@ def test_can_patch_config(client: HttpClient):
             team.pk,
             batch_export_data,
         )
+        old_schedule = describe_schedule(temporal, batch_export["id"])
 
-    # We should be able to update the destination config, excluding the aws
-    # credentials. The existing values should be preserved, e.g.
-    # batch_window_size = 3600
-    new_destination_data = {
-        "type": "S3",
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
+        # We should be able to update the destination config, excluding the aws
+        # credentials. The existing values should be preserved, e.g.
+        # batch_window_size = 3600
+        new_destination_data = {
+            "type": "S3",
+            "config": {
+                "bucket_name": "my-new-production-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+            },
+        }
 
-    new_batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": new_destination_data,
-    }
+        new_batch_export_data = {
+            "name": "my-production-s3-bucket-destination",
+            "destination": new_destination_data,
+        }
 
-    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-    assert response.status_code == status.HTTP_200_OK, response.json()
+        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
-    # get the batch export and validate e.g. that batch_window_size and interval
-    # has been preserved
-    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert batch_export["interval"] == "hour"
-    assert batch_export["destination"]["config"]["batch_window_size"] == 3600
+        # get the batch export and validate e.g. that batch_window_size and interval
+        # has been preserved
+        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert batch_export["interval"] == "hour"
+        assert batch_export["destination"]["config"]["batch_window_size"] == 3600
+
+        # validate the underlying temporal schedule has been updated
+        codec = EncryptionCodec(settings=settings)
+        new_schedule = describe_schedule(temporal, batch_export["id"])
+        assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["bucket_name"] == "my-new-production-s3-bucket"

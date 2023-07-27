@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
@@ -98,6 +98,14 @@ export function RecordingsLists({
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shouldShowFiltersByDefaultFlag = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SHOW_FILTERS_BY_DEFAULT]
+    useEffect(() => {
+        if (shouldShowFiltersByDefaultFlag === 'always_open') {
+            setShowFilters(true)
+        }
+    }, [shouldShowFiltersByDefaultFlag])
+
     return (
         <>
             <div className="SessionRecordingsPlaylist__lists">
@@ -185,7 +193,7 @@ export function RecordingsLists({
                                                 className={clsx(
                                                     'transition-all flex items-center',
                                                     !autoplayDirection && 'text-border text-sm',
-                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    !!autoplayDirection && 'text-white text-xs pl-px',
                                                     autoplayDirection === 'newer' && 'rotate-180'
                                                 )}
                                             >
@@ -266,7 +274,7 @@ export function RecordingsLists({
                             <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
                                 {sessionRecordingsResponseLoading ? (
                                     <>
-                                        <Spinner monocolor /> Loading older recordings
+                                        <Spinner textColored /> Loading older recordings
                                     </>
                                 ) : hasNext ? (
                                     <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>

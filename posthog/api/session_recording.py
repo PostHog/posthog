@@ -81,7 +81,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "matching_events",
             "person",
             "storage",
             "pinned_count",
@@ -103,7 +102,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "matching_events",
             "storage",
             "pinned_count",
         ]
@@ -424,7 +422,7 @@ def list_recordings(
     recordings: List[SessionRecording] = []
     more_recordings_available = False
     can_use_v2 = v2 and not any(entity.has_hogql_property for entity in filter.entities)
-    can_use_v3 = v3
+    can_use_v3 = v3 and not any(entity.has_hogql_property for entity in filter.entities)
     team = context["get_team"]()
 
     if all_session_ids:
