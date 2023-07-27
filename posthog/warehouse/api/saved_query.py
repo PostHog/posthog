@@ -2,7 +2,7 @@ from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import DataWarehouseView
+from posthog.warehouse.models import DatawarehouseSavedQuery
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
@@ -10,11 +10,11 @@ from posthog.models import User
 from typing import Any
 
 
-class DataWarehouseViewSerializer(serializers.ModelSerializer):
+class DatawarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DataWarehouseView
+        model = DatawarehouseSavedQuery
         fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
@@ -22,7 +22,7 @@ class DataWarehouseViewSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        view = DataWarehouseView(**validated_data)
+        view = DatawarehouseSavedQuery(**validated_data)
 
         # The columns will be inferred from the query
         try:
@@ -43,13 +43,13 @@ class DataWarehouseViewSerializer(serializers.ModelSerializer):
         return view
 
 
-class DatawarehouseViewViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DatawarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    queryset = DataWarehouseView.objects.all()
-    serializer_class = DataWarehouseViewSerializer
+    queryset = DatawarehouseSavedQuery.objects.all()
+    serializer_class = DatawarehouseSavedQuerySerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]

@@ -1,3 +1,3 @@
 from .table import *
 from .credential import *
-from .datawarehouse_view import *
+from .datawarehouse_saved_query import *

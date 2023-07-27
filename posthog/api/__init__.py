@@ -3,7 +3,7 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import table, view
+from posthog.warehouse.api import saved_query, table
 
 from . import (
     activity_log,
@@ -135,7 +135,7 @@ batch_exports_router = projects_router.register(
 batch_exports_router.register(r"runs", batch_exports.BatchExportRunViewSet, "runs", ["team_id", "batch_export_id"])
 
 projects_router.register(r"warehouse_table", table.TableViewSet, "warehouse_api", ["team_id"])
-projects_router.register(r"warehouse_view", view.DatawarehouseViewViewSet, "warehouse_api", ["team_id"])
+projects_router.register(r"warehouse_view", saved_query.DatawarehouseSavedQueryViewSet, "warehouse_api", ["team_id"])
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

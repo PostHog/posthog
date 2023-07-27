@@ -7,7 +7,7 @@ from typing import Dict
 import re
 
 
-class DataWarehouseView(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     name: models.CharField = models.CharField(max_length=128, unique=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns: models.JSONField = models.JSONField(

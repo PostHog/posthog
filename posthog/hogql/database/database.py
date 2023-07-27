@@ -79,7 +79,7 @@ class Database(BaseModel):
 
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseView
+    from posthog.warehouse.models import DataWarehouseTable, DatawarehouseSavedQuery
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
@@ -92,7 +92,7 @@ def create_hogql_database(team_id: int) -> Database:
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
-    for table in DataWarehouseView.objects.filter(team_id=team.pk).exclude(deleted=True):
+    for table in DatawarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
     database.add_warehouse_tables(**tables)

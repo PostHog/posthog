@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
 
     operations = [
         CreateModelConstraintIgnore(
-            name="DataWarehouseView",
+            name="DatawarehouseSavedQuery",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("deleted", models.BooleanField(blank=True, null=True)),
