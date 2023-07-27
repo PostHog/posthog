@@ -22,7 +22,7 @@ class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     name: models.CharField = models.CharField(max_length=128, validators=[validate_database_name])
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns: models.JSONField = models.JSONField(
-        default=dict, null=True, blank=True, help_text="Dict of all columns with Clickhouse type (including Nullable())"
+        default=dict, null=True, blank=True, help_text="Dict of all columns with ClickHouse type (including Nullable())"
     )
     query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
 
