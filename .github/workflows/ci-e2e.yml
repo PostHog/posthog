@@ -171,10 +171,12 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   EOT
 
-            - name: Lowercase GITHUB_REPOSITORY
+            - name: Lowercase repository
               id: lowercase
+              env:
+                  GITHUB_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
               run: |
-                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+                  echo "repository=${GITHUB_HEAD_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
             - name: Get the PostHog container image of this PR
               if: needs.changes.outputs.shouldTriggerCypress == 'true'

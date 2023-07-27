@@ -24,10 +24,13 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v3
 
-            - name: Lowercase GITHUB_REPOSITORY
+            - name: Lowercase repository
               id: lowercase
+              env:
+                  GITHUB_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
               run: |
-                  echo "repository=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+                  echo "repository=${GITHUB_HEAD_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
 
             - name: Docker meta
               id: meta
@@ -53,7 +56,7 @@ jobs:
               uses: docker/login-action@v2
               with:
                   registry: ghcr.io
-                  username: ${{ github.repository_owner }}
+                  username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build container images
