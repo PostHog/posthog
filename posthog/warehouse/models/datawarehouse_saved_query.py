@@ -5,9 +5,9 @@ from posthog.models.team import Team
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.database import Database
 from typing import Dict
-import re
 
 from django.core.exceptions import ValidationError
+from posthog.warehouse.models.util import remove_named_tuples
 
 
 def validate_database_name(value):
@@ -50,7 +50,7 @@ class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
             if type.startswith("Array("):
-                type = self.remove_named_tuples(type)
+                type = remove_named_tuples(type)
 
             type = type.partition("(")[0]
             type = CLICKHOUSE_HOGQL_MAPPING[type]
@@ -61,18 +61,3 @@ class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             query=self.query["query"],
             fields=fields,
         )
-
-    # repeated from table.py
-    def remove_named_tuples(self, type):
-        from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
-
-        """Remove named tuples from query"""
-        tokenified_type = re.split(r"(\W)", type)
-        filtered_tokens = [
-            token
-            for token in tokenified_type
-            if token == "Nullable"
-            or (len(token) == 1 and not token.isalnum())
-            or token in CLICKHOUSE_HOGQL_MAPPING.keys()
-        ]
-        return "".join(filtered_tokens)
