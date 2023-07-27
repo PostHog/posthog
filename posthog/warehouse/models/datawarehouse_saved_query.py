@@ -33,7 +33,9 @@ class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     query: models.JSONField = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["name"], name="posthog_datawarehouse_saved_query_unique_name")]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "name"], name="posthog_datawarehouse_saved_query_unique_name")
+        ]
 
     def get_columns(self) -> Dict[str, str]:
         from posthog.api.query import process_query
