@@ -567,7 +567,7 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     display: true,
-                    stacked: isArea,
+                    stacked: showPercentStackView || isArea,
                     ticks: {
                         precision,
                         ...tickOptions,
