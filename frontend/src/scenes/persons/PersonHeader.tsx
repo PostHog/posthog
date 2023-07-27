@@ -78,7 +78,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
 
     let content = (
         <div className="flex items-center">
-            {props.withIcon && <ProfilePicture name={display} size="md" />}
+            {props.withIcon && <ProfilePicture name={display} email={props.person?.properties?.email} size="md" />}
             <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
         </div>
     )
@@ -116,7 +116,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
         >
             <span
                 onClick={() => {
-                    if (visible) {
+                    if (visible && href) {
                         router.actions.push(href)
                     } else {
                         setVisible(true)
