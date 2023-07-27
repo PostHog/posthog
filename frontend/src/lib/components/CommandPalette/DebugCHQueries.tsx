@@ -100,7 +100,13 @@ function DebugCHQueries(): JSX.Element {
                             </LemonButton>
                         ))}
                     </div>
-                    <LemonButton icon={<IconRefresh />} onClick={() => loadQueries()} size="small" type="secondary">
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        disabledReason={queriesLoading ? 'Loading…' : null}
+                        onClick={() => loadQueries()}
+                        size="small"
+                        type="secondary"
+                    >
                         Refresh
                     </LemonButton>
                 </div>
