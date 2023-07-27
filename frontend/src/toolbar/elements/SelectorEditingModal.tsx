@@ -34,7 +34,6 @@ export const SelectorEditingModal = ({
                         type="primary"
                         onClick={(e) => {
                             e.stopPropagation()
-                            console.log('calling onChange from modal with ', chosenSelector)
                             onChange?.(chosenSelector)
                             setIsOpen(false)
                         }}
