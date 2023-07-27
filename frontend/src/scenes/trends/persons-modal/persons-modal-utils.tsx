@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
@@ -8,9 +9,11 @@ import {
     ChartDisplayType,
     FilterLogicalOperator,
     FilterType,
+    FunnelsFilterType,
     FunnelVizType,
     GraphDataset,
     LifecycleToggle,
+    PathsFilterType,
     StepOrderValue,
     TrendsFilterType,
 } from '~/types'
@@ -125,11 +128,6 @@ export interface PeopleParamType {
     lifecycle_type?: string | number
 }
 
-export interface PeopleUrlBuilderParams extends PeopleParamType {
-    filters: Partial<FilterType>
-    funnelStep?: number
-}
-
 export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterTrendsClientSideParams({
@@ -164,47 +162,41 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toParams({ ...params, ...restParams })
 }
 
+export interface PeopleUrlBuilderParams extends PeopleParamType {
+    filters: Partial<FunnelsFilterType> | Partial<PathsFilterType>
+    funnelStep?: number
+}
+
 // NOTE: Ideally this should be built server side and returned in `persons_urls` but for those that don't support it we can built it on the frontend
-export const buildPeopleUrl = ({
-    action,
-    filters,
-    date_from,
-    date_to,
-    breakdown_value,
-    funnelStep,
-}: PeopleUrlBuilderParams): string | undefined => {
+export const buildPeopleUrl = ({ filters, date_from, funnelStep }: PeopleUrlBuilderParams): string | undefined => {
     if (isFunnelsFilter(filters) && filters.funnel_correlation_person_entity) {
-        const cleanedParams = cleanFilters(filters)
-        return `api/person/funnel/correlation/?${cleanedParams}`
-    } else if (isStickinessFilter(filters)) {
-        const filterParams = parsePeopleParams({ action, date_from, date_to, breakdown_value }, filters)
-        return `api/person/stickiness/?${filterParams}`
+        // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
+        Sentry.captureException(new Error('buildPeopleUrl used for funnel correlation'), {
+            extra: { filters },
+        })
     } else if (isFunnelsFilter(filters) && (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends)) {
         let params
         if (filters.funnel_viz_type === FunnelVizType.Trends) {
             // funnel trends
             const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
             params = { ...filters, entrance_period_start, drop_off: false }
+            const cleanedParams = cleanFilters(params)
+            const funnelParams = toParams(cleanedParams)
+            return `api/person/funnel/?${funnelParams}`
         } else {
-            // regular funnel steps
-            params = {
-                ...filters,
-                funnel_step: funnelStep,
-                ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
-            }
+            // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
+            Sentry.captureException(new Error('buildPeopleUrl used for non-trends funnel'), {
+                extra: { filters },
+            })
         }
-        const cleanedParams = cleanFilters(params)
-        const funnelParams = toParams(cleanedParams)
-        return `api/person/funnel/?${funnelParams}`
     } else if (isPathsFilter(filters)) {
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
-
         return `api/person/path/?${pathParams}`
     } else {
-        return `api/projects/@current/actions/people?${parsePeopleParams(
-            { action, date_from, date_to, breakdown_value },
-            filters
-        )}`
+        // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
+        Sentry.captureException(new Error('buildPeopleUrl used for unsupported filters'), {
+            extra: { filters },
+        })
     }
 }
