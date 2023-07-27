@@ -172,10 +172,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             return
         }
 
-        console.log('Listening')
         // If not opened from a slash command, we want to add our own keyboard listeners
         const keyDownListener = (event: KeyboardEvent): void => {
-            console.log('keydown', event)
             const preventDefault = onKeyDown(event)
             if (preventDefault) {
                 event.preventDefault()

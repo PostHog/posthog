@@ -130,7 +130,7 @@ export function Editor({
                         // if dropping external files
                         const file = event.dataTransfer.files[0] // the dropped file
 
-                        console.log('TODO: Dropped file!', file)
+                        console.warn('TODO: Dropped file!', file)
                         // TODO: Detect if it is an image and add image upload handler
 
                         return true

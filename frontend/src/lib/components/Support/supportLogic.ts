@@ -251,7 +251,6 @@ export const supportLogic = kea<supportLogicType>([
                 })
                 .catch((err) => {
                     captureException(err)
-                    console.log(err)
                     lemonToast.error(`There was an error sending the message.`)
                 })
         },
