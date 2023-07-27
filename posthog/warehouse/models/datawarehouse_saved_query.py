@@ -5,12 +5,18 @@ from posthog.models.team import Team
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.database import Database
 from typing import Dict
-
+import re
 from django.core.exceptions import ValidationError
 from posthog.warehouse.models.util import remove_named_tuples
 
 
 def validate_database_name(value):
+    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", value):
+        raise ValidationError(
+            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', or '$' ",
+            params={"value": value},
+        )
+
     if value in Database._table_names:
         raise ValidationError(
             f"{value} is not a valid view name. View names cannot overlap with PostHog table names.",
