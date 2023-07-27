@@ -4,15 +4,27 @@ import { eventWithTime } from '@rrweb/types'
 
 const PROXY_URL = 'https://replay-proxy.posthog.com' as const
 
-export const CorsPlugin: ReplayPlugin & { _replaceFontURLs: (value: string) => string } = {
-    _replaceFontURLs: (value: string): string => {
+export const CorsPlugin: ReplayPlugin & {
+    _replaceFontCssUrls: (value: string) => string
+    _replaceFontUrl: (value: string) => string
+} = {
+    _replaceFontCssUrls: (value: string): string => {
         return value.replace(/url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi, `url("${PROXY_URL}?url=$1")`)
+    },
+
+    _replaceFontUrl: (value: string): string => {
+        return value.replace(/^(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)$/i, `${PROXY_URL}?url=$1`)
     },
 
     onBuild: (node) => {
         if (node.nodeName === 'STYLE') {
             const styleElement = node as HTMLStyleElement
-            styleElement.innerText = CorsPlugin._replaceFontURLs(styleElement.innerText)
+            styleElement.innerText = CorsPlugin._replaceFontCssUrls(styleElement.innerText)
+        }
+
+        if (node.nodeName === 'LINK') {
+            const linkElement = node as HTMLLinkElement
+            linkElement.href = CorsPlugin._replaceFontUrl(linkElement.href)
         }
     },
 }
