@@ -6,9 +6,9 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline'> & {
-    primaryButton?: LemonButtonProps
-    secondaryButton?: LemonButtonProps
-    tertiaryButton?: LemonButtonProps
+    primaryButton?: LemonButtonProps | null
+    secondaryButton?: LemonButtonProps | null
+    tertiaryButton?: LemonButtonProps | null
     content?: ReactNode
     onClose?: () => void
     onAfterClose?: () => void
@@ -29,12 +29,18 @@ export function LemonDialog({
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
 
-    primaryButton = primaryButton || {
-        children: 'Okay',
+    primaryButton =
+        primaryButton ||
+        (primaryButton === null
+            ? null
+            : {
+                  children: 'Okay',
+              })
+    if (primaryButton) {
+        primaryButton.type = primaryButton.type || 'primary'
     }
-    primaryButton.type = primaryButton.type || 'primary'
 
-    const renderButton = (button: LemonButtonProps | undefined): JSX.Element | null => {
+    const renderButton = (button: LemonButtonProps | null | undefined): JSX.Element | null => {
         if (!button) {
             return null
         }
@@ -64,11 +70,13 @@ export function LemonDialog({
             onClose={() => setIsOpen(false)}
             onAfterClose={() => onAfterClose?.()}
             footer={
-                <>
-                    <div className="flex-1">{renderButton(tertiaryButton)}</div>
-                    {renderButton(secondaryButton)}
-                    {renderButton(primaryButton)}
-                </>
+                primaryButton || secondaryButton || tertiaryButton ? (
+                    <>
+                        <div className="flex-1">{renderButton(tertiaryButton)}</div>
+                        {renderButton(secondaryButton)}
+                        {renderButton(primaryButton)}
+                    </>
+                ) : null
             }
         >
             {content}

@@ -41,7 +41,7 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                             <LemonDivider dashed />
                         </>
                     ) : null}
-                    <CodeSnippet language={Language.JavaScript} wrap copyDescription="console log">
+                    <CodeSnippet language={Language.JavaScript} wrap thing="console log">
                         {item.data.lines.join(' ')}
                     </CodeSnippet>
 
@@ -49,7 +49,7 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                         <>
                             <LemonDivider dashed />
                             <LemonLabel>Stack trace</LemonLabel>
-                            <CodeSnippet language={Language.Markup} wrap copyDescription="stack trace">
+                            <CodeSnippet language={Language.Markup} wrap thing="stack trace">
                                 {item.data.trace.join('\n')}
                             </CodeSnippet>
                         </>
