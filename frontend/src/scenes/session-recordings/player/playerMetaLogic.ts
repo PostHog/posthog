@@ -18,6 +18,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         values: [
             sessionRecordingDataLogic(props),
             [
+                'urls',
                 'sessionPlayerData',
                 'sessionEventsData',
                 'sessionPlayerMetaData',
@@ -84,6 +85,22 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
                 return windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
+            },
+        ],
+        lastUrl: [
+            (s) => [s.urls, s.currentTimestamp],
+            (urls, currentTimestamp): string | undefined => {
+                if (!currentTimestamp) {
+                    return
+                }
+
+                // Go through the events in reverse to find the latest pageview
+                for (let i = urls.length - 1; i >= 0; i--) {
+                    const urlTimestamp = urls[i]
+                    if (urlTimestamp.timestamp < currentTimestamp) {
+                        return urlTimestamp.url
+                    }
+                }
             },
         ],
         lastPageviewEvent: [
