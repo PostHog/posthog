@@ -160,7 +160,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 router.actions.push(
                     urls.insightNew({
                         insight: InsightType.FUNNELS,
-                        events,
+                        events: events.reverse(),
                         date_from: values.dateRange?.date_from,
                     })
                 )
