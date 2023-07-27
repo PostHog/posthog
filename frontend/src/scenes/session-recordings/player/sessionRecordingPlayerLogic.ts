@@ -43,6 +43,7 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
+import { createReplayer } from './rrweb'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -398,13 +399,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], {
-                root: values.rootFrame,
-                triggerFocus: false,
-                insertStyleRules: [
-                    `.ph-no-capture {   background-image: url("data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg=="); }`,
-                ],
-            })
+            const replayer = createReplayer(values.sessionPlayerData.snapshotsByWindowId[windowId], values.rootFrame)
             actions.setPlayer({ replayer, windowId })
         },
         setPlayer: ({ player }) => {
