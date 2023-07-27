@@ -44,6 +44,7 @@ body strong {
 // Disable default styling for ul
 ul {
     margin-bottom: 0;
+    margin-top: 0;
     list-style: none;
     padding-left: 0;
 }
@@ -802,6 +803,13 @@ body {
     .ant-progress-line {
         margin: inherit;
         margin-inline-end: inherit;
+    }
+
+    .ant-dropdown-button > .anticon.anticon-down,
+    .ant-dropdown-link > .anticon.anticon-down,
+    .ant-dropdown-trigger > .anticon.anticon-down {
+        font-size: 10px;
+        vertical-align: baseline;
     }
 }
 
