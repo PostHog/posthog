@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
@@ -97,14 +97,6 @@ export function RecordingsLists({
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowFiltersByDefaultFlag = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SHOW_FILTERS_BY_DEFAULT]
-    useEffect(() => {
-        if (shouldShowFiltersByDefaultFlag === 'always_open') {
-            setShowFilters(true)
-        }
-    }, [shouldShowFiltersByDefaultFlag])
 
     return (
         <>
