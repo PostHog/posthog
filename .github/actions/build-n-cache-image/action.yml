@@ -1,0 +1,39 @@
+name: Build and cache Docker image
+
+inputs:
+    actions-id-token-request-url:
+        required: true
+    load:
+        required: false
+        default: 'false'
+
+outputs:
+    tag:
+        description: The tag of the image that was built
+        value: ${{ steps.emit.outputs.tag }}
+
+runs:
+    using: 'composite'
+    steps:
+        - name: Check out
+          uses: actions/checkout@v3
+      
+        - name: Set up Depot CLI
+          uses: depot/setup-action@v1
+
+        - name: Build image # We don't push this because we use Depot cache as the communication channel
+          id: build
+          uses: depot/build-push-action@v1
+          with:
+              project: x19jffd9zf # posthog
+              buildx-fallback: false # buildx is so slow it's better to just fail
+              load: ${{ inputs.load }}
+              tags: PostHog/posthog:${{ github.sha }}
+              platforms: linux/amd64,linux/arm64
+          env:
+              ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
+          
+        - name: Emit image tag
+          id: emit
+          shell: bash
+          run: echo "tag=PostHog/posthog:${{ github.sha }}" >> $GITHUB_OUTPUT

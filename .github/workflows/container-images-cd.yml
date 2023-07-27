@@ -28,7 +28,7 @@ jobs:
             packages: write # allow push to ghcr.io
 
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
               with:
                   fetch-depth: 2

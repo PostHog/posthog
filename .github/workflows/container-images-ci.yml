@@ -14,62 +14,15 @@ jobs:
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
-            packages: write # allow push to ghcr.io
-
-        outputs:
-            container_image_tags: ${{ steps.meta.outputs.tags }}
-            container_image_version: ${{ steps.meta.outputs.version }}
 
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
 
-            - name: Lowercase repository
-              id: lowercase
-              env:
-                  GITHUB_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-              run: |
-                  echo "repository=${GITHUB_HEAD_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@v4
+            - name: Build and cache Docker image in Depot
+              uses: ./.github/actions/build-n-cache-image
               with:
-                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
-                  tags: |
-                      type=schedule
-                      type=ref,event=branch
-                      type=ref,event=tag
-                      type=ref,event=pr
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
-
-            - name: Login to GitHub Container Registry
-              uses: docker/login-action@v2
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Build container images
-              id: build
-              uses: depot/build-push-action@v1
-              with:
-                  project: x19jffd9zf # posthog
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
-                  tags: ${{ steps.meta.outputs.tags }}
-                  platforms: linux/amd64,linux/arm64
+                actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     deploy_preview:
         name: Deploy preview environment
@@ -82,7 +35,7 @@ jobs:
         name: Lint Dockerfiles
         runs-on: ubuntu-latest
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
               with:
                   fetch-depth: 0

@@ -70,7 +70,7 @@ jobs:
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   wait-interval: 10
 
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
 
             - name: List cypress/e2e and produce a JSON array of the files, in chunks
@@ -83,7 +83,8 @@ jobs:
         timeout-minutes: 30
         needs: [cypress_prep, changes]
         permissions:
-            packages: read # allow pull from ghcr.io
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow at least reading the repo contents, add other permissions if necessary
 
         strategy:
             # when one test fails, DO NOT cancel the other
@@ -171,19 +172,12 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   EOT
 
-            - name: Lowercase repository
-              id: lowercase
-              env:
-                  GITHUB_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-              run: |
-                  echo "repository=${GITHUB_HEAD_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-            - name: Get the PostHog container image of this PR
-              if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              id: meta
-              uses: docker/metadata-action@v4
+            - name: Get Docker image cached in Depot
+              uses: ./.github/actions/build-n-cache-image
+              id: docker-build
               with:
-                  images: ghcr.io/${{ steps.lowercase.outputs.repository }}/posthog
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  load: true
 
             - name: Start PostHog
               # these are required checks so, we can't skip entire sections
@@ -191,8 +185,8 @@ jobs:
               run: |
                   mkdir -p /tmp/logs
 
-                  echo "Starting PostHog using the container image ${{ steps.meta.outputs.tags }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ steps.meta.outputs.tags }}"
+                  echo "Starting PostHog using the container image ${{ steps.docker-build.outputs.tag }}"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ steps.docker-build.outputs.tag }}"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev

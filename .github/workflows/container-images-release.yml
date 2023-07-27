@@ -21,7 +21,7 @@ jobs:
             contents: read # allow at least reading the repo contents, add other permissions if necessary
 
         steps:
-            - name: Checkout code
+            - name: Check out
               uses: actions/checkout@v3
 
             - name: Update git SHA

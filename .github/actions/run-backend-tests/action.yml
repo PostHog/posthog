@@ -2,29 +2,22 @@
 # This is a composite action that packages our backend Django tests.
 # It is called by the `ci-backend.yml` job using a matrix.
 #
-name: Run Backend Django tests
+name: Run Django tests
 inputs:
     python-version:
         required: true
-        type: string
     clickhouse-server-image:
         required: true
-        type: string
     segment:
         required: true
-        type: string
     concurrency:
         required: true
-        type: number
     group:
         required: true
-        type: number
     person-on-events:
         required: true
-        type: boolean
     token:
         required: false
-        type: string
         description: GitHub token
 
 runs:
