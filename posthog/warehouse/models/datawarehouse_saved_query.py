@@ -2,7 +2,7 @@ from posthog.models.utils import UUIDModel, CreatedMetaFields, DeletedMetaFields
 from django.db import models
 from posthog.models.team import Team
 
-from posthog.hogql.database.models import View
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.database import Database
 from typing import Dict
 import re
@@ -34,7 +34,7 @@ class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         types = response.get("types", {})
         return dict(types)
 
-    def hogql_definition(self) -> View:
+    def hogql_definition(self) -> SavedQuery:
         from posthog.warehouse.models.table import ClickhouseHogqlMapping
 
         if not self.columns:
@@ -53,7 +53,7 @@ class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             type = ClickhouseHogqlMapping[type]
             fields[column] = type(name=column)
 
-        return View(
+        return SavedQuery(
             name=self.name,
             query=self.query["query"],
             fields=fields,

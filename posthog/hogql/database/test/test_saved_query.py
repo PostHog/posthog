@@ -11,7 +11,7 @@ from posthog.hogql.database.test.tables import (
 )
 
 
-class TestView(BaseTest):
+class TestSavedQuery(BaseTest):
     maxDiff = None
 
     def _init_database(self):
@@ -25,7 +25,7 @@ class TestView(BaseTest):
     def _select(self, query: str, dialect: str = "clickhouse") -> str:
         return print_ast(parse_select(query), self.context, dialect=dialect)
 
-    def test_view_table_select(self):
+    def test_saved_query_table_select(self):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
@@ -38,7 +38,7 @@ class TestView(BaseTest):
             "SELECT aapl_stock_view.Date, aapl_stock_view.Open, aapl_stock_view.High, aapl_stock_view.Low, aapl_stock_view.Close, aapl_stock_view.Volume, aapl_stock_view.OpenInt FROM (WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM aapl_stock) AS aapl_stock_view LIMIT 10",
         )
 
-    def test_nested_views(self):
+    def test_nested_saved_queries(self):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
@@ -51,7 +51,7 @@ class TestView(BaseTest):
             "SELECT aapl_stock_nested_view.Date, aapl_stock_nested_view.Open, aapl_stock_nested_view.High, aapl_stock_nested_view.Low, aapl_stock_nested_view.Close, aapl_stock_nested_view.Volume, aapl_stock_nested_view.OpenInt FROM (SELECT aapl_stock_view.Date, aapl_stock_view.Open, aapl_stock_view.High, aapl_stock_view.Low, aapl_stock_view.Close, aapl_stock_view.Volume, aapl_stock_view.OpenInt FROM (WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM aapl_stock) AS aapl_stock_view) AS aapl_stock_nested_view LIMIT 10",
         )
 
-    def test_view_with_alias(self):
+    def test_saved_query_with_alias(self):
         self._init_database()
 
         hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
