@@ -6,6 +6,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { midEllipsis } from 'lib/utils'
 import clsx from 'clsx'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { PersonPreview } from './PersonPreview'
+import { useState } from 'react'
+import { router } from 'kea-router'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
@@ -16,6 +20,7 @@ export interface PersonHeaderProps {
     withIcon?: boolean
     noLink?: boolean
     noEllipsis?: boolean
+    noPopover?: boolean
 }
 
 /** Very permissive email format. */
@@ -69,21 +74,28 @@ export const asLink = (person?: PersonPropType | null): string | undefined =>
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const href = asLink(props.person)
     const display = asDisplay(props.person)
+    const [visible, setVisible] = useState(false)
 
-    const content = (
+    let content = (
         <div className="flex items-center">
             {props.withIcon && <ProfilePicture name={display} size="md" />}
             <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
         </div>
     )
 
-    return (
+    content = (
         <div className="person-header">
             {props.noLink || !href ? (
                 content
             ) : (
                 <Link
                     to={href}
+                    onClick={(e) => {
+                        if (!props.noPopover) {
+                            e.preventDefault()
+                            return
+                        }
+                    }}
                     data-attr={`goto-person-email-${props.person?.distinct_id || props.person?.distinct_ids?.[0]}`}
                 >
                     {content}
@@ -91,4 +103,30 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
             )}
         </div>
     )
+
+    content = props.noPopover ? (
+        content
+    ) : (
+        <Popover
+            overlay={<PersonPreview distinctId={props.person?.distinct_id || props.person?.distinct_ids?.[0]} />}
+            visible={visible}
+            onClickOutside={() => setVisible(false)}
+            placement="right"
+            fallbackPlacements={['bottom', 'top']}
+        >
+            <span
+                onClick={() => {
+                    if (visible) {
+                        router.actions.push(href)
+                    } else {
+                        setVisible(true)
+                    }
+                }}
+            >
+                {content}
+            </span>
+        </Popover>
+    )
+
+    return content
 }
