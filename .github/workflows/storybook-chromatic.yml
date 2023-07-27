@@ -135,16 +135,23 @@ jobs:
               env:
                   # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
                   HOME: /root
+                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
+                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
               run: |
-                  pnpm test:visual-regression:stories:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
+                  pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
             - name: Run @playwright/test (legacy, Chromium-only)
               if: matrix.browser == 'chromium' && matrix.shard == 1
+              env:
+                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
+                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
               run: |
-                  pnpm test:visual-regression:legacy:ci:update
+                  pnpm test:visual-regression:legacy:ci:$VARIANT
 
             - name: Count and optimize updated snapshots
               id: diff
+              # Skip on forks
+              if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   git config --global --add safe.directory '*' # Calm git down about file ownership
                   git diff --name-status frontend/__snapshots__/ # For debugging
@@ -168,6 +175,7 @@ jobs:
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
+              if: github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
@@ -189,6 +197,7 @@ jobs:
         if: always() # Run even if visual-regression fails for one (or more) of the browsers
         steps:
             - name: Post comment about updated snapshots
+              if: github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
