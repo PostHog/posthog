@@ -83,7 +83,7 @@ export const NotebookNodePerson = Node.create({
     addPasteRules() {
         return [
             posthogNodePasteRule({
-                find: urls.person('') + '(.+)',
+                find: urls.person('(.+)'),
                 type: this.type,
                 editor: this.editor,
                 getAttributes: async (match) => {

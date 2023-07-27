@@ -6,7 +6,6 @@ import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import FloatingMenu from '@tiptap/extension-floating-menu'
 import ExtensionDocument from '@tiptap/extension-document'
 import { EditorRange, isCurrentNodeEmpty } from './utils'
-// import Link from '@tiptap/extension-link'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -14,7 +13,6 @@ import { NotebookNodeInsight } from 'scenes/notebooks/Nodes/NotebookNodeInsight'
 import { NotebookNodeRecording } from 'scenes/notebooks/Nodes/NotebookNodeRecording'
 import { NotebookNodePlaylist } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
-// import { NotebookNodeLink } from '../Nodes/NotebookNodeLink'
 
 import posthog from 'posthog-js'
 import { FloatingSlashCommands, SlashCommandsExtension } from './SlashCommands'
@@ -23,6 +21,7 @@ import { BacklinkCommandsExtension } from './BacklinkCommands'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { Node } from '@tiptap/pm/model'
+import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -68,10 +67,7 @@ export function Editor({
                     return false
                 },
             }),
-            // NotebookNodeLink,
-            // Link.configure({
-            //     openOnClick: false,
-            // }),
+            NotebookMarkLink,
             NotebookNodeBacklink,
             NotebookNodeInsight,
             NotebookNodeQuery,

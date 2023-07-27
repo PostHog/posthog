@@ -95,7 +95,7 @@ export const NotebookNodeFlag = Node.create({
     addPasteRules() {
         return [
             posthogNodePasteRule({
-                find: urls.featureFlag('') + '(.+)',
+                find: urls.featureFlag('(.+)'),
                 type: this.type,
                 editor: this.editor,
                 getAttributes: async (match) => {

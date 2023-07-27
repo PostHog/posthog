@@ -1,4 +1,4 @@
-import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, nodePasteRule } from '@tiptap/core'
+import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
@@ -21,9 +21,8 @@ export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (val
     return [value, setValue]
 }
 
-export function createUrlRegex(path: string, origin?: string): RegExp {
+export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
-
     return new RegExp(origin + path, 'ig')
 }
 
@@ -57,17 +56,38 @@ export function posthogNodePasteRule(options: {
     })
 }
 
-export function externalLinkPasteRule(options: {
-    find: string
-    type: NodeType
-    getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
-}): PasteRule {
-    return nodePasteRule({
-        find: createUrlRegex(options.find, '(https?|mailto)://'),
-        type: options.type,
-        getAttributes: (match) => {
-            const attrs = options.getAttributes(match)
-            return attrs
+export function posthogLinkPasteRule(editor: TTEditor): PasteRule {
+    return markPasteRule({ internal: true, editor })
+}
+
+export function externalLinkPasteRule(editor: TTEditor): PasteRule {
+    return markPasteRule({ internal: false, editor })
+}
+
+function markPasteRule(options: { internal: boolean; editor: TTEditor }): PasteRule {
+    const regex = createUrlRegex(
+        "([a-zA-Z0-9-._~:/?#\\[\\]!@$&'()*,;=]*)",
+        options.internal ? undefined : '(https?|mailto)://'
+    )
+
+    return new PasteRule({
+        find: regex,
+        handler: ({ match, chain, range }) => {
+            if (match.input) {
+                const url = new URL(match[0])
+                const href = options.internal ? url.pathname : url.toString()
+                chain()
+                    .deleteRange(range)
+                    .insertContent([
+                        {
+                            type: 'text',
+                            marks: [{ type: 'link', attrs: { href } }],
+                            text: href,
+                        },
+                        { type: 'text', text: ' ' },
+                    ])
+                    .run()
+            }
         },
     })
 }

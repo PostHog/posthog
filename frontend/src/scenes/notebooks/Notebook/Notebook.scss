@@ -90,6 +90,12 @@
                 }
             }
         }
+
+        &[contenteditable='true'] {
+            a {
+                cursor: text;
+            }
+        }
     }
 
     &--compact {
