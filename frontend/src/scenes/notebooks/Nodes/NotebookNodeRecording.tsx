@@ -71,6 +71,7 @@ export const NotebookNodeRecording = Node.create({
             posthogNodePasteRule({
                 find: urls.replaySingle('') + '(.+)',
                 type: this.type,
+                editor: this.editor,
                 getAttributes: async (match) => {
                     return { id: match[1] }
                 },

@@ -13,6 +13,7 @@ import {
     EventDefinitionType,
     EventsListQueryParams,
     EventType,
+    Experiment,
     ExportedAssetType,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
@@ -351,6 +352,15 @@ class ApiRequest {
 
     public dashboardTemplateSchema(): ApiRequest {
         return this.dashboardTemplates().addPathComponent('json_schema')
+    }
+
+    // # Experiments
+    public experiments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('experiments')
+    }
+
+    public experimentsDetail(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experiments(teamId).addPathComponent(experimentId)
     }
 
     // # Roles
@@ -861,6 +871,10 @@ const api = {
     },
 
     dashboards: {
+        async get(id: number): Promise<DashboardType> {
+            return new ApiRequest().dashboardsDetail(id).get()
+        },
+
         collaborators: {
             async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
                 return await new ApiRequest().dashboardCollaborators(dashboardId).get()
@@ -918,6 +932,12 @@ const api = {
         },
         determineSchemaUrl(): string {
             return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
+        },
+    },
+
+    experiments: {
+        async get(id: number): Promise<Experiment> {
+            return new ApiRequest().experimentsDetail(id).get()
         },
     },
 

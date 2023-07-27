@@ -104,8 +104,9 @@ export const NotebookNodeLink = Node.create({
         return [
             posthogNodePasteRule({
                 find: '(.+)',
+                editor: this.editor,
                 type: this.type,
-                getAttributes: async (match) => {
+                getAttributes: (match) => {
                     return { href: match[0] }
                 },
             }),

@@ -1,6 +1,7 @@
 import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule, nodePasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
+import { Editor as TTEditor } from '@tiptap/core'
 
 export function useJsonNodeState<T>(props: NodeViewProps, key: string): [T, (value: T) => void] {
     let value = props.node.attrs[key]
@@ -33,55 +34,27 @@ export function reportNotebookNodeCreation(nodeType: string): void {
 export function posthogNodePasteRule(options: {
     find: string
     type: NodeType
+    editor: TTEditor
     getAttributes: (
         match: ExtendedRegExpMatchArray
     ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
 }): PasteRule {
-    // return new PasteRule({
-    //     find: createUrlRegex(options.find),
-    //     handler: async ({ match, chain, range }) => {
-    //         const attributes = await options.getAttributes(match)
-
-    //         if (attributes && match.input) {
-    //             chain()
-    //                 .deleteRange(range)
-    //                 .insertContentAt(range.from, {
-    //                     type: options.type.name,
-    //                     attrs: attributes,
-    //                 })
-    //                 .run()
-    //         }
-    //     },
-    // })
-
     return new PasteRule({
         find: createUrlRegex(options.find),
         handler: ({ match, chain, range }) => {
-            const attributes = options.getAttributes(match)
-
-            if (attributes === false || attributes === null) {
-                return null
-            }
-
             if (match.input) {
-                chain().deleteRange(range).insertContentAt(range.from, {
-                    type: options.type.name,
-                    attrs: attributes,
+                chain().deleteRange(range).run()
+                Promise.resolve(options.getAttributes(match)).then((attributes) => {
+                    if (!!attributes) {
+                        options.editor.commands.insertContent({
+                            type: options.type.name,
+                            attrs: attributes,
+                        })
+                    }
                 })
             }
         },
     })
-
-    // return nodePasteRule({
-    //     find: createUrlRegex(options.find),
-    //     type: options.type,
-    //     getAttributes: async (match) => {
-    //         debugger
-    //         const attrs = await options.getAttributes(match)
-    //         posthog.capture('notebook node pasted', { node_type: options.type.name })
-    //         return attrs
-    //     },
-    // })
 }
 
 export function externalLinkPasteRule(options: {

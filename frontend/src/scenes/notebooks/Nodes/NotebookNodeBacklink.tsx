@@ -94,6 +94,7 @@ export const NotebookNodeBacklink = Node.create({
         return [
             posthogNodePasteRule({
                 find: urls.eventDefinition('(.+)'),
+                editor: this.editor,
                 type: this.type,
                 getAttributes: async (match) => {
                     const id = match[1]
@@ -101,15 +102,36 @@ export const NotebookNodeBacklink = Node.create({
                     return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name }
                 },
             }),
-            // posthogNodePasteRule({
-            //     // TODO: Regex to match all the supported types
-            //     find: '(.+)',
-            //     type: this.type,
-            //     getAttributes: (match) => {
-            //         // TODO: Figure out if we can get the title from some universal api request
-            //         return { id: match[0], type: match[1], title: match[2] }
-            //     },
-            // }),
+            posthogNodePasteRule({
+                find: urls.cohort('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const event = await api.cohorts.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.experiment('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const experiment = await api.experiments.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Experiments, title: experiment.name }
+                },
+            }),
+            posthogNodePasteRule({
+                find: urls.dashboard('(.+)'),
+                editor: this.editor,
+                type: this.type,
+                getAttributes: async (match) => {
+                    const id = match[1]
+                    const dashboard = await api.dashboards.get(Number(id))
+                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name }
+                },
+            }),
         ]
     },
 })

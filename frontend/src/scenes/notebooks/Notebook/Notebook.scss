@@ -60,7 +60,7 @@
             padding: 0.2rem;
         }
 
-        .Backlink__label {
+        .Backlink {
             padding: 0.125rem 0.25rem;
             border: 1px solid var(--border);
             border-radius: var(--radius);
@@ -68,6 +68,10 @@
 
             &:hover {
                 background-color: var(--side);
+            }
+
+            & svg {
+                color: var(--muted-dark);
             }
 
             &.Backlink--selected {
@@ -84,10 +88,6 @@
                 & svg {
                     color: var(--white);
                 }
-            }
-
-            & .Backlink__label {
-                color: var(--black);
             }
         }
     }
