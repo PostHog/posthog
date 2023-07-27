@@ -750,7 +750,7 @@
                      any(sessions.session_duration) as session_duration
               FROM events e
               INNER JOIN
-                (SELECT $session_id AS session_id_0,
+                (SELECT "$session_id" AS session_id_0,
                         dateDiff('second', min(timestamp), max(timestamp)) as session_duration
                  FROM events
                  WHERE session_id_0 != ''
@@ -782,7 +782,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
            INNER JOIN
-             (SELECT $session_id AS session_id_1,
+             (SELECT "$session_id" AS session_id_1,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE session_id_1 != ''
@@ -820,7 +820,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
            INNER JOIN
-             (SELECT $session_id AS session_id_0,
+             (SELECT "$session_id" AS session_id_0,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE session_id_0 != ''
@@ -852,7 +852,7 @@
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
            FROM events e
            INNER JOIN
-             (SELECT $session_id AS session_id_1,
+             (SELECT "$session_id" AS session_id_1,
                      dateDiff('second', min(timestamp), max(timestamp)) as session_duration
               FROM events
               WHERE session_id_1 != ''
