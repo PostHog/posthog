@@ -4,7 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-
 dependencies:
   '@ant-design/compatible':
     specifier: ^5.1.1
@@ -286,8 +285,8 @@ dependencies:
     specifier: ^9.0.3
     version: 9.0.3(react@16.14.0)
   use-resize-observer:
-    specifier: ^8.0.0
-    version: 8.0.0(react-dom@16.14.0)(react@16.14.0)
+    specifier: ^9.1.0
+    version: 9.1.0(react-dom@16.14.0)(react@16.14.0)
   wildcard-match:
     specifier: ^5.1.2
     version: 5.1.2
@@ -20015,11 +20014,11 @@ packages:
       use-isomorphic-layout-effect: 1.1.2(@types/react@16.14.34)(react@16.14.0)
     dev: false
 
-  /use-resize-observer@8.0.0(react-dom@16.14.0)(react@16.14.0):
-    resolution: {integrity: sha512-n0iKSeiQpJCyaFh5JA0qsVLBIovsF4EIIR1G6XiBwKJN66ZrD4Oj62bjcuTAATPKiSp6an/2UZZxCf/67fk3sQ==}
+  /use-resize-observer@9.1.0(react-dom@16.14.0)(react@16.14.0):
+    resolution: {integrity: sha512-R25VqO9Wb3asSD4eqtcxk8sJalvIOYBqS8MNZlpDSQ4l4xMQxC/J7Id9HoTqPq8FwULIn0PVW+OAqF2dyYbjow==}
     peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
+      react: 16.8.0 - 18
+      react-dom: 16.8.0 - 18
     dependencies:
       '@juggle/resize-observer': 3.4.0
       react: 16.14.0

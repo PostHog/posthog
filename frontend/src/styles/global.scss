@@ -798,6 +798,11 @@ body {
     .ant-table-tbody > tr.ant-table-placeholder:hover > td {
         background: inherit;
     }
+
+    .ant-progress-line {
+        margin: inherit;
+        margin-inline-end: inherit;
+    }
 }
 
 .storybook-test-runner {
