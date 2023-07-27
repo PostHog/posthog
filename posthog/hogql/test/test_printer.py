@@ -3,6 +3,8 @@ from typing import Literal, Optional
 from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import DateDatabaseField
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
@@ -580,9 +582,14 @@ class TestPrinter(BaseTest):
 
     def test_print_timezone(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        context.database = create_hogql_database(self.team.pk)
+        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")
+
         self.assertEqual(
-            self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            self._select(
+                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events", context
+            ),
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date, %(hogql_val_3)s), parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             context.values,
@@ -590,8 +597,9 @@ class TestPrinter(BaseTest):
                 "hogql_val_0": "UTC",
                 "hogql_val_1": "UTC",
                 "hogql_val_2": "UTC",
-                "hogql_val_3": "2020-02-02",
-                "hogql_val_4": "UTC",
+                "hogql_val_3": "UTC",
+                "hogql_val_4": "2020-02-02",
+                "hogql_val_5": "UTC",
             },
         )
 
@@ -601,7 +609,7 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
             self._select("SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events", context),
-            f"SELECT now64(6, %(hogql_val_0)s), parseDateTime64BestEffortOrNull(toTimeZone(events.timestamp, %(hogql_val_1)s), 6, %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), parseDateTime64BestEffortOrNull(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             context.values,

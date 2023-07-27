@@ -52,6 +52,10 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[]): Re
     return snapshots
 }
 
+const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
+    return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
+}
+
 export const prepareRecordingSnapshots = (
     newSnapshots?: RecordingSnapshot[],
     existingSnapshots?: RecordingSnapshot[]
@@ -626,6 +630,22 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (s) => [s.sessionPlayerSnapshotData, s.start, s.end],
             (sessionPlayerSnapshotData, start, end): RecordingSegment[] => {
                 return createSegments(sessionPlayerSnapshotData?.snapshots || [], start, end)
+            },
+        ],
+
+        urls: [
+            (s) => [s.sessionPlayerSnapshotData],
+            (sessionPlayerSnapshotData): { url: string; timestamp: number }[] => {
+                return (
+                    sessionPlayerSnapshotData?.snapshots
+                        ?.filter((snapshot) => getHrefFromSnapshot(snapshot))
+                        .map((snapshot) => {
+                            return {
+                                url: getHrefFromSnapshot(snapshot) as string,
+                                timestamp: snapshot.timestamp,
+                            }
+                        }) ?? []
+                )
             },
         ],
 

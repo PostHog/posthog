@@ -251,10 +251,14 @@ export function SessionRecordingsFilters({
             />
 
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
-                <TestAccountFilter
-                    filters={filters}
-                    onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
-                />
+                <div className={'pt-2'}>
+                    <TestAccountFilter
+                        filters={filters}
+                        onChange={(testFilters) =>
+                            setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
+                        }
+                    />
+                </div>
             </FlaggedFeature>
 
             <div className={'flex flex-col py-1 px-2 '}>
