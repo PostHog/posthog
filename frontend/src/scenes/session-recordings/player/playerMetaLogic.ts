@@ -97,7 +97,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 // Go through the events in reverse to find the latest pageview
                 for (let i = urls.length - 1; i >= 0; i--) {
                     const urlTimestamp = urls[i]
-                    if (urlTimestamp.timestamp < currentTimestamp) {
+                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
                         return urlTimestamp.url
                     }
                 }
