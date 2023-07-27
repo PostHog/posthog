@@ -54,6 +54,24 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
+    _tables: List[Table] = [
+        events,
+        groups,
+        persons,
+        person_distinct_ids,
+        person_overrides,
+        session_recording_events,
+        session_replay_events,
+        cohort_people,
+        static_cohort_people,
+        raw_session_replay_events,
+        raw_person_distinct_ids,
+        raw_persons,
+        raw_groups,
+        raw_cohort_people,
+        raw_person_overrides,
+    ]
+
     def __init__(self, timezone: Optional[str]):
         super().__init__()
         try:

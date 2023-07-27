@@ -20,6 +20,19 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(saved_query["name"], "event_view")
         self.assertEqual(saved_query["columns"], {"event": "String"})
 
+    def test_create_name_overlap_error(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_view/",
+            {
+                "name": "events",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_saved_query_doesnt_exist(self):
         saved_query_1_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_view/",
