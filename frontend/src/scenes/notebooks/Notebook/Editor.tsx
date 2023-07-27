@@ -239,3 +239,18 @@ function getPreviousNode(editor: TTEditor): Node | null {
     const node = $anchor.node(1)
     return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
 }
+
+export function hasMatchingNode(
+    content: JSONContent[] | undefined,
+    options: { type?: string; attrs?: { [attr: string]: any } }
+): boolean {
+    const attrEntries = Object.entries(options.attrs || {})
+    return (
+        !!content &&
+        content
+            .filter((node) => !options.type || node.type === options.type)
+            .some((node) =>
+                attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
+            )
+    )
+}

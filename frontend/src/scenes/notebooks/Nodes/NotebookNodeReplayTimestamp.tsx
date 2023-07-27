@@ -8,36 +8,40 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
-import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
+import { findPositionOfClosestNodeMatchingAttrs, hasMatchingNode } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
 import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
+import { sessionRecordingPlayerProps } from './NotebookNodeRecording'
+import { useMemo } from 'react'
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { shortId } = useValues(notebookLogic)
+    const { shortId, content } = useValues(notebookLogic)
     const sessionRecordingId: string = props.node.attrs.sessionRecordingId
     const playbackTime: number = props.node.attrs.playbackTime
-    const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
 
-    const recordingNodePosition = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), {
-        id: sessionRecordingId,
-    })
+    const recordingNodeInNotebook = useMemo(() => {
+        return hasMatchingNode(content.content, {
+            type: NotebookNodeType.Recording,
+            attrs: { id: sessionRecordingId },
+        })
+    }, [content])
 
-    const handleOnClick = (): void => {
-        const logic = sessionRecordingPlayerLogic.findMounted(logicProps)
+    const handlePlayInNotebook = (): void => {
+        const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
+        const logic = sessionRecordingPlayerLogic(logicProps)
 
-        if (logic) {
-            logic.actions.seekToTime(props.node.attrs.playbackTime)
-            logic.actions.setPlay()
-            if (recordingNodePosition) {
-                const domEl = props.editor.view.nodeDOM(recordingNodePosition) as HTMLElement
-                domEl.scrollIntoView()
-            }
-        } else {
-            openNotebook(shortId, NotebookTarget.Sidebar)
-        }
+        logic.actions.seekToTime(props.node.attrs.playbackTime)
+        logic.actions.setPlay()
+
+        const recordingNodePosition = findPositionOfClosestNodeMatchingAttrs(props.editor, props.getPos(), {
+            id: sessionRecordingId,
+        })
+
+        const domEl = props.editor.view.nodeDOM(recordingNodePosition) as HTMLElement
+        domEl.scrollIntoView()
     }
 
     return (
@@ -45,16 +49,16 @@ const Component = (props: NodeViewProps): JSX.Element => {
             as="span"
             class={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
-            <Link
-                to={
-                    !!recordingNodePosition
-                        ? undefined
-                        : urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`
-                }
-                onClick={handleOnClick}
-            >
-                {formatTimestamp(playbackTime)}
-            </Link>
+            {recordingNodeInNotebook ? (
+                <span onClick={handlePlayInNotebook}>{formatTimestamp(playbackTime)}</span>
+            ) : (
+                <Link
+                    to={urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`}
+                    onClick={() => openNotebook(shortId, NotebookTarget.Sidebar)}
+                >
+                    {formatTimestamp(playbackTime)}
+                </Link>
+            )}
         </NodeViewWrapper>
     )
 }
