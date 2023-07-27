@@ -24,7 +24,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DatawarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     name: models.CharField = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     columns: models.JSONField = models.JSONField(

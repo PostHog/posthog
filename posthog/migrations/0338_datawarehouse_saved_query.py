@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="DatawarehouseSavedQuery",
+            name="DataWarehouseSavedQuery",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("deleted", models.BooleanField(blank=True, null=True)),

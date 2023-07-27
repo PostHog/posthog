@@ -2,7 +2,7 @@ from posthog.permissions import OrganizationMemberPermissions
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import filters, serializers, viewsets
-from posthog.warehouse.models import DatawarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseSavedQuery
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
 
@@ -10,11 +10,11 @@ from posthog.models import User
 from typing import Any
 
 
-class DatawarehouseSavedQuerySerializer(serializers.ModelSerializer):
+class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
-        model = DatawarehouseSavedQuery
+        model = DataWarehouseSavedQuery
         fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
@@ -22,7 +22,7 @@ class DatawarehouseSavedQuerySerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        view = DatawarehouseSavedQuery(**validated_data)
+        view = DataWarehouseSavedQuery(**validated_data)
         # The columns will be inferred from the query
         try:
             view.columns = view.get_columns()
@@ -43,13 +43,13 @@ class DatawarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
 
-class DatawarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
 
-    queryset = DatawarehouseSavedQuery.objects.all()
-    serializer_class = DatawarehouseSavedQuerySerializer
+    queryset = DataWarehouseSavedQuery.objects.all()
+    serializer_class = DataWarehouseSavedQuerySerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
