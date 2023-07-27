@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react'
+import md5 from 'md5'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
@@ -117,10 +118,44 @@ interface PeopleUrlBuilderParams {
     filters: Partial<FunnelsFilterType> | Partial<PathsFilterType>
     date_from?: string | number
     funnelStep?: number
+    /** We use values from the reponse, in addition to filters, to derive a cached invalidation key. */
+    response?: Record<string, any> | null
+}
+
+/**
+ * **This function is used to derive a somewhat stable key that still invalidates
+ * person endpoint results when an insight was refreshed.**
+ *
+ * Some of our person endpoints use the @cached_function decorator for response
+ * caching. This cache can be invalidated by sending a differing
+ * `cache_invalidation_key`.
+ *
+ * Usually this key is generated for the person urls in an insight response
+ * on the backend. This results in fresh person responses for a refreshed
+ * insight. The key itself is just a random string.
+ *
+ * For insights where we build the person url on the frontend and the person
+ * endpoint is cached using the mentioned decorator, we need to generate the
+ * key on the frontend.
+ */
+const deriveCacheInvalidationKey = ({ filters, date_from, funnelStep, response }: PeopleUrlBuilderParams): string => {
+    if (!response || !response['last_refresh']) {
+        // we should never land here, invalidate always
+        return `fe_${Date.now().toString()}_invalidate_always`
+    }
+    const payload = JSON.stringify({ ...filters, date_from, funnelStep, lastRefresh: response['last_refresh'] })
+    // "fe_" for signaling this is a frontend side generated cache invalidation key
+    return `fe_${md5(payload).slice(0, 8)}`
 }
 
 // NOTE: Ideally this should be built server side and returned in `persons_urls` but for those that don't support it we can built it on the frontend
-export const buildPeopleUrl = ({ filters, date_from, funnelStep }: PeopleUrlBuilderParams): string | undefined => {
+export const buildPeopleUrl = ({
+    filters,
+    date_from,
+    funnelStep,
+    response,
+}: PeopleUrlBuilderParams): string | undefined => {
+    const cacheInvalidationKey = deriveCacheInvalidationKey({ filters, date_from, funnelStep, response })
     if (isFunnelsFilter(filters) && filters.funnel_correlation_person_entity) {
         // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
         Sentry.captureException(new Error('buildPeopleUrl used for funnel correlation'), {
@@ -134,7 +169,7 @@ export const buildPeopleUrl = ({ filters, date_from, funnelStep }: PeopleUrlBuil
             params = { ...filters, entrance_period_start, drop_off: false }
             const cleanedParams = cleanFilters(params)
             const funnelParams = toParams(cleanedParams)
-            return `api/person/funnel/?${funnelParams}`
+            return `api/person/funnel/?${funnelParams}&cache_invalidation_key=${cacheInvalidationKey}`
         } else {
             // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
             Sentry.captureException(new Error('buildPeopleUrl used for non-trends funnel'), {
@@ -144,7 +179,7 @@ export const buildPeopleUrl = ({ filters, date_from, funnelStep }: PeopleUrlBuil
     } else if (isPathsFilter(filters)) {
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
-        return `api/person/path/?${pathParams}`
+        return `api/person/path/?${pathParams}&cache_invalidation_key=${cacheInvalidationKey}`
     } else {
         // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
         Sentry.captureException(new Error('buildPeopleUrl used for unsupported filters'), {

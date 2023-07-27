@@ -70,6 +70,7 @@ export function FunnelLineGraph({
                           const personsUrl = buildPeopleUrl({
                               filters,
                               date_from: day ?? '',
+                              response: insightData,
                           })
                           if (personsUrl) {
                               openPersonsModal({
