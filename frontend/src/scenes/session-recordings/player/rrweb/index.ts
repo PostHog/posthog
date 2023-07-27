@@ -2,7 +2,7 @@ import { ReplayPlugin } from 'rrweb/typings/types'
 import { Replayer } from 'rrweb'
 import { eventWithTime } from '@rrweb/types'
 
-const PROXY_URL = 'https://replay-proxy.posthog.com' as const
+const PROXY_URL = 'https://replay.ph-proxy.dev' as const
 
 export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string) => string
