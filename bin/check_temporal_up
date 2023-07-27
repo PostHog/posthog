@@ -6,18 +6,29 @@ set -e
 SECONDS=0
 TIMEOUT=180
 
+# Check that the add-search-attributes container finished.
+until [ "`docker inspect -f {{.State.Status}} posthog_temporal-add-search-attributes_1`"=="exited" ]; do
+    if [ $SECONDS -ge $TIMEOUT ]; then
+        echo "Timed out waiting for temporal-add-search-attributes"
+        exit 1
+    fi
+
+    sleep 1;
+done;
+
 # Check Temporal by just checking that the port is open
 while true; do
     if nc -z localhost 7233; then
         echo "Temporal is up!"
         exit 0
     fi
-    
+
+
     if [ $SECONDS -ge $TIMEOUT ]; then
         echo "Timed out waiting for Temporal to be ready"
         exit 1
     fi
-    
+
     echo "Waiting for Temporal to be ready"
     sleep 1
 done
