@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import S3Table
 import re
 
-ClickhouseHogqlMapping = {
+CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
@@ -98,7 +98,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             structure.append(f"{column} {type}")
             type = type.partition("(")[0]
-            type = ClickhouseHogqlMapping[type]
+            type = CLICKHOUSE_HOGQL_MAPPING[type]
             fields[column] = type(name=column)
 
         return S3Table(
@@ -119,7 +119,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             for token in tokenified_type
             if token == "Nullable"
             or (len(token) == 1 and not token.isalnum())
-            or token in ClickhouseHogqlMapping.keys()
+            or token in CLICKHOUSE_HOGQL_MAPPING.keys()
         ]
         return "".join(filtered_tokens)
 
