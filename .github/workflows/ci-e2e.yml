@@ -65,7 +65,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: lewagon/wait-on-check-action@v1.2.0
               with:
-                  check-name: Build PostHog
+                  check-name: Build Docker image
                   ref: ${{ github.event.pull_request.head.sha }}
                   repo-token: ${{ secrets.GITHUB_TOKEN }}
                   wait-interval: 10
