@@ -1,13 +1,3 @@
-#
-# Make sure PostHog and PostHog Cloud container images can be built
-# successfully.
-#
-# - posthog_build: build and push the PostHog container image to the
-#   GitHub Container Registry
-#
-# - posthog_cloud_build: build the PostHog Cloud container image using
-#   as base image the container image from the previous step
-#
 name: Container Images CI
 
 on:
@@ -19,7 +9,7 @@ concurrency:
 
 jobs:
     posthog_build:
-        name: Build PostHog
+        name: Build Docker image
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -79,7 +69,33 @@ jobs:
                   platforms: linux/amd64,linux/arm64
 
     deploy_preview:
+        name: Deploy preview environment
         uses: ./.github/workflows/pr-deploy.yml
         needs: [posthog_build]
         secrets: inherit
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
+
+    lint:
+        name: Lint Dockerfiles
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0
+
+            - name: Check if any Dockerfile has changed
+              id: changed-files
+              uses: tj-actions/changed-files@v34
+              with:
+                  files: |
+                      **/Dockerfile
+                      **/*.Dockerfile
+                      **/Dockerfile.*
+                  separator: ' '
+
+            - name: Lint changed Dockerfile(s) with Hadolint
+              uses: jbergstroem/hadolint-gh-action@v1
+              if: steps.changed-files.outputs.any_changed == 'true'
+              with:
+                  dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'
