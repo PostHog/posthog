@@ -84,14 +84,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
-                return windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
+                const index = windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
+
+                return index === -1 ? 0 : index
             },
         ],
         lastUrl: [
-            (s) => [s.urls, s.currentTimestamp],
-            (urls, currentTimestamp): string | undefined => {
-                if (!currentTimestamp) {
-                    return
+            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
+            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
+                if (!urls.length || !currentTimestamp) {
+                    return sessionPlayerMetaData?.start_url ?? undefined
                 }
 
                 // Go through the events in reverse to find the latest pageview

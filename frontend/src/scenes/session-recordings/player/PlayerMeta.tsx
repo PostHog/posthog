@@ -203,7 +203,7 @@ export function PlayerMeta(): JSX.Element {
             >
                 {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3 my-1" />
-                ) : currentWindowIndex >= 0 ? (
+                ) : (
                     <>
                         <Tooltip
                             title={
@@ -245,7 +245,7 @@ export function PlayerMeta(): JSX.Element {
                             </span>
                         )}
                     </>
-                ) : null}
+                )}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
                 {resolutionView}
             </div>
