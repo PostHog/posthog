@@ -75,7 +75,6 @@ export function RecordingsLists({
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
-        showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
@@ -84,10 +83,9 @@ export function RecordingsLists({
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
-        useActions(logic)
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
+    const { autoplayDirection, showFilters } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection, setShowFilters } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -185,7 +183,7 @@ export function RecordingsLists({
                                                 className={clsx(
                                                     'transition-all flex items-center',
                                                     !autoplayDirection && 'text-border text-sm',
-                                                    !!autoplayDirection && 'text-primary-highlight text-xs pl-px',
+                                                    !!autoplayDirection && 'text-white text-xs pl-px',
                                                     autoplayDirection === 'newer' && 'rotate-180'
                                                 )}
                                             >

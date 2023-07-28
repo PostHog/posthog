@@ -2,7 +2,7 @@ import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PureField } from 'lib/forms/Field'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from '../organizationLogic'
 
@@ -20,15 +20,14 @@ export function CreateProjectModal({
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
 
-    const closeModal: () => void = useCallback(() => {
+    const closeModal: () => void = () => {
         if (onClose) {
             onClose()
             if (name) {
                 setName('')
             }
         }
-    }, [name, onClose])
-
+    }
     const handleSubmit = (): void => {
         createTeam({ name, is_demo: false })
         reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
@@ -37,6 +36,7 @@ export function CreateProjectModal({
 
     return (
         <LemonModal
+            width={560}
             title={currentOrganization ? `Create a project within ${currentOrganization.name}` : 'Create a project'}
             description={
                 <>
@@ -65,7 +65,11 @@ export function CreateProjectModal({
                             Cancel
                         </LemonButton>
                     )}
-                    <LemonButton type="primary" onClick={() => handleSubmit()} disabled={!name}>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => handleSubmit()}
+                        disabledReason={!name ? 'Think of a name!' : null}
+                    >
                         Create project
                     </LemonButton>
                 </>

@@ -41,8 +41,8 @@ class SessionRecordingList(EventQuery):
             event,
             team_id,
             timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            "$session_id" AS session_id,
+            "$window_id" AS window_id
             {properties_select_clause}
         FROM events
         WHERE
@@ -454,8 +454,8 @@ class SessionRecordingListV2(SessionRecordingList):
             event,
             team_id,
             timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            "$session_id" AS session_id,
+            "$window_id" AS window_id
             {properties_select_clause}
             {non_aggregate_select_condition_clause}
 

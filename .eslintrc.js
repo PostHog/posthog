@@ -32,6 +32,7 @@ module.exports = {
     },
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
     rules: {
+        'no-console': ['error', { allow: ['warn', 'error'] }],
         'no-debugger': 'error',
         'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
