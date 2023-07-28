@@ -9,7 +9,7 @@ on:
 
 jobs:
     deploy_preview:
-        name: Deploy Preview
+        name: Deploy preview environment
         runs-on: ubuntu-latest
 
         permissions:
