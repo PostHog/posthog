@@ -3,9 +3,11 @@ name: Build and cache Docker image
 inputs:
     actions-id-token-request-url:
         required: true
+        description: "ACTIONS_ID_TOKEN_REQUEST_URL, issued by GitHub when permission 'id-token' is set to 'write'"
     load:
         required: false
         default: 'false'
+        description: Whether to load the image into local Docker after building it
 
 outputs:
     tag:

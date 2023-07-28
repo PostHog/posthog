@@ -6,16 +6,22 @@ name: Run Django tests
 inputs:
     python-version:
         required: true
+        description: Python version, e.g. 3.10.10
     clickhouse-server-image:
         required: true
+        description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
+        description: Either 'FOSS' or 'EE' segment
     concurrency:
         required: true
+        description: Count of concurrency groups
     group:
         required: true
+        description: Group number
     person-on-events:
         required: true
+        description: Whether testing with persons on events, true or false
     token:
         required: false
         description: GitHub token
