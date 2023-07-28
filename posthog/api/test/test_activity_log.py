@@ -198,7 +198,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
 
-        assert [c["unread"] for c in changes.json()["results"]] == [True, True] + ([False] * 8)
+        assert [c["unread"] for c in changes.json()["results"]] == [True, True]
         assert changes.json()["last_read"] == most_recent_date
 
     def _create_insight(
