@@ -108,10 +108,18 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 )
             )
             .order_by("-created_at")
-        )[:10]
+        )
 
-        serialized_data = ActivityLogSerializer(instance=other_peoples_changes, many=True, context={"user": user}).data
         last_read_date = NotificationViewed.objects.filter(user=user).first()
+        if last_read_date:
+            other_peoples_changes = other_peoples_changes.filter(
+                created_at__gt=last_read_date.last_viewed_activity_date
+            )
+
+        serialized_data = ActivityLogSerializer(
+            instance=other_peoples_changes[:10], many=True, context={"user": user}
+        ).data
+
         return Response(
             status=status.HTTP_200_OK,
             data={
