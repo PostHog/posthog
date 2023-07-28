@@ -253,7 +253,7 @@ def make_api_call(
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
     try:
-        url = add_query_params(request_url, {get_limit_param_key(): str(limit), "is_csv_export": "1"})
+        url = add_query_params(request_url, {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
         )

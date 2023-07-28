@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, patch, ANY
 
 import pytest
 from boto3 import resource
@@ -219,6 +219,29 @@ class TestCSVExporter(APIBaseTest):
                 == b"distinct_id,properties.$browser,event,tomato\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n"
             )
 
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("requests.request")
+    def test_csv_exporter_limits_breakdown_insights_correctly(
+        self, mocked_request, mocked_object_storage_write, mocked_uuidt
+    ) -> None:
+        path = "api/projects/1/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
+
+        exported_asset = self._create_asset({"path": path})
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mocked_request.return_value = mock_response
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+        mocked_request.assert_called_with(
+            method="get",
+            url="http://testserver/" + path + "&breakdown_limit=1000&is_csv_export=1",
+            json=None,
+            headers=ANY,
+        )
+
     @patch("posthog.tasks.exports.csv_exporter.logger")
     @patch("posthog.tasks.exports.csv_exporter.statsd")
     def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
@@ -233,7 +256,6 @@ class TestCSVExporter(APIBaseTest):
                 csv_exporter.export_csv(exported_asset)
 
     def test_limiting_query_as_expected(self) -> None:
-
         with self.settings(SITE_URL="https://app.posthog.com"):
             modified_url = add_query_params(absolute_uri(regression_11204), {"limit": "3500"})
             actual_bits = self._split_to_dict(modified_url)
