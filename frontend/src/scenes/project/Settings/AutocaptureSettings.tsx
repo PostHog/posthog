@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -24,7 +24,14 @@ export function AutocaptureSettings(): JSX.Element {
             <h2 className="subtitle">Autocapture</h2>
             <p>
                 Automagically capture frontend interactions like pageviews, clicks, and more when using our JavaScript
-                or React Native libraries.
+                library.{' '}
+            </p>
+            <p>
+                Autocapture for React Native has to be{' '}
+                <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
+                    configured in code
+                </Link>
+                .
             </p>
             <div className="space-y-2">
                 <LemonSwitch
