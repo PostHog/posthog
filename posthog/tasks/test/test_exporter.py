@@ -50,7 +50,7 @@ class TestExporterTask(APIBaseTest):
         assert self.exported_asset.content is None
         assert self.exported_asset.content_location is not None
 
-    @pytest.skip("Currently broken due to an issue with ChromeDriver")
+    @pytest.mark.skip("Currently broken due to an issue with ChromeDriver")
     def test_exporter_setsup_selenium(self, mock_uuid: MagicMock) -> None:
         driver = get_driver()
 
