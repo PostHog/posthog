@@ -183,16 +183,6 @@ export function RecordingsLists({
                     titleActions={
                         <>
                             <LemonButton
-                                tooltip={'playlist settings'}
-                                size="small"
-                                status={showSettings ? 'primary' : 'primary-alt'}
-                                type="tertiary"
-                                active={showSettings}
-                                icon={<IconSettings />}
-                                onClick={() => setShowSettings(!showSettings)}
-                            />
-
-                            <LemonButton
                                 tooltip={'filter recordings'}
                                 size="small"
                                 status={showFilters ? 'primary' : 'primary-alt'}
@@ -204,6 +194,17 @@ export function RecordingsLists({
                                     </IconWithCount>
                                 }
                                 onClick={() => setShowFilters(!showFilters)}
+                            >
+                                Filter
+                            </LemonButton>
+                            <LemonButton
+                                tooltip={'playlist settings'}
+                                size="small"
+                                status={showSettings ? 'primary' : 'primary-alt'}
+                                type="tertiary"
+                                active={showSettings}
+                                icon={<IconSettings />}
+                                onClick={() => setShowSettings(!showSettings)}
                             />
                         </>
                     }
