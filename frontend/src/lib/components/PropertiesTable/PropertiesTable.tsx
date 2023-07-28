@@ -142,7 +142,7 @@ function ValueDisplay({
 }
 interface PropertiesTableType extends BasePropertyType {
     properties: any
-    sortProperties?: boolean
+    sortProperties?: boolean | ((a: string, b: string) => number)
     searchable?: boolean
     filterable?: boolean
     /** Whether this table should be style for being embedded. Default: true. */
@@ -223,6 +223,12 @@ export function PropertiesTable({
                     if (aHighlightValue !== bHighlightValue) {
                         return aHighlightValue - bHighlightValue
                     }
+                }
+
+                if (aKey.startsWith('$') && !bKey.startsWith('$')) {
+                    return 1
+                } else if (!aKey.startsWith('$') && bKey.startsWith('$')) {
+                    return -1
                 }
                 return aKey.localeCompare(bKey)
             })
