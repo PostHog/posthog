@@ -1,7 +1,7 @@
 import './PersonHeader.scss'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { midEllipsis } from 'lib/utils'
@@ -17,7 +17,7 @@ type PersonPropType =
 
 export interface PersonHeaderProps {
     person?: PersonPropType | null
-    withIcon?: boolean
+    withIcon?: boolean | ProfilePictureProps['size']
     noLink?: boolean
     noEllipsis?: boolean
     noPopover?: boolean
@@ -71,32 +71,51 @@ export const asLink = (person?: PersonPropType | null): string | undefined =>
         ? urls.person(person.distinct_ids[0])
         : undefined
 
-export function PersonHeader(props: PersonHeaderProps): JSX.Element {
-    const href = asLink(props.person)
-    const display = asDisplay(props.person)
+export function PersonHeader({ person, withIcon, noEllipsis, noPopover, noLink }: PersonHeaderProps): JSX.Element {
+    const href = asLink(person)
+    const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     let content = (
         <div className="flex items-center">
-            {props.withIcon && <ProfilePicture name={display} email={props.person?.properties?.email} size="md" />}
-            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
+            {withIcon && (
+                <ProfilePicture
+                    name={display}
+                    email={person?.properties?.email}
+                    size={typeof withIcon === 'string' ? withIcon : 'md'}
+                />
+            )}
+            <span className={clsx('ph-no-capture', !noEllipsis && 'text-ellipsis')}>{display}</span>
         </div>
     )
 
     content = (
-        <div className="person-header">
-            {props.noLink || !href ? (
+        <div
+            className="person-header"
+            onClick={
+                !noPopover
+                    ? () => {
+                          if (visible && href) {
+                              router.actions.push(href)
+                          } else {
+                              setVisible(true)
+                          }
+                      }
+                    : undefined
+            }
+        >
+            {noLink || !href ? (
                 content
             ) : (
                 <Link
                     to={href}
                     onClick={(e) => {
-                        if (!props.noPopover) {
+                        if (!noPopover) {
                             e.preventDefault()
                             return
                         }
                     }}
-                    data-attr={`goto-person-email-${props.person?.distinct_id || props.person?.distinct_ids?.[0]}`}
+                    data-attr={`goto-person-email-${person?.distinct_id || person?.distinct_ids?.[0]}`}
                 >
                     {content}
                 </Link>
@@ -104,27 +123,17 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
         </div>
     )
 
-    content = props.noPopover ? (
+    content = noPopover ? (
         content
     ) : (
         <Popover
-            overlay={<PersonPreview distinctId={props.person?.distinct_id || props.person?.distinct_ids?.[0]} />}
+            overlay={<PersonPreview distinctId={person?.distinct_id || person?.distinct_ids?.[0]} />}
             visible={visible}
             onClickOutside={() => setVisible(false)}
             placement="right"
             fallbackPlacements={['bottom', 'top']}
         >
-            <span
-                onClick={() => {
-                    if (visible && href) {
-                        router.actions.push(href)
-                    } else {
-                        setVisible(true)
-                    }
-                }}
-            >
-                {content}
-            </span>
+            {content}
         </Popover>
     )
 

@@ -36,7 +36,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element {
     const url = urls.person(person?.distinct_ids[0])
 
     return (
-        <div className="flex flex-col overflow-hidden max-h-80 gap-2">
+        <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
             <div className="flex items-center justify-between">
                 <Link to={url} className="flex gap-2 items-center">
                     <ProfilePicture name={display} size="xl" /> <span className="font-semibold text-lg">{display}</span>

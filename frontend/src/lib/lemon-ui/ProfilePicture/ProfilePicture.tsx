@@ -10,7 +10,7 @@ import './ProfilePicture.scss'
 export interface ProfilePictureProps {
     name?: string
     email?: string
-    size?: 'md' | 'xs' | 'sm' | 'xl' | 'xxl'
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
     style?: CSSProperties
     className?: string

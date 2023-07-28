@@ -2,7 +2,7 @@ import { Dropdown, Menu, Tag } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
-import { asDisplay } from './PersonHeader'
+import { PersonHeader } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MergeSplitPerson } from './MergeSplitPerson'
@@ -122,7 +122,7 @@ export function Person(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title={asDisplay(person)}
+                title={<PersonHeader person={person} noLink withIcon={'lg'} noPopover />}
                 caption={<PersonCaption person={person} />}
                 notebookProps={
                     url

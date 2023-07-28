@@ -204,7 +204,7 @@ export function renderColumn(
         const personRecord = record as PersonType
         return (
             <Link to={urls.person(personRecord.distinct_ids[0])}>
-                <PersonHeader noLink withIcon person={personRecord} />
+                <PersonHeader noLink withIcon person={personRecord} noPopover />
             </Link>
         )
     } else if (key === 'person.$delete' && isPersonsNode(query.source)) {
