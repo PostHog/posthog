@@ -14,10 +14,10 @@ outputs:
 
 runs:
     using: 'composite'
-    steps:      
+    steps:
         - name: Set up Depot CLI
           uses: depot/setup-action@v1
-          
+
         - name: Emit image tag
           id: emit
           shell: bash
