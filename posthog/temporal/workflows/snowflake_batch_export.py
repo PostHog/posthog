@@ -166,9 +166,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             try:
                 while True:
                     try:
-                        result = await results_iterator.__anext__()
+                        result = results_iterator.__next__()
 
-                    except StopAsyncIteration:
+                    except StopIteration:
                         break
 
                     except json.JSONDecodeError:
@@ -234,23 +234,23 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                 )
                 results = cursor.fetchall()
 
-                for result in results:
-                    if not isinstance(result, tuple):
+                for query_result in results:
+                    if not isinstance(query_result, tuple):
                         # Mostly to appease mypy, as this query should always return a tuple.
                         raise TypeError(f"Expected tuple from Snowflake COPY INTO query but got: '{type(result)}'")
 
-                    if len(result) < 2:
+                    if len(query_result) < 2:
                         raise SnowflakeFileNotLoadedError(
                             inputs.table_name,
                             "NO STATUS",
                             0,
-                            result[1] if len(result) == 1 else "NO ERROR MESSAGE",
+                            query_result[1] if len(query_result) == 1 else "NO ERROR MESSAGE",
                         )
 
-                    _, status = result[0:2]
+                    _, status = query_result[0:2]
 
                     if status != "LOADED":
-                        errors_seen, first_error = result[5:7]
+                        errors_seen, first_error = query_result[5:7]
                         raise SnowflakeFileNotLoadedError(
                             inputs.table_name,
                             status or "NO STATUS",

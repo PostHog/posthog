@@ -62,7 +62,6 @@ export const userInterviewSchedulerLogic = kea<userInterviewSchedulerLogicType>(
                     : undefined,
             }),
             submit: async (formValues) => {
-                console.log('submitting', formValues)
                 const groups: FeatureFlagGroupType[] = [
                     {
                         variant: null,

@@ -78,7 +78,7 @@ export function PreflightCheck(): JSX.Element {
                     </a>{' '}
                     or{' '}
                     <a href="https://posthog.com/support" target="_blank">
-                        visit support
+                        visit community support
                     </a>
                     .
                 </p>
@@ -133,7 +133,7 @@ export function PreflightCheck(): JSX.Element {
                                 </a>{' '}
                                 or our{' '}
                                 <a href="https://posthog.com/docs/runbook" target="_blank">
-                                    self host runbook
+                                    self-host runbook
                                 </a>
                                 .
                             </p>

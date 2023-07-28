@@ -51,7 +51,6 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                                 : ' Their ID(s) will be usable again in an hour or so.'}
                         </>
                     )
-                    console.log('personDeleteCallback', values.personDeleteCallback)
                     values.personDeleteCallback?.(person, deleteEvents)
                     actions.showPersonDeleteModal(null)
                     return person

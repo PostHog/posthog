@@ -62,7 +62,7 @@ export function PlayerInspectorControls(): JSX.Element {
                                 icon={
                                     TabIcon ? (
                                         tabsState[tabId] === 'loading' ? (
-                                            <Spinner monocolor />
+                                            <Spinner textColored />
                                         ) : (
                                             <TabIcon />
                                         )

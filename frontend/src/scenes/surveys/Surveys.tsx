@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { userLogic } from 'scenes/userLogic'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { dayjs } from 'lib/dayjs'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -29,8 +30,9 @@ export enum SurveysTabs {
 
 export function Surveys(): JSX.Element {
     const { nonArchivedSurveys, archivedSurveys, surveys, surveysLoading } = useValues(surveysLogic)
+    const { deleteSurvey, updateSurvey } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
-    const { deleteSurvey } = useActions(surveysLogic)
+
     const [tab, setSurveyTab] = useState(SurveysTabs.All)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
 
@@ -137,7 +139,81 @@ export function Surveys(): JSX.Element {
                                                         >
                                                             View
                                                         </LemonButton>
+                                                        {!survey.start_date && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() =>
+                                                                    updateSurvey({
+                                                                        id: survey.id,
+                                                                        updatePayload: {
+                                                                            start_date: dayjs().toISOString(),
+                                                                        },
+                                                                    })
+                                                                }
+                                                            >
+                                                                Launch survey
+                                                            </LemonButton>
+                                                        )}
+                                                        {survey.start_date && !survey.end_date && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() =>
+                                                                    updateSurvey({
+                                                                        id: survey.id,
+                                                                        updatePayload: {
+                                                                            end_date: dayjs().toISOString(),
+                                                                        },
+                                                                    })
+                                                                }
+                                                            >
+                                                                Stop survey
+                                                            </LemonButton>
+                                                        )}
+                                                        {survey.end_date && !survey.archived && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() =>
+                                                                    updateSurvey({
+                                                                        id: survey.id,
+                                                                        updatePayload: { end_date: null },
+                                                                    })
+                                                                }
+                                                            >
+                                                                Resume survey
+                                                            </LemonButton>
+                                                        )}
                                                         <LemonDivider />
+                                                        {survey.end_date && survey.archived && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() =>
+                                                                    updateSurvey({
+                                                                        id: survey.id,
+                                                                        updatePayload: { archived: false },
+                                                                    })
+                                                                }
+                                                            >
+                                                                Unarchive
+                                                            </LemonButton>
+                                                        )}
+                                                        {survey.end_date && !survey.archived && (
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                fullWidth
+                                                                onClick={() =>
+                                                                    updateSurvey({
+                                                                        id: survey.id,
+                                                                        updatePayload: { archived: true },
+                                                                    })
+                                                                }
+                                                            >
+                                                                Archive
+                                                            </LemonButton>
+                                                        )}
                                                         <LemonButton
                                                             status="danger"
                                                             onClick={() => deleteSurvey(survey.id)}
