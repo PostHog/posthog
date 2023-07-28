@@ -2,7 +2,6 @@ import { query, queryExportContext } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 import { initKeaTests } from '~/test/init'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import posthog from 'posthog-js'
 import { useMocks } from '~/mocks/jest'
 
@@ -48,8 +47,7 @@ describe('query', () => {
         }
         const actual = queryExportContext(q, {}, false)
         expect(actual).toEqual({
-            body: {
-                after: expect.any(String),
+            source: {
                 kind: 'EventsQuery',
                 limit: 100,
                 properties: [
@@ -69,8 +67,7 @@ describe('query', () => {
                     'timestamp',
                 ],
             },
-            method: 'POST',
-            path: `/api/projects/${MOCK_TEAM_ID}/query`,
+            max_limit: 10000,
         })
     })
 

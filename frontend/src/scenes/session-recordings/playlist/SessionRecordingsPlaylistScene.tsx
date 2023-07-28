@@ -10,7 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -24,13 +24,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(sessionRecordingsPlaylistLogic)
 
-    const currentListLogic = sessionRecordingsListLogic({
-        playlistShortId: playlist?.short_id,
-        filters: playlist?.filters,
-        onFiltersChange: setFilters,
-    })
-    const { showFilters } = useValues(currentListLogic)
-    const { setShowFilters } = useActions(currentListLogic)
+    const { showFilters } = useValues(playerSettingsLogic)
+    const { setShowFilters } = useActions(playerSettingsLogic)
 
     if (!playlist && playlistLoading) {
         return (

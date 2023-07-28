@@ -13,6 +13,7 @@ import { PipelineEvent, PluginsServerConfig, RawEventMessage, RedisPool, TeamId 
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
+import { asyncTimeoutGuard } from '../../../utils/timing'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
 import { ObjectStorage } from '../../services/object_storage'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
@@ -123,20 +124,7 @@ export class SessionRecordingIngesterV2 {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { partition, topic, offset, timestamp } = event.metadata
-
-        counterKafkaMessageReceived.inc({ partition })
-
-        // track the latest message timestamp seen so, we can use it to calculate a reference "now"
-        // lag does not distribute evenly across partitions, so track timestamps per partition
-        this.partitionNow[partition] = timestamp
-        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
-        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
-        gaugeLagMilliseconds
-            .labels({
-                partition: partition.toString(),
-            })
-            .set(now() - timestamp)
+        const { partition, topic, offset } = event.metadata
 
         const highWaterMarkSpan = sentrySpan?.startChild({
             op: 'checkHighWaterMark',
@@ -169,12 +157,6 @@ export class SessionRecordingIngesterV2 {
             )
 
             this.sessions[key] = sessionManager
-            status.info('📦', 'Blob ingestion consumer started session manager', {
-                key,
-                partition,
-                topic,
-                sessionId: session_id,
-            })
         }
 
         await this.sessions[key]?.add(event)
@@ -258,32 +240,61 @@ export class SessionRecordingIngesterV2 {
     }
 
     private async handleEachBatch(messages: Message[]): Promise<void> {
-        const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
+        await asyncTimeoutGuard(
+            { message: 'Processing batch is taking longer than 60 seconds', timeout: 60 * 1000 },
+            async () => {
+                const transaction = Sentry.startTransaction({ name: `blobIngestion_handleEachBatch` }, {})
 
-        histogramKafkaBatchSize.observe(messages.length)
+                histogramKafkaBatchSize.observe(messages.length)
 
-        const recordingMessages: IncomingRecordingMessage[] = (
-            await Promise.all(messages.map((m) => this.parseKafkaMessage(m)))
-        ).filter((message) => message) as IncomingRecordingMessage[]
+                const recordingMessages: IncomingRecordingMessage[] = []
 
-        for (const message of recordingMessages) {
-            const consumeSpan = transaction?.startChild({
-                op: 'blobConsume',
-            })
+                for (const message of messages) {
+                    const { partition, offset, timestamp } = message
 
-            await this.consume(message, consumeSpan)
-            // TODO: We could do this as batch of offsets for the whole lot...
-            await this.commitOffset(message.metadata.topic, message.metadata.partition, message.metadata.offset)
+                    if (timestamp) {
+                        // For some reason timestamp can be null. If it isn't, update our ingestion metrics
+                        counterKafkaMessageReceived.inc({ partition })
+                        this.partitionNow[partition] = timestamp
+                        // If we don't have a last known commit then set it to this offset as we can't commit lower than that
+                        this.partitionLastKnownCommit[partition] = this.partitionLastKnownCommit[partition] ?? offset
+                        gaugeLagMilliseconds
+                            .labels({
+                                partition: partition.toString(),
+                            })
+                            .set(now() - timestamp)
+                    }
 
-            consumeSpan?.finish()
-        }
+                    const recordingMessage = await this.parseKafkaMessage(message)
+                    if (recordingMessage) {
+                        recordingMessages.push(recordingMessage)
+                    }
+                }
 
-        await this.replayEventsIngester.consumeBatch(recordingMessages)
-        const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
-        await this.flushAllReadySessions(true)
-        clearTimeout(timeout)
+                for (const message of recordingMessages) {
+                    const consumeSpan = transaction?.startChild({
+                        op: 'blobConsume',
+                    })
 
-        transaction.finish()
+                    await this.consume(message, consumeSpan)
+                    // TODO: We could do this as batch of offsets for the whole lot...
+                    consumeSpan?.finish()
+                }
+
+                for (const message of messages) {
+                    // Now that we have consumed everything, attempt to commit all messages in this batch
+                    const { partition, offset } = message
+                    await this.commitOffset(message.topic, partition, offset)
+                }
+
+                await this.replayEventsIngester.consumeBatch(recordingMessages)
+                const timeout = timeoutGuard(`Flushing sessions timed out`, {}, 120 * 1000)
+                await this.flushAllReadySessions(true)
+                clearTimeout(timeout)
+
+                transaction.finish()
+            }
+        )
     }
 
     public async start(): Promise<void> {
@@ -455,7 +466,7 @@ export class SessionRecordingIngesterV2 {
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(
-            Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtime ? 1 : 0), 0)
+            Object.values(this.sessions).reduce((acc, sessionManager) => acc + (sessionManager.realtimeTail ? 1 : 0), 0)
         )
     }
 
