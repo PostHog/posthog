@@ -29,7 +29,6 @@ runs:
           id: build
           uses: depot/build-push-action@v1
           with:
-              project: x19jffd9zf # posthog
               buildx-fallback: false # buildx is so slow it's better to just fail
               load: ${{ inputs.load }}
               tags: ${{ steps.emit.outputs.tag }}
