@@ -13,7 +13,12 @@ export const TheHedgehog: ComponentStory<typeof HedgehogBuddy> = () => {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ height: 200 }}>
-            <HedgehogBuddy onClose={() => console.log('should close')} />
+            <HedgehogBuddy
+                onClose={() => {
+                    // eslint-disable-next-line no-console
+                    console.log('should close')
+                }}
+            />
         </div>
     )
 }

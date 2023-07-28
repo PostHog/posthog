@@ -19,25 +19,25 @@
         color: var(--default);
         font-weight: 600;
 
-        .LemonRow__icon .LemonIcon {
+        .LemonRow__icon {
             color: var(--primary);
         }
     }
 
     &.LemonRow--status-danger {
-        .LemonRow__icon .LemonIcon {
+        .LemonRow__icon {
             color: var(--danger);
         }
     }
 
     &.LemonRow--status-warning {
-        .LemonRow__icon .LemonIcon {
+        .LemonRow__icon {
             color: var(--warning);
         }
     }
 
     &.LemonRow--status-success {
-        .LemonRow__icon .LemonIcon {
+        .LemonRow__icon {
             color: var(--success);
         }
     }
@@ -119,7 +119,7 @@
     @extend .LemonRow--tall;
     font-size: 1rem;
 
-    .LemonRow__icon .LemonIcon {
+    .LemonRow__icon {
         font-size: 1.75rem;
     }
 }
@@ -135,28 +135,17 @@
         padding: 0;
     }
 
-    .LemonRow__icon .LemonIcon {
+    .LemonRow__icon {
         font-size: 1.25rem;
     }
 }
 
 .LemonRow__icon {
-    .LemonIcon {
-        width: 1em;
-        height: 1em;
-        transition: background-color 200ms ease, color 200ms ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        color: var(--muted-alt);
-    }
-
-    &.LemonRow__icon--relaxed-width {
-        .LemonIcon {
-            width: auto;
-        }
-    }
+    transition: background-color 200ms ease, color 200ms ease;
+    display: flex;
+    flex-shrink: 0;
+    font-size: 1.5rem;
+    color: var(--muted-alt);
 }
 
 .LemonRow__content {

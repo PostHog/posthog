@@ -16,7 +16,6 @@ from posthog.hogql.functions import (
     HOGQL_CLICKHOUSE_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
     HOGQL_AGGREGATIONS,
-    ADD_TIMEZONE_TO_FUNCTIONS,
     HOGQL_POSTHOG_FUNCTIONS,
 )
 from posthog.hogql.context import HogQLContext
@@ -255,7 +254,7 @@ class _Printer(Visitor):
             while isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
 
-            if not isinstance(table_type, ast.TableType):
+            if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise HogQLException(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
@@ -271,7 +270,7 @@ class _Printer(Visitor):
                     cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
 
                     # The table is captured in a CTE so just print the table name in the final select
-                    sql = self._print_identifier(table_type.table.name)
+                    sql = self._print_identifier(node.alias or table_type.table.name)
             else:
                 sql = table_type.table.to_printed_hogql()
             join_strings.append(sql)
@@ -624,20 +623,32 @@ class _Printer(Visitor):
                 else:
                     args = [self.visit(arg) for arg in node.args]
 
-                if (func_meta.clickhouse_name == "now64" and len(node.args) == 0) or (
-                    func_meta.clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
-                ):
-                    # must add precision if adding timezone in the next step
-                    args.append("6")
+                relevant_clickhouse_name = func_meta.clickhouse_name
+                if func_meta.overloads:
+                    first_arg_constant_type = (
+                        node.args[0].type.resolve_constant_type()
+                        if len(node.args) > 0 and node.args[0].type is not None
+                        else None
+                    )
 
-                if node.name in ADD_TIMEZONE_TO_FUNCTIONS:
+                    if first_arg_constant_type is not None:
+                        for overload_types, overload_clickhouse_name in func_meta.overloads:
+                            if isinstance(first_arg_constant_type, overload_types):
+                                relevant_clickhouse_name = overload_clickhouse_name
+                                break  # Found an overload matching the first function org
+
+                if func_meta.tz_aware:
+                    if (relevant_clickhouse_name == "now64" and len(node.args) == 0) or (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull" and len(node.args) == 1
+                    ):
+                        args.append("6")  # These two CH functions require the precision argument before timezone
                     args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
                 params = [self.visit(param) for param in node.params] if node.params is not None else None
 
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
-                return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+                return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:

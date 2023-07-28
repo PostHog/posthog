@@ -270,14 +270,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 s.isScrubbing,
                 s.isSkippingInactivity,
                 s.snapshotsLoaded,
+                s.sessionPlayerSnapshotDataLoading,
             ],
-            (playingState, isBuffering, isErrored, isScrubbing, isSkippingInactivity, snapshotsLoaded) => {
+            (
+                playingState,
+                isBuffering,
+                isErrored,
+                isScrubbing,
+                isSkippingInactivity,
+                snapshotsLoaded,
+                snapshotsLoading
+            ) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
                 }
 
-                if (!snapshotsLoaded) {
+                if (!snapshotsLoaded && !snapshotsLoading) {
                     return SessionPlayerState.READY
                 }
                 if (isErrored) {
@@ -293,6 +302,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return playingState
             },
         ],
+
         // Useful for the relative time in the context of the whole recording
         currentPlayerTime: [
             (s) => [s.currentTimestamp, s.sessionPlayerData],
@@ -514,7 +524,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.updateFromMetadata()
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
-                actions.loadRecordingSnapshots()
+                actions.setPlay()
             }
         },
 
@@ -530,6 +540,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setPlay: () => {
+            if (!values.snapshotsLoaded && !values.sessionPlayerSnapshotDataLoading) {
+                actions.loadRecordingSnapshots()
+            }
             actions.stopAnimation()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
 
@@ -644,16 +657,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
 
         togglePlayPause: () => {
-            if (values.currentPlayerState === SessionPlayerState.READY) {
-                actions.loadRecordingSnapshots()
-                return
-            }
             // If buffering, toggle is a noop
             if (values.currentPlayerState === SessionPlayerState.BUFFER) {
                 return
             }
             // If paused, start playing
-            if (values.currentPlayerState === SessionPlayerState.PAUSE) {
+            if (
+                values.currentPlayerState === SessionPlayerState.PAUSE ||
+                values.currentPlayerState === SessionPlayerState.READY
+            ) {
                 actions.setPlay()
             }
             // If playing, pause

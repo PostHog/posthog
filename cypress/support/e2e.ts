@@ -28,6 +28,7 @@ beforeEach(() => {
                 // set feature flags here e.g.
                 // 'toolbar-launch-side-action': true,
                 'auto-redirect': true,
+                notebooks: true,
             })
         )
     )

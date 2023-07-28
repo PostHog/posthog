@@ -212,12 +212,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCoffee,
         inMenu: true,
     },
-    [NodeKind.RecentPerformancePageViewNode]: {
-        name: 'PostHog performance data',
-        description: 'PageViews where we recorded performance data about your site',
-        icon: IconCoffee,
-        inMenu: true,
-    },
     [NodeKind.TimeToSeeDataSessionsJSONNode]: {
         name: 'Internal PostHog performance data',
         description: 'View performance data about a session in PostHog itself as JSON',
