@@ -32,7 +32,7 @@ jobs:
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
 
     lint:
-        name: Lint Dockerfiles
+        name: Lint changed Dockerfiles
         runs-on: ubuntu-latest
         steps:
             - name: Check out

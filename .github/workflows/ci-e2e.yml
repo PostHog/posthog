@@ -178,17 +178,11 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   EOT
 
-                  echo "XXX"
-                  tail .env
-
             - name: Start PostHog
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
                   mkdir -p /tmp/logs
-
-                  echo "XXX"
-                  tail .env
 
                   echo "Starting PostHog using the container image ${{ steps.docker-build.outputs.tag }}"
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ steps.docker-build.outputs.tag }}"

@@ -14,10 +14,7 @@ outputs:
 
 runs:
     using: 'composite'
-    steps:
-        - name: Check out
-          uses: actions/checkout@v3
-      
+    steps:      
         - name: Set up Depot CLI
           uses: depot/setup-action@v1
           
