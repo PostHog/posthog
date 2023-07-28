@@ -142,7 +142,7 @@ function ValueDisplay({
 }
 interface PropertiesTableType extends BasePropertyType {
     properties: any
-    sortProperties?: boolean | ((a: string, b: string) => number)
+    sortProperties?: boolean
     searchable?: boolean
     filterable?: boolean
     /** Whether this table should be style for being embedded. Default: true. */
