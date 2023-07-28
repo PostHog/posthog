@@ -147,3 +147,21 @@ class TestS3Table(BaseTest):
         with self.assertRaises(HogQLException) as context:
             self._select(query='SELECT * FROM "some%(asd)sname" LIMIT 10', dialect="clickhouse")
             self.assertTrue("Alias \"some%(asd)sname\" contains unsupported character '%'" in str(context.exception))
+
+    def test_s3_table_select_in(self):
+        self._init_database()
+
+        hogql = self._select(query="SELECT * FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="hogql")
+        self.assertEqual(
+            hogql,
+            "SELECT uuid, event, properties, timestamp, distinct_id, elements_chain, created_at FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT 10000",
+        )
+
+        clickhouse = self._select(
+            query="SELECT * FROM events WHERE event IN (SELECT Date FROM aapl_stock)", dialect="clickhouse"
+        )
+
+        self.assertEqual(
+            clickhouse,
+            f"SELECT events.uuid, events.event, events.properties, toTimeZone(events.timestamp, %(hogql_val_0)s), events.distinct_id, events.elements_chain, toTimeZone(events.created_at, %(hogql_val_1)s) FROM events WHERE and(equals(events.team_id, {self.team.pk}), globalIn(events.event, (WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_2_sensitive)s, %(hogql_val_3)s)) SELECT aapl_stock.Date FROM aapl_stock))) LIMIT 10000",
+        )
