@@ -352,16 +352,11 @@ export function ActionFilterRow({
                                                                 <>
                                                                     Calculate{' '}
                                                                     {mathDefinitions[math ?? ''].name.toLowerCase()} of
-                                                                    the Session Duration. Unlike other properties this
+                                                                    the session duration. Unlike other properties this
                                                                     is based on the <code>$session_id</code> property
                                                                     associated with events. The duration is derived from
                                                                     the time difference between the first and last event
                                                                     for each distinct <code>$session_id</code>.
-                                                                    <br />
-                                                                    Learn more about how PostHog tracks sessions in{' '}
-                                                                    <a href="https://posthog.com/docs/user-guides/sessions">
-                                                                        our documentation.
-                                                                    </a>
                                                                 </>
                                                             ) : (
                                                                 <>
