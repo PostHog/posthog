@@ -16,17 +16,19 @@ import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
     usesListingV3?: boolean
+    showAdvancedFilters: boolean
+    toggleAdvancedFilters: () => void
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
@@ -118,6 +120,8 @@ export function SessionRecordingsFilters({
     showPropertyFilters,
     onReset,
     usesListingV3,
+    showAdvancedFilters,
+    toggleAdvancedFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
@@ -148,7 +152,47 @@ export function SessionRecordingsFilters({
                     </LemonButton>
                 </span>
             )}
+            <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
 
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
+                <TestAccountFilter
+                    filters={filters}
+                    onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
+                />
+            </FlaggedFeature>
+
+            <SimpleSessionRecordingsFilters />
+
+            <div>
+                <LemonButton size="small" onClick={toggleAdvancedFilters}>
+                    {showAdvancedFilters ? 'Hide' : 'Show'} advanced filters
+                </LemonButton>
+            </div>
+
+            {showAdvancedFilters ? (
+                <AdvancedSessionRecordingsFilters
+                    filters={filters}
+                    setFilters={setFilters}
+                    localFilters={localFilters}
+                    setLocalFilters={setLocalFilters}
+                    showPropertyFilters={showPropertyFilters}
+                    usesListingV3={usesListingV3}
+                />
+            ) : null}
+        </div>
+    )
+}
+
+const AdvancedSessionRecordingsFilters = ({
+    filters,
+    setFilters,
+    localFilters,
+    setLocalFilters,
+    showPropertyFilters,
+    usesListingV3,
+}): JSX.Element => {
+    return (
+        <div>
             <LemonLabel>Time and duration</LemonLabel>
             <div className="flex flex-wrap gap-2">
                 <DateFilter
@@ -243,17 +287,80 @@ export function SessionRecordingsFilters({
                     })
                 }
             />
+        </div>
+    )
+}
 
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
-                <div className={'pt-2'}>
-                    <TestAccountFilter
-                        filters={filters}
-                        onChange={(testFilters) =>
-                            setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
-                        }
-                    />
-                </div>
-            </FlaggedFeature>
+const SimpleSessionRecordingsFilters = (): JSX.Element => {
+    const [showEmailOperator, setShowEmailOperator] = useState<boolean>(false)
+
+    return (
+        <div>
+            <div className="flex flex-1 justify-between">
+                <span>Email</span>
+
+                <LemonDropdown
+                    visible={showEmailOperator}
+                    closeOnClickInside={false}
+                    onClickOutside={() => setShowEmailOperator(false)}
+                    overlay={
+                        <div>
+                            <div>is</div>
+                            <div>is not</div>
+                            <div>contains</div>
+                            <div>does not contain</div>
+                        </div>
+                    }
+                >
+                    <span>is</span>
+                </LemonDropdown>
+
+                <LemonInput />
+            </div>
+
+            <div className="flex flex-1 justify-between">
+                <span>URL</span>
+
+                <LemonDropdown
+                    visible={showEmailOperator}
+                    closeOnClickInside={false}
+                    onClickOutside={() => setShowEmailOperator(false)}
+                    overlay={
+                        <div>
+                            <div>is</div>
+                            <div>is not</div>
+                            <div>contains</div>
+                            <div>does not contain</div>
+                        </div>
+                    }
+                >
+                    <span>is</span>
+                </LemonDropdown>
+
+                <LemonInput />
+            </div>
+
+            <div className="flex flex-1 justify-between">
+                <span>Country</span>
+
+                <LemonDropdown
+                    visible={showEmailOperator}
+                    closeOnClickInside={false}
+                    onClickOutside={() => setShowEmailOperator(false)}
+                    overlay={
+                        <div>
+                            <div>is</div>
+                            <div>is not</div>
+                            <div>contains</div>
+                            <div>does not contain</div>
+                        </div>
+                    }
+                >
+                    <span>is</span>
+                </LemonDropdown>
+
+                <LemonInput />
+            </div>
         </div>
     )
 }

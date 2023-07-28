@@ -147,6 +147,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
+        toggleAdvancedFilters: true,
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
@@ -275,6 +276,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             {
                 setShowSettings: (_, { showSettings }) => showSettings,
                 setShowFilters: () => false,
+            },
+        ],
+        showAdvancedFilters: [
+            false,
+            { persist: true },
+            {
+                toggleAdvancedFilters: (state) => !state,
             },
         ],
         sessionRecordings: [

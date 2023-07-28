@@ -76,6 +76,7 @@ export function RecordingsLists({
         sessionRecordingsResponseLoading,
         activeSessionRecording,
         showFilters,
+        showAdvancedFilters,
         showSettings,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
@@ -92,6 +93,7 @@ export function RecordingsLists({
         setShowFilters,
         setShowSettings,
         resetFilters,
+        toggleAdvancedFilters,
     } = useActions(logic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
@@ -216,6 +218,8 @@ export function RecordingsLists({
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
                                 usesListingV3={listingVersion === '3'}
+                                showAdvancedFilters={showAdvancedFilters}
+                                toggleAdvancedFilters={toggleAdvancedFilters}
                             />
                         ) : showSettings ? (
                             <SessionRecordingsPlaylistSettings />
