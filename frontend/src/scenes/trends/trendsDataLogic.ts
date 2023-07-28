@@ -28,6 +28,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'shownAs',
                 'showValueOnSeries',
                 'showPercentStackView',
+                'supportsPercentStackView',
                 'trendsFilter',
                 'lifecycleFilter',
                 'isTrends',
@@ -38,7 +39,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'hasLegend',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData']],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter']],
     })),
 
     actions({
