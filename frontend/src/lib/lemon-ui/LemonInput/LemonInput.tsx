@@ -41,6 +41,7 @@ interface LemonInputPropsBase
     transparentBackground?: boolean
     /** Size of the element. Default: `'medium'`. */
     size?: 'small' | 'medium'
+    onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
 }
@@ -50,7 +51,6 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
 }
 
 export interface LemonInputPropsNumber
@@ -60,7 +60,6 @@ export interface LemonInputPropsNumber
     value?: number
     defaultValue?: number
     onChange?: (newValue: number | undefined) => void
-    onPressEnter?: (newValue: number | undefined) => void
 }
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
@@ -152,15 +151,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 className
             )}
             aria-disabled={textProps.disabled}
-            onKeyDown={(event) => {
-                if (onPressEnter && event.key === 'Enter') {
-                    if (type === 'number') {
-                        onPressEnter(value ?? 0)
-                    } else {
-                        onPressEnter(value?.toString() ?? '')
-                    }
-                }
-            }}
             onClick={() => focus()}
         >
             {prefix}
@@ -185,6 +175,11 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 onBlur={(event) => {
                     setFocused(false)
                     onBlur?.(event)
+                }}
+                onKeyDown={(event) => {
+                    if (onPressEnter && event.key === 'Enter') {
+                        onPressEnter(event)
+                    }
                 }}
                 {...textProps}
             />

@@ -728,6 +728,7 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {

@@ -150,8 +150,8 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
         with tempfile.NamedTemporaryFile() as local_results_file:
             while True:
                 try:
-                    result = await results_iterator.__anext__()
-                except StopAsyncIteration:
+                    result = results_iterator.__next__()
+                except StopIteration:
                     break
                 except json.JSONDecodeError:
                     # This is raised by aiochclient as we try to decode an error message from ClickHouse.
@@ -266,8 +266,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         run_id = await workflow.execute_activity(
             create_export_run,
             create_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -294,10 +293,12 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
-                    maximum_attempts=6,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=120),
+                    maximum_attempts=10,
                     non_retryable_error_types=[
-                        # Validation failed, and will keep failing.
-                        "ValueError",
+                        # S3 parameter validation failed.
+                        "ParamValidationError",
                     ],
                 ),
             )
@@ -311,8 +312,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 update_export_run_status,
                 update_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=20),
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),

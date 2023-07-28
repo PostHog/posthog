@@ -112,7 +112,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         hasChanges: [
             (s) => [s.playlist, s.filters],
             (playlist, filters): boolean => {
-                console.log(playlist?.filters, filters)
                 return !equal(playlist?.filters, filters)
             },
         ],
