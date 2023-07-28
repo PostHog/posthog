@@ -196,7 +196,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
-                id: null,
+                id: 'All events',
                 type: EntityTypes.EVENTS,
                 order: order,
                 ...props.addFilterDefaultOptions,

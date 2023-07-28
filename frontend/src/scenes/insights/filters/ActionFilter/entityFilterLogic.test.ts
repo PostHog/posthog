@@ -61,6 +61,23 @@ describe('entityFilterLogic', () => {
             )
         })
 
+        it('adds new filter (named all events) successfully', async () => {
+            // Select a filter to rename first
+            await expectLogic(logic, () => {
+                logic.actions.addFilter()
+            })
+
+            expect(logic.props.setFilters).toBeCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: 'All events',
+                        }),
+                    ]),
+                })
+            )
+        })
+
         it('closes modal after renaming', () => {
             expectLogic(logic, () => {
                 logic.actions.renameFilter('Custom event name')
