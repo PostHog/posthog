@@ -84,7 +84,6 @@ jobs:
         needs: [cypress_prep, changes]
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
-            contents: read # allow at least reading the repo contents, add other permissions if necessary
 
         strategy:
             # when one test fails, DO NOT cancel the other
