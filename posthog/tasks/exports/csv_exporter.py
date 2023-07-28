@@ -1,6 +1,7 @@
 import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from django.http import QueryDict
 
 import requests
 import structlog
@@ -241,12 +242,18 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     save_content(exported_asset, rendered_csv_content)
 
 
+def get_limit_param_key(path: str) -> str:
+    query = QueryDict(path)
+    breakdown = query.get("breakdown", None)
+    return "breakdown_limit" if breakdown is not None else "limit"
+
+
 def make_api_call(
     access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
     try:
-        url = add_query_params(request_url, {"limit": str(limit), "is_csv_export": "1"})
+        url = add_query_params(request_url, {get_limit_param_key(): str(limit), "is_csv_export": "1"})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
         )
