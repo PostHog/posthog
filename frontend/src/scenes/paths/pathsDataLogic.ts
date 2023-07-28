@@ -116,8 +116,8 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
             const personsUrl = buildPeopleUrl({
                 date_from: '',
-                date_to: '',
                 filters,
+                response: values.insightData,
             })
             if (personsUrl) {
                 openPersonsModal({
