@@ -266,7 +266,7 @@ class TestCaptureAPI(APIBaseTest):
 
             assert response.json() == {
                 "status": 1,
-                "quotaLimited": ["recordings"],
+                "quota_limited": ["recordings"],
             }
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
