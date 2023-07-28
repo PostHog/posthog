@@ -29,6 +29,22 @@ interface Params {
     sessionRecordingId?: SessionRecordingId
 }
 
+interface NoEventsToMatch {
+    matchType: 'none'
+}
+
+interface SimpleEventsMatching {
+    matchType: 'simple'
+    eventNames: string[]
+}
+
+interface BackendEventsMatching {
+    matchType: 'backend'
+    filters: RecordingFilters
+}
+
+export type MatchingEventsMatchType = NoEventsToMatch | SimpleEventsMatching | BackendEventsMatching
+
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
@@ -405,6 +421,42 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 return {
                     ...defaultFilters,
                     ...customFilters,
+                }
+            },
+        ],
+
+        matchingEventsMatchType: [
+            (s) => [s.filters],
+            (filters: RecordingFilters | undefined): MatchingEventsMatchType => {
+                if (!filters) {
+                    return { matchType: 'none' }
+                }
+
+                const hasActions = !!filters.actions?.length
+                const hasEvents = !!filters.events?.length
+                const simpleEvents = (filters.events || [])
+                    .filter((e) => !e.properties || !e.properties.length)
+                    .map((e) => e.name.toString())
+                const hasSimpleEvents = !!simpleEvents.length
+
+                if (hasActions) {
+                    return { matchType: 'backend', filters }
+                } else {
+                    if (!hasEvents) {
+                        return { matchType: 'none' }
+                    }
+
+                    if (hasEvents && hasSimpleEvents && simpleEvents.length === filters.events?.length) {
+                        return {
+                            matchType: 'simple',
+                            eventNames: simpleEvents,
+                        }
+                    } else {
+                        return {
+                            matchType: 'backend',
+                            filters,
+                        }
+                    }
                 }
             },
         ],
