@@ -33,7 +33,7 @@ switch (alternativeMode) {
     case AlternativeMode.Migrate:
         initApp(defaultConfig)
 
-        status.info(`🔗`, `Attempting to connect to Graphile Worker to run migrations`)
+        status.info(`🔗`, 'Attempting to connect to Graphile Worker to run migrations')
         void (async function () {
             try {
                 const graphileWorker = new GraphileWorker(defaultConfig as Hub)

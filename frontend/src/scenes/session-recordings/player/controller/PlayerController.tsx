@@ -34,7 +34,9 @@ export function PlayerController(): JSX.Element {
                 <div className="flex items-center gap-1">
                     <SeekSkip direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
-                        {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
+                        {[SessionPlayerState.PLAY, SessionPlayerState.SKIP, SessionPlayerState.BUFFER].includes(
+                            currentPlayerState
+                        ) ? (
                             <IconPause className="text-2xl" />
                         ) : (
                             <IconPlay className="text-2xl" />
