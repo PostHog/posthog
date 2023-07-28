@@ -352,11 +352,11 @@ export function ActionFilterRow({
                                                                 <>
                                                                     Calculate{' '}
                                                                     {mathDefinitions[math ?? ''].name.toLowerCase()} of
-                                                                    the session duration. Unlike other properties this
-                                                                    is based on the <code>$session_id</code> property
-                                                                    associated with events. The duration is derived from
-                                                                    the time difference between the first and last event
-                                                                    for each distinct <code>$session_id</code>.
+                                                                    the session duration. This is based on the{' '}
+                                                                    <code>$session_id</code> property associated with
+                                                                    events. The duration is derived from the time
+                                                                    difference between the first and last event for each
+                                                                    distinct <code>$session_id</code>.
                                                                 </>
                                                             ) : (
                                                                 <>
