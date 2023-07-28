@@ -113,16 +113,7 @@ export function PropertyGroupFilters({
                                                 </div>
                                                 <PropertyFilters
                                                     orFiltering={true}
-                                                    addButton={
-                                                        <LemonButton
-                                                            type="tertiary"
-                                                            noPadding
-                                                            icon={<IconPlusMini />}
-                                                            sideIcon={null}
-                                                        >
-                                                            Add filter
-                                                        </LemonButton>
-                                                    }
+                                                    addText="Add filter"
                                                     propertyFilters={
                                                         isPropertyGroupFilterLike(group)
                                                             ? (group.values as AnyPropertyFilter[])
