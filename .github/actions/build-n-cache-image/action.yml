@@ -20,6 +20,11 @@ runs:
       
         - name: Set up Depot CLI
           uses: depot/setup-action@v1
+          
+        - name: Emit image tag
+          id: emit
+          shell: bash
+          run: echo "tag=posthog/posthog:${{ github.sha }}" >> $GITHUB_OUTPUT
 
         - name: Build image # We don't push this because we use Depot cache as the communication channel
           id: build
@@ -28,12 +33,7 @@ runs:
               project: x19jffd9zf # posthog
               buildx-fallback: false # buildx is so slow it's better to just fail
               load: ${{ inputs.load }}
-              tags: PostHog/posthog:${{ github.sha }}
+              tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64,linux/arm64
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
-          
-        - name: Emit image tag
-          id: emit
-          shell: bash
-          run: echo "tag=PostHog/posthog:${{ github.sha }}" >> $GITHUB_OUTPUT
