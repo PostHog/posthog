@@ -82,7 +82,6 @@ import { PostHogFeature } from 'posthog-js/react'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
-
 export const scene: SceneExport = {
     component: FeatureFlag,
     logic: featureFlagLogic,
