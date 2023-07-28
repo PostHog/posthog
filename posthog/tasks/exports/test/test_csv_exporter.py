@@ -226,7 +226,6 @@ class TestCSVExporter(APIBaseTest):
         self, mocked_request, mocked_object_storage_write, mocked_uuidt
     ) -> None:
         path = "api/projects/1/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
-
         exported_asset = self._create_asset({"path": path})
         mock_response = Mock()
         mock_response.status_code = 200
