@@ -147,7 +147,14 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: ./bin/check_kafka_clickhouse_up
 
-            - name: Setup env
+            - name: Get Docker image cached in Depot
+              uses: ./.github/actions/build-n-cache-image
+              id: docker-build
+              with:
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  load: true
+
+            - name: Write .env
               run: |
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
@@ -171,18 +178,17 @@ jobs:
                   GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                   EOT
 
-            - name: Get Docker image cached in Depot
-              uses: ./.github/actions/build-n-cache-image
-              id: docker-build
-              with:
-                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  load: true
+                  echo "XXX"
+                  tail .env
 
             - name: Start PostHog
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
                   mkdir -p /tmp/logs
+
+                  echo "XXX"
+                  tail .env
 
                   echo "Starting PostHog using the container image ${{ steps.docker-build.outputs.tag }}"
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ steps.docker-build.outputs.tag }}"
