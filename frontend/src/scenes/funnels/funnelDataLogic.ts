@@ -121,16 +121,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
         aggregationTargetLabel: [
             (s) => [s.querySource, s.aggregationLabel],
-            (
-                querySource: FunnelsQuery,
-                aggregationLabel: (
-                    groupTypeIndex: number | null | undefined,
-                    deferToUserWording?: boolean | undefined
-                ) => Noun
-            ): Noun =>
-                querySource.funnelsFilter?.funnel_aggregate_by_hogql
+            (querySource, aggregationLabel): Noun => {
+                if (!querySource) {
+                    return { singular: '', plural: '' }
+                }
+
+                return querySource.funnelsFilter?.funnel_aggregate_by_hogql
                     ? aggregationLabelForHogQL(querySource.funnelsFilter.funnel_aggregate_by_hogql)
-                    : aggregationLabel(querySource.aggregation_group_type_index),
+                    : aggregationLabel(querySource.aggregation_group_type_index)
+            },
         ],
 
         results: [

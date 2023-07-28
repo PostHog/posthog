@@ -22,7 +22,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.DataManagementHistory]: () => import('./data-management/history/History'),
     [Scene.Database]: () => import('./data-management/database/DatabaseScene'),
-    [Scene.WebPerformance]: () => import('./performance/WebPerformance'),
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ReplaySingle]: () => import('./session-recordings/detail/SessionRecordingDetail'),
     [Scene.ReplayPlaylist]: () => import('./session-recordings/playlist/SessionRecordingsPlaylistScene'),

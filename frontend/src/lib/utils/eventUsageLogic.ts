@@ -515,7 +515,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
+        reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
+        reportProductUnsubscribed: (product: string) => ({ product }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -851,7 +853,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 snapshots_load_time: durations.snapshots?.duration,
                 metadata_load_time: durations.metadata?.duration,
                 events_load_time: durations.events?.duration,
-                performance_events_load_time: durations.performanceEvents?.duration,
                 first_paint_load_time: durations.firstPaint?.duration,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.start?.valueOf() ?? 0,
@@ -1228,6 +1229,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 end_date: survey.end_date,
             })
         },
+        reportSurveyResumed: ({ survey }) => {
+            posthog.capture('survey resumed', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
+            })
+        },
         reportSurveyArchived: ({ survey }) => {
             posthog.capture('survey archived', {
                 name: survey.name,
@@ -1243,6 +1252,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 id: survey.id,
                 created_at: survey.created_at,
                 start_date: survey.start_date,
+            })
+        },
+        reportProductUnsubscribed: ({ product }) => {
+            const property_key = `unsubscribed_from_${product}`
+            posthog.capture('product unsubscribed', {
+                product,
+                $set: { [property_key]: true },
             })
         },
     }),

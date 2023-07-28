@@ -326,7 +326,6 @@ export interface TeamType extends TeamBasicType {
     capture_performance_opt_in: boolean
     autocapture_exceptions_opt_in: boolean
     autocapture_exceptions_errors_to_ignore: string[]
-    session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: PathCleaningFilter[]
@@ -729,6 +728,7 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -2041,15 +2041,15 @@ export interface Survey {
     /** UUID */
     id: string
     name: string
-    description: string
     type: SurveyType
+    description: string
     linked_flag_id: number | null
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters: Pick<FeatureFlagFilters, 'groups'> | undefined
     conditions: { url: string; selector: string; is_headless?: boolean } | null
     appearance: SurveyAppearance
-    questions: SurveyQuestion[]
+    questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion)[]
     created_at: string
     created_by: UserBasicType | null
     start_date: string | null
@@ -2071,16 +2071,39 @@ export interface SurveyAppearance {
     textColor?: string
     submitButtonText?: string
     descriptionTextColor?: string
+    ratingButtonColor?: string
+    ratingButtonHoverColor?: string
 }
 
-export interface SurveyQuestion {
-    type: SurveyQuestionType
+interface SurveyQuestionBase {
     question: string
     description?: string | null
     required?: boolean
-    link: string | null
-    choices?: string[] | null
 }
+
+export interface BasicSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Open | SurveyQuestionType.NPS
+}
+
+export interface LinkSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Link
+    link: string | null
+}
+
+export interface RatingSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.Rating
+    display: 'number' | 'emoji'
+    scale: number
+    lowerBoundLabel: string
+    upperBoundLabel: string
+}
+
+export interface MultipleSurveyQuestion extends SurveyQuestionBase {
+    type: SurveyQuestionType.MultipleChoiceSingle | SurveyQuestionType.MultipleChoiceMulti
+    choices: string[]
+}
+
+export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
 
 export enum SurveyQuestionType {
     Open = 'open',
@@ -2929,7 +2952,6 @@ export interface RecordingReportLoadTimes {
     metadata: RecordingReportLoadTimeRow
     snapshots: RecordingReportLoadTimeRow
     events: RecordingReportLoadTimeRow
-    performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
 
@@ -2986,6 +3008,13 @@ export enum NotebookNodeType {
     FeatureFlag = 'ph-feature-flag',
     Person = 'ph-person',
     Link = 'ph-link',
+    Backlink = 'ph-backlink',
+    ReplayTimestamp = 'ph-replay-timestamp',
+}
+
+export enum NotebookTarget {
+    Sidebar = 'sidebar',
+    Auto = 'auto',
 }
 
 export type NotebookSyncStatus = 'synced' | 'saving' | 'unsaved' | 'local'

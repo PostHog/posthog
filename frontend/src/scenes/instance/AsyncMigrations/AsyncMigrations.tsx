@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Button, Progress, Space, Tabs } from 'antd'
+import { Button, Progress, Space } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import {
@@ -23,8 +23,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
-
-const { TabPane } = Tabs
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -256,6 +255,25 @@ export function AsyncMigrations(): JSX.Element {
             loadAsyncMigrationErrors(asyncMigration.id)
         },
     }
+
+    const tabs = [
+        {
+            key: AsyncMigrationsTab.Management,
+            label: `Management (${actionableMigrations.length})`,
+        },
+        {
+            key: AsyncMigrationsTab.Settings,
+            label: 'Settings',
+        },
+    ]
+
+    if (futureMigrations.length > 0) {
+        tabs.splice(1, 0, {
+            key: AsyncMigrationsTab.FutureMigrations,
+            label: `Future Migrations (${futureMigrations.length})`,
+        })
+    }
+
     return (
         <div>
             {user?.is_staff ? (
@@ -276,19 +294,7 @@ export function AsyncMigrations(): JSX.Element {
                         }
                     />
 
-                    <Tabs activeKey={activeTab} onTabClick={(t) => setActiveTab(t as AsyncMigrationsTab)}>
-                        <TabPane
-                            tab={`Management (${actionableMigrations.length})`}
-                            key={AsyncMigrationsTab.Management}
-                        />
-                        {futureMigrations.length > 0 && (
-                            <TabPane
-                                tab={`Future Migrations (${futureMigrations.length})`}
-                                key={AsyncMigrationsTab.FutureMigrations}
-                            />
-                        )}
-                        <TabPane tab="Settings" key={AsyncMigrationsTab.Settings} />
-                    </Tabs>
+                    <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 
                     {[AsyncMigrationsTab.Management, AsyncMigrationsTab.FutureMigrations].includes(activeTab) ? (
                         <>

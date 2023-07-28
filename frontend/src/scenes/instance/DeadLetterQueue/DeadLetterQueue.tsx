@@ -1,17 +1,15 @@
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Tabs } from 'antd'
 import { useValues, useActions } from 'kea'
 import { deadLetterQueueLogic, DeadLetterQueueTab } from './deadLetterQueueLogic'
 import { userLogic } from 'scenes/userLogic'
 import { MetricsTab } from './MetricsTab'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: DeadLetterQueue,
     logic: deadLetterQueueLogic,
 }
-
-const { TabPane } = Tabs
 
 export function DeadLetterQueue(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -49,9 +47,11 @@ export function DeadLetterQueue(): JSX.Element {
                 }
             />
 
-            <Tabs activeKey={activeTab} onChange={(key) => setActiveTab(key as DeadLetterQueueTab)}>
-                <TabPane tab="Metrics" key={DeadLetterQueueTab.Metrics} />
-            </Tabs>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key as DeadLetterQueueTab)}
+                tabs={[{ label: 'Metrics', key: DeadLetterQueueTab.Metrics }]}
+            />
 
             {activeTab === DeadLetterQueueTab.Metrics ? <MetricsTab /> : null}
         </div>

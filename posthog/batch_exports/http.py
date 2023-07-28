@@ -17,6 +17,7 @@ from posthog.batch_exports.service import (
     pause_batch_export,
     reset_batch_export_run,
     unpause_batch_export,
+    update_batch_export,
 )
 from posthog.models import (
     BatchExport,
@@ -198,17 +199,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def update(self, instance: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
+        interval = validated_data.get("interval", None)
+        name = validated_data.get("name", None)
+        start_at = validated_data.get("start_at", None)
+        end_at = validated_data.get("end_at", None)
 
-        if destination_data:
-            instance.destination.type = destination_data.get("type", instance.destination.type)
-            instance.destination.config = {**instance.destination.config, **destination_data.get("config", {})}
-            instance.destination.save()
-
-        instance.name = validated_data.get("name", instance.name)
-        instance.interval = validated_data.get("interval", instance.interval)
-        instance.save()
-
-        return instance
+        return update_batch_export(
+            batch_export=instance,
+            interval=interval,
+            name=name,
+            destination_data=destination_data,
+            start_at=start_at,
+            end_at=end_at,
+        )
 
 
 class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

@@ -17,7 +17,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
-        notebookLinkClicked: (shortId: string, internal: boolean) => ({ shortId, internal }),
     }),
 
     reducers(() => ({
@@ -94,12 +93,6 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
                 actions.setDesiredWidth(
                     Math.max(MIN_NOTEBOOK_SIDEBAR_WIDTH, cache.originalWidth - (desiredX - originX))
                 )
-            }
-        },
-        notebookLinkClicked: ({ shortId, internal }) => {
-            if (!values.notebookSideBarShown && internal) {
-                actions.selectNotebook(shortId)
-                actions.setNotebookSideBarShown(true)
             }
         },
     })),

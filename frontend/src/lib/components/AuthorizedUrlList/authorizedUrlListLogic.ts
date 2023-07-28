@@ -14,7 +14,7 @@ import {
 import api from 'lib/api'
 import { isDomain, isURL, toParams } from 'lib/utils'
 import { ToolbarParams, TrendResult } from '~/types'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import { encodeParams, urlToAction } from 'kea-router'
@@ -23,6 +23,7 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
 import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
+import { subscriptions } from 'kea-subscriptions'
 
 export interface ProposeNewUrlFormType {
     url: string
@@ -33,29 +34,25 @@ export enum AuthorizedUrlListType {
     RECORDING_DOMAINS = 'RECORDING_DOMAINS',
 }
 
-export const validateProposedURL = (
+export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
-    onlyAllowDomains: boolean
+    onlyAllowDomains: boolean = false
 ): string | undefined => {
-    if (proposedUrl === '') {
-        return 'Please type a valid URL or domain.'
-    }
-
-    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
-        return 'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
-    }
-
     if (!onlyAllowDomains && !isURL(proposedUrl)) {
-        return 'Please type a valid URL or domain.'
+        return 'Please enter a valid URL'
     }
 
     if (onlyAllowDomains && !isDomain(proposedUrl)) {
-        return "Please type a valid domain (URLs with a path aren't allowed)."
+        return "Please enter a valid domain (URLs with a path aren't allowed)"
+    }
+
+    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
+        return 'Wildcards can only be used for subdomains'
     }
 
     if (currentUrls.indexOf(proposedUrl) > -1) {
-        return 'This URL is already registered.'
+        return `This ${onlyAllowDomains ? 'domains' : 'URL'} already is registered`
     }
 
     return
@@ -157,21 +154,23 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         },
     })),
-    afterMount(({ actions, values, props }) => {
-        actions.loadSuggestions()
-        if (values.currentTeam) {
+    subscriptions(({ props, actions }) => ({
+        currentTeam: (currentTeam) => {
             actions.setAuthorizedUrls(
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
-                    ? values.currentTeam.recording_domains
-                    : values.currentTeam.app_urls) || []
+                    ? currentTeam.recording_domains
+                    : currentTeam.app_urls) || []
             )
-        }
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadSuggestions()
     }),
     forms(({ values, actions }) => ({
         proposedUrl: {
             defaults: { url: '' } as ProposeNewUrlFormType,
             errors: ({ url }) => ({
-                url: validateProposedURL(url, values.authorizedUrls, values.onlyAllowDomains),
+                url: validateProposedUrl(url, values.authorizedUrls, values.onlyAllowDomains),
             }),
             submit: async ({ url }) => {
                 if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
@@ -234,15 +233,15 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         ],
     })),
     sharedListeners(({ values, props }) => ({
-        saveUrls: () => {
+        saveUrls: async () => {
             if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
-                teamLogic.actions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
+                await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
             } else {
-                teamLogic.actions.updateCurrentTeam({ app_urls: values.authorizedUrls })
+                await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
             }
         },
     })),
-    listeners(({ sharedListeners, values, actions, props }) => ({
+    listeners(({ sharedListeners, values, actions }) => ({
         setEditUrlIndex: () => {
             actions.setProposedUrlValue('url', values.urlToEdit)
         },
@@ -251,7 +250,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         },
         addUrl: [
             sharedListeners.saveUrls,
-            async ({ url, launch }) => {
+            ({ url, launch }) => {
                 if (launch) {
                     actions.launchAtUrl(url)
                 }
@@ -259,15 +258,6 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         ],
         removeUrl: sharedListeners.saveUrls,
         updateUrl: sharedListeners.saveUrls,
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
-            if (isAuthenticatedTeam(currentTeam)) {
-                actions.setAuthorizedUrls(
-                    props.type === AuthorizedUrlListType.RECORDING_DOMAINS
-                        ? currentTeam.recording_domains
-                        : currentTeam.app_urls
-                )
-            }
-        },
         launchAtUrl: ({ url }) => {
             window.location.href = values.launchUrl(url)
         },

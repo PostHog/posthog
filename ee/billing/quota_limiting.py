@@ -14,7 +14,7 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
-    get_teams_with_event_count_in_period,
+    get_teams_with_billable_event_count_in_period,
     get_teams_with_recording_count_in_period,
     convert_team_usage_rows_to_dict,
 )
@@ -147,7 +147,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = dict(
         teams_with_event_count_in_period=convert_team_usage_rows_to_dict(
-            get_teams_with_event_count_in_period(period_start, period_end)
+            get_teams_with_billable_event_count_in_period(period_start, period_end)
         ),
         teams_with_recording_count_in_period=convert_team_usage_rows_to_dict(
             get_teams_with_recording_count_in_period(period_start, period_end)

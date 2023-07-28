@@ -301,7 +301,7 @@ def get_git_commit() -> Optional[str]:
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
-    it is necessary to set the JS_URL host based on the calling origin
+    it is necessary to set the JS_URL host based on the calling origin.
     """
     if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
         return f"http://{request.get_host().split(':')[0]}:8234"
@@ -1278,3 +1278,26 @@ class PersonOnEventsMode(str, Enum):
     DISABLED = "disabled"
     V1_ENABLED = "v1_enabled"
     V2_ENABLED = "v2_enabled"
+
+
+def label_for_team_id_to_track(team_id: int) -> str:
+    team_id_filter: List[str] = settings.DECIDE_TRACK_TEAM_IDS
+
+    team_id_as_string = str(team_id)
+
+    if "all" in team_id_filter:
+        return team_id_as_string
+
+    if team_id_as_string in team_id_filter:
+        return team_id_as_string
+
+    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
+    for range in team_id_ranges:
+        try:
+            start, end = range.split(":")
+            if int(start) <= team_id <= int(end):
+                return team_id_as_string
+        except Exception:
+            pass
+
+    return "unknown"

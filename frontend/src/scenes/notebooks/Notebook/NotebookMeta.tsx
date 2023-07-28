@@ -16,7 +16,7 @@ const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tool
     saving: {
         content: (
             <>
-                Saving <Spinner monocolor />
+                Saving <Spinner textColored />
             </>
         ),
         tooltip: 'The changes are being saved to PostHog.',

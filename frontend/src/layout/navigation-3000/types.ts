@@ -38,12 +38,30 @@ export interface SidebarNavbarItem extends NavbarItemBase {
 // TODO: Remove NavbarItemBase from NavbarItem once all 3000 navbar items are interactive
 export type NavbarItem = NavbarItemBase | SceneNavbarItem | SidebarNavbarItem
 
+export type ListItemSaveHandler = (newName: string) => Promise<void>
+
 /** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
 export interface SidebarCategory {
     key: string
-    title: string
+    /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
+    noun: string | [singular: string, plural: string]
     items: BasicListItem[] | ExtendedListItem[]
     loading: boolean
+    /**
+     * Items can be created in three ways:
+     * 1. In a "new item" scene, in which case this is a string pointing to the scene URL (such as new insight).
+     * 2. In a modal, in which case this is a zero-argument function that opens the modal.
+     * 3. Directly in the sidebar, in which case this is a single-argument function that takes the new item's name
+     *    and saves it. For a smooth experience, this should only resolve once the new item is present in `contents`.
+     */
+    onAdd?: string | (() => void) | ListItemSaveHandler
+    /**
+     * Name validation. Returns a message string in case of an error, otherwise null.
+     * This is relevant if the category has `onAdd` or items have `onRename`.
+     */
+    validateName?: (name: string) => string | null
+    /** Optional extra JSX rendered in the background, enabling category-specific modals. */
+    modalContent?: JSX.Element
     /** Controls for data that's only loaded partially from the API at first. This powers infinite loading. */
     remote?: {
         isItemLoaded: (index: number) => boolean
@@ -64,6 +82,7 @@ export interface SearchMatch {
     nameHighlightRanges?: readonly [number, number][]
 }
 
+/** Single-row list item. */
 export interface BasicListItem {
     /**
      * Key uniquely identifying this item.
@@ -98,16 +117,27 @@ export interface BasicListItem {
     /** If search is on, this should be present to convey why this item is included in results. */
     searchMatch?: SearchMatch | null
     menuItems?: LemonMenuItems | ((initiateRename?: () => void) => LemonMenuItems)
-    onRename?: (newName: string) => Promise<void>
+    onRename?: ListItemSaveHandler
     /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
     ref?: React.MutableRefObject<HTMLElement | null>
 }
 
 export type ExtraListItemContext = string | Dayjs
+/** Double-row list item. */
 export interface ExtendedListItem extends BasicListItem {
     summary: string | JSX.Element
     /** A small piece of extra context to be displayed in the top right of the row. */
     extraContextTop: ExtraListItemContext
     /** A small piece of extra context to be displayed in the bottom right of the row. */
     extraContextBottom: ExtraListItemContext
+}
+
+/** Just a stub for a list item that's being added. */
+export interface TentativeListItem {
+    key: '__tentative__'
+    onSave: ListItemSaveHandler
+    onCancel: () => void
+    loading: boolean
+    adding: boolean
+    ref?: BasicListItem['ref']
 }

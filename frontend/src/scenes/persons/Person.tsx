@@ -1,4 +1,4 @@
-import { Dropdown, Menu, Tabs, Tag } from 'antd'
+import { Dropdown, Menu, Tag } from 'antd'
 import { DownOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
@@ -31,8 +31,7 @@ import { NodeKind } from '~/queries/schema'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { IconInfo } from 'lib/lemon-ui/icons'
-
-const { TabPane } = Tabs
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: Person,
@@ -160,118 +159,133 @@ export function Person(): JSX.Element | null {
 
             <PersonDeleteModal />
 
-            <Tabs
+            <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => {
                     navigateToTab(tab as PersonsTabType)
                 }}
-                destroyInactiveTabPane={true}
                 data-attr="persons-tabs"
-            >
-                <TabPane
-                    tab={<span data-attr="persons-properties-tab">Properties</span>}
-                    key={PersonsTabType.PROPERTIES}
-                >
-                    <PropertiesTable
-                        type={PropertyDefinitionType.Person}
-                        properties={person.properties || {}}
-                        searchable
-                        onEdit={editProperty}
-                        sortProperties
-                        embedded={false}
-                        onDelete={(key) => deleteProperty(key)}
-                        filterable
-                    />
-                </TabPane>
-                <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <Query
-                        query={{
-                            kind: NodeKind.DataTableNode,
-                            full: true,
-                            hiddenColumns: ['person'],
-                            source: {
-                                kind: NodeKind.EventsQuery,
-                                select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                personId: person.id,
-                                after: '-24h',
-                            },
-                        }}
-                    />
-                </TabPane>
-                <TabPane
-                    tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
-                    key={PersonsTabType.SESSION_RECORDINGS}
-                >
-                    {!currentTeam?.session_recording_opt_in ? (
-                        <div className="mb-4">
-                            <LemonBanner type="info">
-                                Session recordings are currently disabled for this project. To use this feature, please
-                                go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
-                                enable it.
-                            </LemonBanner>
-                        </div>
-                    ) : null}
-                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
-                </TabPane>
-
-                <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
-                    <PersonCohorts />
-                </TabPane>
-                {groupsEnabled && person.uuid && (
-                    <TabPane
-                        tab={
-                            <span className="flex items-center" data-attr="persons-related-tab">
-                                Related groups
-                                <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                    <IconInfo className="ml-1 text-base shrink-0" />
-                                </Tooltip>
-                            </span>
-                        }
-                        key={PersonsTabType.RELATED}
-                    >
-                        <RelatedGroups id={person.uuid} groupTypeIndex={null} />
-                    </TabPane>
-                )}
-                {person.uuid && (
-                    <TabPane
-                        tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
-                        key={PersonsTabType.FEATURE_FLAGS}
-                    >
-                        <div className="flex space-x-2 items-center mb-2">
-                            <div className="flex items-center">
-                                Choose ID:
-                                <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
-                                    <IconInfo className="ml-1 text-base" />
-                                </Tooltip>
-                            </div>
-                            <LemonSelect
-                                value={person.distinct_ids[0]}
-                                onChange={(value) => value && setDistinctId(value)}
-                                options={person.distinct_ids.map((distinct_id) => ({
-                                    label: distinct_id,
-                                    value: distinct_id,
-                                }))}
-                                data-attr="person-feature-flags-select"
+                tabs={[
+                    {
+                        key: PersonsTabType.PROPERTIES,
+                        label: <span data-attr="persons-properties-tab">Properties</span>,
+                        content: (
+                            <PropertiesTable
+                                type={PropertyDefinitionType.Person}
+                                properties={person.properties || {}}
+                                searchable
+                                onEdit={editProperty}
+                                sortProperties
+                                embedded={false}
+                                onDelete={(key) => deleteProperty(key)}
+                                filterable
                             />
-                        </div>
-                        <LemonDivider className="mb-4" />
-                        <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
-                    </TabPane>
-                )}
-
-                <TabPane tab="History" key="history">
-                    <ActivityLog
-                        scope={ActivityScope.PERSON}
-                        id={person.id}
-                        caption={
-                            <LemonBanner type="info">
-                                This page only shows changes made by users in the PostHog site. Automatic changes from
-                                the API aren't shown here.
-                            </LemonBanner>
-                        }
-                    />
-                </TabPane>
-            </Tabs>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.EVENTS,
+                        label: <span data-attr="persons-events-tab">Events</span>,
+                        content: (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    full: true,
+                                    hiddenColumns: ['person'],
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        personId: person.id,
+                                        after: '-24h',
+                                    },
+                                }}
+                            />
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.SESSION_RECORDINGS,
+                        label: <span data-attr="person-session-recordings-tab">Recordings</span>,
+                        content: (
+                            <>
+                                {!currentTeam?.session_recording_opt_in ? (
+                                    <div className="mb-4">
+                                        <LemonBanner type="info">
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
+                                            <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link>{' '}
+                                            and enable it.
+                                        </LemonBanner>
+                                    </div>
+                                ) : null}
+                                <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                            </>
+                        ),
+                    },
+                    {
+                        key: PersonsTabType.COHORTS,
+                        label: <span data-attr="persons-cohorts-tab">Cohorts</span>,
+                        content: <PersonCohorts />,
+                    },
+                    groupsEnabled && person.uuid
+                        ? {
+                              key: PersonsTabType.RELATED,
+                              label: (
+                                  <span className="flex items-center" data-attr="persons-related-tab">
+                                      Related groups
+                                      <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
+                                          <IconInfo className="ml-1 text-base shrink-0" />
+                                      </Tooltip>
+                                  </span>
+                              ),
+                              content: <RelatedGroups id={person.uuid} groupTypeIndex={null} />,
+                          }
+                        : false,
+                    person.uuid
+                        ? {
+                              key: PersonsTabType.FEATURE_FLAGS,
+                              label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
+                              content: (
+                                  <>
+                                      <div className="flex space-x-2 items-center mb-2">
+                                          <div className="flex items-center">
+                                              Choose ID:
+                                              <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
+                                                  <IconInfo className="ml-1 text-base" />
+                                              </Tooltip>
+                                          </div>
+                                          <LemonSelect
+                                              value={person.distinct_ids[0]}
+                                              onChange={(value) => value && setDistinctId(value)}
+                                              options={person.distinct_ids.map((distinct_id) => ({
+                                                  label: distinct_id,
+                                                  value: distinct_id,
+                                              }))}
+                                              data-attr="person-feature-flags-select"
+                                          />
+                                      </div>
+                                      <LemonDivider className="mb-4" />
+                                      <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
+                                  </>
+                              ),
+                          }
+                        : false,
+                    {
+                        key: PersonsTabType.HISTORY,
+                        label: 'History',
+                        content: (
+                            <ActivityLog
+                                scope={ActivityScope.PERSON}
+                                id={person.id}
+                                caption={
+                                    <LemonBanner type="info">
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </LemonBanner>
+                                }
+                            />
+                        ),
+                    },
+                ]}
+            />
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </>
