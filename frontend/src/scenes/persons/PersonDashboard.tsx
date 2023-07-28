@@ -27,11 +27,17 @@ export function PersonDashboard({ person }: { person: PersonType }): JSX.Element
                 key: hogQLPersonFilter,
             }
 
-            const hasFilter = current.some(
-                (item) => item.type === PropertyFilterType.HogQL && item.key.startsWith(`person.properties.email =`)
+            const hasDesired = current.some(
+                (item) => item.type === PropertyFilterType.HogQL && item.key === hogQLPersonFilter
             )
-            if (!hasFilter) {
-                setProperties([...current, desired])
+            if (!hasDesired) {
+                setProperties([
+                    ...current.filter(
+                        (item) =>
+                            item.type === PropertyFilterType.HogQL && !item.key.startsWith('person.properties.email')
+                    ),
+                    desired,
+                ])
             }
         }
     }, [dashboard, person])
