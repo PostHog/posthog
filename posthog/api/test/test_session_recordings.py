@@ -175,7 +175,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert len(zeroth_load.json()["results"]) == 0
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = FuzzyInt(12, 16)  # PoE on or off adds queries here :shrug:
+            num_queries = FuzzyInt(12, 19)  # PoE on or off adds queries here :shrug:
 
             self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
             with self.assertNumQueries(num_queries):

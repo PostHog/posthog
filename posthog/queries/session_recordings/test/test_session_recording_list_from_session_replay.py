@@ -801,7 +801,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(["$current_url", "$browser"])
+    @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
     @freeze_time("2023-01-04")
     def test_action_filter(self):
         user = "test_action_filter-user"
