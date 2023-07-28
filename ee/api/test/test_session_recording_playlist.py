@@ -1,19 +1,27 @@
 from datetime import datetime
 from typing import List
 from unittest import mock
+from uuid import uuid4
 
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
-from posthog.models import SessionRecording, SessionRecordingPlaylistItem
+from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 
 
 class TestSessionRecordingPlaylist(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+
+        # a race I couldn't figure out meant that the test_fetch_playlist_recordings
+        # would sometimes fail when run with the other tests 🤷
+        self.team = Team.objects.create(organization=self.organization)
+
     def test_list_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK
@@ -25,12 +33,15 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         }
 
     def test_creates_playlist(self):
-        response = self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test"})
+        playlist_name = str(uuid4())
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": playlist_name}
+        )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
-            "name": "test",
+            "name": playlist_name,
             "derived_name": None,
             "description": "",
             "pinned": False,
@@ -141,8 +152,11 @@ class TestSessionRecordingPlaylist(APILicensedTest):
     def test_get_pinned_recordings_for_playlist(self):
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
+        session_one = f"test_get_pinned_recordings_for_playlist-session1-{uuid4()}"
+        session_two = f"test_get_pinned_recordings_for_playlist-session2-{uuid4()}"
+
         produce_replay_summary(
-            session_id="session1",
+            session_id=session_one,
             team_id=self.team.pk,
             first_timestamp=(datetime.utcnow()).isoformat(),
             last_timestamp=(datetime.utcnow()).isoformat(),
@@ -150,7 +164,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         )
 
         produce_replay_summary(
-            session_id="session2",
+            session_id=session_two,
             team_id=self.team.pk,
             first_timestamp=(datetime.utcnow()).isoformat(),
             last_timestamp=(datetime.utcnow()).isoformat(),
@@ -159,10 +173,10 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         # Create playlist items
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/session1"
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_one}"
         )
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/session2"
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_two}"
         )
         self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/session-missing"
@@ -173,22 +187,25 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
         ).json()
         assert len(result["results"]) == 2
-        assert {x["id"] for x in result["results"]} == {"session1", "session2"}
+        assert {x["id"] for x in result["results"]} == {session_one, session_two}
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     def test_fetch_playlist_recordings(self):
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
-            name="playlist1",
+            name="test_fetch_playlist_recordings-playlist1",
             created_by=self.user,
         )
         playlist2 = SessionRecordingPlaylist.objects.create(
             team=self.team,
-            name="playlist2",
+            name="test_fetch_playlist_recordings-playlist2",
             created_by=self.user,
         )
 
-        for id in ["session1", "session2"]:
+        session_one = f"test_fetch_playlist_recordings-session-one-{uuid4()}"
+        session_two = f"test_fetch_playlist_recordings-session-two-{uuid4()}"
+
+        for id in [session_one, session_two]:
             produce_replay_summary(
                 session_id=id,
                 team_id=self.team.pk,
@@ -198,31 +215,33 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             )
 
         add_one_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session1",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{session_one}",
         )
         assert add_one_response.status_code == 200
-        self._assert_playlist_session_ids(playlist1.short_id, expected=["session1"])
+        assert add_one_response.json() == {"success": True}
+        self._assert_playlist_session_ids(playlist1.short_id, expected=[session_one])
 
         add_two_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session2",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{session_two}",
         )
         assert add_two_response.status_code == 200
-        self._assert_playlist_session_ids(playlist1.short_id, expected=["session1", "session2"])
+        self._assert_playlist_session_ids(playlist1.short_id, expected=[session_one, session_two])
 
         add_one_to_playlist_two_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/session1",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{session_one}",
         )
         assert add_one_to_playlist_two_response.status_code == 200
 
         # adding to playlist 2 should not affect playlist 1
-        self._assert_playlist_session_ids(playlist1.short_id, expected=["session1", "session2"])
-        self._assert_playlist_session_ids(playlist2.short_id, expected=["session1"])
+        self._assert_playlist_session_ids(playlist1.short_id, expected=[session_one, session_two])
+        self._assert_playlist_session_ids(playlist2.short_id, expected=[session_one])
 
     def _assert_playlist_session_ids(self, playlist_short_id: str, expected: List[str]) -> None:
         playlist_response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist_short_id}/recordings",
-        ).json()
-        assert [r["id"] for r in playlist_response["results"]] == expected
+        )
+        assert playlist_response.status_code == 200
+        assert [r["id"] for r in playlist_response.json()["results"]] == expected
 
     def test_add_remove_static_playlist_items(self):
         playlist1 = SessionRecordingPlaylist.objects.create(
