@@ -252,6 +252,8 @@ export function RecordingsLists({
                                         </LemonButton>
                                     </>
                                 )}
+                                From: {filters.date_from}
+                                To: {filters.date_to}
                             </div>
                         )
                     }
