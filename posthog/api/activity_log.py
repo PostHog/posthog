@@ -63,7 +63,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         my_notebooks = list(Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
 
         # then things they edited
-        interesting_changes = ["updated", "exported", "sharing enabled", "sharing disabled"]
+        interesting_changes = ["updated", "exported", "sharing enabled", "sharing disabled", "deleted"]
         my_changed_insights = list(
             ActivityLog.objects.filter(
                 team_id=self.team.id, activity__in=interesting_changes, user_id=user.pk, scope="Insight"
@@ -92,9 +92,20 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             self.queryset.exclude(user=user)
             .filter(team_id=self.team.id)
             .filter(
-                Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags + my_changed_feature_flags))
-                | Q(Q(scope="Insight") & Q(item_id__in=my_insights + my_changed_insights))
-                | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks + my_changed_notebooks))
+                Q(
+                    Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
+                    | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
+                    | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks))
+                )
+                | Q(
+                    # don't want to see creation of these things since that was before the user edited these things
+                    Q(activity__in=interesting_changes)
+                    & Q(
+                        Q(Q(scope="FeatureFlag") & Q(item_id__in=my_changed_feature_flags))
+                        | Q(Q(scope="Insight") & Q(item_id__in=my_changed_insights))
+                        | Q(Q(scope="Notebook") & Q(item_id__in=my_changed_notebooks))
+                    )
+                )
             )
             .order_by("-created_at")
         )[:10]
