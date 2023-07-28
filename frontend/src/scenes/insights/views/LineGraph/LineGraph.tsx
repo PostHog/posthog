@@ -27,7 +27,7 @@ import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -212,7 +212,8 @@ export interface LineGraphProps {
     formula?: string | null
     compare?: boolean | null
     showValueOnSeries?: boolean | null
-    showPercentStackView?: boolean
+    showPercentStackView?: boolean | null
+    supportsPercentStackView?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -242,6 +243,7 @@ export function LineGraph_({
     formula,
     showValueOnSeries,
     showPercentStackView,
+    supportsPercentStackView,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -268,6 +270,7 @@ export function LineGraph_({
 
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
+    const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal
     const shouldAutoResize = isHorizontal && !inCardView
 
@@ -374,7 +377,7 @@ export function LineGraph_({
                 },
             },
             plugins: {
-                stacked100: { enable: showPercentStackView, precision: 1 },
+                stacked100: { enable: isPercentStackView, precision: 1 },
                 datalabels: {
                     color: 'white',
                     anchor: (context) => {
@@ -392,10 +395,7 @@ export function LineGraph_({
                         const data = context.chart.data as ExtendedChartData
                         const { datasetIndex, dataIndex } = context
                         const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
-                        if (showPercentStackView && percentageValue) {
-                            return formatPercentStackAxisValue(trendsFilter, percentageValue)
-                        }
-                        return formatAggregationAxisValue(trendsFilter, value)
+                        return formatPercentStackAxisValue(trendsFilter, percentageValue || value, isPercentStackView)
                     },
                     borderWidth: 2,
                     borderRadius: 4,
@@ -461,7 +461,8 @@ export function LineGraph_({
                                     }}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string => formatAggregationAxisValue(trendsFilter, value))
+                                        ((value: number): string =>
+                                            formatPercentStackAxisValue(trendsFilter, value, isPercentStackView))
                                     }
                                     entitiesAsColumnsOverride={formula ? false : undefined}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -546,7 +547,7 @@ export function LineGraph_({
                         precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatPercentStackAxisValue(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                 },
@@ -572,7 +573,7 @@ export function LineGraph_({
                         precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatPercentStackAxisValue(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                     grid: {
@@ -589,7 +590,7 @@ export function LineGraph_({
                         ...tickOptions,
                         precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(trendsFilter, value)
+                            return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
                     },
                 },

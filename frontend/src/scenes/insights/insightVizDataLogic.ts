@@ -28,7 +28,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import {
     getBreakdown,
     getCompare,
@@ -105,6 +105,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+        supportsPercentStackView: [
+            (s) => [s.querySource, s.display],
+            (q, display) =>
+                isTrendsQuery(q) &&
+                PERCENT_STACK_VIEW_DISPLAY_TYPE.includes(display || ChartDisplayType.ActionsLineGraph),
+        ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
         breakdown: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
@@ -117,7 +123,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         shownAs: [(s) => [s.querySource], (q) => (q ? getShownAs(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
-        showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : undefined)],
+        showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
