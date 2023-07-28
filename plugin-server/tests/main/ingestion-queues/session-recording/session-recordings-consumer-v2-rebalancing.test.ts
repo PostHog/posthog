@@ -3,13 +3,13 @@ import path from 'path'
 
 import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
-import { SessionRecordingBlobIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-blob-consumer'
+import { SessionRecordingIngesterV2 } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer-v2'
 import { Hub, PluginsServerConfig } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { createIncomingRecordingMessage } from './fixtures'
 
-function assertIngesterHasExpectedPartitions(ingester: SessionRecordingBlobIngester, expectedPartitions: number[]) {
+function assertIngesterHasExpectedPartitions(ingester: SessionRecordingIngesterV2, expectedPartitions: number[]) {
     const partitions: Set<number> = new Set()
     Object.values(ingester.sessions).forEach((session) => {
         partitions.add(session.partition)
@@ -23,8 +23,8 @@ describe('ingester rebalancing tests', () => {
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/test-session-recordings',
     }
 
-    let ingesterOne: SessionRecordingBlobIngester
-    let ingesterTwo: SessionRecordingBlobIngester
+    let ingesterOne: SessionRecordingIngesterV2
+    let ingesterTwo: SessionRecordingIngesterV2
 
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -48,7 +48,7 @@ describe('ingester rebalancing tests', () => {
     })
 
     it('rebalances partitions safely from one to two consumers', async () => {
-        ingesterOne = new SessionRecordingBlobIngester(config, hub.postgres, hub.objectStorage, hub.redisPool)
+        ingesterOne = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
 
         await ingesterOne.start()
 
@@ -59,7 +59,7 @@ describe('ingester rebalancing tests', () => {
             assertIngesterHasExpectedPartitions(ingesterOne, [1])
         })
 
-        ingesterTwo = new SessionRecordingBlobIngester(config, hub.postgres, hub.objectStorage, hub.redisPool)
+        ingesterTwo = new SessionRecordingIngesterV2(config, hub.postgres, hub.objectStorage, hub.redisPool)
         await ingesterTwo.start()
 
         await waitForExpect(() => {

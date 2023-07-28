@@ -10,7 +10,7 @@ export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
     return `${prefix}/${tp.topic}/${tp.partition}`
 }
 
-export type SessionOffsetHighWaterMarks = Record<string, number | undefined>
+export type OffsetHighWaterMarks = Record<string, number | undefined>
 
 /**
  * If a file is written to S3 we need to know the offset of the last message in that file so that we can
@@ -22,12 +22,12 @@ export type SessionOffsetHighWaterMarks = Record<string, number | undefined>
  * which offsets have been written to S3 for each session, and which haven't
  * so that we don't re-process those messages.
  */
-export class SessionOffsetHighWaterMark {
+export class OffsetHighWaterMarker {
     // Watermarks are held in memory and synced back to redis on commit
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
-    private topicPartitionWaterMarks: Record<string, Promise<SessionOffsetHighWaterMarks> | undefined> = {}
+    private topicPartitionWaterMarks: Record<string, Promise<OffsetHighWaterMarks> | undefined> = {}
 
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/high-water-marks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
         const client = await this.redisPool.acquire()
@@ -40,7 +40,7 @@ export class SessionOffsetHighWaterMark {
         }
     }
 
-    public async getWaterMarks(tp: TopicPartition): Promise<SessionOffsetHighWaterMarks> {
+    public async getWaterMarks(tp: TopicPartition): Promise<OffsetHighWaterMarks> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
 
         // If we already have a watermark promise then we return it (i.e. we don't want to load the watermarks twice)
@@ -50,17 +50,14 @@ export class SessionOffsetHighWaterMark {
             ).then((redisValue) => {
                 // NOTE: We do this in a secondary promise to release the previous redis client
 
-                // redisValue is an array of [sessionId, offset, sessionId, offset, ...]
-                // we want to convert it to an object of { sessionId: offset, sessionId: offset, ... }
-                const highWaterMarks = redisValue.reduce(
-                    (acc: SessionOffsetHighWaterMarks, value: string, index: number) => {
-                        if (index % 2 === 0) {
-                            acc[value] = parseInt(redisValue[index + 1])
-                        }
-                        return acc
-                    },
-                    {}
-                )
+                // redisValue is an array of [key, offset, key, offset, ...]
+                // we want to convert it to an object of { key: offset, key: offset, ... }
+                const highWaterMarks = redisValue.reduce((acc: OffsetHighWaterMarks, value: string, index: number) => {
+                    if (index % 2 === 0) {
+                        acc[value] = parseInt(redisValue[index + 1])
+                    }
+                    return acc
+                }, {})
 
                 this.topicPartitionWaterMarks[key] = Promise.resolve(highWaterMarks)
 
@@ -71,32 +68,29 @@ export class SessionOffsetHighWaterMark {
         return this.topicPartitionWaterMarks[key]!
     }
 
-    public async add(tp: TopicPartition, sessionId: string, offset: number): Promise<void> {
+    public async add(tp: TopicPartition, id: string, offset: number): Promise<void> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
+        const watermarks = await this.getWaterMarks(tp)
+
+        if (offset <= (watermarks[id] ?? -1)) {
+            // SANITY CHECK: We don't want to add an offset that is less than or equal to the current offset
+            return
+        }
+
+        // Immediately update the value so any subsequent calls to getWaterMarks will get the latest value
+        watermarks[id] = offset
+        this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
 
         try {
             await this.run(`write offset high-water mark ${key} `, async (client) => {
-                const returnCountOfUpdatedAndAddedElements = 'CH'
-                const updatedCount = await client.zadd(key, returnCountOfUpdatedAndAddedElements, offset, sessionId)
-                status.info('📝', 'WrittenOffsetCache added high-water mark for partition', {
-                    key,
-                    ...tp,
-                    sessionId,
-                    offset,
-                    updatedCount,
-                })
-            }).then(async () => {
-                // NOTE: We do this in a secondary promise to release the previous redis client
-                const watermarks = await this.getWaterMarks(tp)
-                watermarks[sessionId] = offset
-                this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
+                await client.zadd(key, 'GT', offset, id)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,
-                sessionId,
+                id,
                 offset,
             })
             captureException(error, {
@@ -106,31 +100,31 @@ export class SessionOffsetHighWaterMark {
                 },
                 tags: {
                     ...tp,
-                    sessionId,
+                    id,
                 },
             })
         }
     }
 
-    public async onCommit(tp: TopicPartition, offset: number): Promise<void> {
+    public async clear(tp: TopicPartition, offset: number): Promise<void> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
-        try {
-            return await this.run(`commit all below offset high-water mark for ${key} `, async (client) => {
-                const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
-                status.info('📝', 'WrittenOffsetCache committed all below high-water mark for partition', {
-                    numberRemoved,
-                    ...tp,
-                    offset,
-                })
-                const watermarks = await this.getWaterMarks(tp)
-                // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
-                Object.entries(watermarks).forEach(([sessionId, value]) => {
-                    if (value && value <= offset) {
-                        delete watermarks[sessionId]
-                    }
-                })
 
-                this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
+        const watermarks = await this.getWaterMarks(tp)
+        let hadDeletion = false
+        Object.entries(watermarks).forEach(([id, value]) => {
+            if (value && value <= offset) {
+                delete watermarks[id]
+                hadDeletion = true
+            }
+        })
+
+        if (!hadDeletion) {
+            return
+        }
+
+        try {
+            return await this.run(`clear all below offset high-water mark for ${key} `, async (client) => {
+                await client.zremrangebyscore(key, '-Inf', offset)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {
@@ -155,10 +149,10 @@ export class SessionOffsetHighWaterMark {
      * it assumes that it has the latest high-water marks for this topic partition
      * so that callers are safe to drop messages
      */
-    public async isBelowHighWaterMark(tp: TopicPartition, sessionId: string, offset: number): Promise<boolean> {
+    public async isBelowHighWaterMark(tp: TopicPartition, id: string, offset: number): Promise<boolean> {
         const highWaterMarks = await this.getWaterMarks(tp)
 
-        return offset <= (highWaterMarks[sessionId] ?? -1)
+        return offset <= (highWaterMarks[id] ?? -1)
     }
 
     public revoke(tp: TopicPartition) {

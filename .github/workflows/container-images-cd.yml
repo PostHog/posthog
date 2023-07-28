@@ -68,8 +68,6 @@ jobs:
               with:
                   project: x19jffd9zf # posthog
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  cache-from: type=gha # always pull the layers from GHA
-                  cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
                   tags: posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/arm64,linux/amd64

@@ -205,7 +205,6 @@ class SessionRecording(UUIDModel):
             recording.click_count = ch_recording["click_count"]
             recording.keypress_count = ch_recording["keypress_count"]
             recording.mouse_activity_count = ch_recording.get("mouse_activity_count", 0)
-            recording.matching_events = ch_recording.get("matching_events", None)
             recording.console_log_count = ch_recording.get("console_log_count", None)
             recording.console_warn_count = ch_recording.get("console_warn_count", None)
             recording.console_error_count = ch_recording.get("console_error_count", None)

@@ -27,7 +27,7 @@ import { TeamManager } from '../../../worker/ingestion/team-manager'
 import { parseEventTimestamp } from '../../../worker/ingestion/timestamps'
 import { eventDroppedCounter } from '../metrics'
 
-export const startSessionRecordingEventsConsumer = async ({
+export const startSessionRecordingEventsConsumerV1 = async ({
     teamManager,
     kafkaConfig,
     consumerMaxBytes,
@@ -273,19 +273,24 @@ const eachMessage =
                         team.id,
                         messagePayload.distinct_id,
                         parseEventTimestamp(event as PluginEvent),
-                        event.ip,
                         event.properties || {}
                     )
 
                     let replayRecord: null | SummarizedSessionRecordingEvent = null
                     try {
-                        replayRecord = createSessionReplayEvent(
-                            messagePayload.uuid,
-                            team.id,
-                            messagePayload.distinct_id,
-                            event.ip,
-                            event.properties || {}
-                        )
+                        const properties = event.properties || {}
+                        const shouldCreateReplayEvents = (properties['$snapshot_consumer'] ?? 'v1') === 'v1'
+                        const eventsSummary: any[] = properties.$snapshot_data?.events_summary || []
+
+                        if (shouldCreateReplayEvents && eventsSummary.length) {
+                            replayRecord = createSessionReplayEvent(
+                                messagePayload.uuid,
+                                team.id,
+                                messagePayload.distinct_id,
+                                properties['$session_id'],
+                                eventsSummary
+                            )
+                        }
                         // the replay record timestamp has to be valid and be within a reasonable diff from now
                         if (replayRecord !== null) {
                             const asDate = DateTime.fromSQL(replayRecord.first_timestamp)

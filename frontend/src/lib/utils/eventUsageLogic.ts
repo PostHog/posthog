@@ -514,7 +514,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
+        reportSurveyResumed: (survey: Survey) => ({ survey }),
         reportSurveyArchived: (survey: Survey) => ({ survey }),
+        reportProductUnsubscribed: (product: string) => ({ product }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1226,6 +1228,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 end_date: survey.end_date,
             })
         },
+        reportSurveyResumed: ({ survey }) => {
+            posthog.capture('survey resumed', {
+                name: survey.name,
+                id: survey.id,
+                created_at: survey.created_at,
+                start_date: survey.start_date,
+            })
+        },
         reportSurveyArchived: ({ survey }) => {
             posthog.capture('survey archived', {
                 name: survey.name,
@@ -1241,6 +1251,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 id: survey.id,
                 created_at: survey.created_at,
                 start_date: survey.start_date,
+            })
+        },
+        reportProductUnsubscribed: ({ product }) => {
+            const property_key = `unsubscribed_from_${product}`
+            posthog.capture('product unsubscribed', {
+                product,
+                $set: { [property_key]: true },
             })
         },
     }),

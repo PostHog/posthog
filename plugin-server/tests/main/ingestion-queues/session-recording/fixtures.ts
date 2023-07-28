@@ -1,4 +1,4 @@
-import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/blob-ingester/types'
+import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
 export function createIncomingRecordingMessage(
@@ -16,6 +16,7 @@ export function createIncomingRecordingMessage(
         session_id: 'session_id_1',
         window_id: 'window_id_1',
         events: [{ ...jsonFullSnapshot }],
+        replayIngestionConsumer: 'v2',
         ...partialIncomingMessage,
 
         metadata: {
