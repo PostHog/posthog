@@ -21,8 +21,8 @@ class DatabaseField(FieldOrTable):
         extra = Extra.forbid
 
     name: str
-    array: Optional[bool]
-    nullable: Optional[bool]
+    array: Optional[bool] = None
+    nullable: Optional[bool] = None
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -140,7 +140,7 @@ class FunctionCallTable(Table):
     name: str
 
 
-class View(Table):
+class SavedQuery(Table):
     """
     A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery
     """
