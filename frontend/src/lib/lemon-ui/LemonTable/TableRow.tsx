@@ -14,6 +14,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     columnGroups: LemonTableColumnGroup<T>[]
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
+    firstColumnSticky: boolean | undefined
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -26,6 +27,7 @@ function TableRowRaw<T extends Record<string, any>>({
     columnGroups,
     onRow,
     expandable,
+    firstColumnSticky,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -97,7 +99,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                 className={clsx(
                                     columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
                                     column.align && `text-${column.align}`,
-                                    column.sticky && 'LemonTable__td--sticky',
+                                    firstColumnSticky && columnIndex === 0 && 'LemonTable__cell--sticky',
                                     column.className
                                 )}
                                 {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
