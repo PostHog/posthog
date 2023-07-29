@@ -189,7 +189,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters
+            const savedResult = values.savedInsight.result
             actions.setQuery(savedFilters ? queryFromFilters(savedFilters) : null)
+            if (savedResult) {
+                actions.setInsightData({ ...values.insightData, result: values.savedInsight.result })
+            }
         },
     })),
     propsChanged(({ actions, props, values }) => {
