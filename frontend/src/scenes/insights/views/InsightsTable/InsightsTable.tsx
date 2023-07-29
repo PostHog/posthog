@@ -79,30 +79,6 @@ export function InsightsTable({
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
-    // if (isLegend) {
-    //     columns.push({
-    //         title: (
-    //             <SeriesCheckColumnTitle
-    //                 indexedResults={indexedResults}
-    //                 canCheckUncheckSeries={canCheckUncheckSeries}
-    //                 hiddenLegendKeys={hiddenLegendKeys}
-    //                 toggleVisibility={toggleVisibility}
-    //             />
-    //         ),
-    //         render: (_, item) => (
-    //             <SeriesCheckColumnItem
-    //                 item={item}
-    //                 canCheckUncheckSeries={canCheckUncheckSeries}
-    //                 hiddenLegendKeys={hiddenLegendKeys}
-    //                 compare={compare}
-    //                 toggleVisibility={toggleVisibility}
-    //             />
-    //         ),
-    //         width: 0,
-    //         sticky: true,
-    //     })
-    // }
-
     columns.push({
         title: (
             <div className="flex items-center gap-2">
