@@ -23,8 +23,8 @@ export function PlayerUpNext({ interrupted, clearInterrupted }: PlayerUpNextProp
 
     const goToRecording = (automatic: boolean): void => {
         reportNextRecordingTriggered(automatic)
-        router.actions.push(router.values.currentLocation.pathname, router.values.currentLocation.searchParams, {
-            ...router.values.currentLocation.hashParams,
+        router.actions.push(router.values.currentLocation.pathname, {
+            ...router.values.currentLocation.searchParams,
             sessionRecordingId: nextSessionRecording?.id,
         })
     }

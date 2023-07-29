@@ -22,10 +22,12 @@ SELECT_QUERY_TEMPLATE = Template(
 )
 
 
-async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str):
+async def get_rows_count(client, team_id: int, interval_start: str, interval_end: str) -> int:
     data_interval_start_ch = datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-    query = SELECT_QUERY_TEMPLATE.substitute(fields="count(*) as count", order_by="", format="")
+    query = SELECT_QUERY_TEMPLATE.substitute(
+        fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count", order_by="", format=""
+    )
     count = await client.read_query(
         query,
         query_parameters={
@@ -48,6 +50,7 @@ def get_results_iterator(
     data_interval_end_ch = datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="""
+                    DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
                     toString(uuid) as uuid,
                     timestamp,
                     inserted_at,

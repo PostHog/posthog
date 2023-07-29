@@ -20,8 +20,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.properties as properties
      FROM events
      WHERE team_id = 2
@@ -80,8 +80,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.properties as properties
      FROM events
      WHERE team_id = 2
@@ -140,8 +140,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
@@ -200,8 +200,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
@@ -258,8 +258,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -316,8 +316,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -453,8 +453,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.properties as properties
      FROM events
      WHERE team_id = 2
@@ -528,8 +528,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.properties as properties
      FROM events
      WHERE team_id = 2
@@ -591,8 +591,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
@@ -666,8 +666,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
@@ -725,8 +725,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview']
@@ -783,8 +783,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$autocapture']
@@ -898,8 +898,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.properties as properties
      FROM events
      WHERE team_id = 2
@@ -959,8 +959,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.properties as properties
      FROM events
      WHERE team_id = 2
@@ -1020,8 +1020,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
@@ -1081,8 +1081,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id ,
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id ,
                                 events.mat_$browser as mat_$browser
      FROM events
      WHERE team_id = 2
@@ -1145,8 +1145,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview', 'new-event']
@@ -1209,8 +1209,8 @@
     (SELECT uuid,
             distinct_id,
             event,
-            team_id, timestamp, $session_id as session_id,
-                                $window_id as window_id
+            team_id, timestamp, "$session_id" AS session_id,
+                                "$window_id" AS window_id
      FROM events
      WHERE team_id = 2
        AND event IN ['$pageview', 'new-event2']
@@ -1272,8 +1272,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.properties as properties ,
                                    if(1 = 1
                                       AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
@@ -1334,8 +1334,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.properties as properties ,
                                    if(1 = 1
                                       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
@@ -1396,8 +1396,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.mat_$browser as mat_$browser ,
                                                if(1 = 1
                                                   AND (has(['Chrome'], "mat_$browser")), 1, 0) as event_match_0
@@ -1458,8 +1458,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.mat_$browser as mat_$browser ,
                                                if(1 = 1
                                                   AND (has(['Firefox'], "mat_$browser")), 1, 0) as event_match_0
@@ -1520,8 +1520,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    if(event = '$pageview', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
@@ -1581,8 +1581,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    if(event = '$autocapture', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
@@ -1717,8 +1717,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    if(event = '$pageview', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
@@ -1778,8 +1778,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    if(event = '$autocapture', 1, 0) as event_match_0
         FROM events
         WHERE team_id = 2
@@ -1894,8 +1894,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.properties as properties ,
                                    if(event = '$pageview'
                                       AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
@@ -1957,8 +1957,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.properties as properties ,
                                    if(event = '$pageview'
                                       AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))), 1, 0) as event_match_0
@@ -2020,8 +2020,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.mat_$browser as mat_$browser ,
                                                if(event = '$pageview'
                                                   AND (has(['Chrome'], "mat_$browser")), 1, 0) as event_match_0
@@ -2083,8 +2083,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    events.mat_$browser as mat_$browser ,
                                                if(event = '$pageview'
                                                   AND (has(['Firefox'], "mat_$browser")), 1, 0) as event_match_0
@@ -2152,8 +2152,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    if(event = '$pageview', 1, 0) as event_match_0 ,
                                    if(event = 'new-event', 1, 0) as event_match_1
         FROM events
@@ -2221,8 +2221,8 @@
        (SELECT uuid,
                distinct_id,
                event,
-               team_id, timestamp, $session_id as session_id,
-                                   $window_id as window_id ,
+               team_id, timestamp, "$session_id" AS session_id,
+                                   "$window_id" AS window_id ,
                                    if(event = '$pageview', 1, 0) as event_match_0 ,
                                    if(event = 'new-event2', 1, 0) as event_match_1
         FROM events

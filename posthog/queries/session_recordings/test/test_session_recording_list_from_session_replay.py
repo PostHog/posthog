@@ -1299,7 +1299,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         assert session_recordings[0]["session_id"] == session_id_one
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -1356,7 +1356,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 assert session_recordings[0]["session_id"] == session_id_two
 
     @snapshot_clickhouse_queries
-    @also_test_with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(person_properties=["$some_prop"])
     def test_filter_with_events_and_cohorts(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -1882,12 +1882,16 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             ]
         )
 
+    @also_test_with_materialized_columns(
+        event_properties=["is_internal_user"], person_properties=["email"], verify_no_jsonextract=False
+    )
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_event_filter_with_test_accounts_excluded(self):
         self.team.test_account_filters = [
-            # {"key": "internal-marker", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
-            {"key": "is_internal_user", "value": ["false"], "operator": "exact", "type": "event"}
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+            {"key": "is_internal_user", "value": ["false"], "operator": "exact", "type": "event"},
+            {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
         ]
         self.team.save()
 
@@ -1932,3 +1936,143 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
+
+    @also_test_with_materialized_columns(
+        event_properties=["$browser"], person_properties=["email"], verify_no_jsonextract=False
+    )
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_hogql_event_properties_test_accounts_excluded(self):
+        self.team.test_account_filters = [
+            {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "not-the-other-one"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            properties={"$session_id": "1", "$window_id": "1", "$browser": "Chrome"},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user2",
+            self.base_time,
+            properties={"$session_id": "2", "$window_id": "1", "$browser": "Firefox"},
+        )
+
+        # there are 2 pageviews
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # pageview that matches the hogql test_accounts filter
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": False,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 2)
+
+        self.team.test_account_filters = [
+            {"key": "person.properties.email == 'bla'", "type": "hogql"},
+        ]
+        self.team.save()
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # only 1 pageview that matches the hogql test_accounts filter
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+
+        self.team.test_account_filters = [
+            {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
+            {"key": "person.properties.email == 'bla'", "type": "hogql"},
+        ]
+        self.team.save()
+
+        # one user sessions matches the person + event test_account filter
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_event_filter_with_two_events_and_multiple_teams(self):
+        another_team = Team.objects.create(organization=self.organization)
+
+        # two teams, user with the same properties
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=another_team, distinct_ids=["user"], properties={"email": "bla"})
+
+        # a recording session with a pageview and a pageleave
+        self._a_session_with_two_events(self.team, "1")
+        self._a_session_with_two_events(another_team, "2")
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "$pageleave", "type": "events", "order": 0, "name": "$pageleave"},
+                ],
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+
+        self.assertEqual([sr["session_id"] for sr in session_recordings], ["1"])
+
+    def _a_session_with_two_events(self, team: Team, session_id: str) -> None:
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            first_timestamp=self.base_time,
+            team_id=team.pk,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            team=team,
+            event_name="$pageview",
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            team=team,
+            event_name="$pageleave",
+            properties={"$session_id": session_id, "$window_id": "1"},
+        )

@@ -4,7 +4,7 @@
 #
 #    pip-compile requirements.in
 #
-aiohttp==3.8.4
+aiohttp==3.8.5
     # via
     #   -r requirements.in
     #   geoip2

@@ -17,25 +17,28 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2022-12-27 12:00:00'
-       AND timestamp <= '2023-01-04 12:00:00'
-       AND (((event = 'custom-event'
-              AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
-                   AND has(['test_action_filter-session-one'], "$session_id")
-                   AND has(['test_action_filter-window-id'], "$window_id")))))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['custom-event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
     AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2022-12-14 00:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2022-12-27 12:00:00'
+            AND timestamp <= '2023-01-04 12:00:00'
+            AND (((event = 'custom-event'
+                   AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
+                        AND has(['test_action_filter-session-one'], "$session_id")
+                        AND has(['test_action_filter-window-id'], "$window_id")))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -62,24 +65,27 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2022-12-27 12:00:00'
-       AND timestamp <= '2023-01-04 12:00:00'
-       AND (((event = 'custom-event'
-              AND (has(['test_action_filter-session-one'], "$session_id")
-                   AND has(['test_action_filter-window-id'], "$window_id")))))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['custom-event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
     AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2022-12-14 00:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2022-12-27 12:00:00'
+            AND timestamp <= '2023-01-04 12:00:00'
+            AND (((event = 'custom-event'
+                   AND (has(['test_action_filter-session-one'], "$session_id")
+                        AND has(['test_action_filter-window-id'], "$window_id")))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -106,25 +112,28 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2022-12-27 12:00:00'
-       AND timestamp <= '2023-01-04 12:00:00'
-       AND (((event = 'custom-event'
-              AND (has(['test_action_filter-session-one'], "$session_id")
-                   AND has(['test_action_filter-window-id'], "$window_id"))))
-            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['custom-event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
     AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2022-12-14 00:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2022-12-27 12:00:00'
+            AND timestamp <= '2023-01-04 12:00:00'
+            AND (((event = 'custom-event'
+                   AND (has(['test_action_filter-session-one'], "$session_id")
+                        AND has(['test_action_filter-window-id'], "$window_id"))))
+                 AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -151,25 +160,28 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2022-12-27 12:00:00'
-       AND timestamp <= '2023-01-04 12:00:00'
-       AND (((event = 'custom-event'
-              AND (has(['test_action_filter-session-one'], "$session_id")
-                   AND has(['test_action_filter-window-id'], "$window_id"))))
-            AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['custom-event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2022-12-14 00:00:00'
     AND s.min_first_timestamp >= '2022-12-28 00:00:00'
     AND s.max_last_timestamp <= '2023-01-04 00:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2022-12-14 00:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2022-12-27 12:00:00'
+            AND timestamp <= '2023-01-04 12:00:00'
+            AND (((event = 'custom-event'
+                   AND (has(['test_action_filter-session-one'], "$session_id")
+                        AND has(['test_action_filter-window-id'], "$window_id"))))
+                 AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -196,34 +208,58 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`,
-            pdi.distinct_id,
-            argMax(pdi.person_id, version) as person_id
-     FROM events e
-     JOIN person_distinct_id2 as pdi on pdi.distinct_id = e.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE e.team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-21 12:00:00'
-       AND timestamp <= '2021-01-05 11:59:59'
-       AND (event = '$pageview')
-       OR (((event = 'custom-event')))
-     GROUP BY `$session_id`,
-              pdi.distinct_id
-     HAVING argMax(is_deleted, version) = 0
-     and person_id = '00000000-0000-0000-0000-000000000000'
-     AND hasAll(event_names, ['$pageview', 'custom-event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-22 00:00:00'
     AND s.max_last_timestamp <= '2021-01-04 23:59:59'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0
+          and person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-21 12:00:00'
+            AND timestamp <= '2021-01-05 11:59:59'
+            AND ((event = '$pageview')
+                 OR ((event = 'custom-event')))
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0
+                  and person_id = '00000000-0000-0000-0000-000000000000') as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview', 'custom-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
@@ -251,20 +287,23 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (1 = 1)
-     GROUP BY `$session_id`
-     HAVING 1=1) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (1 = 1)
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -291,21 +330,24 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (1 = 1
-            AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-     GROUP BY `$session_id`
-     HAVING 1=1) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (1 = 1
+                 AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -332,21 +374,24 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (1 = 1
-            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-     GROUP BY `$session_id`
-     HAVING 1=1) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (1 = 1
+                 AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -373,20 +418,23 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (1 = 1)
-     GROUP BY `$session_id`
-     HAVING 1=1) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (1 = 1)
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -413,21 +461,24 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (1 = 1
-            AND (has(['Chrome'], "mat_$browser")))
-     GROUP BY `$session_id`
-     HAVING 1=1) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (1 = 1
+                 AND (has(['Chrome'], "mat_$browser")))
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -454,21 +505,24 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (1 = 1
-            AND (has(['Firefox'], "mat_$browser")))
-     GROUP BY `$session_id`
-     HAVING 1=1) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (1 = 1
+                 AND (has(['Firefox'], "mat_$browser")))
+          GROUP BY `$session_id`
+          HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -980,22 +1034,25 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1022,22 +1079,25 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$autocapture')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$autocapture'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$autocapture')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$autocapture'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1064,22 +1124,25 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1136,22 +1199,25 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   AND duration > 60
@@ -1179,25 +1245,373 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   AND active_seconds > 60
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id ,
+                 argMax(person_props, version) as person_props
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id,
+                    argMax(properties, version) as person_props
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0
+          AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id ,
+                         argMax(person_props, version) as person_props
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id,
+                            argMax(properties, version) as person_props
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0
+                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id ,
+                 argMax(person_props, version) as person_props
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id,
+                    argMax(properties, version) as person_props
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0
+          AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0))) as session_persons_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id,
+                    argMax(pmat_email, version) as pmat_email
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0
+          AND (ifNull(equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'), 0))) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id,
+                            argMax(pmat_email, version) as pmat_email
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0
+                  AND (ifNull(equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'), 0))) as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id,
+                    argMax(pmat_email, version) as pmat_email
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0
+          AND (ifNull(equals(nullIf(nullIf(pmat_email, ''), 'null'), 'bla'), 0))) as session_persons_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
   ORDER BY start_time DESC
   LIMIT 51
   OFFSET 0
@@ -1222,35 +1636,59 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`,
-            pdi.distinct_id,
-            argMax(pdi.person_id, version) as person_id
-     FROM events e
-     JOIN person_distinct_id2 as pdi on pdi.distinct_id = e.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE e.team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview'
-            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)
-                 AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0)))
-     GROUP BY `$session_id`,
-              pdi.distinct_id
-     HAVING argMax(is_deleted, version) = 0
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id ,
+                 argMax(person_props, version) as person_props
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id,
+                    argMax(properties, version) as person_props
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e
+          JOIN
+            (SELECT distinct_id,
+                    argMax(person_id, version) as person_id ,
+                    argMax(person_props, version) as person_props
+             FROM person_distinct_id2 as pdi
+             INNER JOIN
+               (SELECT id,
+                       argMax(properties, version) as person_props
+                FROM person
+                WHERE team_id = 2
+                GROUP BY id
+                HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+             WHERE team_id = 2
+             GROUP BY distinct_id
+             HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview'
+                 AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)
+                      AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0)))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1277,23 +1715,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview'
-            AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview'
+                 AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1320,22 +1761,25 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1362,22 +1806,25 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$autocapture')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$autocapture'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$autocapture')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$autocapture'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1404,29 +1851,31 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2 as pdi
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = s.distinct_id
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1453,23 +1902,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview'
-            AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview'
+                 AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1496,23 +1948,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview'
-            AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview'
+                 AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1539,23 +1994,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview'
-            AND (has(['Chrome'], "mat_$browser")))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview'
+                 AND (has(['Chrome'], "mat_$browser")))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1582,23 +2040,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview'
-            AND (has(['Firefox'], "mat_$browser")))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND (event = '$pageview'
+                 AND (has(['Firefox'], "mat_$browser")))
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1625,23 +2086,69 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (event = '$pageview')
-       AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', '')))
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND ((NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+            AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', ''))
+                 AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                       AND id IN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND ((NOT (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) )
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0
+                     AND ((NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -1668,22 +2175,205 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
-       AND (event = '$pageview')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-31 20:00:00'
     AND s.min_first_timestamp >= '2021-01-14 00:00:00'
     AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_test_accounts_excluded_materialized
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND ((NOT ("pmat_email" ILIKE '%@posthog.com%'))) )
+             GROUP BY id
+             HAVING max(is_deleted) = 0
+             AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+            AND (has(['false'], "mat_is_internal_user")
+                 AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                       AND id IN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                            AND ((NOT ("pmat_email" ILIKE '%@posthog.com%'))) )
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0
+                     AND ((NOT (argMax(person."pmat_email", version) ILIKE '%@posthog.com%')))) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_test_accounts_excluded_materialized.1
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND (event = '$pageview')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
+  GROUP BY session_id
+  HAVING 1=1
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_event_filter_with_two_events_and_multiple_teams
+  '
+  
+  SELECT s.session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(s.min_first_timestamp) as start_time,
+         max(s.max_last_timestamp) as end_time,
+         dateDiff('SECOND', start_time, end_time) as duration,
+         argMinMerge(s.first_url) as first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         sum(s.active_milliseconds)/1000 as active_seconds,
+         duration-active_seconds as inactive_seconds,
+         sum(s.console_log_count) as console_log_count,
+         sum(s.console_warn_count) as console_warn_count,
+         sum(s.console_error_count) as console_error_count
+  FROM session_replay_events s
+  WHERE s.team_id = 2
+    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
+    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
+    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-01-13 12:00:00'
+            AND timestamp <= '2021-01-22 08:00:00'
+            AND ((event = '$pageview')
+                 OR event = '$pageleave')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview', '$pageleave'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -2103,29 +2793,31 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2 as pdi
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE team_id = 2
-       AND (pdi.person_id IN
-              (SELECT DISTINCT person_id
-               FROM cohortpeople
-               WHERE team_id = 2
-                 AND cohort_id = 2
-                 AND version = 0 ))
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = s.distinct_id
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2021-07-31 20:00:00'
     AND s.min_first_timestamp >= '2021-08-14 00:00:00'
     AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+            AND (pdi.person_id IN
+                   (SELECT DISTINCT person_id
+                    FROM cohortpeople
+                    WHERE team_id = 2
+                      AND cohort_id = 2
+                      AND version = 0 ))
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -2172,38 +2864,67 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`,
-            pdi.distinct_id,
-            argMax(pdi.person_id, version) as person_id
-     FROM events e
-     JOIN person_distinct_id2 as pdi on pdi.distinct_id = e.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE e.team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-08-13 12:00:00'
-       AND timestamp <= '2021-08-22 08:00:00'
-       AND (event = '$pageview')
-       AND (pdi.person_id IN
-              (SELECT DISTINCT person_id
-               FROM cohortpeople
-               WHERE team_id = 2
-                 AND cohort_id = 2
-                 AND version = 0 ))
-     GROUP BY `$session_id`,
-              pdi.distinct_id
-     HAVING argMax(is_deleted, version) = 0
-     AND hasAll(event_names, ['$pageview'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2021-07-31 20:00:00'
     AND s.min_first_timestamp >= '2021-08-14 00:00:00'
     AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+            AND (pdi.person_id IN
+                   (SELECT DISTINCT person_id
+                    FROM cohortpeople
+                    WHERE team_id = 2
+                      AND cohort_id = 2
+                      AND version = 0 ))
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2021-07-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-08-13 12:00:00'
+            AND timestamp <= '2021-08-22 08:00:00'
+            AND (event = '$pageview')
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                    AND (pdi.person_id IN
+                           (SELECT DISTINCT person_id
+                            FROM cohortpeople
+                            WHERE team_id = 2
+                              AND cohort_id = 2
+                              AND version = 0 ))
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -2230,38 +2951,67 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`,
-            pdi.distinct_id,
-            argMax(pdi.person_id, version) as person_id
-     FROM events e
-     JOIN person_distinct_id2 as pdi on pdi.distinct_id = e.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE e.team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2021-08-13 12:00:00'
-       AND timestamp <= '2021-08-22 08:00:00'
-       AND (event = 'custom_event')
-       AND (pdi.person_id IN
-              (SELECT DISTINCT person_id
-               FROM cohortpeople
-               WHERE team_id = 2
-                 AND cohort_id = 2
-                 AND version = 0 ))
-     GROUP BY `$session_id`,
-              pdi.distinct_id
-     HAVING argMax(is_deleted, version) = 0
-     AND hasAll(event_names, ['custom_event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2021-07-31 20:00:00'
     AND s.min_first_timestamp >= '2021-08-14 00:00:00'
     AND s.max_last_timestamp <= '2021-08-21 20:00:00'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+            AND (pdi.person_id IN
+                   (SELECT DISTINCT person_id
+                    FROM cohortpeople
+                    WHERE team_id = 2
+                      AND cohort_id = 2
+                      AND version = 0 ))
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0) as session_persons_sub_query)
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2021-07-31 20:00:00'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2021-08-13 12:00:00'
+            AND timestamp <= '2021-08-22 08:00:00'
+            AND (event = 'custom_event')
+            AND e.distinct_id in
+              (select distinct_id
+               from
+                 (SELECT distinct_id,
+                         argMax(person_id, version) as person_id
+                  FROM person_distinct_id2 as pdi
+                  INNER JOIN
+                    (SELECT id
+                     FROM person
+                     WHERE team_id = 2
+                     GROUP BY id
+                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                  WHERE team_id = 2
+                    AND (pdi.person_id IN
+                           (SELECT DISTINCT person_id
+                            FROM cohortpeople
+                            WHERE team_id = 2
+                              AND cohort_id = 2
+                              AND version = 0 ))
+                  GROUP BY distinct_id
+                  HAVING argMax(is_deleted, version) = 0) as events_persons_sub_query)
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['custom_event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -2288,23 +3038,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-       OR (event = 'new-event')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview', 'new-event'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND ((event = '$pageview')
+                 OR event = 'new-event')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview', 'new-event'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -2331,23 +3084,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT groupUniqArray(event) as event_names,
-            `$session_id`
-     FROM events e
-     WHERE team_id = 2
-       and notEmpty(`$session_id`)
-       AND timestamp >= '2020-12-24 12:00:00'
-       AND timestamp <= '2021-01-02 01:46:23'
-       AND (event = '$pageview')
-       OR (event = 'new-event2')
-     GROUP BY `$session_id`
-     HAVING 1=1
-     AND hasAll(event_names, ['$pageview', 'new-event2'])) as e on s.session_id = e.`$session_id`
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.session_id in
+      (select `$session_id` as session_id
+       from
+         (SELECT groupUniqArray(event) as event_names,
+                 `$session_id`
+          FROM events e PREWHERE team_id = 2
+          AND e.timestamp >= '2020-12-11 13:46:23'
+          AND e.timestamp <= now()
+          WHERE notEmpty(`$session_id`)
+            AND timestamp >= '2020-12-24 12:00:00'
+            AND timestamp <= '2021-01-02 01:46:23'
+            AND ((event = '$pageview')
+                 OR event = 'new-event2')
+          GROUP BY `$session_id`
+          HAVING 1=1
+          AND hasAll(event_names, ['$pageview', 'new-event2'])) as session_events_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
@@ -2374,24 +3130,26 @@
          sum(s.console_warn_count) as console_warn_count,
          sum(s.console_error_count) as console_error_count
   FROM session_replay_events s
-  join
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2 as pdi
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
-     WHERE team_id = 2
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0
-     and person_id = '00000000-0000-0000-0000-000000000000') as pdi on pdi.distinct_id = s.distinct_id
   WHERE s.team_id = 2
     AND s.min_first_timestamp >= '2020-12-11 13:46:23'
     AND s.min_first_timestamp >= '2020-12-25 00:00:00'
     AND s.max_last_timestamp <= '2021-01-01 13:46:23'
+    AND s.distinct_id in
+      (select distinct_id
+       from
+         (SELECT distinct_id,
+                 argMax(person_id, version) as person_id
+          FROM person_distinct_id2 as pdi
+          INNER JOIN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+             GROUP BY id
+             HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+          WHERE team_id = 2
+          GROUP BY distinct_id
+          HAVING argMax(is_deleted, version) = 0
+          and person_id = '00000000-0000-0000-0000-000000000000') as session_persons_sub_query)
   GROUP BY session_id
   HAVING 1=1
   ORDER BY start_time DESC
