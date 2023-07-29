@@ -79,41 +79,64 @@ export function InsightsTable({
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
-    if (isLegend) {
-        columns.push({
-            title: (
-                <SeriesCheckColumnTitle
-                    indexedResults={indexedResults}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    toggleVisibility={toggleVisibility}
-                />
-            ),
-            render: (_, item) => (
-                <SeriesCheckColumnItem
-                    item={item}
-                    canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendKeys={hiddenLegendKeys}
-                    compare={compare}
-                    toggleVisibility={toggleVisibility}
-                />
-            ),
-            width: 0,
-            sticky: true,
-        })
-    }
+    // if (isLegend) {
+    //     columns.push({
+    //         title: (
+    //             <SeriesCheckColumnTitle
+    //                 indexedResults={indexedResults}
+    //                 canCheckUncheckSeries={canCheckUncheckSeries}
+    //                 hiddenLegendKeys={hiddenLegendKeys}
+    //                 toggleVisibility={toggleVisibility}
+    //             />
+    //         ),
+    //         render: (_, item) => (
+    //             <SeriesCheckColumnItem
+    //                 item={item}
+    //                 canCheckUncheckSeries={canCheckUncheckSeries}
+    //                 hiddenLegendKeys={hiddenLegendKeys}
+    //                 compare={compare}
+    //                 toggleVisibility={toggleVisibility}
+    //             />
+    //         ),
+    //         width: 0,
+    //         sticky: true,
+    //     })
+    // }
 
     columns.push({
-        title: 'Series',
+        title: (
+            <div className="flex items-center gap-2">
+                {isLegend && (
+                    <SeriesCheckColumnTitle
+                        indexedResults={indexedResults}
+                        canCheckUncheckSeries={canCheckUncheckSeries}
+                        hiddenLegendKeys={hiddenLegendKeys}
+                        toggleVisibility={toggleVisibility}
+                    />
+                )}
+                <span>Series</span>
+            </div>
+        ),
         render: (_, item) => (
-            <SeriesColumnItem
-                item={item}
-                indexedResults={indexedResults}
-                canEditSeriesNameInline={canEditSeriesNameInline}
-                compare={compare}
-                handleEditClick={handleSeriesEditClick}
-                hasMultipleSeries={!isSingleSeries}
-            />
+            <div className="flex items-center gap-2">
+                {isLegend && (
+                    <SeriesCheckColumnItem
+                        item={item}
+                        canCheckUncheckSeries={canCheckUncheckSeries}
+                        hiddenLegendKeys={hiddenLegendKeys}
+                        compare={compare}
+                        toggleVisibility={toggleVisibility}
+                    />
+                )}
+                <SeriesColumnItem
+                    item={item}
+                    indexedResults={indexedResults}
+                    canEditSeriesNameInline={canEditSeriesNameInline}
+                    compare={compare}
+                    handleEditClick={handleSeriesEditClick}
+                    hasMultipleSeries={!isSingleSeries}
+                />
+            </div>
         ),
         key: 'label',
         sorter: (a, b) => {
@@ -230,6 +253,7 @@ export function InsightsTable({
             data-attr="insights-table-graph"
             className="insights-table"
             useURLForSorting={insightMode !== ItemMode.Edit}
+            firstColumnSticky
         />
     )
 }

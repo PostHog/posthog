@@ -179,7 +179,8 @@
 }
 
 .LemonTable__header--sticky,
-.LemonTable__td--sticky {
+.LemonTable__cell--sticky {
+    padding-right: 0.5rem;
     position: sticky;
     left: 0;
     z-index: 1;
