@@ -44,7 +44,7 @@ export const formatAggregationAxisValue = (
     }`
 }
 
-export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
+export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined): string => {
     switch (chartDisplayType) {
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsLineGraphCumulative:

@@ -16,7 +16,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getKeyMapping } from 'lib/taxonomy'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 

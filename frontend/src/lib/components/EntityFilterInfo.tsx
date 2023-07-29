@@ -1,7 +1,7 @@
 import { ActionFilter, EntityFilter } from '~/types'
 import { Typography } from 'antd'
 import { TextProps } from 'antd/lib/typography/Text'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getKeyMapping } from 'lib/taxonomy'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 interface EntityFilterInfoProps {

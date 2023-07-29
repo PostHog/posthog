@@ -15,9 +15,9 @@ import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-import { processOnEventStep, processWebhooksStep } from './runAsyncHandlersStep'
+import { processOnEventStep } from './runAsyncHandlersStep'
 
-const silentFailuresAsyncHandlers = new Counter({
+export const silentFailuresAsyncHandlers = new Counter({
     name: 'async_handlers_silent_failure',
     help: 'Number silent failures from async handlers.',
 })
@@ -163,26 +163,6 @@ export class EventPipelineRunner {
         } else {
             await eventAck
             return this.registerLastStep('createEventStep', event.team_id, [rawClickhouseEvent, person])
-        }
-    }
-
-    async runWebhooksEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
-            await this.runStep(processWebhooksStep, [this, event], event.teamId, false)
-            this.hub.statsd?.increment('kafka_queue.webhooks.processed')
-            return this.registerLastStep('processWebhooksStep', event.teamId, [event])
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-
-            silentFailuresAsyncHandlers.inc()
-
-            return { lastStep: error.step, args: [], error: error.message }
         }
     }
 

@@ -11,7 +11,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
+import { getPropertyLabel } from 'lib/taxonomy'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -36,9 +36,9 @@ export interface FrequentMistakeAdvice {
 
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
-    connect({
+    connect(() => ({
         actions: [userLogic, ['loadUser']],
-    }),
+    })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,

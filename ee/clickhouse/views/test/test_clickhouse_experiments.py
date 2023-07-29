@@ -622,11 +622,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
-        self.assertTrue("aggregation_group_type_index" not in created_ff.filters)
+        self.assertTrue(created_ff.filters["aggregation_group_type_index"] is None)
 
         id = response.json()["id"]
 
-        # Now update group type index
+        # Now update group type index on filter
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
             {
@@ -650,7 +650,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
-        self.assertTrue("aggregation_group_type_index" not in created_ff.filters)
+        self.assertTrue(created_ff.filters["aggregation_group_type_index"] is None)
 
         # Now remove group type index
         response = self.client.patch(
@@ -676,7 +676,67 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
-        self.assertTrue("aggregation_group_type_index" not in created_ff.filters)
+        self.assertTrue(created_ff.filters["aggregation_group_type_index"] is None)
+
+    def test_creating_experiment_with_group_aggregation_parameter(self):
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "aggregation_group_type_index": 0,
+                },
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+        self.assertEqual(created_ff.filters["aggregation_group_type_index"], 0)
+
+        id = response.json()["id"]
+
+        # Now update group type index on filter
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [],
+                    "aggregation_group_type_index": 1,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.description, "Bazinga")
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertFalse(created_ff.active)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+        self.assertEqual(created_ff.filters["aggregation_group_type_index"], 0)
 
     def test_used_in_experiment_is_populated_correctly_for_feature_flag_list(self) -> None:
 
@@ -797,6 +857,7 @@ class TestExperimentCRUD(APILicensedTest):
                         {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -832,6 +893,7 @@ class TestExperimentCRUD(APILicensedTest):
                         {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -849,6 +911,8 @@ class TestExperimentCRUD(APILicensedTest):
                 },
             },
         )
+        # changing variants isn't really supported by experiments anymore, need to do it directly
+        # on the FF
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # ensure cache doesn't change either
@@ -872,6 +936,7 @@ class TestExperimentCRUD(APILicensedTest):
                         {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
                     ]
                 },
+                "aggregation_group_type_index": None,
             },
         )
 
@@ -1521,6 +1586,140 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "end_date": "2020-01-06T00:00",
                 "feature_flag_key": ff_key,
                 "parameters": None,
+                "filters": {
+                    "insight": "TRENDS",
+                    "events": [{"order": 0, "id": "$pageview"}],
+                },
+            },
+        )
+
+        id = creation_response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
+
+        self.assertEqual(result[0]["count"], 4)
+        self.assertEqual("control", result[0]["breakdown_value"])
+
+        self.assertEqual(result[1]["count"], 5)
+        self.assertEqual("test", result[1]["breakdown_value"])
+
+        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
+        # The variant has high probability of being better. (effectively Gamma(10,1))
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
+        self.assertFalse(response_data["significant"])
+
+    def test_experiment_flow_with_event_results_with_custom_exposure(self):
+        journeys_for(
+            {
+                "person1": [
+                    # 5 counts, single person
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"}},
+                    # exposure measured via $feature_flag_called events
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "no-bonk"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
+                    },
+                    # 1 exposure, but more absolute counts
+                    {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person3": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "no-bonk"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "random", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "no-bonk"},
+                    },
+                ],
+                "person_out_of_end_date": [
+                    {"event": "$pageview", "timestamp": "2020-08-03", "properties": {"$feature/a-b-test": "control"}},
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk"},
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        creation_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "custom_exposure_filter": {
+                        "events": [
+                            {
+                                "id": "custom_exposure_event",
+                                "order": 0,
+                                "properties": [{"key": "bonk", "value": "bonk"}],
+                            }
+                        ],
+                    }
+                },
                 "filters": {
                     "insight": "TRENDS",
                     "events": [{"order": 0, "id": "$pageview"}],

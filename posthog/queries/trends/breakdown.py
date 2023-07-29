@@ -532,6 +532,7 @@ class TrendsBreakdown:
                 extra_params = {
                     "entity_id": entity.id,
                     "entity_type": entity.type,
+                    "entity_math": entity.math,
                     "breakdown_value": result_descriptors["breakdown_value"],
                     "breakdown_type": filter.breakdown_type or "event",
                 }

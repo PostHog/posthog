@@ -10,6 +10,7 @@ import {
     IconPlus,
     IconArticle,
     IconCheckCircleOutline,
+    IconInfo,
 } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -366,11 +367,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 {!billing?.has_active_subscription && (
                                     <p className="ml-0">
                                         Every product subsciption comes with free platform features such as{' '}
-                                        <b>
-                                            Multiple projects, Feature flags, Experimentation, Integrations, Apps, and
-                                            more
-                                        </b>
-                                        . Subscribe to one of the products above to get instant access.
+                                        <b>Multiple projects, Integrations, Apps, and more</b>. Subscribe to one of the
+                                        products above to get instant access.
                                     </p>
                                 )}
                                 <p className="m-0">
@@ -478,14 +476,29 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {showTierBreakdown && (
                         <div className="pl-16 pb-8">
                             {product.tiered && tableTierData ? (
-                                <LemonTable
-                                    borderedRows={false}
-                                    size="xs"
-                                    uppercaseHeader={false}
-                                    display="stealth"
-                                    columns={tableColumns}
-                                    dataSource={tableTierData}
-                                />
+                                <>
+                                    <LemonTable
+                                        borderedRows={false}
+                                        size="xs"
+                                        uppercaseHeader={false}
+                                        display="stealth"
+                                        columns={tableColumns}
+                                        dataSource={tableTierData}
+                                    />
+                                    {product.type === 'feature_flags' && (
+                                        <p className="mt-4 ml-0 text-sm text-muted italic">
+                                            <IconInfo className="mr-1" />
+                                            Using local evaluation? Here's{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/bootstrapping-and-local-evaluation#server-side-local-evaluation"
+                                                className="italic"
+                                            >
+                                                how we calculate usage
+                                            </Link>
+                                            .
+                                        </p>
+                                    )}
+                                </>
                             ) : (
                                 <LemonTable
                                     borderedRows={false}

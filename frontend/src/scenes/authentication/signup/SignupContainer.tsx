@@ -65,12 +65,12 @@ export function SignupLeftContainer(): JSX.Element {
     }[] = showGenericSignupBenefits
         ? [
               {
-                  benefit: 'Get loads of free usage every month - even on paid plans',
+                  benefit: 'Free usage every month - even on paid plans',
                   description: '1M free events, 15K free session recordings, and more. Every month. Forever.',
               },
               {
-                  benefit: 'Everything you need to understand your users, all in one place',
-                  description: 'Analytics. Session replay. Feature flags. A/B testing. CDP. The list goes on.',
+                  benefit: 'Start collecting data immediately',
+                  description: 'Integrate with developer-friendly APIs or low-code web snippet.',
               },
               {
                   benefit: 'Join industry leaders that run on PostHog',

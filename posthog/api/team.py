@@ -87,7 +87,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "session_recording_opt_in",
-            "session_recording_version",
             "recording_domains",
             "inject_web_apps",
         ]
@@ -127,7 +126,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "capture_console_log_opt_in",
             "capture_performance_opt_in",
             "session_recording_opt_in",
-            "session_recording_version",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -180,10 +178,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied("Your organization access level is insufficient.")
-
-        if "session_recording_version" in attrs:
-            if attrs["session_recording_version"] not in ["v1", "v2"]:
-                raise exceptions.ValidationError("Invalid session recording version")
 
         if "autocapture_exceptions_errors_to_ignore" in attrs:
             if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

@@ -241,7 +241,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     const metricBefore = await getMetric({
         name: 'latest_processed_timestamp_ms',
         type: 'GAUGE',
-        labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+        labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers_on_event' },
     })
 
     await capture({
@@ -260,7 +260,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         const metricAfter = await getMetric({
             name: 'latest_processed_timestamp_ms',
             type: 'GAUGE',
-            labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+            labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers_on_event' },
         })
         expect(metricAfter).toBeGreaterThan(metricBefore)
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds

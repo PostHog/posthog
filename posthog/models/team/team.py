@@ -51,8 +51,8 @@ class TeamManager(models.Manager):
         filters = [
             {
                 "key": "$host",
-                "operator": "is_not",
-                "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                "operator": "not_regex",
+                "value": r"^(localhost|127\.0\.0\.1)($|:)",
                 "type": "event",
             }
         ]

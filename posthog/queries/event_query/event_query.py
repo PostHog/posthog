@@ -218,8 +218,7 @@ class EventQuery(metaclass=ABCMeta):
                     INNER JOIN (
                         {session_query}
                     ) as {SessionQuery.SESSION_TABLE_ALIAS}
-                    ON {SessionQuery.SESSION_TABLE_ALIAS}.{self._session_id_alias or "$session_id"} = {self.EVENT_TABLE_ALIAS}.$session_id
-                """,
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.{self._session_id_alias or "$session_id"} = {self.EVENT_TABLE_ALIAS}.$session_id""",
                 session_params,
             )
         return "", {}

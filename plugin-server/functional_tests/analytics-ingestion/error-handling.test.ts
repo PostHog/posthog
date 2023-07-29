@@ -14,6 +14,11 @@ let dlqConsumer: Consumer
 beforeAll(async () => {
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
 
+    // Make sure the dlq topic exists before starting the consumer
+    const admin = kafka.admin()
+    await admin.createTopics({ topics: [{ topic: 'events_plugin_ingestion_dlq' }] })
+    await admin.disconnect()
+
     dlq = []
     dlqConsumer = kafka.consumer({ groupId: 'events_plugin_ingestion_test' })
     await dlqConsumer.subscribe({ topic: 'events_plugin_ingestion_dlq', fromBeginning: true })
@@ -25,6 +30,10 @@ beforeAll(async () => {
     })
 
     organizationId = await createOrganization()
+})
+
+afterAll(async () => {
+    await dlqConsumer.disconnect()
 })
 
 test.concurrent('consumer handles messages just less than 1MB gracefully', async () => {

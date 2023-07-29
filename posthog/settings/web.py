@@ -30,6 +30,13 @@ DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
+# Decide regular request analytics
+# Takes 3 possible formats, all separated by commas:
+# A number: "2"
+# A range: "2:5" -- represents team IDs 2, 3, 4, 5
+# The string "all" -- represents all team IDs
+DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -216,6 +223,7 @@ LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^/api/(?!early_access_features|surveys).*$"
 CORS_ALLOW_HEADERS = default_headers + ("traceparent", "request-id", "request-context")
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -319,3 +327,7 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1] + [float("inf")]
 
 SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")
+
+# temporary flag to control new UUID version setting in posthog-js
+# is set to v7 to test new generation but can be set to "og" to revert
+POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")

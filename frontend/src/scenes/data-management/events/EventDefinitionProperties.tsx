@@ -8,13 +8,12 @@ import { EventDefinition, PropertyDefinition } from '~/types'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { humanFriendlyNumber } from 'lib/utils'
 import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
@@ -35,9 +34,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             className: 'definition-column-type',
             render: function Render(_, _definition: PropertyDefinition) {
                 return _definition.property_type ? (
-                    <div className="definition-pill-value" style={{ textTransform: 'uppercase' }}>
-                        {_definition.property_type}
-                    </div>
+                    <div className="definition-pill-value uppercase">{_definition.property_type}</div>
                 ) : (
                     <span className="text-muted">—</span>
                 )
@@ -54,22 +51,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                   } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
-        ...(hasIngestionTaxonomy
-            ? [
-                  {
-                      title: '30 day queries',
-                      key: 'query_usage_30_day',
-                      align: 'right',
-                      render: function Render(_, _definition: PropertyDefinition) {
-                          return _definition.query_usage_30_day ? (
-                              humanFriendlyNumber(_definition.query_usage_30_day)
-                          ) : (
-                              <span className="text-muted">—</span>
-                          )
-                      },
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
-            : []),
         {
             title: 'Example',
             key: 'example',
@@ -77,9 +58,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             className: 'definition-example-type',
             render: function Render(_, _definition: PropertyDefinition) {
                 return _definition.example ? (
-                    <div className="definition-pill-value" style={{ fontFamily: 'monospace' }}>
-                        {_definition.example}
-                    </div>
+                    <div className="definition-pill-value font-mono">{_definition.example}</div>
                 ) : (
                     <span className="text-muted">—</span>
                 )

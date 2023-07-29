@@ -4,12 +4,11 @@
 #
 #    pip-compile requirements.in
 #
-aiochclient[aiohttp]==2.4.0
-    # via -r requirements.in
-aiohttp==3.8.4
+aiohttp==3.8.5
     # via
-    #   aiochclient
+    #   -r requirements.in
     #   geoip2
+    #   openai
 aiosignal==1.2.0
     # via aiohttp
 amqp==2.6.0
@@ -246,11 +245,15 @@ multidict==6.0.2
 mypy-boto3-s3==1.26.127
     # via boto3-stubs
 numpy==1.23.3
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   pyarrow
 oauthlib==3.1.0
     # via
     #   requests-oauthlib
     #   social-auth-core
+openai==0.27.8
+    # via -r requirements.in
 oscrypto==1.3.0
     # via snowflake-connector-python
 outcome==1.1.0
@@ -282,6 +285,8 @@ psycopg2-binary==2.8.6
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
+pyarrow==12.0.1
+    # via -r requirements.in
 pycparser==2.20
     # via cffi
 pycryptodomex==3.18.0
@@ -342,6 +347,7 @@ requests==2.28.1
     #   -r requirements.in
     #   geoip2
     #   infi-clickhouse-orm
+    #   openai
     #   posthoganalytics
     #   prance
     #   requests-oauthlib
@@ -391,7 +397,6 @@ sortedcontainers==2.4.0
 sqlparse==0.4.4
     # via
     #   -r requirements.in
-    #   aiochclient
     #   django
 statshog==1.0.6
     # via -r requirements.in
@@ -406,7 +411,9 @@ token-bucket==0.3.0
 toronado==0.1.0
     # via -r requirements.in
 tqdm==4.64.1
-    # via webdriver-manager
+    # via
+    #   openai
+    #   webdriver-manager
 trio==0.20.0
     # via
     #   selenium

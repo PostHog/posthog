@@ -8,7 +8,8 @@ import { App } from 'scenes/App'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import recording_playlists from './__mocks__/recording_playlists.json'
+import { ReplayTabs } from '~/types'
 
 export default {
     title: 'Scenes-App/Recordings',
@@ -16,14 +17,26 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { skip: true }, // FIXME: Start taking snapshots once the stories no longer crash
+        mockDate: '2023-02-01',
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recordings': { results: recordings },
-                '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
-                '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                '/api/projects/:team_id/session_recordings': (req) => {
+                    const version = req.url.searchParams.get('version')
+                    return [
+                        200,
+                        {
+                            has_next: false,
+                            results: recordings,
+                            version,
+                        },
+                    ]
+                },
+                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
+                // without the session-recording-blob-replay feature flag, we only load via ClickHouse
+                '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,
@@ -39,17 +52,16 @@ export function RecordingsList(): JSX.Element {
     return <App />
 }
 
-export function Recording(): JSX.Element {
+export function RecordingsPlayLists(): JSX.Element {
     useEffect(() => {
-        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[0].id }).url)
+        router.actions.push(urls.replay(ReplayTabs.Playlists))
     }, [])
     return <App />
 }
 
-export function NewRecording(): JSX.Element {
-    return (
-        <div>
-            <SessionRecordingPlayer sessionRecordingId={recordings[0].id} playerKey={'storybook'} />
-        </div>
-    )
+export function SecondRecordingInList(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(combineUrl(urls.replay(), undefined, { sessionRecordingId: recordings[1].id }).url)
+    }, [])
+    return <App />
 }

@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
 
+import pytest
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
@@ -115,6 +116,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$feature_flag_called",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
 
             # Events before the period
             for _ in range(0, 10):
@@ -226,6 +234,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 timestamp=start_of_day + relativedelta(hours=1),
                 team_id=self.org_1_team_2.id,
             )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$feature_flag_called",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_2,
+            )
 
             # Events for org 2 team 3
             distinct_id = str(uuid4())
@@ -239,6 +254,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_2_team_3,
                 )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$feature_flag_called",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_2_team_3,
+            )
 
             flush_persons_and_events()
 
@@ -285,7 +307,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 42,
+                    "event_count_lifetime": 44,
                     "event_count_in_period": 22,
                     "event_count_in_month": 32,
                     "event_count_with_groups_in_period": 2,
@@ -322,7 +344,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 32,
+                            "event_count_lifetime": 33,
                             "event_count_in_period": 12,
                             "event_count_in_month": 22,
                             "event_count_with_groups_in_period": 2,
@@ -353,7 +375,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_duration_ms": 0,
                         },
                         str(self.org_1_team_2.id): {
-                            "event_count_lifetime": 10,
+                            "event_count_lifetime": 11,
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
@@ -405,7 +427,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 10,
+                    "event_count_lifetime": 11,
                     "event_count_in_period": 10,
                     "event_count_in_month": 10,
                     "event_count_with_groups_in_period": 0,
@@ -442,7 +464,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 1,
                     "teams": {
                         str(self.org_2_team_3.id): {
-                            "event_count_lifetime": 10,
+                            "event_count_lifetime": 11,
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
@@ -878,27 +900,51 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             )
 
     @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.sync_execute", side_effect=Exception())
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_send_usage_cloud_exception(
+        self,
+        mock_post: MagicMock,
+        mock_client: MagicMock,
+        mock_sync_execute: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        with pytest.raises(Exception):
+            with self.is_cloud(True):
+                mockresponse = Mock()
+                mock_post.return_value = mockresponse
+                mockresponse.status_code = 200
+                mockresponse.json = lambda: self._usage_report_response()
+                mock_posthog = MagicMock()
+                mock_client.return_value = mock_posthog
+                send_all_org_usage_reports(dry_run=False)
+        assert mock_capture_exception.call_count == 1
+
+    @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
     def test_send_usage_billing_service_not_reachable(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
-        mockresponse = Mock()
-        mock_post.return_value = mockresponse
-        mockresponse.status_code = 404
-        mockresponse.ok = False
-        mockresponse.json = lambda: {"code": "not_found"}
-        mockresponse.content = ""
+        with pytest.raises(Exception):
+            mockresponse = Mock()
+            mock_post.return_value = mockresponse
+            mockresponse.status_code = 404
+            mockresponse.ok = False
+            mockresponse.json = lambda: {"code": "not_found"}
+            mockresponse.content = ""
 
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
+            mock_posthog = MagicMock()
+            mock_client.return_value = mock_posthog
 
-        send_all_org_usage_reports(dry_run=False)
-        mock_posthog.capture.assert_any_call(
-            get_machine_id(),
-            "organization usage report to billing service failure",
-            {"err": ANY, "scope": "machine"},
-            groups={"instance": ANY},
-            timestamp=None,
-        )
+            send_all_org_usage_reports(dry_run=False)
+            mock_posthog.capture.assert_any_call(
+                get_machine_id(),
+                "organization usage report to billing service failure",
+                {"err": ANY, "scope": "machine"},
+                groups={"instance": ANY},
+                timestamp=None,
+            )
 
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.Client")

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import { keyMappingKeys, PropertyKeyInfo } from '../PropertyKeyInfo'
+import { keyMappingKeys } from 'lib/taxonomy'
+import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
 import { IconDeleteForever, IconOpenInNew } from 'lib/lemon-ui/icons'

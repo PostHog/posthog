@@ -12,6 +12,7 @@ import { navigation3000Logic } from '../navigationLogic'
 import { NAVBAR_ITEMS } from '../navbarItems'
 import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
+import { urls } from 'scenes/urls'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -91,7 +92,11 @@ export function Navbar(): JSX.Element {
                             }
                             placement="right-end"
                         />
-                        <NavbarButton icon={<IconSettings />} identifier={Scene.ProjectSettings} />
+                        <NavbarButton
+                            icon={<IconSettings />}
+                            identifier={Scene.ProjectSettings}
+                            to={urls.projectSettings()}
+                        />
                         <Popover
                             overlay={<SitePopoverOverlay />}
                             visible={isSitePopoverOpen}

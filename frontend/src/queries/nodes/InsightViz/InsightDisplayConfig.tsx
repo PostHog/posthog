@@ -1,5 +1,5 @@
 import { PropsWithChildren, ReactNode } from 'react'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
@@ -22,8 +22,7 @@ interface InsightDisplayConfigProps {
 }
 
 export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps): JSX.Element {
-    const { insightProps, filters } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const {
         showDateRange,
         disableDateRange,
@@ -88,13 +87,13 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
             <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {showUnit && (
                     <ConfigFilter>
-                        <UnitPicker filters={filters} setFilters={setFilters} />
+                        <UnitPicker />
                     </ConfigFilter>
                 )}
 
                 {showChart && (
                     <ConfigFilter>
-                        <ChartFilter filters={filters} />
+                        <ChartFilter />
                     </ConfigFilter>
                 )}
 

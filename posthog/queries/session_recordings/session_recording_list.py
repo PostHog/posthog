@@ -41,8 +41,8 @@ class SessionRecordingList(EventQuery):
             event,
             team_id,
             timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            "$session_id" AS session_id,
+            "$window_id" AS window_id
             {properties_select_clause}
         FROM events
         WHERE
@@ -213,7 +213,7 @@ class SessionRecordingList(EventQuery):
         return start_time_clause, start_time_params
 
     @cached_property
-    def session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_filter_by_provided_session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
         if self._filter.session_ids is None:
             return "", {}
 
@@ -323,12 +323,13 @@ class SessionRecordingList(EventQuery):
         recording_person_query, recording_person_query_params = self._get_recording_person_query()
 
         prop_query, prop_params = self._get_prop_groups(
-            self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            self._filter.property_groups,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
         )
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause
-        session_ids_clause, session_ids_params = self.session_ids_clause
+        session_ids_clause, session_ids_params = self._get_filter_by_provided_session_ids_clause
         person_id_clause, person_id_params = self._get_person_id_clause
         duration_clause, duration_params = self._get_duration_clause
 
@@ -454,8 +455,8 @@ class SessionRecordingListV2(SessionRecordingList):
             event,
             team_id,
             timestamp,
-            $session_id as session_id,
-            $window_id as window_id
+            "$session_id" AS session_id,
+            "$window_id" AS window_id
             {properties_select_clause}
             {non_aggregate_select_condition_clause}
 

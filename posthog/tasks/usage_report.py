@@ -237,7 +237,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-@app.task(ignore_result=True, retries=3)
+@app.task(ignore_result=True, autoretry_for=(Exception,), max_retries=3)
 def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
@@ -277,6 +277,7 @@ def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg")
         capture_event(pha_client, f"organization usage report to billing service failure", org_id, {"err": str(err)})
+        raise err
 
 
 def capture_event(
@@ -327,12 +328,12 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
-def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_billable_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -480,17 +481,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
     return result
 
 
-def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
-    for row in rows:
-        if "team_id" in row:
-            if row["team_id"] == team_id:
-                return row["total"]
-        elif str(row[0]) == str(team_id):
-            return row[1]
-    return 0
-
-
-@app.task(ignore_result=True, retries=0)
+@app.task(ignore_result=True, max_retries=0)
 def capture_report(
     capture_event_name: str, org_id: str, full_report_dict: Dict[str, Any], at_date: Optional[datetime] = None
 ) -> None:
@@ -516,7 +507,20 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
     )
 
 
-@app.task(ignore_result=True, retries=3)
+def convert_team_usage_rows_to_dict(rows: List[Union[dict, Tuple[int, int]]]) -> Dict[int, int]:
+    team_id_map = {}
+    for row in rows:
+        if isinstance(row, dict) and "team_id" in row:
+            # Some queries return a dict with team_id and total
+            team_id_map[row["team_id"]] = row["total"]
+        else:
+            # Others are just a tuple with team_id and total
+            team_id_map[int(row[0])] = row[1]
+
+    return team_id_map
+
+
+@app.task(ignore_result=True, max_retries=3, autoretry_for=(Exception,))
 def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
@@ -533,264 +537,268 @@ def send_all_org_usage_reports(
     instance_metadata = get_instance_metadata(period)
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
-    all_data = dict(
-        teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-        teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
-        teams_with_event_count_in_month=get_teams_with_event_count_in_period(period_start.replace(day=1), period_end),
-        teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
-            period_start, period_end
-        ),
-        # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
-        # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
-        teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
-        teams_with_recording_count_total=get_teams_with_recording_count_total(),
-        teams_with_decide_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
-            period_start, period_end, FlagRequestType.DECIDE
-        ),
-        teams_with_decide_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
-            period_start.replace(day=1), period_end, FlagRequestType.DECIDE
-        ),
-        teams_with_local_evaluation_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
-            period_start, period_end, FlagRequestType.LOCAL_EVALUATION
-        ),
-        teams_with_local_evaluation_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
-            period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
-        ),
-        teams_with_group_types_total=list(
-            GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        teams_with_dashboard_count=list(
-            Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        teams_with_dashboard_template_count=list(
-            Dashboard.objects.filter(creation_mode="template")
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        teams_with_dashboard_shared_count=list(
-            Dashboard.objects.filter(sharingconfiguration__enabled=True)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        teams_with_dashboard_tagged_count=list(
-            Dashboard.objects.filter(tagged_items__isnull=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        teams_with_ff_count=list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
-        teams_with_ff_active_count=list(
-            FeatureFlag.objects.filter(active=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        teams_with_hogql_app_bytes_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_bytes",
-            query_types=["hogql_query", "HogQLQuery"],
-            access_method="",
-        ),
-        teams_with_hogql_app_rows_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_rows",
-            query_types=["hogql_query", "HogQLQuery"],
-            access_method="",
-        ),
-        teams_with_hogql_app_duration_ms=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="query_duration_ms",
-            query_types=["hogql_query", "HogQLQuery"],
-            access_method="",
-        ),
-        teams_with_hogql_api_bytes_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_bytes",
-            query_types=["hogql_query", "HogQLQuery"],
-            access_method="personal_api_key",
-        ),
-        teams_with_hogql_api_rows_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_rows",
-            query_types=["hogql_query", "HogQLQuery"],
-            access_method="personal_api_key",
-        ),
-        teams_with_hogql_api_duration_ms=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="query_duration_ms",
-            query_types=["hogql_query", "HogQLQuery"],
-            access_method="personal_api_key",
-        ),
-        teams_with_event_explorer_app_bytes_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_bytes",
-            query_types=["EventsQuery"],
-            access_method="",
-        ),
-        teams_with_event_explorer_app_rows_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_rows",
-            query_types=["EventsQuery"],
-            access_method="",
-        ),
-        teams_with_event_explorer_app_duration_ms=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="query_duration_ms",
-            query_types=["EventsQuery"],
-            access_method="",
-        ),
-        teams_with_event_explorer_api_bytes_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_bytes",
-            query_types=["EventsQuery"],
-            access_method="personal_api_key",
-        ),
-        teams_with_event_explorer_api_rows_read=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="read_rows",
-            query_types=["EventsQuery"],
-            access_method="personal_api_key",
-        ),
-        teams_with_event_explorer_api_duration_ms=get_teams_with_hogql_metric(
-            period_start,
-            period_end,
-            metric="query_duration_ms",
-            query_types=["EventsQuery"],
-            access_method="personal_api_key",
-        ),
-    )
-
-    teams: Sequence[Team] = list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-        )
-    )
-
-    org_reports: Dict[str, OrgReport] = {}
-
-    for team in teams:
-        team_report = UsageReportCounters(
-            event_count_lifetime=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_lifetime"]),
-            event_count_in_period=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_period"]),
-            event_count_in_month=find_count_for_team_in_rows(team.id, all_data["teams_with_event_count_in_month"]),
-            event_count_with_groups_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_count_with_groups_in_period"]
+    try:
+        all_data = dict(
+            teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
+            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
+                period_start.replace(day=1), period_end
             ),
-            # event_count_by_lib: Difind_count_for_team_in_rows(team.id, all_data["teams_with_#"]),
-            # event_count_by_name: Difind_count_for_team_in_rows(team.id, all_data["teams_with_#"]),
-            recording_count_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_recording_count_in_period"]
+            teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
+                period_start, period_end
             ),
-            recording_count_total=find_count_for_team_in_rows(team.id, all_data["teams_with_recording_count_total"]),
-            group_types_total=find_count_for_team_in_rows(team.id, all_data["teams_with_group_types_total"]),
-            decide_requests_count_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_decide_requests_count_in_period"]
+            # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
+            # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
+            teams_with_recording_count_in_period=get_teams_with_recording_count_in_period(period_start, period_end),
+            teams_with_recording_count_total=get_teams_with_recording_count_total(),
+            teams_with_decide_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+                period_start, period_end, FlagRequestType.DECIDE
             ),
-            decide_requests_count_in_month=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_decide_requests_count_in_month"]
+            teams_with_decide_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+                period_start.replace(day=1), period_end, FlagRequestType.DECIDE
             ),
-            local_evaluation_requests_count_in_period=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_local_evaluation_requests_count_in_period"]
+            teams_with_local_evaluation_requests_count_in_period=get_teams_with_feature_flag_requests_count_in_period(
+                period_start, period_end, FlagRequestType.LOCAL_EVALUATION
             ),
-            local_evaluation_requests_count_in_month=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_local_evaluation_requests_count_in_month"]
+            teams_with_local_evaluation_requests_count_in_month=get_teams_with_feature_flag_requests_count_in_period(
+                period_start.replace(day=1), period_end, FlagRequestType.LOCAL_EVALUATION
             ),
-            dashboard_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_count"]),
-            dashboard_template_count=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_dashboard_template_count"]
+            teams_with_group_types_total=list(
+                GroupTypeMapping.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
             ),
-            dashboard_shared_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_shared_count"]),
-            dashboard_tagged_count=find_count_for_team_in_rows(team.id, all_data["teams_with_dashboard_tagged_count"]),
-            ff_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_count"]),
-            ff_active_count=find_count_for_team_in_rows(team.id, all_data["teams_with_ff_active_count"]),
-            hogql_app_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_bytes_read"]),
-            hogql_app_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_rows_read"]),
-            hogql_app_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_app_duration_ms"]),
-            hogql_api_bytes_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_bytes_read"]),
-            hogql_api_rows_read=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_rows_read"]),
-            hogql_api_duration_ms=find_count_for_team_in_rows(team.id, all_data["teams_with_hogql_api_duration_ms"]),
-            event_explorer_app_bytes_read=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_app_bytes_read"]
+            teams_with_dashboard_count=list(
+                Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
             ),
-            event_explorer_app_rows_read=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_app_rows_read"]
+            teams_with_dashboard_template_count=list(
+                Dashboard.objects.filter(creation_mode="template")
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
             ),
-            event_explorer_app_duration_ms=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_app_duration_ms"]
+            teams_with_dashboard_shared_count=list(
+                Dashboard.objects.filter(sharingconfiguration__enabled=True)
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
             ),
-            event_explorer_api_bytes_read=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_api_bytes_read"]
+            teams_with_dashboard_tagged_count=list(
+                Dashboard.objects.filter(tagged_items__isnull=False)
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
             ),
-            event_explorer_api_rows_read=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_api_rows_read"]
+            teams_with_ff_count=list(
+                FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
             ),
-            event_explorer_api_duration_ms=find_count_for_team_in_rows(
-                team.id, all_data["teams_with_event_explorer_api_duration_ms"]
+            teams_with_ff_active_count=list(
+                FeatureFlag.objects.filter(active=True)
+                .values("team_id")
+                .annotate(total=Count("id"))
+                .order_by("team_id")
+            ),
+            teams_with_hogql_app_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="",
+            ),
+            teams_with_hogql_app_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="",
+            ),
+            teams_with_hogql_app_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="",
+            ),
+            teams_with_hogql_api_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_hogql_api_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_hogql_api_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["hogql_query", "HogQLQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_event_explorer_app_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["EventsQuery"],
+                access_method="",
+            ),
+            teams_with_event_explorer_app_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["EventsQuery"],
+                access_method="",
+            ),
+            teams_with_event_explorer_app_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["EventsQuery"],
+                access_method="",
+            ),
+            teams_with_event_explorer_api_bytes_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_bytes",
+                query_types=["EventsQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_event_explorer_api_rows_read=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="read_rows",
+                query_types=["EventsQuery"],
+                access_method="personal_api_key",
+            ),
+            teams_with_event_explorer_api_duration_ms=get_teams_with_hogql_metric(
+                period_start,
+                period_end,
+                metric="query_duration_ms",
+                query_types=["EventsQuery"],
+                access_method="personal_api_key",
             ),
         )
 
-        org_id = str(team.organization.id)
+        # The data is all as raw rows which will dramatically slow down the upcoming loop
+        # so we convert it to a map of team_id -> value
+        for key, rows in all_data.items():
+            all_data[key] = convert_team_usage_rows_to_dict(rows)
 
-        if org_id not in org_reports:
-            org_report = OrgReport(
-                date=period_start.strftime("%Y-%m-%d"),
-                organization_id=org_id,
-                organization_name=team.organization.name,
-                organization_created_at=team.organization.created_at.isoformat(),
-                organization_user_count=get_org_user_count(org_id),
-                team_count=1,
-                teams={str(team.id): team_report},
-                **dataclasses.asdict(team_report),  # Clone the team report as the basis
+        teams: Sequence[Team] = list(
+            Team.objects.select_related("organization").exclude(
+                Q(organization__for_internal_metrics=True) | Q(is_demo=True)
             )
-            org_reports[org_id] = org_report
-        else:
-            org_report = org_reports[org_id]
-            org_report.teams[str(team.id)] = team_report
-            org_report.team_count += 1
-
-            # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
-            for field in dataclasses.fields(UsageReportCounters):
-                if hasattr(team_report, field.name):
-                    setattr(
-                        org_report,
-                        field.name,
-                        getattr(org_report, field.name) + getattr(team_report, field.name),
-                    )
-
-    all_reports = []
-
-    for org_report in org_reports.values():
-        org_id = org_report.organization_id
-
-        if only_organization_id and only_organization_id != org_id:
-            continue
-
-        full_report = FullUsageReport(
-            **dataclasses.asdict(org_report),
-            **dataclasses.asdict(instance_metadata),
         )
-        full_report_dict = dataclasses.asdict(full_report)
-        all_reports.append(full_report_dict)
 
-        if dry_run:
-            continue
+        org_reports: Dict[str, OrgReport] = {}
 
-        # First capture the events to PostHog
-        if not skip_capture_event:
-            at_date_str = at_date.isoformat() if at_date else None
-            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
+        print("Generating reports for teams...")  # noqa T201
+        time_now = datetime.now()
+        for team in teams:
+            team_report = UsageReportCounters(
+                event_count_lifetime=all_data["teams_with_event_count_lifetime"].get(team.id, 0),
+                event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
+                event_count_in_month=all_data["teams_with_event_count_in_month"].get(team.id, 0),
+                event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(
+                    team.id, 0
+                ),
+                # event_count_by_lib: Di all_data["teams_with_#"].get(team.id, 0),
+                # event_count_by_name: Di all_data["teams_with_#"].get(team.id, 0),
+                recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
+                recording_count_total=all_data["teams_with_recording_count_total"].get(team.id, 0),
+                group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
+                decide_requests_count_in_period=all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0),
+                decide_requests_count_in_month=all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0),
+                local_evaluation_requests_count_in_period=all_data[
+                    "teams_with_local_evaluation_requests_count_in_period"
+                ].get(team.id, 0),
+                local_evaluation_requests_count_in_month=all_data[
+                    "teams_with_local_evaluation_requests_count_in_month"
+                ].get(team.id, 0),
+                dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
+                dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
+                dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),
+                dashboard_tagged_count=all_data["teams_with_dashboard_tagged_count"].get(team.id, 0),
+                ff_count=all_data["teams_with_ff_count"].get(team.id, 0),
+                ff_active_count=all_data["teams_with_ff_active_count"].get(team.id, 0),
+                hogql_app_bytes_read=all_data["teams_with_hogql_app_bytes_read"].get(team.id, 0),
+                hogql_app_rows_read=all_data["teams_with_hogql_app_rows_read"].get(team.id, 0),
+                hogql_app_duration_ms=all_data["teams_with_hogql_app_duration_ms"].get(team.id, 0),
+                hogql_api_bytes_read=all_data["teams_with_hogql_api_bytes_read"].get(team.id, 0),
+                hogql_api_rows_read=all_data["teams_with_hogql_api_rows_read"].get(team.id, 0),
+                hogql_api_duration_ms=all_data["teams_with_hogql_api_duration_ms"].get(team.id, 0),
+                event_explorer_app_bytes_read=all_data["teams_with_event_explorer_app_bytes_read"].get(team.id, 0),
+                event_explorer_app_rows_read=all_data["teams_with_event_explorer_app_rows_read"].get(team.id, 0),
+                event_explorer_app_duration_ms=all_data["teams_with_event_explorer_app_duration_ms"].get(team.id, 0),
+                event_explorer_api_bytes_read=all_data["teams_with_event_explorer_api_bytes_read"].get(team.id, 0),
+                event_explorer_api_rows_read=all_data["teams_with_event_explorer_api_rows_read"].get(team.id, 0),
+                event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
+            )
 
-        # Then capture the events to Billing
-        if has_non_zero_usage(full_report):
-            send_report_to_billing_service.delay(org_id, full_report_dict)
-    return all_reports
+            org_id = str(team.organization.id)
+
+            if org_id not in org_reports:
+                org_report = OrgReport(
+                    date=period_start.strftime("%Y-%m-%d"),
+                    organization_id=org_id,
+                    organization_name=team.organization.name,
+                    organization_created_at=team.organization.created_at.isoformat(),
+                    organization_user_count=get_org_user_count(org_id),
+                    team_count=1,
+                    teams={str(team.id): team_report},
+                    **dataclasses.asdict(team_report),  # Clone the team report as the basis
+                )
+                org_reports[org_id] = org_report
+            else:
+                org_report = org_reports[org_id]
+                org_report.teams[str(team.id)] = team_report
+                org_report.team_count += 1
+
+                # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
+                for field in dataclasses.fields(UsageReportCounters):
+                    if hasattr(team_report, field.name):
+                        setattr(
+                            org_report,
+                            field.name,
+                            getattr(org_report, field.name) + getattr(team_report, field.name),
+                        )
+        time_since = datetime.now() - time_now
+        print(f"Generating reports for teams took {time_since.total_seconds()} seconds.")  # noqa T201
+
+        all_reports = []
+
+        print("Sending usage reports to PostHog and Billing...")  # noqa T201
+        time_now = datetime.now()
+        for org_report in org_reports.values():
+            org_id = org_report.organization_id
+
+            if only_organization_id and only_organization_id != org_id:
+                continue
+
+            full_report = FullUsageReport(
+                **dataclasses.asdict(org_report),
+                **dataclasses.asdict(instance_metadata),
+            )
+            full_report_dict = dataclasses.asdict(full_report)
+            all_reports.append(full_report_dict)
+
+            if dry_run:
+                continue
+
+            # First capture the events to PostHog
+            if not skip_capture_event:
+                at_date_str = at_date.isoformat() if at_date else None
+                capture_report.delay(capture_event_name, org_id, full_report_dict, at_date_str)
+
+            # Then capture the events to Billing
+            if has_non_zero_usage(full_report):
+                send_report_to_billing_service.delay(org_id, full_report_dict)
+        time_since = datetime.now() - time_now
+        print(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        return all_reports
+    except Exception as err:
+        capture_exception(err)
+        raise err

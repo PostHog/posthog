@@ -191,6 +191,7 @@ export function FilterBasedCardContent({
         query,
         key: insightVizDataNodeKey(insightProps),
         cachedResults: getCachedResults(insightProps.cachedInsight, query),
+        doNotLoad: insightProps.doNotLoad,
     }
     useEffect(() => {
         // If displaying a BoldNumber Trends insight, we need to fire the window resize event

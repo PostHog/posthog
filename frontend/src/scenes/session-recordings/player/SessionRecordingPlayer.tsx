@@ -9,7 +9,7 @@ import {
     SessionRecordingPlayerMode,
 } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
-import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
+import { PlayerController } from 'scenes/session-recordings/player/controller/PlayerController'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { PlayerMeta } from './PlayerMeta'
@@ -81,7 +81,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             arrowleft: {
                 action: (e) => {
-                    console.log(e)
                     if (e.ctrlKey || e.metaKey) {
                         return
                     }

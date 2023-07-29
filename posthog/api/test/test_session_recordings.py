@@ -15,6 +15,7 @@ from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
@@ -233,23 +234,48 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team=self.team, distinct_ids=["u1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        self.create_snapshot("u1", "1", base_time)
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+
+        produce_replay_summary(
+            session_id="1",
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=50 * 1000 * 0.5,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
         response_data = response.json()
         # Make sure it starts not viewed
-        self.assertEqual(response_data["results"][0]["viewed"], False)
+        assert response_data["results"][0]["viewed"] is False
+        assert response_data["results"][0]["id"] == "1"
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-        response_data = response.json()
+        # can get it directly
+        get_session_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert get_session_response.status_code == 200
+        assert get_session_response.json()["viewed"] is False
+        assert get_session_response.json()["id"] == "1"
+
+        # being loaded doesn't mark it as viewed
+        all_sessions_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+        response_data = all_sessions_response.json()
         # Make sure it remains not viewed
-        self.assertEqual(response_data["results"][0]["viewed"], False)
+        assert response_data["results"][0]["viewed"] is False
+        assert response_data["results"][0]["id"] == "1"
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1?save_view=True")
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-        response_data = response.json()
+        # can set it to viewed
+        save_as_viewed_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1?save_view=True")
+        assert save_as_viewed_response.status_code == 200
+
+        final_view_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?version=3")
+        response_data = final_view_response.json()
         # Make sure the query param sets it to viewed
-        self.assertEqual(response_data["results"][0]["viewed"], True)
+        assert response_data["results"][0]["viewed"] is True
+        assert response_data["results"][0]["id"] == "1"
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
         response_data = response.json()
@@ -263,8 +289,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             )
             session_recording_id = "session_1"
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            self.create_snapshot("d1", session_recording_id, base_time)
-            self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
         response_data = response.json()
@@ -280,7 +311,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "click_count": 0,
             "keypress_count": 0,
             "start_url": None,
-            "matching_events": None,
+            "mouse_activity_count": None,
+            "inactive_seconds": None,
+            "active_seconds": None,
+            "console_error_count": None,
+            "console_log_count": None,
+            "console_warn_count": None,
             "person": {
                 "id": p.id,
                 "name": "bob@bob.com",
@@ -360,21 +396,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
                 next_url = response_data["next"]
 
-    def test_get_metadata_for_chunked_session_recording(self):
-        p = Person.objects.create(
-            team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-        )
-        chunked_session_id = "chunked_session_id"
-        num_chunks = 60
-        snapshots_per_chunk = 2
-        for index in range(num_chunks):
-            self.create_snapshots(snapshots_per_chunk, "d1", chunked_session_id, now() + relativedelta(minutes=index))
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{chunked_session_id}")
-        response_data = response.json()
-        self.assertEqual(response_data["person"]["id"], p.pk)
-        self.assertEqual(response_data["viewed"], False)
-        self.assertEqual(response_data["id"], chunked_session_id)
-
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
@@ -385,7 +406,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_session_recording_with_no_person(self):
-        self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
+        produce_replay_summary(
+            session_id="id_no_person",
+            team_id=self.team.pk,
+            first_timestamp=(now() - relativedelta(days=1)).isoformat(),
+            last_timestamp=(now() - relativedelta(days=1)).isoformat(),
+            distinct_id="d1",
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
         response_data = response.json()
         self.assertEqual(response_data["person"], None)
@@ -598,6 +626,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         session_id = str(uuid.uuid4())
         with freeze_time("2023-01-01T12:00:00Z"):
+            produce_replay_summary(
+                session_id=session_id,
+                team_id=self.team.pk,
+                first_timestamp=(now() - relativedelta(days=1)).isoformat(),
+                last_timestamp=(now() - relativedelta(days=1)).isoformat(),
+                distinct_id="user",
+            )
             self.create_snapshot("user", session_id, now() - relativedelta(days=1), team_id=self.team.pk)
 
         token = self.client.patch(

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
+import { Logo } from '~/toolbar/assets/Logo'
 import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
 import { navigationLogic } from '../navigationLogic'
@@ -44,7 +44,7 @@ export function TopBar(): JSX.Element {
                         </div>
                     )}
                     <Link to="/" className="TopBar__logo">
-                        <FriendlyLogo />
+                        <Logo />
                     </Link>
 
                     <div className="grow">

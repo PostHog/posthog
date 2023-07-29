@@ -115,7 +115,7 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                                 .catch(reject)
                         }, nextRetryMs)
                     )
-                    hub.promiseManager.trackPromise(nextIterationPromise)
+                    hub.promiseManager.trackPromise(nextIterationPromise, 'retries')
                     await hub.promiseManager.awaitPromisesIfNeeded()
                 } else {
                     await catchFn?.(error)

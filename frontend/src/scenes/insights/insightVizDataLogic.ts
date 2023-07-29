@@ -4,7 +4,6 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
-    DataNode,
     DateRange,
     InsightFilter,
     InsightQueryNode,
@@ -37,11 +36,10 @@ import {
     getFormula,
     getInterval,
     getSeries,
+    getShownAs,
+    getShowValueOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { subscriptions } from 'kea-subscriptions'
-import { displayTypesWithoutLegend } from 'lib/components/InsightLegend/utils'
+import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -57,31 +55,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightVizDataLogic', key]),
 
-    connect((props: InsightLogicProps) => ({
+    connect(() => ({
         values: [
-            insightLogic,
-            ['insight'],
             insightDataLogic,
-            ['query'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            [
-                'response as insightData',
-                'dataLoading as insightDataLoading',
-                'responseErrorObject as insightDataError',
-                'query as insightQuery',
-            ],
+            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
         actions: [
             insightLogic,
-            ['setFilters', 'setInsight'],
+            ['setFilters'],
             insightDataLogic,
-            ['setQuery'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['loadData', 'loadDataSuccess', 'loadDataFailure'],
+            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure'],
         ],
     })),
 
@@ -129,6 +114,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
+        shownAs: [(s) => [s.querySource], (q) => (q ? getShownAs(q) : null)],
+        showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -168,10 +155,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
         ],
 
+        isSingleSeries: [
+            (s) => [s.isTrends, s.formula, s.series, s.breakdown],
+            (isTrends, formula, series, breakdown): boolean => {
+                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdown?.breakdown
+            },
+        ],
+
         hasLegend: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) && !!display && !displayTypesWithoutLegend.includes(display),
+                (isTrends || isStickiness) && !!display && !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
@@ -182,6 +176,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return insightDataError?.queryId || null
             },
         ],
+
+        timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
     }),
 
     listeners(({ actions, values }) => ({
@@ -260,29 +256,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
-        },
-    })),
-    subscriptions(({ values, actions }) => ({
-        /**
-         * This subscription updates the insight for all visualizations
-         * that haven't been refactored to use the data exploration yet.
-         */
-        insightData: (insightData: Record<string, any> | null) => {
-            if (insightData === null) {
-                return
-            }
-            if (isInsightVizNode(values.query)) {
-                const updatedInsight = {
-                    ...values.insight,
-                    result: insightData?.result,
-                    next: insightData?.next,
-                }
-
-                updatedInsight.filters = queryNodeToFilter(values.query.source)
-                updatedInsight.query = undefined
-
-                actions.setInsight(updatedInsight, {})
-            }
         },
     })),
 ])

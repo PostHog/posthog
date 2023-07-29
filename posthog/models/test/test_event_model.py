@@ -260,9 +260,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def test_with_class_with_escaped_symbols(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
             action1 = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                event="$autocapture", action=action1, selector="a.na\\\\v-link\\:b\\@ld", tag_name="a"
-            )
+            ActionStep.objects.create(event="$autocapture", action=action1, selector="a.na\\v-link:b@ld", tag_name="a")
             event1_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
@@ -281,7 +279,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             _create_person(distinct_ids=["whatever"], team=self.team)
             action1 = Action.objects.create(team=self.team)
             ActionStep.objects.create(
-                event="$autocapture", action=action1, selector="a.na\\\\\\\\\\\\v-link\\:b\\@ld", tag_name="a"
+                event="$autocapture", action=action1, selector="a.na\\\\\\v-link:b@ld", tag_name="a"
             )
             event1_uuid = _create_event(
                 event="$autocapture",

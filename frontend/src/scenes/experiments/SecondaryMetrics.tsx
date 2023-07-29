@@ -16,14 +16,15 @@ import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogi
 import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { SEONDARY_METRIC_INSIGHT_ID } from './constants'
+import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 
 export function SecondaryMetrics({
     onMetricsChange,
     initialMetrics,
     experimentId,
+    defaultAggregationType,
 }: SecondaryMetricsProps): JSX.Element {
-    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
+    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId, defaultAggregationType })
     const { metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric, metricIdx } =
         useValues(logic)
 
@@ -154,7 +155,7 @@ export function SecondaryMetrics({
                     </Field>
                     <Field name="filters" label="Query">
                         <MetricSelector
-                            dashboardItemId={SEONDARY_METRIC_INSIGHT_ID}
+                            dashboardItemId={SECONDARY_METRIC_INSIGHT_ID}
                             setPreviewInsight={setPreviewInsight}
                             showDateRangeBanner={isExperimentRunning}
                         />

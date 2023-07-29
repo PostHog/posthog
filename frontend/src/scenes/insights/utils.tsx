@@ -15,7 +15,7 @@ import {
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { KEY_MAPPING } from 'lib/components/PropertyKeyInfo'
+import { KEY_MAPPING } from 'lib/taxonomy'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/logics'

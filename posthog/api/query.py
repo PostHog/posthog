@@ -1,40 +1,41 @@
 import json
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 from typing import Dict, Optional, cast, Any, List
 
 from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
-from django.utils.timezone import now
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from pydantic import BaseModel
 from rest_framework import viewsets
-from rest_framework.exceptions import ParseError, ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import ParseError, ValidationError, NotAuthenticated
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
+from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.events_query import run_events_query
+from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.rate_limit import TeamRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode, HogQLMetadata
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
+from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
 from posthog.utils import relative_date_parse
-
-from sentry_sdk import capture_exception
-
-import re
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -78,9 +79,14 @@ class QuerySchemaParser(JSONParser):
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [QueryThrottle]
 
     parser_classes = (QuerySchemaParser,)
+
+    def get_throttles(self):
+        if self.action == "draft_sql":
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        else:
+            return [QueryThrottle()]
 
     @extend_schema(
         parameters=[
@@ -123,6 +129,22 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             self.handle_column_ch_error(e)
             capture_exception(e)
             raise e
+
+    @action(methods=["GET"], detail=False)
+    def draft_sql(self, request: Request, *args, **kwargs) -> Response:
+        if not isinstance(request.user, User):
+            raise NotAuthenticated()
+        prompt = request.GET.get("prompt")
+        current_query = request.GET.get("current_query")
+        if not prompt:
+            raise ValidationError({"prompt": ["This field is required."]}, code="required")
+        if len(prompt) > 400:
+            raise ValidationError({"prompt": ["This field is too long."]}, code="too_long")
+        try:
+            result = write_sql_from_prompt(prompt, current_query=current_query, user=request.user, team=self.team)
+        except PromptUnclear as e:
+            raise ValidationError({"prompt": [str(e)]}, code="unclear")
+        return Response({"sql": result})
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
@@ -211,21 +233,6 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
         return serialize_database(database)
-    elif query_kind == "RecentPerformancePageViewNode":
-        try:
-            # noinspection PyUnresolvedReferences
-            from ee.api.performance_events import load_performance_events_recent_pageviews
-        except ImportError:
-            raise ValidationError("Performance events are not enabled for this instance")
-
-        recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
-        results = load_performance_events_recent_pageviews(
-            team_id=team.pk,
-            date_from=parse_as_date_or(recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)),
-            date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
-        )
-
-        return {"results": results}
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
         sessions_query_serializer.is_valid(raise_exception=True)

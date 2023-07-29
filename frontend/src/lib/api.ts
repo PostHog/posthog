@@ -1,49 +1,47 @@
 import posthog from 'posthog-js'
 import {
     ActionType,
-    RawAnnotationType,
     CohortType,
-    EventDefinitionType,
     DashboardCollaboratorType,
+    DashboardTemplateEditorType,
+    DashboardTemplateListParams,
+    DashboardTemplateType,
     DashboardType,
+    DataWarehouseTable,
+    EarlyAccessFeatureType,
     EventDefinition,
+    EventDefinitionType,
+    EventsListQueryParams,
     EventType,
     ExportedAssetType,
+    FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     InsightModel,
     IntegrationType,
+    MediaUploadResponse,
+    NewEarlyAccessFeatureType,
+    NotebookType,
+    OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
     PersonType,
     PluginLogEntry,
     PropertyDefinition,
+    PropertyDefinitionType,
+    RawAnnotationType,
+    RoleMemberType,
+    RolesListParams,
+    RoleType,
+    SessionRecordingPlaylistType,
+    SessionRecordingSnapshotResponse,
+    SessionRecordingsResponse,
+    SessionRecordingType,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
+    Survey,
     TeamType,
     UserType,
-    MediaUploadResponse,
-    SessionRecordingsResponse,
-    EventsListQueryParams,
-    SessionRecordingPlaylistType,
-    RoleType,
-    RoleMemberType,
-    OrganizationResourcePermissionType,
-    RolesListParams,
-    FeatureFlagAssociatedRoleType,
-    SessionRecordingType,
-    PerformanceEvent,
-    RecentPerformancePageView,
-    DashboardTemplateType,
-    DashboardTemplateEditorType,
-    EarlyAccessFeatureType,
-    NewEarlyAccessFeatureType,
-    SessionRecordingSnapshotResponse,
-    Survey,
-    NotebookType,
-    DashboardTemplateListParams,
-    PropertyDefinitionType,
-    DataWarehouseTable,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -55,7 +53,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/prop
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
 import { decompressSync, strFromU8 } from 'fflate'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -263,6 +260,19 @@ class ApiRequest {
             .addPathComponent(propertyDefinitionId)
     }
 
+    public propertyDefinitionSeenTogether(
+        eventNames: string[],
+        propertyDefinitionName: PropertyDefinition['name'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        const queryParams = toParams({ event_names: eventNames, property_name: propertyDefinitionName }, true)
+
+        return this.projectsDetail(teamId)
+            .addPathComponent('property_definitions')
+            .addPathComponent('seen_together')
+            .withQueryString(queryParams)
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -467,18 +477,6 @@ class ApiRequest {
         id: FeatureFlagAssociatedRoleType['id']
     ): ApiRequest {
         return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
-    }
-
-    // Performance events
-    public performanceEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('performance_events')
-    }
-
-    public recentPageViewPerformanceEvents(dateFrom: string, dateTo: string, teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('performance_events')
-            .addPathComponent('recent_pageviews')
-            .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
     }
 
     // # Queries
@@ -752,6 +750,15 @@ const api = {
             propertyDefinitionId: PropertyDefinition['id']
         }): Promise<PropertyDefinition> {
             return new ApiRequest().propertyDefinitionDetail(propertyDefinitionId).get()
+        },
+        async seenTogether({
+            eventNames,
+            propertyDefinitionName,
+        }: {
+            eventNames: string[]
+            propertyDefinitionName: PropertyDefinition['name']
+        }): Promise<Record<string, boolean>> {
+            return new ApiRequest().propertyDefinitionSeenTogether(eventNames, propertyDefinitionName).get()
         },
         async update({
             propertyDefinitionId,
@@ -1134,6 +1141,17 @@ const api = {
                 .withAction('snapshots')
                 .withQueryString(toParams({ source: 'blob', blob_key: blobKey, version: '2' }))
                 .getResponse()
+
+            try {
+                const textLines = await response.text()
+
+                if (textLines) {
+                    return textLines.split('\n')
+                }
+            } catch (e) {
+                // Must be gzipped
+            }
+
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
@@ -1347,37 +1365,6 @@ const api = {
         },
     },
 
-    performanceEvents: {
-        async list(
-            params: any,
-            teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<PaginatedResponse<PerformanceEvent>> {
-            return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
-        },
-        recentPageViewsURL(teamId: TeamType['id'] = getCurrentTeamId(), dateFrom?: string, dateTo?: string): string {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .assembleEndpointUrl()
-        },
-        async recentPageViews(
-            teamId: TeamType['id'] = getCurrentTeamId(),
-            dateFrom?: string,
-            dateTo?: string
-        ): Promise<PaginatedResponse<RecentPerformancePageView>> {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .get()
-        },
-    },
-
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -1407,7 +1394,13 @@ const api = {
         let response
         const startTime = new Date().getTime()
         try {
-            response = await fetch(url, { signal: options?.signal })
+            response = await fetch(url, {
+                signal: options?.signal,
+                headers: {
+                    // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                    // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
+                },
+            })
         } catch (e) {
             throw { status: 0, message: e }
         }
@@ -1430,6 +1423,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: isFormData ? data : JSON.stringify(data),
             signal: options?.signal,
@@ -1461,6 +1456,8 @@ const api = {
             headers: {
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
             signal: options?.signal,
@@ -1486,6 +1483,8 @@ const api = {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                // TODO: get_session_id isn't safe in the toolbar, needs fixing in posthog-js
+                // 'X-POSTHOG-SESSION-ID': posthog.get_session_id(),
             },
         })
 

@@ -3714,6 +3714,39 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
 
     @also_test_with_materialized_columns(person_properties=["name"])
+    def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
+        self._create_multiple_people()
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "name",
+                        "breakdown_type": "person",
+                        "display": "ActionsPie",
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "name": "watched movie",
+                                "type": "events",
+                                "order": 0,
+                                "math": "dau",
+                                "properties": [
+                                    {"key": "name", "operator": "not_icontains", "value": "person3", "type": "person"}
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+            event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
+            self.assertEqual(len(event_response), 2)
+            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
+            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+
+    @also_test_with_materialized_columns(person_properties=["name"])
     def test_filter_test_accounts_cohorts(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         _create_person(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})

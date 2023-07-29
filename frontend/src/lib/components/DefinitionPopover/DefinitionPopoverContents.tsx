@@ -7,7 +7,8 @@ import {
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { useEffect } from 'react'
-import { isPostHogProp, KEY_MAPPING, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, KEY_MAPPING } from 'lib/taxonomy'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconInfo, IconLock, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -16,47 +17,11 @@ import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/t
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
-import { TitleWithIcon } from '../TitleWithIcon'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { hide } from '@floating-ui/react'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { TZLabel } from '../TZLabel'
-
-export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
-    <TitleWithIcon
-        icon={
-            <Tooltip
-                title="Estimated event volume in the past 30 days, updated every 24 hours."
-                placement={tooltipPlacement}
-            >
-                <IconInfo />
-            </Tooltip>
-        }
-    >
-        30-day volume
-    </TitleWithIcon>
-)
-
-export const ThirtyDayQueryCountTitle = ({
-    tooltipPlacement,
-}: {
-    tooltipPlacement?: 'top' | 'bottom'
-}): JSX.Element => (
-    <TitleWithIcon
-        icon={
-            <Tooltip
-                title="Estimated number of queries in which the event was used in the past 30 days, updated once every 24 hours."
-                placement={tooltipPlacement}
-            >
-                <IconInfo />
-            </Tooltip>
-        }
-    >
-        30-day query count
-    </TitleWithIcon>
-)
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
@@ -72,8 +37,6 @@ function TaxonomyIntroductionSection(): JSX.Element {
             <DefinitionPopover.Grid cols={2}>
                 <DefinitionPopover.Card title="First seen" value={<Lock />} />
                 <DefinitionPopover.Card title="Last seen" value={<Lock />} />
-                <DefinitionPopover.Card title={<ThirtyDayVolumeTitle />} value={<Lock />} />
-                <DefinitionPopover.Card title={<ThirtyDayQueryCountTitle />} value={<Lock />} />
             </DefinitionPopover.Grid>
             <DefinitionPopover.Section>
                 <Link
@@ -184,20 +147,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             title="Last seen"
                             value={_definition.last_seen_at && <TZLabel time={_definition.last_seen_at} />}
                         />
-                        <DefinitionPopover.Card
-                            title={<ThirtyDayVolumeTitle />}
-                            value={
-                                _definition.volume_30_day == null ? '-' : humanFriendlyNumber(_definition.volume_30_day)
-                            }
-                        />
-                        <DefinitionPopover.Card
-                            title={<ThirtyDayQueryCountTitle />}
-                            value={
-                                _definition.query_usage_30_day == null
-                                    ? '-'
-                                    : humanFriendlyNumber(_definition.query_usage_30_day)
-                            }
-                        />
                     </DefinitionPopover.Grid>
                 ) : (
                     <TaxonomyIntroductionSection />
@@ -234,14 +183,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="30 day queries"
-                        value={
-                            _definition.query_usage_30_day == null
-                                ? '-'
-                                : humanFriendlyNumber(_definition.query_usage_30_day)
-                        }
-                    />
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
                 <DefinitionPopover.HorizontalLine />

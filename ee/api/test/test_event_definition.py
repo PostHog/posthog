@@ -13,7 +13,6 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import Tag, ActivityLog, Team, User
 from posthog.models.event_definition import EventDefinition
-from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
 from posthog.api.test.test_organization import create_organization
 
@@ -28,10 +27,10 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     With it we expect watched_movie, entered_free_trial, purchase, $pageview
     """
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
-        {"name": "purchase", "volume_30_day": 30, "verified": None},
-        {"name": "entered_free_trial", "volume_30_day": 15, "verified": True},
-        {"name": "watched_movie", "volume_30_day": 25, "verified": True},
-        {"name": "$pageview", "volume_30_day": 14, "verified": None},
+        {"name": "purchase", "verified": None},
+        {"name": "entered_free_trial", "verified": True},
+        {"name": "watched_movie", "verified": True},
+        {"name": "$pageview", "verified": None},
     ]
 
     @classmethod
@@ -42,20 +41,15 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             EnterpriseEventDefinition.objects.create(name=event_definition["name"], team_id=cls.demo_team.pk)
-            for _ in range(event_definition["volume_30_day"]):
-                capture_event(
-                    event=EventData(
-                        event=event_definition["name"],
-                        team_id=cls.demo_team.pk,
-                        distinct_id="abc",
-                        timestamp=datetime(2020, 1, 1),
-                        properties={},
-                    )
+            capture_event(
+                event=EventData(
+                    event=event_definition["name"],
+                    team_id=cls.demo_team.pk,
+                    distinct_id="abc",
+                    timestamp=datetime(2020, 1, 1),
+                    properties={},
                 )
-
-        # To ensure `volume_30_day` and `query_usage_30_day` are returned non
-        # None, we need to call this task to have them calculated.
-        calculate_event_property_usage_for_team(cls.demo_team.pk)
+            )
 
     def test_list_event_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -67,12 +61,12 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], len(self.EXPECTED_EVENT_DEFINITIONS))
 
         self.assertEqual(
-            [(r["name"], r["volume_30_day"], r["verified"]) for r in response.json()["results"]],
+            [(r["name"], r["verified"]) for r in response.json()["results"]],
             [
-                ("purchase", 30, False),
-                ("watched_movie", 25, False),
-                ("entered_free_trial", 15, False),
-                ("$pageview", 14, False),
+                ("$pageview", False),
+                ("entered_free_trial", False),
+                ("purchase", False),
+                ("watched_movie", False),
             ],
         )
 
@@ -87,11 +81,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/event_definitions/")
 
-        assert [(r["name"], r["volume_30_day"], r["verified"]) for r in response.json()["results"]] == [
-            ("watched_movie", 25, True),
-            ("entered_free_trial", 15, True),
-            ("purchase", 30, False),
-            ("$pageview", 14, False),
+        assert [(r["name"], r["verified"]) for r in response.json()["results"]] == [
+            ("$pageview", False),
+            ("entered_free_trial", True),
+            ("purchase", False),
+            ("watched_movie", True),
         ]
 
     def test_retrieve_existing_event_definition(self):
@@ -217,7 +211,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -228,7 +222,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}", data={"description": "test"}
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
 
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

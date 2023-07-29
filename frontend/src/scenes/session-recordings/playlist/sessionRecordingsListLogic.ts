@@ -146,7 +146,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
-        setShowFilters: (showFilters: boolean) => ({ showFilters }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -159,6 +158,22 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         loadPrev: true,
     }),
     loaders(({ props, values, actions }) => ({
+        eventsHaveSessionId: [
+            {} as Record<string, boolean>,
+            {
+                loadEventsHaveSessionId: async () => {
+                    const events = values.filters.events
+                    if (events === undefined || events.length === 0) {
+                        return {}
+                    }
+
+                    return await api.propertyDefinitions.seenTogether({
+                        eventNames: events.map((event) => event.name),
+                        propertyDefinitionName: '$session_id',
+                    })
+                },
+            },
+        ],
         sessionRecordingsResponse: [
             {
                 results: [],
@@ -226,6 +241,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        unusableEventsInFilter: [
+            [] as string[],
+            {
+                loadEventsHaveSessionIdSuccess: (_, { eventsHaveSessionId }) => {
+                    return Object.entries(eventsHaveSessionId)
+                        .filter(([, hasSessionId]) => !hasSessionId)
+                        .map(([eventName]) => eventName)
+                },
+            },
+        ],
         customFilters: [
             (props.filters ?? null) as RecordingFilters | null,
             {
@@ -234,12 +259,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     ...filters,
                 }),
                 resetFilters: () => null,
-            },
-        ],
-        showFilters: [
-            false,
-            {
-                setShowFilters: (_, { showFilters }) => showFilters,
             },
         ],
         sessionRecordings: [
@@ -282,6 +301,26 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
+        sessionRecordingsAPIErrored: [
+            false,
+            {
+                loadSessionRecordingsFailure: () => true,
+                loadSessionRecordingSuccess: () => false,
+                setFilters: () => false,
+                loadNext: () => false,
+                loadPrev: () => false,
+            },
+        ],
+        pinnedRecordingsAPIErrored: [
+            false,
+            {
+                loadPinnedRecordingsFailure: () => true,
+                loadPinnedRecordingsSuccess: () => false,
+                setFilters: () => false,
+                loadNext: () => false,
+                loadPrev: () => false,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -299,6 +338,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 return acc
             }, {})
             posthog.capture('recording list filters changed', { ...partialFilters })
+
+            actions.loadEventsHaveSessionId()
         },
 
         resetFilters: () => {
@@ -330,9 +371,30 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     })),
     selectors({
         shouldShowEmptyState: [
-            (s) => [s.sessionRecordings, s.customFilters, s.sessionRecordingsResponseLoading],
-            (sessionRecordings, customFilters, sessionRecordingsResponseLoading): boolean => {
-                return !sessionRecordingsResponseLoading && sessionRecordings.length === 0 && !customFilters
+            (s) => [
+                s.sessionRecordings,
+                s.customFilters,
+                s.sessionRecordingsResponseLoading,
+                s.sessionRecordingsAPIErrored,
+                s.pinnedRecordingsAPIErrored,
+                (_, props) => props.personUUID,
+            ],
+            (
+                sessionRecordings,
+                customFilters,
+                sessionRecordingsResponseLoading,
+                sessionRecordingsAPIErrored,
+                pinnedRecordingsAPIErrored,
+                personUUID
+            ): boolean => {
+                return (
+                    !sessionRecordingsAPIErrored &&
+                    !pinnedRecordingsAPIErrored &&
+                    !sessionRecordingsResponseLoading &&
+                    sessionRecordings.length === 0 &&
+                    !customFilters &&
+                    !personUUID
+                )
             },
         ],
 

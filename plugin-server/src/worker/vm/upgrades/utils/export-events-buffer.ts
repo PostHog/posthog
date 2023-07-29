@@ -53,7 +53,10 @@ export class ExportEventsBuffer {
         this.buffer = []
         this.points = 0
 
-        this.hub.promiseManager.trackPromise(this._flush(oldBuffer, oldPoints, new Date()))
+        this.hub.promiseManager.trackPromise(
+            this._flush(oldBuffer, oldPoints, new Date()),
+            'ExportEventsBuffer flush logs'
+        )
         await this.hub.promiseManager.awaitPromisesIfNeeded()
     }
 

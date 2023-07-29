@@ -1,14 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { funnelsCueLogic } from 'scenes/insights/views/Trends/funnelsCueLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
-import { InsightType } from '~/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function FunnelsCue(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { optOut } = useActions(funnelsCueLogic(insightProps))
     const { shown } = useValues(funnelsCueLogic(insightProps))
+    const { optOut, displayAsFunnel } = useActions(funnelsCueLogic(insightProps))
 
     if (!shown) {
         return null
@@ -18,7 +16,7 @@ export function FunnelsCue(): JSX.Element | null {
         <LemonBanner
             type="info"
             action={{
-                to: urls.insightNew({ insight: InsightType.FUNNELS }),
+                onClick: displayAsFunnel,
                 status: 'primary',
                 children: 'Try this insight as a funnel',
             }}

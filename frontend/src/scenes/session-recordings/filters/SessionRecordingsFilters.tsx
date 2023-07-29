@@ -16,7 +16,11 @@ import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { useActions, useValues } from 'kea'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -119,6 +123,9 @@ export function SessionRecordingsFilters({
     usesListingV3,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
+
+    const { durationTypeToShow } = useValues(playerSettingsLogic)
+    const { setDurationTypeToShow } = useActions(playerSettingsLogic)
 
     // We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
@@ -231,19 +238,41 @@ export function SessionRecordingsFilters({
                 </>
             )}
 
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SHOW_CONSOLE_LOGS_FILTER} match={true}>
-                <LemonLabel info="Show recordings that have captured console log messages">
-                    Filter by console logs
-                </LemonLabel>
-                <ConsoleFilters
-                    filters={filters}
-                    setConsoleFilters={(x) =>
-                        setFilters({
-                            console_logs: x,
-                        })
-                    }
-                />
+            <LemonLabel info="Show recordings that have captured console log messages">
+                Filter by console logs
+            </LemonLabel>
+            <ConsoleFilters
+                filters={filters}
+                setConsoleFilters={(x) =>
+                    setFilters({
+                        console_logs: x,
+                    })
+                }
+            />
+
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
+                <div className={'pt-2'}>
+                    <TestAccountFilter
+                        filters={filters}
+                        onChange={(testFilters) =>
+                            setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
+                        }
+                    />
+                </div>
             </FlaggedFeature>
+
+            <div className={'flex flex-col py-1 px-2 '}>
+                <LemonDivider />
+
+                <div className={'flex flex-row items-center justify-end space-x-2'}>
+                    <span>Show</span>
+                    <DurationTypeSelect
+                        value={durationTypeToShow}
+                        onChange={(value) => setDurationTypeToShow(value)}
+                        onChangeEventDescription={'session recording list duration type to show selected'}
+                    />
+                </div>
+            </div>
         </div>
     )
 }

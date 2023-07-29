@@ -2,13 +2,14 @@ import { runInstrumentedFunction } from '../../../main/utils'
 import { PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
+import { ActionMatcher } from '../action-matcher'
+import { HookCommander } from '../hooks'
 import { EventPipelineRunner } from './runner'
 
 export async function processOnEventStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
     const processedPluginEvent = convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
-        server: runner.hub,
         event: processedPluginEvent,
         func: (event) => runOnEvent(runner.hub, event),
         statsKey: `kafka_queue.single_on_event`,
@@ -18,9 +19,13 @@ export async function processOnEventStep(runner: EventPipelineRunner, event: Pos
     return null
 }
 
-export async function processWebhooksStep(runner: EventPipelineRunner, event: PostIngestionEvent) {
+export async function processWebhooksStep(
+    event: PostIngestionEvent,
+    actionMatcher: ActionMatcher,
+    hookCannon: HookCommander
+) {
     const elements = event.elementsList
-    const actionMatches = await runner.hub.actionMatcher.match(event, elements)
-    await runner.hub.hookCannon.findAndFireHooks(event, actionMatches)
+    const actionMatches = await actionMatcher.match(event, elements)
+    await hookCannon.findAndFireHooks(event, actionMatches)
     return null
 }

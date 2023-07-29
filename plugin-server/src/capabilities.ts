@@ -13,9 +13,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 mmdb: true,
                 ingestion: true,
                 ingestionOverflow: true,
+                ingestionHistorical: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
-                processAsyncHandlers: true,
+                processAsyncOnEventHandlers: true,
+                processAsyncWebhooksHandlers: true,
                 sessionRecordingIngestion: true,
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
@@ -35,6 +37,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionOverflow: true,
                 ...sharedCapabilities,
             }
+        case PluginServerMode.ingestion_historical:
+            return {
+                mmdb: true,
+                ingestionHistorical: true,
+                ...sharedCapabilities,
+            }
         case PluginServerMode.analytics_ingestion:
             return {
                 mmdb: true,
@@ -51,42 +59,23 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
-
-        case PluginServerMode.plugins_async:
-            return {
-                mmdb: true,
-                processPluginJobs: true,
-                processAsyncHandlers: true,
-                pluginScheduledTasks: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.plugins_exports:
-            return {
-                mmdb: true,
-                processAsyncHandlers: true,
-                ...sharedCapabilities,
-            }
         case PluginServerMode.async_onevent:
             return {
-                mmdb: true,
                 processAsyncOnEventHandlers: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.async_webhooks:
             return {
-                mmdb: true,
                 processAsyncWebhooksHandlers: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.jobs:
             return {
-                mmdb: true,
                 processPluginJobs: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.scheduler:
             return {
-                mmdb: true,
                 pluginScheduledTasks: true,
                 ...sharedCapabilities,
             }

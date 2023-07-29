@@ -56,7 +56,13 @@ const DashboardRelationRow = ({
             style={style}
             className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
         >
-            <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+            <Link
+                to={urls.dashboard(dashboard.id)}
+                className="overflow-hidden text-ellipsis whitespace-nowrap"
+                title={dashboard.name}
+            >
+                {dashboard.name || 'Untitled'}
+            </Link>
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
                     <IconCottage className="text-warning text-base" />
@@ -143,7 +149,7 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="space-y-2">
+            <div className="space-y-2 w-md max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"

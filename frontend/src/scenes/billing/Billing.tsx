@@ -17,6 +17,7 @@ import { IconPlus } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Field, Form } from 'kea-forms'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -170,7 +171,7 @@ export function Billing(): JSX.Element {
             )}
             <div
                 className={clsx('flex flex-wrap gap-4', {
-                    'flex-col pb-4 items-stretch': size === 'small',
+                    'flex-col items-stretch': size === 'small',
                     'items-center': size !== 'small',
                 })}
             >
@@ -211,9 +212,20 @@ export function Billing(): JSX.Element {
                                     {billing.discount_amount_usd && (
                                         <div>
                                             <p className="ml-0">
-                                                <strong>
-                                                    ${parseInt(billing.discount_amount_usd).toLocaleString()}
-                                                </strong>{' '}
+                                                <Tooltip
+                                                    title={
+                                                        billing?.amount_off_expires_at
+                                                            ? `Expires on ${billing?.amount_off_expires_at?.format(
+                                                                  'LL'
+                                                              )}`
+                                                            : null
+                                                    }
+                                                    placement="bottomLeft"
+                                                >
+                                                    <strong>
+                                                        ${parseInt(billing.discount_amount_usd).toLocaleString()}
+                                                    </strong>{' '}
+                                                </Tooltip>
                                                 remaining credits applied to your bill.
                                             </p>
                                         </div>
@@ -252,7 +264,7 @@ export function Billing(): JSX.Element {
                 </div>
             </div>
 
-            <div className="flex justify-between mt-4">
+            <div className="flex justify-between">
                 <h2>Products</h2>
                 {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton

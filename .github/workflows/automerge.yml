@@ -22,7 +22,7 @@ on:
 
 jobs:
     automerge:
-        name: Automerge
+        name: Automerge if requested
         runs-on: ubuntu-latest
         env:
             IS_POSTHOG_BOT_AVAILABLE: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN != '' }}

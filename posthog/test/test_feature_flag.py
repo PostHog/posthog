@@ -1,12 +1,12 @@
 import concurrent.futures
 from typing import cast
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 import pytest
-from posthog.database_healthcheck import postgres_healthcheck
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
@@ -28,7 +28,6 @@ from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_que
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
-
     maxDiff = None
 
     def test_cohort_expansion(self):
@@ -2378,6 +2377,88 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_invalid_filters_dont_set_db_down(self, mock_database_healthcheck):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$some_prop", "value": "nomatchihope", "type": "person"},
+                                {"key": "$some_prop2", "value": "nomatchihope2", "type": "person"},
+                                {
+                                    "key": "$pageview",
+                                    "event_type": "events",
+                                    "time_value": 1,
+                                    "time_interval": "week",
+                                    "value": "performed_event",
+                                    "type": "behavioral",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}], "rollout_percentage": 50}
+                ]
+            },
+        )
+
+        matcher = FeatureFlagMatcher([flag], "example_id_1")
+
+        self.assertEqual(matcher.get_matches(), ({}, {}, {}, True))
+        self.assertEqual(matcher.failed_to_fetch_conditions, False)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag2: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="group-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "aggregation_group_type_index": 0,
+            },
+        )
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
+
+        self.assertEqual(
+            matcher.get_matches(),
+            (
+                {"active-flag": True},
+                {"active-flag": {"condition_index": 0, "reason": FeatureFlagMatchReason.CONDITION_MATCH}},
+                {},
+                True,
+            ),
+        )
+        self.assertEqual(matcher.failed_to_fetch_conditions, False)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(
@@ -2579,7 +2660,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
-
     person: Person
 
     @classmethod
@@ -2623,7 +2703,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         )
 
     def test_setting_overrides(self):
-
         set_feature_flag_hash_key_overrides(
             team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
@@ -2637,7 +2716,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             self.assertEqual({var[0] for var in res}, {"other_id"})
 
     def test_retrieving_hash_key_overrides(self):
-
         set_feature_flag_hash_key_overrides(
             team_id=self.team.pk, distinct_ids=self.person.distinct_ids, hash_key_override="other_id"
         )
@@ -2647,7 +2725,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(hash_keys, {"beta-feature": "other_id", "multivariate-flag": "other_id"})
 
     def test_hash_key_overrides_for_multiple_ids_when_people_are_not_merged(self):
-
         Person.objects.create(
             team=self.team, distinct_ids=["1"], properties={"email": "beuk@posthog.com", "team": "posthog"}
         )
@@ -2664,7 +2741,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(hash_keys, {"beta-feature": "other_id1", "multivariate-flag": "other_id1"})
 
     def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
-
         all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         # existing overrides
@@ -2692,7 +2768,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             self.assertEqual({var[0] for var in res}, {hash_key})
 
     def test_setting_overrides_when_persons_dont_exist(self):
-
         set_feature_flag_hash_key_overrides(
             team_id=self.team.pk, distinct_ids=["1", "2", "3", "4"], hash_key_override="other_id"
         )
@@ -2737,12 +2812,12 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
+@patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
-        postgres_healthcheck.set_connection(True)
         return super().setUp()
 
-    def test_hash_key_overrides_with_race_conditions(self):
+    def test_hash_key_overrides_with_race_conditions(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
         team = Team.objects.create(organization=org)
@@ -2800,7 +2875,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
 
                 # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
 
-    def test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging(self):
+    def test_hash_key_overrides_with_simulated_error_race_conditions_on_person_merging(self, *args):
         def insert_fail(execute, sql, *args, **kwargs):
             if "statement_timeout" in sql:
                 return execute(sql, *args, **kwargs)
@@ -2872,7 +2947,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
-    def test_hash_key_overrides_with_simulated_race_conditions_on_person_merging(self):
+    def test_hash_key_overrides_with_simulated_race_conditions_on_person_merging(self, *args):
         class InsertFailOnce:
             def __init__(self):
                 self.has_failed = False
@@ -2951,7 +3026,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
-    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self):
+    def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
         team = Team.objects.create(organization=org)

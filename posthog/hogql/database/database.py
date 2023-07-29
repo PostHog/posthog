@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Extra
 
@@ -24,7 +24,6 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable, RawPersonDistinctIdsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.database.schema.person_overrides import PersonOverridesTable, RawPersonOverridesTable
-from posthog.hogql.database.schema.session_recording_events import SessionRecordingEvents
 from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable, SessionReplayEventsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import HogQLException
@@ -43,7 +42,6 @@ class Database(BaseModel):
     person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
     person_overrides: PersonOverridesTable = PersonOverridesTable()
 
-    session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
     cohort_people: CohortPeople = CohortPeople()
     static_cohort_people: StaticCohortPeople = StaticCohortPeople()
@@ -57,6 +55,19 @@ class Database(BaseModel):
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
+
+    # clunky: keep table names in sync with above
+    _table_names: List[Table] = [
+        "events",
+        "groups",
+        "person",
+        "person_distinct_id2",
+        "person_overrides",
+        "session_recording_events",
+        "session_replay_events",
+        "cohortpeople",
+        "person_static_cohort",
+    ]
 
     def __init__(self, timezone: Optional[str], week_start_day: Optional[WeekStartDay]):
         super().__init__()
@@ -85,9 +96,12 @@ class Database(BaseModel):
             setattr(self, f_name, f_def)
 
 
+BUILT_IN_TABLE_NAMES = [attr for attr in dir(Database) if isinstance(getattr(Database, attr), Table)]
+
+
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
@@ -99,13 +113,39 @@ def create_hogql_database(team_id: int) -> Database:
     tables = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
+
+    for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        tables[table.name] = table.hogql_definition()
+
     database.add_warehouse_tables(**tables)
 
     return database
 
 
-def serialize_database(database: Database) -> dict:
-    tables: Dict[str, List[Dict[str, Any]]] = {}
+class _SerializedFieldBase(TypedDict):
+    key: str
+    type: Literal[
+        "integer",
+        "float",
+        "string",
+        "datetime",
+        "date",
+        "boolean",
+        "json",
+        "lazy_table",
+        "virtual_table",
+        "field_traverser",
+    ]
+
+
+class SerializedField(_SerializedFieldBase, total=False):
+    fields: List[str]
+    table: str
+    chain: List[str]
+
+
+def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
+    tables: Dict[str, List[SerializedField]] = {}
 
     for table_key in database.__fields__.keys():
         field_input: Dict[str, Any] = {}
@@ -115,14 +155,14 @@ def serialize_database(database: Database) -> dict:
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[Dict[str, Any]] = serialize_fields(field_input)
+        field_output: List[SerializedField] = serialize_fields(field_input)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input) -> List[Dict[str, Any]]:
-    field_output: List[Dict[str, Any]] = []
+def serialize_fields(field_input) -> List[SerializedField]:
+    field_output: List[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
             pass

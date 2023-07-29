@@ -97,7 +97,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
                           ]
                         : []
                 }
-                copyDescription="project API key"
+                thing="project API key"
             >
                 {currentTeam?.api_token || ''}
             </CodeSnippet>
@@ -111,7 +111,7 @@ export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Elem
             <p>
                 You can use this ID to reference your project in our <a href="https://posthog.com/docs/api">API</a>.
             </p>
-            <CodeSnippet copyDescription="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
+            <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
         </>
     )
 }

@@ -6,7 +6,7 @@ import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import type { definitionLogicType } from './definitionLogicType'
-import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
+import { getPropertyLabel } from 'lib/taxonomy'
 import { userLogic } from 'scenes/userLogic'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
@@ -19,8 +19,6 @@ export enum DefinitionPageMode {
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
-    volume_30_day: null,
-    query_usage_30_day: null,
 })
 
 export interface SetDefinitionProps {
