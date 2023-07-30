@@ -62,6 +62,8 @@ export interface RecordingViewedSummaryAnalytics {
     all_snapshots_load_time_ms?: number
     rrweb_warning_count: number
     error_count_during_recording_playback: number
+    // as a very loose metric for engagement, how many clicks were there
+    click_count: number
 }
 
 export interface Player {
@@ -174,8 +176,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
+        incrementClickCount: true,
     }),
     reducers(({ props }) => ({
+        clickCount: [
+            0,
+            {
+                incrementClickCount: (state) => state + 1,
+            },
+        ],
         rootFrame: [
             null as HTMLDivElement | null,
             {
@@ -911,7 +920,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         values.player?.replayer?.pause()
         actions.setPlayer(null)
-        posthog.capture('recording viewed summary', {
+
+        const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
             play_time_ms: values.playingTimeTracking.watchTime || 0,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
@@ -921,7 +931,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     : undefined,
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,
-        })
+            click_count: values.clickCount,
+        }
+        posthog.capture('recording viewed summary', summaryAnalytics)
     }),
 
     afterMount(({ props, actions, cache }) => {
