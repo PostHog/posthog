@@ -43,9 +43,26 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 import { createExportedSessionRecording } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
+import { now } from 'lib/dayjs'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+
+export interface RecordingViewedSummaryAnalytics {
+    // how long was the player session mounted for
+    viewed_time_ms?: number
+    // how long was the video playing for
+    // (this could be longer than the duration, since someone could seek around multiple times)
+    play_time_ms?: number
+    recording_duration_ms?: number
+    recording_age_ms?: number
+    meta_data_load_time_ms?: number
+    first_snapshot_load_time_ms?: number
+    first_snapshot_and_meta_load_time_ms?: number
+    all_snapshots_load_time_ms?: number
+    rrweb_warning_count: number
+    error_count_during_recording_playback: number
+}
 
 export interface Player {
     replayer: Replayer
@@ -109,7 +126,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'reportNextRecordingTriggered',
                 'reportRecordingPlayerSkipInactivityToggled',
                 'reportRecordingPlayerSpeedChanged',
-                'reportRecordingViewedSummary',
                 'reportRecordingExportedToFile',
             ],
         ],
@@ -223,6 +239,62 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setPause: () => SessionPlayerState.PAUSE,
             },
         ],
+        playingTimeTracking: [
+            { isPlaying: false as boolean, lastTimestamp: null as number | null, watchTime: 0 },
+            {
+                setPlay: (state) => {
+                    return {
+                        isPlaying: true,
+                        lastTimestamp: state.lastTimestamp || performance.now(),
+                        watchTime: state.watchTime,
+                    }
+                },
+                setPause: (state) => {
+                    return {
+                        isPlaying: false,
+                        lastTimestamp: null,
+                        watchTime:
+                            state.lastTimestamp !== null
+                                ? state.watchTime + (performance.now() - state.lastTimestamp)
+                                : state.watchTime,
+                    }
+                },
+                setEndReached: (state, { reached }) => {
+                    if (!reached) {
+                        return state
+                    }
+
+                    return {
+                        isPlaying: false,
+                        lastTimestamp: null,
+                        watchTime:
+                            state.lastTimestamp !== null
+                                ? state.watchTime + (performance.now() - state.lastTimestamp)
+                                : state.watchTime,
+                    }
+                },
+                setErrorPlayerState: (state, { show }) => {
+                    if (!show) {
+                        return state
+                    }
+                    return {
+                        isPlaying: state.isPlaying,
+                        lastTimestamp: null,
+                        watchTime:
+                            state.lastTimestamp !== null
+                                ? state.watchTime + (performance.now() - state.lastTimestamp)
+                                : state.watchTime,
+                    }
+                },
+                seekToTime: (state) => {
+                    return {
+                        ...state,
+                        lastTimestamp:
+                            state.isPlaying && state.lastTimestamp === null ? performance.now() : state.lastTimestamp,
+                    }
+                },
+            },
+        ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
         isErrored: [false, { setErrorPlayerState: (_, { show }) => show }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
@@ -310,6 +382,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return Math.max(0, (currentTimestamp ?? 0) - (sessionPlayerData?.start?.valueOf() ?? 0))
             },
         ],
+
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
             (s) => [s.sessionPlayerData, s.currentSegment],
@@ -838,13 +911,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         document.removeEventListener('fullscreenchange', cache.fullScreenListener)
         values.player?.replayer?.pause()
         actions.setPlayer(null)
-        actions.reportRecordingViewedSummary({
+        posthog.capture('recording viewed summary', {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
+            play_time_ms: values.playingTimeTracking.watchTime || 0,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
-            // TODO: Validate this is correct
-            recording_age_days:
+            recording_age_ms:
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0
-                    ? Math.floor(values.sessionPlayerData.start?.diff(new Date(), 'days') ?? 0)
+                    ? Math.floor(now().diff(values.sessionPlayerData.start, 'millisecond') ?? 0)
                     : undefined,
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,

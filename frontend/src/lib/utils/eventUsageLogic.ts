@@ -100,18 +100,6 @@ interface RecordingViewedProps {
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
-export interface RecordingViewedSummaryAnalytics {
-    viewed_time_ms?: number
-    recording_duration_ms?: number
-    recording_age_days?: number
-    meta_data_load_time_ms?: number
-    first_snapshot_load_time_ms?: number
-    first_snapshot_and_meta_load_time_ms?: number
-    all_snapshots_load_time_ms?: number
-    rrweb_warning_count: number
-    error_count_during_recording_playback: number
-}
-
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
@@ -377,9 +365,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
-            recordingViewedSummary,
-        }),
         reportRecordingInspectorTabViewed: (tab: SessionRecordingPlayerTab) => ({ tab }),
         reportRecordingInspectorItemExpanded: (tab: SessionRecordingPlayerTab, index: number) => ({ tab, index }),
         reportRecordingInspectorMiniFilterViewed: (tab: SessionRecordingPlayerTab, minifilterKey: string) => ({
@@ -909,9 +894,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
-        },
-        reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
-            posthog.capture('recording viewed summary', { ...recordingViewedSummary })
         },
         reportRecordingInspectorTabViewed: ({ tab }) => {
             posthog.capture('recording inspector tab viewed', { tab })
