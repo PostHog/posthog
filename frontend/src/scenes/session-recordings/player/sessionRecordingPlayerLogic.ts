@@ -62,8 +62,7 @@ export interface RecordingViewedSummaryAnalytics {
     all_snapshots_load_time_ms?: number
     rrweb_warning_count: number
     error_count_during_recording_playback: number
-    // as a very loose metric for engagement, how many clicks were there
-    click_count: number
+    engagement_score: number
 }
 
 export interface Player {
@@ -931,7 +930,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     : undefined,
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,
-            click_count: values.clickCount,
+            // as a starting and very loose measure of engagement, we count clicks
+            engagement_score: values.clickCount,
         }
         posthog.capture('recording viewed summary', summaryAnalytics)
     }),
