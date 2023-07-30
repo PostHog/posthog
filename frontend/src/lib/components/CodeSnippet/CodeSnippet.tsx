@@ -22,11 +22,12 @@ import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import './CodeSnippet.scss'
-import { IconCopy } from 'lib/lemon-ui/icons'
+import { IconCopy, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useState } from 'react'
 
 export enum Language {
     Text = 'text',
@@ -84,20 +85,27 @@ export interface CodeSnippetProps {
     wrap?: boolean
     actions?: Action[]
     style?: React.CSSProperties
-    copyDescription?: string
-    hideCopyButton?: boolean
+    /** What is being copied. @example 'link' */
+    thing?: string
+    /** If set, the snippet becomes expandable when there's more than this number of lines. */
+    maxLinesWithoutExpansion?: number
 }
 
 export function CodeSnippet({
-    children,
+    children: text,
     language = Language.Text,
     wrap = false,
     style,
     actions,
-    copyDescription = 'code snippet',
-    hideCopyButton = false,
+    thing = 'snippet',
+    maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const [expanded, setExpanded] = useState(false)
+
+    const indexOfLimitNewline = maxLinesWithoutExpansion ? indexOfNth(text, '\n', maxLinesWithoutExpansion) : -1
+    const displayedText = indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline)
 
     return (
         // eslint-disable-next-line react/forbid-dom-props
@@ -113,15 +121,13 @@ export function CodeSnippet({
                             </Popconfirm>
                         )
                     )}
-                {!hideCopyButton && (
-                    <LemonButton
-                        data-attr="copy-code-button"
-                        icon={<IconCopy />}
-                        onClick={async () => {
-                            children && (await copyToClipboard(children, copyDescription))
-                        }}
-                    />
-                )}
+                <LemonButton
+                    data-attr="copy-code-button"
+                    icon={<IconCopy />}
+                    onClick={async () => {
+                        text && (await copyToClipboard(text, thing))
+                    }}
+                />
             </div>
             <SyntaxHighlighter
                 style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? synthwave84 : okaidia}
@@ -129,8 +135,33 @@ export function CodeSnippet({
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
             >
-                {children}
+                {displayedText}
             </SyntaxHighlighter>
+            {indexOfLimitNewline !== -1 && (
+                <LemonButton
+                    onClick={() => setExpanded(!expanded)}
+                    fullWidth
+                    center
+                    size="small"
+                    type="secondary"
+                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                >
+                    {expanded ? 'Collapse' : 'Expand'} snippet
+                </LemonButton>
+            )}
         </div>
     )
+}
+
+function indexOfNth(string: string, character: string, n: number): number {
+    let count = 0,
+        indexSoFar = 0
+    while (count < n) {
+        indexSoFar = string.indexOf(character, indexSoFar) + 1
+        if (indexSoFar === 0 && count < n) {
+            return -1
+        }
+        count++
+    }
+    return indexSoFar - 1
 }

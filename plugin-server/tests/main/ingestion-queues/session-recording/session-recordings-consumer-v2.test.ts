@@ -134,32 +134,45 @@ describe('ingester', () => {
         const event = createIncomingRecordingMessage()
         await ingester.consume(event)
         expect(ingester.sessions['1-session_id_1']).toBeDefined()
-        await ingester.sessions['1-session_id_1']?.flush('buffer_age')
+        // Force the flush
+        ingester.partitionNow[event.metadata.partition] =
+            Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS
+        await ingester.flushAllReadySessions(true)
 
         jest.runOnlyPendingTimers() // flush timer
 
         expect(ingester.sessions['1-session_id_1']).not.toBeDefined()
     })
 
+    // NOTE: Committing happens by the parent
     describe('offset committing', () => {
         const metadata = {
             partition: 1,
             topic: 'session_recording_events',
         }
-        let _offset = 1
+        let _offset = 0
         const offset = () => _offset++
 
         const addMessage = (session_id: string) =>
             createIncomingRecordingMessage({ session_id }, { ...metadata, offset: offset() })
 
         beforeEach(() => {
-            _offset = 1
+            _offset = 0
         })
+
+        const tryToCommitLatestOffset = async () => {
+            await ingester.commitOffset(metadata.topic, metadata.partition, _offset)
+        }
 
         it('should commit offsets in simple cases', async () => {
             await ingester.consume(addMessage('sid1'))
             await ingester.consume(addMessage('sid1'))
+            expect(_offset).toBe(2)
+            await tryToCommitLatestOffset()
+            // Doesn't flush if we have a blocking session
+            expect(mockCommit).toHaveBeenCalledTimes(0)
             await ingester.sessions['1-sid1']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
             expect(mockCommit).toHaveBeenLastCalledWith({
@@ -171,6 +184,7 @@ describe('ingester', () => {
         it('should commit higher values but not lower', async () => {
             await ingester.consume(addMessage('sid1'))
             await ingester.sessions['1-sid1']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             expect(mockCommit).toHaveBeenCalledTimes(1)
             expect(mockCommit).toHaveBeenLastCalledWith({
@@ -183,10 +197,12 @@ describe('ingester', () => {
 
             await ingester.consume(olderOffsetSomehow)
             await ingester.sessions['1-sid1']?.flush('buffer_age')
+            await ingester.commitOffset(metadata.topic, metadata.partition, 1)
             expect(mockCommit).toHaveBeenCalledTimes(1)
 
             await ingester.consume(addMessage('sid1'))
             await ingester.sessions['1-sid1']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             expect(mockCommit).toHaveBeenCalledTimes(2)
             expect(mockCommit).toHaveBeenLastCalledWith({
@@ -201,14 +217,17 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 3
             await ingester.consume(addMessage('sid2')) // 4
             await ingester.sessions['1-sid2']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             // No offsets are below the blocking one
             expect(mockCommit).not.toHaveBeenCalled()
             await ingester.sessions['1-sid1']?.flush('buffer_age')
-            // We can only commit up to 2 because we don't track the other removed offsets - no biggy as this is super edge casey
+
+            // Simulating the next incoming message triggers a commit for sure
+            await tryToCommitLatestOffset()
             expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
-                offset: 2,
+                offset: 5,
             })
         })
 
@@ -218,11 +237,13 @@ describe('ingester', () => {
             await ingester.consume(addMessage('sid2')) // 3
             await ingester.consume(addMessage('sid2')) // 4
             await ingester.sessions['1-sid2']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             // No offsets are below the blocking one
             expect(mockCommit).not.toHaveBeenCalled()
             await ingester.consume(addMessage('sid2')) // 5
             await ingester.sessions['1-sid1']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,
@@ -234,8 +255,8 @@ describe('ingester', () => {
             createIncomingRecordingMessage({ session_id: 'sid1' }, { ...metadata, partition: 2, offset: offset() })
             await ingester.consume(addMessage('sid2')) // 2
             await ingester.consume(addMessage('sid2')) // 3
-
             await ingester.sessions['1-sid2']?.flush('buffer_age')
+            await tryToCommitLatestOffset()
 
             expect(mockCommit).toHaveBeenLastCalledWith({
                 ...metadata,

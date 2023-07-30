@@ -49,7 +49,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 className={'flex flex-col p-2 border rounded bg-bg-light space-y-2 resize-y w-full overflow-hidden'}
                 style={{ height: 318 }}
             >
-                <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG} match>
+                <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
                         <LemonInput
                             className="grow"

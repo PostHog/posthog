@@ -55,7 +55,7 @@ export class ReplayEventsIngester {
             try {
                 await produceRequest
             } catch (error) {
-                status.error('🔁', 'main_loop_error', { error })
+                status.error('🔁', '[replay-events] main_loop_error', { error })
 
                 if (error?.isRetriable) {
                     // We assume the if the error is retriable, then we
@@ -75,7 +75,7 @@ export class ReplayEventsIngester {
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
         const warn = (text: string, labels: Record<string, any> = {}) =>
-            status.warn('⚠️', text, {
+            status.warn('⚠️', `[replay-events] ${text}`, {
                 offset: event.metadata.offset,
                 partition: event.metadata.partition,
                 ...labels,
@@ -100,7 +100,13 @@ export class ReplayEventsIngester {
         }
 
         if (event.replayIngestionConsumer !== 'v2') {
-            return drop('invalid_event_type')
+            eventDroppedCounter
+                .labels({
+                    event_type: 'session_recordings_replay_events',
+                    drop_cause: 'not_target_consumer',
+                })
+                .inc()
+            return
         }
 
         if (
@@ -165,7 +171,7 @@ export class ReplayEventsIngester {
                 }),
             ]
         } catch (error) {
-            status.error('⚠️', 'processing_error', {
+            status.error('⚠️', '[replay-events] processing_error', {
                 error: error,
             })
         }
@@ -177,10 +183,10 @@ export class ReplayEventsIngester {
     }
 
     public async stop(): Promise<void> {
-        status.info('🔁', 'ReplayEventsIngester - stopping')
+        status.info('🔁', '[replay-events] stopping')
 
         if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', 'ReplayEventsIngester disconnecting kafka producer in batchConsumer stop')
+            status.info('🔁', '[replay-events] disconnecting kafka producer in batchConsumer stop')
             await disconnectProducer(this.producer)
         }
     }

@@ -1,13 +1,27 @@
-import { useState } from 'react'
-import { Modal } from 'antd'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { CodeSnippet, Language } from '../CodeSnippet'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { actions, afterMount, kea, reducers, selectors, useActions, useValues, path } from 'kea'
+import { loaders } from 'kea-loaders'
+import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
-interface Query {
-    timestamp: number
+export async function debugCHQueries(): Promise<void> {
+    LemonDialog.open({
+        title: 'ClickHouse queries recently executed for this user',
+        content: <DebugCHQueries />,
+        primaryButton: null,
+        width: 1200,
+    })
+}
+
+export interface Query {
+    /** @example '2023-07-27T10:06:11' */
+    timestamp: string
     query: string
     exception: string
     type: number
@@ -15,115 +29,136 @@ interface Query {
     path: string
 }
 
-function nthChar(string: string, character: string, n: number): number {
-    let count = 0,
-        i = 0
-    while (count < n && (i = string.indexOf(character, i) + 1)) {
-        count++
-    }
-    if (count == n) {
-        return i - 1
-    }
-    return -1
-}
+const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
+    path(['lib', 'components', 'CommandPalette', 'DebugCHQueries']),
+    actions({
+        setPathFilter: (path: string | null) => ({ path }),
+    }),
+    reducers({
+        pathFilter: [
+            null as string | null,
+            {
+                setPathFilter: (_, { path }) => path,
+            },
+        ],
+    }),
+    loaders({
+        queries: [
+            [] as Query[],
+            {
+                loadQueries: async () => {
+                    return await api.get('api/debug_ch_queries/')
+                },
+            },
+        ],
+    }),
+    selectors({
+        paths: [
+            (s) => [s.queries],
+            (queries: Query[]) => {
+                return queries
+                    ? Object.entries(
+                          queries
+                              .map((result) => result.path)
+                              .reduce((acc, val) => {
+                                  acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
+                                  return acc
+                              }, {})
+                      ).sort((a: any, b: any) => b[1] - a[1])
+                    : null
+            },
+        ],
+        filteredQueries: [
+            (s) => [s.queries, s.pathFilter],
+            (queries: Query[], pathFilter: string | null) => {
+                return pathFilter && queries ? queries.filter((item) => item.path === pathFilter) : queries
+            },
+        ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadQueries()
+    }),
+])
 
-function QueryCol({ item }: { item: Query }): JSX.Element {
-    const [expanded, setExpanded] = useState(false as boolean)
+function DebugCHQueries(): JSX.Element {
+    const { queriesLoading, filteredQueries, pathFilter, paths } = useValues(debugCHQueriesLogic)
+    const { setPathFilter, loadQueries } = useActions(debugCHQueriesLogic)
 
-    const has5lines = nthChar(item.query, '\n', 5)
-    if (has5lines === -1) {
-        return (
-            <CodeSnippet language={Language.SQL} copyDescription="Copy query" style={{ maxWidth: 600, fontSize: 12 }}>
-                {item.query}
-            </CodeSnippet>
-        )
-    }
     return (
         <>
-            <CodeSnippet
-                hideCopyButton={!expanded}
-                language={Language.SQL}
-                copyDescription="Copy query"
-                style={{ maxWidth: 600, fontSize: 12 }}
-            >
-                {expanded ? item.query : item.query.slice(0, has5lines)}
-            </CodeSnippet>
-            <LemonButton size="small" onClick={() => setExpanded(!expanded)}>
-                {expanded ? 'Show less' : 'Show more'}
-            </LemonButton>
-        </>
-    )
-}
-
-function ModalContent({ origResult }: { origResult: Query[] }): JSX.Element {
-    const [pathFilter, setPathFilter] = useState(null as string | null)
-
-    const paths = Object.entries(
-        origResult
-            .map((result) => result.path)
-            .reduce((acc, val) => {
-                acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
-                return acc
-            }, {})
-    ).sort((a: any, b: any) => b[1] - a[1])
-
-    const results = pathFilter ? origResult.filter((item) => item.path === pathFilter) : origResult
-
-    return (
-        <>
-            {paths.map(([path, count]) => (
-                <LemonButton
-                    key={path}
-                    type={pathFilter === path ? 'primary' : 'tertiary'}
-                    size="small"
-                    onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                >
-                    {path} ({count})
-                </LemonButton>
-            ))}
-            {pathFilter && <LemonButton onClick={() => setPathFilter(null)}>Remove path filter</LemonButton>}
+            {!!paths?.length && (
+                <div className="flex gap-4 items-end justify-between mb-4">
+                    <div className="flex flex-wrap gap-2">
+                        {paths.map(([path, count]) => (
+                            <LemonButton
+                                key={path}
+                                type={pathFilter === path ? 'primary' : 'tertiary'}
+                                size="small"
+                                onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                            >
+                                {path} ({count})
+                            </LemonButton>
+                        ))}
+                    </div>
+                    <LemonButton
+                        icon={<IconRefresh />}
+                        disabledReason={queriesLoading ? 'Loading…' : null}
+                        onClick={() => loadQueries()}
+                        size="small"
+                        type="secondary"
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
+            )}
 
             <LemonTable
                 columns={[
-                    { title: 'Timestamp', render: (_, item) => dayjs(item.timestamp).format() },
+                    {
+                        title: 'Timestamp',
+                        render: (_, item) => (
+                            <span className="font-mono whitespace-pre">
+                                {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
+                            </span>
+                        ),
+                        width: 160,
+                    },
                     {
                         title: 'Query',
                         render: function query(_, item) {
                             return (
-                                <>
-                                    {item.exception}
-                                    <QueryCol item={item} />
-                                </>
+                                <div className="max-w-200">
+                                    {item.exception && (
+                                        <LemonBanner type="error" className="text-xs font-mono">
+                                            {item.exception}
+                                        </LemonBanner>
+                                    )}
+                                    <CodeSnippet
+                                        language={Language.SQL}
+                                        thing="query"
+                                        maxLinesWithoutExpansion={5}
+                                        style={{ fontSize: 12 }}
+                                    >
+                                        {item.query}
+                                    </CodeSnippet>
+                                </div>
                             )
                         },
                     },
                     {
-                        title: 'Execution duration (ms)',
+                        title: 'Duration',
                         render: function exec(_, item) {
-                            return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100}</>
+                            return <>{Math.round((item.execution_time + Number.EPSILON) * 100) / 100} ms</>
                         },
+                        align: 'right',
                     },
                 ]}
-                dataSource={results}
+                dataSource={filteredQueries}
+                loading={queriesLoading}
+                loadingSkeletonRows={5}
                 size="small"
                 pagination={undefined}
             />
         </>
     )
-}
-
-export async function debugCHQueries(): Promise<void> {
-    const results = await api.get('api/debug_ch_queries/')
-
-    Modal.info({
-        visible: true,
-        width: '80%',
-        title: 'ClickHouse queries recently executed for this user',
-        icon: null,
-        content: <ModalContent origResult={results} />,
-        closable: true,
-        maskClosable: true,
-        okText: 'Close',
-    })
-    setTimeout(() => document?.querySelector('.ant-modal-wrap')?.scrollTo(0, 0), 200)
 }

@@ -20,6 +20,9 @@ import { LemonButton, LemonButtonWithDropdown, LemonCheckbox, LemonDivider } fro
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useActions, useValues } from 'kea'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
@@ -246,6 +249,17 @@ export function SessionRecordingsFilters({
                     })
                 }
             />
+
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
+                <div className={'pt-2'}>
+                    <TestAccountFilter
+                        filters={filters}
+                        onChange={(testFilters) =>
+                            setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
+                        }
+                    />
+                </div>
+            </FlaggedFeature>
 
             <div className={'flex flex-col py-1 px-2 '}>
                 <LemonDivider />

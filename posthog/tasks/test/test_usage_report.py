@@ -116,6 +116,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_1_team_1,
                 )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$feature_flag_called",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
 
             # Events before the period
             for _ in range(0, 10):
@@ -227,6 +234,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 timestamp=start_of_day + relativedelta(hours=1),
                 team_id=self.org_1_team_2.id,
             )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$feature_flag_called",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_2,
+            )
 
             # Events for org 2 team 3
             distinct_id = str(uuid4())
@@ -240,6 +254,13 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     timestamp=now() - relativedelta(hours=12),
                     team=self.org_2_team_3,
                 )
+            _create_event(
+                distinct_id=distinct_id,
+                event="$feature_flag_called",
+                properties={"$lib": "$web"},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_2_team_3,
+            )
 
             flush_persons_and_events()
 
@@ -286,7 +307,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 42,
+                    "event_count_lifetime": 44,
                     "event_count_in_period": 22,
                     "event_count_in_month": 32,
                     "event_count_with_groups_in_period": 2,
@@ -325,7 +346,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 2,
                     "teams": {
                         str(self.org_1_team_1.id): {
-                            "event_count_lifetime": 32,
+                            "event_count_lifetime": 33,
                             "event_count_in_period": 12,
                             "event_count_in_month": 22,
                             "event_count_with_groups_in_period": 2,
@@ -358,7 +379,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_duration_ms": 0,
                         },
                         str(self.org_1_team_2.id): {
-                            "event_count_lifetime": 10,
+                            "event_count_lifetime": 11,
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,
@@ -412,7 +433,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "plugins_installed": {"Installed and enabled": 1, "Installed but not enabled": 1},
                     "plugins_enabled": {"Installed and enabled": 1},
                     "instance_tag": "none",
-                    "event_count_lifetime": 10,
+                    "event_count_lifetime": 11,
                     "event_count_in_period": 10,
                     "event_count_in_month": 10,
                     "event_count_with_groups_in_period": 0,
@@ -451,7 +472,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "team_count": 1,
                     "teams": {
                         str(self.org_2_team_3.id): {
-                            "event_count_lifetime": 10,
+                            "event_count_lifetime": 11,
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
                             "event_count_with_groups_in_period": 0,

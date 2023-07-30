@@ -27,7 +27,7 @@ export class OffsetHighWaterMarker {
     // We don't need to load them more than once per TP as this consumer is the only thing writing to it
     private topicPartitionWaterMarks: Record<string, Promise<OffsetHighWaterMarks> | undefined> = {}
 
-    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/partition-high-water-marks') {}
+    constructor(private redisPool: RedisPool, private keyPrefix = '@posthog/replay/high-water-marks') {}
 
     private async run<T>(description: string, fn: (client: Redis) => Promise<T>): Promise<T> {
         const client = await this.redisPool.acquire()
@@ -83,15 +83,7 @@ export class OffsetHighWaterMarker {
 
         try {
             await this.run(`write offset high-water mark ${key} `, async (client) => {
-                const returnCountOfUpdatedAndAddedElements = 'CH'
-                const updatedCount = await client.zadd(key, returnCountOfUpdatedAndAddedElements, offset, id)
-                status.info('📝', 'WrittenOffsetCache added high-water mark for partition', {
-                    key,
-                    ...tp,
-                    id,
-                    offset,
-                    updatedCount,
-                })
+                await client.zadd(key, 'GT', offset, id)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
@@ -116,23 +108,23 @@ export class OffsetHighWaterMarker {
 
     public async clear(tp: TopicPartition, offset: number): Promise<void> {
         const key = offsetHighWaterMarkKey(this.keyPrefix, tp)
+
+        const watermarks = await this.getWaterMarks(tp)
+        let hadDeletion = false
+        Object.entries(watermarks).forEach(([id, value]) => {
+            if (value && value <= offset) {
+                delete watermarks[id]
+                hadDeletion = true
+            }
+        })
+
+        if (!hadDeletion) {
+            return
+        }
+
         try {
             return await this.run(`clear all below offset high-water mark for ${key} `, async (client) => {
-                const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
-                status.info('📝', 'WrittenOffsetCache committed all below high-water mark for partition', {
-                    numberRemoved,
-                    ...tp,
-                    offset,
-                })
-                const watermarks = await this.getWaterMarks(tp)
-                // remove each key in currentHighWaterMarks that has an offset less than or equal to the offset we just committed
-                Object.entries(watermarks).forEach(([id, value]) => {
-                    if (value && value <= offset) {
-                        delete watermarks[id]
-                    }
-                })
-
-                this.topicPartitionWaterMarks[key] = Promise.resolve(watermarks)
+                await client.zremrangebyscore(key, '-Inf', offset)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {

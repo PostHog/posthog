@@ -6,12 +6,13 @@ import {
     Range as EditorRange,
     getText,
 } from '@tiptap/core'
-import { Node } from '@tiptap/pm/model'
+import { Node as PMNode } from '@tiptap/pm/model'
 import { NotebookNodeType } from '~/types'
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+/* eslint-disable @typescript-eslint/no-empty-interface */
+export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+/* eslint-enable @typescript-eslint/no-empty-interface */
 
 export { ChainedCommands as EditorCommands, Range as EditorRange } from '@tiptap/core'
 
@@ -21,6 +22,7 @@ export interface NotebookEditor {
     setContent: (content: JSONContent) => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
+    insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     findNode: (position: number) => Node | null
     nextNode: (position: number) => { node: Node; position: number } | null
@@ -49,4 +51,20 @@ const textContent = (node: any): string => {
             [NotebookNodeType.ReplayTimestamp]: ({ node }) => `${node.attrs.playbackTime || '00:00'}: `,
         },
     })
+}
+
+export function defaultNotebookContent(title?: string, content?: JSONContent[]): JSONContent {
+    const initialContent = [
+        {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: title }],
+        },
+    ] as JSONContent[]
+
+    if (content) {
+        initialContent.push(...content)
+    }
+
+    return { type: 'doc', content: initialContent }
 }

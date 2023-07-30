@@ -81,7 +81,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             arrowleft: {
                 action: (e) => {
-                    console.log(e)
                     if (e.ctrlKey || e.metaKey) {
                         return
                     }

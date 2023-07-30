@@ -27,15 +27,14 @@ import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
-import { IconInfo } from 'lib/lemon-ui/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IngestionInfo } from './IngestionInfo'
 import { ExtraTeamSettings } from './ExtraTeamSettings'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -117,10 +116,7 @@ export function ProjectSettings(): JSX.Element {
                 </div>
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filter out internal and test users{' '}
-                    <Tooltip title='Events will still be ingested and saved, but they will be excluded from any queries where the "Filter out internal and test users" toggle is set.'>
-                        <IconInfo style={{ fontSize: '1em', color: 'var(--muted-alt)', marginTop: 4, marginLeft: 5 }} />
-                    </Tooltip>
+                    Filter out internal and test users
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
@@ -130,17 +126,31 @@ export function ProjectSettings(): JSX.Element {
                     </strong>{' '}
                     So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
-                <strong>Example filters</strong>
-                <ul className="list-disc pl-4 mb-2">
-                    <li>
-                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
-                        from your company's team members.
-                    </li>
-                    <li>
-                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
-                        local development environments.
-                    </li>
-                </ul>
+                <LemonBanner type="info">
+                    Events and recordings will still be ingested and saved, but they will be excluded from any queries
+                    where the "Filter out internal and test users" toggle is set. You can learn how to{' '}
+                    <Link to="https://posthog.com/tutorials/fewer-unwanted-events" target="_blank">
+                        capture fewer events
+                    </Link>{' '}
+                    or how to{' '}
+                    <Link to="https://posthog.com/tutorials/limit-session-recordings" target="_blank">
+                        capture fewer recordings
+                    </Link>{' '}
+                    in our docs.
+                </LemonBanner>
+                <div className={'mt-4'}>
+                    <strong>Example filters</strong>
+                    <ul className="list-disc pl-4 mb-2">
+                        <li>
+                            "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all
+                            events from your company's team members.
+                        </li>
+                        <li>
+                            "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events
+                            from local development environments.
+                        </li>
+                    </ul>
+                </div>
                 <TestAccountFiltersConfig />
                 <LemonDivider className="my-6" />
                 <CorrelationConfig />
