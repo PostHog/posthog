@@ -7,10 +7,13 @@ export default {
     title: 'Queries/InsightViz',
     component: Query,
     parameters: {
-        layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { excludeNavigationFromSnapshot: true, snapshotBrowsers: ['chromium'] },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+            snapshotBrowsers: ['chromium'],
+            snapshotTargetSelector: 'insight-wrapper',
+        },
     },
     argTypes: {
         query: { defaultValue: {} },
