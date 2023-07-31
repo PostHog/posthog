@@ -37,6 +37,11 @@ DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", 
 # The string "all" -- represents all team IDs
 DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
 
+# Decide skip hash key overrides
+DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
+    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
+)
+
 # Application definition
 
 INSTALLED_APPS = [
