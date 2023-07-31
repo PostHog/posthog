@@ -9,7 +9,7 @@ test.describe('session replay', () => {
         'Recordings Play List With Pinned Recordings',
         'Session Recording In List',
     ]
-    for (const scene in replayScenes) {
+    for (const scene of replayScenes) {
         test(`displays ${scene} page`, async ({ storyPage }) => {
             await storyPage.goto(toId('Scenes-App/Recordings', scene))
             await storyPage.expectFullPageScreenshot()
