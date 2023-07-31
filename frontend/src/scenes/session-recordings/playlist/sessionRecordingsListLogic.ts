@@ -146,7 +146,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
-        setShowFilters: (showFilters: boolean) => ({ showFilters }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -260,12 +259,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     ...filters,
                 }),
                 resetFilters: () => null,
-            },
-        ],
-        showFilters: [
-            false,
-            {
-                setShowFilters: (_, { showFilters }) => showFilters,
             },
         ],
         sessionRecordings: [
@@ -418,12 +411,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
         listingVersion: [
             (s) => [s.featureFlags],
-            (featureFlags): '1' | '2' | '3' => {
-                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING]
-                    ? '3'
-                    : featureFlags[FEATURE_FLAGS.RECORDINGS_LIST_V2]
-                    ? '2'
-                    : '1'
+            (featureFlags): '1' | '3' => {
+                return featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SUMMARY_LISTING] ? '3' : '1'
             },
         ],
         activeSessionRecording: [

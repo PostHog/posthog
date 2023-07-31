@@ -154,7 +154,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.clearLocalContent()
                     }
 
-                    openNotebook(response, NotebookTarget.Auto)
+                    openNotebook(response.short_id, NotebookTarget.Auto)
 
                     return response
                 },
@@ -178,14 +178,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 return contentTitle || notebook?.title || 'Untitled'
             },
         ],
-
         isEmpty: [
             (s) => [s.editor, s.content],
             (editor: NotebookEditor): boolean => {
                 return editor?.isEmpty() || false
             },
         ],
-
         syncStatus: [
             (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly],
             (notebook, notebookLoading, localContent, isLocalOnly): NotebookSyncStatus => {

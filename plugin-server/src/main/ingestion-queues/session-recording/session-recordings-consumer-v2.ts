@@ -157,12 +157,6 @@ export class SessionRecordingIngesterV2 {
             )
 
             this.sessions[key] = sessionManager
-            status.info('📦', 'Blob ingestion consumer started session manager', {
-                key,
-                partition,
-                topic,
-                sessionId: session_id,
-            })
         }
 
         await this.sessions[key]?.add(event)

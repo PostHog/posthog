@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingFilters, SessionRecordingType, ReplayTabs, ProductKey } from '~/types'
 import {
@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -75,7 +76,6 @@ export function RecordingsLists({
         sessionRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
-        showFilters,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
@@ -84,10 +84,9 @@ export function RecordingsLists({
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
     } = useValues(logic)
-    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, setShowFilters, resetFilters } =
-        useActions(logic)
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection } = useActions(playerSettingsLogic)
+    const { setSelectedRecordingId, setFilters, maybeLoadSessionRecordings, resetFilters } = useActions(logic)
+    const { autoplayDirection, showFilters } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection, setShowFilters } = useActions(playerSettingsLogic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -97,14 +96,6 @@ export function RecordingsLists({
     const onPropertyClick = (property: string, value?: string): void => {
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowFiltersByDefaultFlag = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SHOW_FILTERS_BY_DEFAULT]
-    useEffect(() => {
-        if (shouldShowFiltersByDefaultFlag === 'always_open') {
-            setShowFilters(true)
-        }
-    }, [shouldShowFiltersByDefaultFlag])
 
     return (
         <>
@@ -246,9 +237,9 @@ export function RecordingsLists({
                             <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
                             <div className={'flex flex-col items-center space-y-2'}>
-                                <span>No matching recordings found</span>
-                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                                     <>
+                                        <span>No matching recordings found</span>
                                         <LemonButton
                                             type={'secondary'}
                                             data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
@@ -261,6 +252,8 @@ export function RecordingsLists({
                                             Search over the last 21 days
                                         </LemonButton>
                                     </>
+                                ) : (
+                                    <SessionRecordingsPlaylistTroubleshooting />
                                 )}
                             </div>
                         )
