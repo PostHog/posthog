@@ -77,7 +77,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
-        "scene_dashboards": null,
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
         "test_account_filters": [
