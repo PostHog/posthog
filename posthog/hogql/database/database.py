@@ -52,6 +52,19 @@ class Database(BaseModel):
     raw_cohort_people: RawCohortPeople = RawCohortPeople()
     raw_person_overrides: RawPersonOverridesTable = RawPersonOverridesTable()
 
+    # clunky: keep table names in sync with above
+    _table_names: List[Table] = [
+        "events",
+        "groups",
+        "person",
+        "person_distinct_id2",
+        "person_overrides",
+        "session_recording_events",
+        "session_replay_events",
+        "cohortpeople",
+        "person_static_cohort",
+    ]
+
     def __init__(self, timezone: Optional[str]):
         super().__init__()
         try:
@@ -77,7 +90,7 @@ class Database(BaseModel):
 
 def create_hogql_database(team_id: int) -> Database:
     from posthog.models import Team
-    from posthog.warehouse.models import DataWarehouseTable
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseSavedQuery
 
     team = Team.objects.get(pk=team_id)
     database = Database(timezone=team.timezone)
@@ -89,6 +102,10 @@ def create_hogql_database(team_id: int) -> Database:
     tables = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
+
+    for table in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        tables[table.name] = table.hogql_definition()
+
     database.add_warehouse_tables(**tables)
 
     return database

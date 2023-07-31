@@ -30,6 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold select-none">{children}</span>
@@ -234,9 +235,9 @@ export function RecordingsLists({
                             <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
                         ) : (
                             <div className={'flex flex-col items-center space-y-2'}>
-                                <span>No matching recordings found</span>
-                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from && (
+                                {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                                     <>
+                                        <span>No matching recordings found</span>
                                         <LemonButton
                                             type={'secondary'}
                                             data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
@@ -249,6 +250,8 @@ export function RecordingsLists({
                                             Search over the last 21 days
                                         </LemonButton>
                                     </>
+                                ) : (
+                                    <SessionRecordingsPlaylistTroubleshooting />
                                 )}
                             </div>
                         )
