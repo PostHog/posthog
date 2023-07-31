@@ -78,7 +78,6 @@ const formLogic = kea<formLogicType>([
             }),
             submit: async (_, breakpoint) => {
                 await breakpoint(3000)
-                console.log('Form Submitted')
                 actions.resetMyForm()
             },
         },
@@ -91,7 +90,6 @@ const formLogic = kea<formLogicType>([
             }),
             submit: async (_, breakpoint) => {
                 await breakpoint(3000)
-                console.log('Form Submitted')
                 actions.resetSimpleForm()
             },
         },

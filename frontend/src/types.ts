@@ -728,6 +728,7 @@ export interface RecordingFilters {
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
     console_logs?: FilterableLogLevel[]
+    filter_test_accounts?: boolean
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -1654,6 +1655,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
     show_values_on_series?: boolean
+    show_percent_stack_view?: boolean
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 export interface StickinessFilterType extends FilterType {
