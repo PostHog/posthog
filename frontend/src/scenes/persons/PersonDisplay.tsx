@@ -1,4 +1,4 @@
-import './PersonHeader.scss'
+import './PersonDisplay.scss'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import clsx from 'clsx'
@@ -12,7 +12,7 @@ type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
     | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
 
-export interface PersonHeaderProps {
+export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
     noLink?: boolean
@@ -20,13 +20,13 @@ export interface PersonHeaderProps {
     noPopover?: boolean
 }
 
-export function PersonHeader({ person, withIcon, noEllipsis, noPopover, noLink }: PersonHeaderProps): JSX.Element {
+export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink }: PersonDisplayProps): JSX.Element {
     const href = asLink(person)
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     let content = (
-        <div className="flex items-center">
+        <span className="flex items-center">
             {withIcon && (
                 <ProfilePicture
                     name={display}
@@ -34,13 +34,13 @@ export function PersonHeader({ person, withIcon, noEllipsis, noPopover, noLink }
                     size={typeof withIcon === 'string' ? withIcon : 'md'}
                 />
             )}
-            <span className={clsx('ph-no-capture', !noEllipsis && 'text-ellipsis')}>{display}</span>
-        </div>
+            <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
+        </span>
     )
 
     content = (
-        <div
-            className="person-header"
+        <span
+            className="PersonDisplay"
             onClick={
                 !noPopover
                     ? () => {
@@ -69,7 +69,7 @@ export function PersonHeader({ person, withIcon, noEllipsis, noPopover, noLink }
                     {content}
                 </Link>
             )}
-        </div>
+        </span>
     )
 
     content = noPopover ? (

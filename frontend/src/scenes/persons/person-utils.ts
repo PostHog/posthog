@@ -1,4 +1,4 @@
-import './PersonHeader.scss'
+import './PersonDisplay.scss'
 import { urls } from 'scenes/urls'
 import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,7 +9,7 @@ type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
     | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
 
-export interface PersonHeaderProps {
+export interface PersonDisplayProps {
     person?: PersonPropType | null
     withIcon?: boolean | ProfilePictureProps['size']
     noLink?: boolean

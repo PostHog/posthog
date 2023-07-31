@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { posthogNodePasteRule } from './utils'
-import { PersonHeader } from '@posthog/apps-common'
+import { PersonDisplay } from '@posthog/apps-common'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -30,7 +30,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />
                     ) : (
-                        <PersonHeader withIcon person={person} noLink />
+                        <PersonDisplay withIcon person={person} noLink />
                     )}
                 </div>
 

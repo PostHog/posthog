@@ -50,8 +50,7 @@
                 background-color: var(--mark);
                 display: inline;
 
-                & > .person-header {
-                    display: inline-block;
+                & > .PersonDisplay {
                     min-width: 5.5rem;
                 }
             }

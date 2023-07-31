@@ -10,11 +10,11 @@ import {
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
@@ -268,12 +268,12 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                 <div className="flex-1 overflow-hidden">
                     {isGroupType(actor) ? (
                         <strong>
-                            <GroupActorHeader actor={actor} />
+                            <GroupActorDisplay actor={actor} />
                         </strong>
                     ) : (
                         <>
                             <strong>
-                                <PersonHeader person={actor} withIcon={false} />
+                                <PersonDisplay person={actor} withIcon={false} />
                             </strong>
                             <CopyToClipboardInline
                                 explicitValue={actor.distinct_ids[0]}
