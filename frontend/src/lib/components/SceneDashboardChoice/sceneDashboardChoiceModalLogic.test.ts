@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { sceneDashboardChoiceModalLogic } from './sceneDashboardChoiceModalLogic'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
@@ -12,6 +12,24 @@ describe('sceneDashboardChoiceModalLogic ', () => {
 
     beforeEach(async () => {
         useMocks({
+            get: {
+                '/api/projects/@current': () => MOCK_DEFAULT_TEAM,
+            },
+            post: {
+                '/api/users/@me/scene_dashboard_choice': (req) => {
+                    const data = req.body as any
+                    return [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_USER,
+                            scene_dashboard_choices: [
+                                ...(MOCK_DEFAULT_USER.scene_dashboard_choices || []),
+                                { scene: data.scene, dashboard: data.dashboard },
+                            ],
+                        },
+                    ]
+                },
+            },
             patch: {
                 '/api/projects/:team': (req) => {
                     const data = req.body as any
@@ -27,7 +45,7 @@ describe('sceneDashboardChoiceModalLogic ', () => {
         })
         initKeaTests()
         userLogic.mount()
-        await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+        await expectLogic(userLogic).toDispatchActions(['loadUserSuccess']).toFinishAllListeners()
     })
 
     describe('for project homepage', () => {
@@ -76,7 +94,7 @@ describe('sceneDashboardChoiceModalLogic ', () => {
             await expectLogic(logic, () => {
                 logic.actions.setSceneDashboardChoice(12)
             })
-                .toDispatchActions(teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess'])
+                .toDispatchActions(userLogic, ['setUserSceneDashboardChoice', 'setUserSceneDashboardChoiceSuccess'])
                 .toMatchValues({
                     currentDashboardId: 12,
                 })
