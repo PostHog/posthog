@@ -1,7 +1,9 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from secrets import token_urlsafe
 from unittest.mock import patch
 
+from boto3 import resource
+from botocore.config import Config
 from freezegun import freeze_time
 
 from ee.models.session_recording_extensions import load_persisted_recording, persist_recording
@@ -10,12 +12,34 @@ from posthog.models.session_recording_playlist.session_recording_playlist import
 from posthog.models.session_recording_playlist_item.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
+from posthog.settings import (
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    OBJECT_STORAGE_BUCKET,
+)
+from posthog.storage.object_storage import write
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 long_url = f"https://app.posthog.com/my-url?token={token_urlsafe(600)}"
 
 
+TEST_BUCKET = "test_storage_bucket-TestSessionRecordingExtensions"
+
+
 class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
+    def teardown_method(self, method) -> None:
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+
     def create_snapshot(self, session_id, timestamp):
         team_id = self.team.pk
 
@@ -92,6 +116,50 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         }
+
+    def test_persists_recording_from_blob_ingested_storage(self):
+        with self.settings(OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET):
+            # datetime 2 minutes ago
+            two_minutes_ago = datetime.now() - timedelta(minutes=2)
+
+            with freeze_time(two_minutes_ago):
+                recording: SessionRecording = SessionRecording.objects.create(team=self.team, session_id="s1")
+
+                self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
+                self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
+
+                produce_replay_summary(
+                    session_id=recording.session_id,
+                    team_id=self.team.pk,
+                    first_timestamp=(recording.created_at - timedelta(hours=48)).isoformat(),
+                    last_timestamp=(recording.created_at - timedelta(hours=46)).isoformat(),
+                    distinct_id="distinct_id_1",
+                    first_url="https://app.posthog.com/my-url",
+                )
+
+                # this recording already has several files stored from Mr. Blobby
+                for file in ["a", "b", "c"]:
+                    file_name = recording.build_blob_ingestion_storage_path()
+                    write(file_name, f"my content-{file}".encode("utf-8"))
+
+            persist_recording(recording.session_id, recording.team_id)
+            recording.refresh_from_db()
+
+            assert recording.object_storage_path == f"session_recordings_lts/team-{self.team.pk}/session-s1"
+            assert recording.start_time == recording.created_at - timedelta(hours=48)
+            assert recording.end_time == recording.created_at - timedelta(hours=46)
+
+            assert recording.distinct_id == "distinct_id_1"
+            assert recording.duration == 7200
+            assert recording.click_count == 0
+            assert recording.keypress_count == 0
+            assert recording.start_url == "https://app.posthog.com/my-url"
+
+            assert load_persisted_recording(recording) == {
+                "version": "2022-12-22",
+                "distinct_id": "distinct_id_1",
+                "wat": "wat",
+            }
 
     @patch("ee.models.session_recording_extensions.report_team_action")
     def test_persist_tracks_correct_to_posthog(self, mock_capture):

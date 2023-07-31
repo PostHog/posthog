@@ -31,7 +31,6 @@ from posthog.permissions import (
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_list_from_replay_summary import (
     SessionRecordingListFromReplaySummary,
 )
@@ -170,12 +169,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        use_v2_list = request.GET.get("version") == "2"
-        use_v3_list = request.GET.get("version") == "3"
 
-        return Response(
-            list_recordings(filter, request, context=self.get_serializer_context(), v2=use_v2_list, v3=use_v3_list)
-        )
+        return Response(list_recordings(filter, request, context=self.get_serializer_context()))
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -405,9 +400,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(
-    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any], v2=False, v3=False
-) -> dict:
+def list_recordings(filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]) -> dict:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -417,12 +410,10 @@ def list_recordings(
     B. Otherwise we just load all values from Clickhouse
       2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
     """
-
+    breakpoint()
     all_session_ids = filter.session_ids
     recordings: List[SessionRecording] = []
     more_recordings_available = False
-    can_use_v2 = False
-    can_use_v3 = v3
     team = context["get_team"]()
 
     if all_session_ids:
@@ -444,22 +435,9 @@ def list_recordings(
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
-
-        # TODO: once person on events is deployed, we can remove the check for hogql properties https://github.com/PostHog/posthog/pull/14458#discussion_r1135780372
-        if can_use_v3:
-            # check separately here to help mypy see that SessionRecordingListFromReplaySummary
-            # is its own thing even though it is still stuck with inheritance until we can collapse
-            # the number of listing mechanisms
-            (ch_session_recordings, more_recordings_available) = SessionRecordingListFromReplaySummary(
-                filter=filter, team=team
-            ).run()
-        else:
-            session_recording_list_instance: Type[SessionRecordingList] = (
-                SessionRecordingListV2 if can_use_v2 else SessionRecordingList
-            )
-            (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
-                filter=filter, team=team
-            ).run()
+        ch_session_recordings, more_recordings_available = SessionRecordingListFromReplaySummary(
+            filter=filter, team=team
+        ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 
@@ -499,5 +477,5 @@ def list_recordings(
     return {
         "results": results,
         "has_next": more_recordings_available,
-        "version": 3 if can_use_v3 else 2 if can_use_v2 else 1,
+        "version": 3,
     }

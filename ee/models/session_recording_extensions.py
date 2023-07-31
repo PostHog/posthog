@@ -65,41 +65,55 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
-    recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
-    analytics_payload["snapshots_load_time_ms"] = (
-        timezone.now() - start_time
-    ).total_seconds() * 1000 - analytics_payload["metadata_load_time_ms"]
+    # if snapshots are already in blob storage, then we can just copy the files between buckets
+    target_prefix = recording.build_object_storage_path()
+    source_prefix = recording.build_blob_ingestion_storage_path()
+    copied_count = object_storage.copy_objects(source_prefix, target_prefix)
 
-    content: PersistedRecordingV1 = {
-        "version": "2022-12-22",
-        "distinct_id": recording.distinct_id,
-        "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-    }
-
-    # TODO: This is a hack workaround for datetime conversion
-    string_content = json.dumps(content, default=str)
-    analytics_payload["content_size_in_bytes"] = len(string_content.encode("utf-8"))
-    string_content = compress_to_string(string_content)
-    analytics_payload["compressed_size_in_bytes"] = len(string_content.encode("utf-8"))
-
-    logger.info("Persisting recording: writing to S3...", recording_id=recording_id, team_id=team_id)
-
-    try:
-        object_path = recording.build_object_storage_path()
-        object_storage.write(object_path, string_content.encode("utf-8"))
-        recording.object_storage_path = object_path
+    if copied_count > 0:
+        recording.object_storage_path = target_prefix
         recording.save()
+        logger.info("Persisting recording: copied snapshots from S3", recording_id=recording_id, team_id=team_id)
+        return
+    else:
+        recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
+        analytics_payload["snapshots_load_time_ms"] = (
+            timezone.now() - start_time
+        ).total_seconds() * 1000 - analytics_payload["metadata_load_time_ms"]
 
-        analytics_payload["total_time_ms"] = (timezone.now() - start_time).total_seconds() * 1000
-        report_team_action(recording.team, "session recording persisted", analytics_payload)
+        content: PersistedRecordingV1 = {
+            "version": "2022-12-22",
+            "distinct_id": recording.distinct_id,
+            "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+        }
 
-        logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id)
-    except object_storage.ObjectStorageError as ose:
-        capture_exception(ose)
-        report_team_action(recording.team, "session recording persist failed", analytics_payload)
-        logger.error(
-            "session_recording.object-storage-error", recording_id=recording.session_id, exception=ose, exc_info=True
-        )
+        # TODO: This is a hack workaround for datetime conversion
+        string_content = json.dumps(content, default=str)
+        analytics_payload["content_size_in_bytes"] = len(string_content.encode("utf-8"))
+        string_content = compress_to_string(string_content)
+        analytics_payload["compressed_size_in_bytes"] = len(string_content.encode("utf-8"))
+
+        logger.info("Persisting recording: writing to S3...", recording_id=recording_id, team_id=team_id)
+
+        try:
+            object_path = recording.build_object_storage_path()
+            object_storage.write(object_path, string_content.encode("utf-8"))
+            recording.object_storage_path = object_path
+            recording.save()
+
+            analytics_payload["total_time_ms"] = (timezone.now() - start_time).total_seconds() * 1000
+            report_team_action(recording.team, "session recording persisted", analytics_payload)
+
+            logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id)
+        except object_storage.ObjectStorageError as ose:
+            capture_exception(ose)
+            report_team_action(recording.team, "session recording persist failed", analytics_payload)
+            logger.error(
+                "session_recording.object-storage-error",
+                recording_id=recording.session_id,
+                exception=ose,
+                exc_info=True,
+            )
 
 
 def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1]:

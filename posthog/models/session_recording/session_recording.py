@@ -4,7 +4,6 @@ from django.db import models
 from django.db.models import Count
 from django.dispatch import receiver
 
-from posthog import settings
 from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
 from posthog.models.session_recording.metadata import (
@@ -16,6 +15,7 @@ from posthog.models.session_recording_event.session_recording_event import Sessi
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 from posthog.queries.session_recordings.session_replay_events import SessionReplayEvents
+from django.conf import settings
 
 
 class SessionRecording(UUIDModel):
@@ -168,6 +168,10 @@ class SessionRecording(UUIDModel):
         ]
 
         return "/".join(path_parts)
+
+    def build_blob_ingestion_storage_path(self) -> str:
+        root_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
+        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
