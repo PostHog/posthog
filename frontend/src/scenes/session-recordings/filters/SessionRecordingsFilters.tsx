@@ -9,6 +9,7 @@ import {
     FilterableLogLevel,
     FilterType,
     LocalRecordingFilters,
+    PropertyFilterType,
     RecordingDurationFilter,
     RecordingFilters,
 } from '~/types'
@@ -16,11 +17,12 @@ import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
-import { LemonButton, LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { useActions } from 'kea'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
@@ -161,7 +163,12 @@ export function SessionRecordingsFilters({
                 />
             </FlaggedFeature>
 
-            <SimpleSessionRecordingsFilters />
+            <SimpleSessionRecordingsFilters
+                propertyFilters={filters.properties}
+                onChange={(properties) => {
+                    setFilters({ properties })
+                }}
+            />
 
             <div>
                 <LemonButton size="small" onClick={toggleAdvancedFilters}>
@@ -270,6 +277,7 @@ const AdvancedSessionRecordingsFilters = ({
                         ]}
                         propertyFilters={filters.properties}
                         onChange={(properties) => {
+                            // console.log(properties)
                             setFilters({ properties })
                         }}
                     />
@@ -291,12 +299,14 @@ const AdvancedSessionRecordingsFilters = ({
     )
 }
 
-const SimpleSessionRecordingsFilters = (): JSX.Element => {
-    const [showEmailOperator, setShowEmailOperator] = useState<boolean>(false)
+const SimpleSessionRecordingsFilters = ({ propertyFilters, onChange }): JSX.Element => {
+    // const [showEmailOperator, setShowEmailOperator] = useState<boolean>(false)
 
     return (
         <div>
-            <div className="flex flex-1 justify-between">
+            <TestProperty propertyFilters={propertyFilters} onChange={onChange} />
+
+            {/* <div className="flex flex-1 justify-between">
                 <span>Email</span>
 
                 <LemonDropdown
@@ -360,7 +370,68 @@ const SimpleSessionRecordingsFilters = (): JSX.Element => {
                 </LemonDropdown>
 
                 <LemonInput />
-            </div>
+            </div> */}
         </div>
     )
+}
+
+const TestProperty = ({ propertyFilters, onChange }): JSX.Element => {
+    // const [open, setOpen] = useState(false)
+    // const eventNames = ['one', 'two']
+
+    // const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
+
+    const logicProps = { propertyFilters, onChange, pageKey: 'one' }
+    const logic = propertyFilterLogic(logicProps)
+    // const { filters } = useValues(logic)
+    const { setFilters } = useActions(logic)
+
+    // const filter = filters[0] ? sanitizePropertyFilter(filters[0]) : null
+
+    useEffect(() => {
+        setFilters([
+            {
+                type: PropertyFilterType.Person,
+                operator: 'exact',
+                key: 'email',
+            },
+        ])
+    }, [])
+
+    return <></>
+
+    // return (
+    //     <FilterRow
+    //         item={filter}
+    //         index={0}
+    //         totalCount={1} // empty state
+    //         filters={filters}
+    //         pageKey={pageKey}
+    //         showConditionBadge={showConditionBadge}
+    //         disablePopover={disablePopover || orFiltering}
+    //         label={'Add filter'}
+    //         onRemove={remove}
+    //         orFiltering={orFiltering}
+    //         filterComponent={(onComplete) => (
+    //             <TaxonomicPropertyFilter
+    //                 key={index}
+    //                 pageKey={pageKey}
+    //                 index={index}
+    //                 onComplete={onComplete}
+    //                 orFiltering={orFiltering}
+    //                 taxonomicGroupTypes={taxonomicGroupTypes}
+    //                 eventNames={eventNames}
+    //                 propertyGroupType={propertyGroupType}
+    //                 disablePopover={disablePopover || orFiltering}
+    //                 addButton={addButton}
+    //                 hasRowOperator={hasRowOperator}
+    //                 selectProps={{
+    //                     delayBeforeAutoOpen: 150,
+    //                     placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
+    //                 }}
+    //             />
+    //         )}
+    //         errorMessage={errorMessages && errorMessages[index]}
+    //     />
+    // )
 }
