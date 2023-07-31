@@ -2,6 +2,7 @@ import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka-acosom'
+import { Counter } from 'prom-client'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
 import { createRdConnectionConfigFromEnvVars } from '../../../../kafka/config'
@@ -16,6 +17,11 @@ import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
 const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
+
+const replayEventsCounter = new Counter({
+    name: 'replay_events_ingested',
+    help: 'Count of replay_events_ingested ',
+})
 
 export class ReplayEventsIngester {
     producer?: RdKafkaProducer
@@ -161,6 +167,8 @@ export class ReplayEventsIngester {
 
                 return drop('session_replay_summarizer_error')
             }
+
+            replayEventsCounter.inc()
 
             return [
                 produce({
