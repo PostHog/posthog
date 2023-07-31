@@ -368,9 +368,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportRecordingsListFetched: (loadTime: number, listingVersion: '1' | '3') => ({
+        reportRecordingsListFetched: (loadTime: number) => ({
             loadTime,
-            listingVersion,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
@@ -895,8 +894,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime, listingVersion }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: listingVersion })
+        reportRecordingsListFetched: ({ loadTime }) => {
+            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: '3' })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })

@@ -79,7 +79,6 @@ export function RecordingsLists({
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
-        listingVersion,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
@@ -217,7 +216,6 @@ export function RecordingsLists({
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                                usesListingV3={listingVersion === '3'}
                             />
                         ) : null
                     }
