@@ -43,7 +43,7 @@ export enum Scene {
     DataWarehouse = 'DataWarehouse',
     DataWarehousePosthog = 'DataWarehousePosthog',
     DataWarehouseExternal = 'DataWarehouseExternal',
-    DataWarehouseViews = 'DataWarehouseViews',
+    DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
     OrganizationSettings = 'OrganizationSettings',
     OrganizationCreateFirst = 'OrganizationCreate',

@@ -14,7 +14,7 @@ import type { Monaco } from '@monaco-editor/react'
 import api from 'lib/api'
 import { combineUrl, router } from 'kea-router'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/views/dataWarehouseViewsLogic'
+import { dataWarehouseSavedQueriesLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseSavedQueriesLogic'
 import { promptLogic } from 'lib/logic/promptLogic'
 import { urls } from 'scenes/urls'
 
@@ -42,7 +42,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         }
     }),
     connect({
-        actions: [dataWarehouseViewsLogic, ['createDataWarehouseView']],
+        actions: [dataWarehouseSavedQueriesLogic, ['createDataWarehouseSavedQuery']],
         logic: [promptLogic({ key: `save-as-view` })],
     }),
     actions({
@@ -179,8 +179,8 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await actions.createDataWarehouseView({ name, query })
-            router.actions.push(urls.dataWarehouseViews())
+            await actions.createDataWarehouseSavedQuery({ name, query })
+            router.actions.push(urls.dataWarehouseSavedQueries())
         },
     })),
 ])

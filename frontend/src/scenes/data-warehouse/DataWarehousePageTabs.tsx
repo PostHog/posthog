@@ -13,7 +13,7 @@ export enum DataWarehouseTab {
 const tabUrls = {
     [DataWarehouseTab.Posthog]: urls.dataWarehousePosthog(),
     [DataWarehouseTab.External]: urls.dataWarehouseExternal(),
-    [DataWarehouseTab.Views]: urls.dataWarehouseViews(),
+    [DataWarehouseTab.Views]: urls.dataWarehouseSavedQueries(),
 }
 
 const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({

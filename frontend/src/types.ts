@@ -101,7 +101,7 @@ export enum ProductKey {
     SURVEYS = 'surveys',
     SESSION_REPLAY = 'session_replay',
     DATA_WAREHOUSE = 'data_warehouse',
-    DATA_WAREHOUSE_VIEWS = 'data_warehouse_views',
+    DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
 }
 
@@ -3037,7 +3037,7 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
 
-export interface DataWarehouseView {
+export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string

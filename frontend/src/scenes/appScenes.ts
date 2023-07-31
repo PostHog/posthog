@@ -41,7 +41,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DataWarehouse]: () => import('./data-warehouse/posthog/DataWarehousePosthogScene'),
     [Scene.DataWarehousePosthog]: () => import('./data-warehouse/posthog/DataWarehousePosthogScene'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
-    [Scene.DataWarehouseViews]: () => import('./data-warehouse/views/DataWarehouseViewsScene'),
+    [Scene.DataWarehouseSavedQueries]: () => import('./data-warehouse/saved_queries/DataWarehouseSavedQueriesScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/DataWarehouseTable'),
     [Scene.OrganizationSettings]: () => import('./organization/Settings'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),

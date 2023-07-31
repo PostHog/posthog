@@ -6,25 +6,26 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { DataWarehouseSceneRow } from '../types'
-import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
+import { dataWarehouseSavedQueriesLogic } from './dataWarehouseSavedQueriesLogic'
 import { urls } from 'scenes/urls'
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { router } from 'kea-router'
 
-export function DataWarehouseViewsContainer(): JSX.Element {
-    const { views, dataWarehouseViewsLoading } = useValues(dataWarehouseViewsLogic)
-    const { loadDataWarehouseViews } = useActions(dataWarehouseViewsLogic)
+export function DataWarehouseSavedQueriesContainer(): JSX.Element {
+    const { savedQueries, dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseSavedQueriesLogic)
+    const { loadDataWarehouseSavedQueries } = useActions(dataWarehouseSavedQueriesLogic)
     const { currentTeamId } = useValues(teamLogic)
+
     return (
         <DatabaseTables
-            tables={views}
-            loading={dataWarehouseViewsLoading}
+            tables={savedQueries}
+            loading={dataWarehouseSavedQueriesLoading}
             renderRow={(row: DataWarehouseSceneRow) => {
                 return (
                     <div className="px-4 py-3">
                         <div className="mt-2">
                             <span className="card-secondary">Columns</span>
-                            <DatabaseTable table={row.name} tables={views} />
+                            <DatabaseTable table={row.name} tables={savedQueries} />
                         </div>
                     </div>
                 )
@@ -67,9 +68,9 @@ export function DataWarehouseViewsContainer(): JSX.Element {
                                             status="danger"
                                             onClick={() => {
                                                 deleteWithUndo({
-                                                    endpoint: `projects/${currentTeamId}/warehouse_view`,
+                                                    endpoint: `projects/${currentTeamId}/warehouse_saved_query`,
                                                     object: { name: warehouseView.name, id: warehouseView.id },
-                                                    callback: loadDataWarehouseViews,
+                                                    callback: loadDataWarehouseSavedQueries,
                                                 })
                                             }}
                                             fullWidth

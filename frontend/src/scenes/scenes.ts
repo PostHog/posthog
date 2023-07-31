@@ -170,7 +170,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Warehouse',
     },
-    [Scene.DataWarehouseViews]: {
+    [Scene.DataWarehouseSavedQueries]: {
         projectBased: true,
         name: 'Data Warehouse',
     },
@@ -416,7 +416,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseTable(':id')]: Scene.DataWarehouseTable,
     [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
     [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
-    [urls.dataWarehouseViews()]: Scene.DataWarehouseViews,
+    [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.Annotations,

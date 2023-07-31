@@ -35,7 +35,7 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.DataWarehouseTable]: Scene.DataWarehouse,
     [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
     [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
-    [Scene.DataWarehouseViews]: Scene.DataWarehouse,
+    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
     [Scene.AppMetrics]: Scene.Plugins,
     [Scene.ReplaySingle]: Scene.Replay,
     [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,

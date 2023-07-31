@@ -3,20 +3,20 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
-import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
-import { DataWarehouseViewsContainer } from './DataWarehouseViewsContainer'
+import { dataWarehouseSavedQueriesLogic } from './dataWarehouseSavedQueriesLogic'
+import { DataWarehouseSavedQueriesContainer } from './DataWarehouseSavedQueriesContainer'
 import { useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { router } from 'kea-router'
 import { ProductKey } from '~/types'
 
 export const scene: SceneExport = {
-    component: DataWarehouseViewsScene,
-    logic: dataWarehouseViewsLogic,
+    component: DataWarehouseSavedQueriesScene,
+    logic: dataWarehouseSavedQueriesLogic,
 }
 
-export function DataWarehouseViewsScene(): JSX.Element {
-    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseViewsLogic)
+export function DataWarehouseSavedQueriesScene(): JSX.Element {
+    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSavedQueriesLogic)
     return (
         <div>
             <PageHeader
@@ -56,10 +56,10 @@ export function DataWarehouseViewsScene(): JSX.Element {
                     action={() => router.actions.push(urls.insightNewHogQL('SELECT * FROM events LIMIT 100'))}
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
-                    productKey={ProductKey.DATA_WAREHOUSE_VIEWS}
+                    productKey={ProductKey.DATA_WAREHOUSE_SAVED_QUERY}
                 />
             )}
-            {!shouldShowEmptyState && <DataWarehouseViewsContainer />}
+            {!shouldShowEmptyState && <DataWarehouseSavedQueriesContainer />}
         </div>
     )
 }
