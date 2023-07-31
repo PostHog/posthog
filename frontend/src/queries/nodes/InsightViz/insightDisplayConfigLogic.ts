@@ -27,6 +27,7 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
                 'isStickiness',
                 'isLifecycle',
                 'supportsDisplay',
+                'supportsPercentStackView as showPercentStackView',
                 'display',
                 'breakdown',
                 'trendsFilter',
