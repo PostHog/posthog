@@ -1,4 +1,4 @@
-import { afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -21,6 +21,9 @@ export type SDKVersionWarning = {
 
 export const versionCheckerLogic = kea<versionCheckerLogicType>([
     path(['components', 'VersionChecker', 'versionCheckerLogic']),
+    actions({
+        resetLastCheckTimestamp: true,
+    }),
     loaders({
         availableVersions: [
             null as SDKVersion[] | null,
@@ -71,6 +74,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
             { persist: true },
             {
                 loadUsedVersionsSuccess: () => Date.now(),
+                resetLastCheckTimestamp: () => 0,
             },
         ],
     }),
