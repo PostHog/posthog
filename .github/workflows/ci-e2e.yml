@@ -138,6 +138,7 @@ jobs:
               run: ./bin/check_kafka_clickhouse_up
 
             - name: Get Docker image cached in Depot
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
               # We don't actually build the image here, because we use Depot, which acts as our cross-workflow cache.
               # The build is first initiated in container-images-ci.yml, so by the time this runs, some layers already
               # are cached, and the in-flight builds overall are deduplicated. According to Depot folks, this applies
@@ -148,7 +149,7 @@ jobs:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   load: true
 
-            - name: Write .env
+            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
               run: |
                   cat <<EOT >> .env
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da

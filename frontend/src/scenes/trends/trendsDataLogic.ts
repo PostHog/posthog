@@ -27,6 +27,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'breakdown',
                 'shownAs',
                 'showValueOnSeries',
+                'showPercentStackView',
+                'supportsPercentStackView',
                 'trendsFilter',
                 'lifecycleFilter',
                 'isTrends',
@@ -37,7 +39,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'hasLegend',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData']],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter']],
     })),
 
     actions({
@@ -76,16 +78,25 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         indexedResults: [
             (s) => [s.results, s.display, s.lifecycleFilter],
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
+                const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
                 if (
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
                     indexedResults.sort((a, b) => b.aggregated_value - a.aggregated_value)
-                } else if (lifecycleFilter && lifecycleFilter.toggledLifecycles) {
-                    indexedResults = indexedResults.filter((result) =>
-                        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-                        lifecycleFilter.toggledLifecycles!.includes(String(result.status) as LifecycleToggle)
+                } else if (lifecycleFilter) {
+                    if (lifecycleFilter.toggledLifecycles) {
+                        indexedResults = indexedResults.filter((result) =>
+                            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                            lifecycleFilter.toggledLifecycles!.includes(String(result.status) as LifecycleToggle)
+                        )
+                    }
+
+                    indexedResults = indexedResults.sort(
+                        (a, b) =>
+                            defaultLifecyclesOrder.indexOf(String(b.status)) -
+                            defaultLifecyclesOrder.indexOf(String(a.status))
                     )
                 }
                 return indexedResults.map((result, index) => ({ ...result, id: index }))

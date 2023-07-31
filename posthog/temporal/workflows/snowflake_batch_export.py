@@ -326,10 +326,15 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                 insert_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
                 retry_policy=RetryPolicy(
-                    maximum_attempts=3,
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=120),
+                    maximum_attempts=10,
                     non_retryable_error_types=[
-                        # Validation failed, and will keep failing.
-                        "ValueError",
+                        # Raised when we cannot connect to Snowflake.
+                        "DatabaseError",
+                        # Raised by Snowflake when a query cannot be compiled.
+                        # Usually this means we don't have table permissions or something doesn't exist (db, schema).
+                        "ProgrammingError",
                     ],
                 ),
             )
