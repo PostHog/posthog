@@ -895,7 +895,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
         reportRecordingsListFetched: ({ loadTime }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: 3 })
+            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: '3' })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })
