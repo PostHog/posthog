@@ -2094,6 +2094,292 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
 
+    @also_test_with_materialized_columns(event_properties=["is_internal_user"])
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_event_property_test_account_filter(self):
+        """
+        This is a regression test. A user with an $ip test account filter
+        reported the filtering wasn't working.
+
+        The filter wasn't triggering the "should join events check", and so we didn't apply the filter at all
+        """
+        self.team.test_account_filters = [
+            {"key": "is_internal_user", "value": ["false"], "operator": "exact", "type": "event"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "not-the-other-one"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user2",
+            self.base_time,
+            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+        )
+
+        # there are 2 pageviews
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # pageview that matches the hogql test_accounts filter
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": False,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 2)
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # only 1 pageview that matches the test_accounts filter
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+
+    @also_test_with_materialized_columns(event_properties=["is_internal_user"])
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_hogql_event_property_test_account_filter(self):
+        """
+        This is a regression test. A user with an $ip test account filter
+        reported the filtering wasn't working.
+
+        The filter wasn't triggering the "should join events" check, and so we didn't apply the filter at all
+        """
+        self.team.test_account_filters = [
+            {"key": "properties.is_internal_user == 'true'", "type": "hogql"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "not-the-other-one"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user2",
+            self.base_time,
+            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+        )
+
+        # there are 2 pageviews
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # pageview that matches the hogql test_accounts filter
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": False,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 2)
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # only 1 pageview that matches the test_accounts filter
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+
+    @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_hogql_person_property_test_account_filter(self):
+        """
+        This is a regression test. A user with an $ip test account filter
+        reported the filtering wasn't working.
+
+        The filter wasn't triggering the "should join events" check, and so we didn't apply the filter at all
+        """
+        self.team.test_account_filters = [
+            {"key": "person.properties.email == 'bla'", "type": "hogql"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "not-the-other-one"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user2",
+            self.base_time,
+            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+        )
+
+        # there are 2 pageviews
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # pageview that matches the hogql test_accounts filter
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": False,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 2)
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # only 1 pageview that matches the test_accounts filter
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+
+    @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_person_property_test_account_filter(self):
+        """
+        This is a regression test. A user with an $ip test account filter
+        reported the filtering wasn't working.
+
+        The filter wasn't triggering the "should join events" check, and so we didn't apply the filter at all
+        """
+        self.team.test_account_filters = [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "not-the-other-one"})
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user",
+            self.base_time,
+            properties={"$session_id": "1", "$window_id": "1", "is_internal_user": False},
+        )
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.base_time + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.base_time,
+            team_id=self.team.id,
+        )
+        self.create_event(
+            "user2",
+            self.base_time,
+            properties={"$session_id": "2", "$window_id": "1", "is_internal_user": True},
+        )
+
+        # there are 2 pageviews
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # pageview that matches the hogql test_accounts filter
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "filter_test_accounts": False,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 2)
+
+        filter = SessionRecordingsFilter(
+            team=self.team,
+            data={
+                # only 1 pageview that matches the test_accounts filter
+                "filter_test_accounts": True,
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=filter, team=self.team)
+        (session_recordings, _) = session_recording_list_instance.run()
+        self.assertEqual(len(session_recordings), 1)
+
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_event_filter_with_two_events_and_multiple_teams(self):
