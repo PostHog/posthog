@@ -601,17 +601,17 @@ export class PersonState {
         // When personIDs change, update places depending on a person_id foreign key
 
         // for inc-2023-07-31-us-person-id-override skip this and store the info in person_overrides table instead
+        // For Cohorts
+        await this.db.postgresQuery(
+            'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
+            [targetPerson.id, sourcePerson.id],
+            'updateCohortPeople',
+            client
+        )
+
         if (this.incidentPath) {
             status.info(`Skipping ff updates for merge of ${sourcePerson.uuid} -> ${targetPerson.uuid}`)
         } else {
-            // For Cohorts
-            await this.db.postgresQuery(
-                'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
-                [targetPerson.id, sourcePerson.id],
-                'updateCohortPeople',
-                client
-            )
-
             // For FeatureFlagHashKeyOverrides
             await this.db.addFeatureFlagHashKeysForMergedPerson(
                 sourcePerson.team_id,
