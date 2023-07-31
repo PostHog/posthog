@@ -25,13 +25,14 @@ export function PlayerMetaLinks(): JSX.Element {
 
     const getCurrentPlayerTime = (): number => {
         // NOTE: We pull this value at call time as otherwise it would trigger rerenders if pulled from the hook
-        return sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        return Math.floor(playerTime / 1000)
     }
 
     const onShare = (): void => {
         setPause()
         openPlayerShareDialog({
-            seconds: Math.floor(getCurrentPlayerTime() / 1000),
+            seconds: getCurrentPlayerTime(),
             id: sessionRecordingId,
         })
     }
@@ -52,9 +53,8 @@ export function PlayerMetaLinks(): JSX.Element {
     }
 
     const onComment = (): void => {
+        const currentPlayerTime = getCurrentPlayerTime() * 1000
         if (nodeLogic) {
-            const currentPlayerTime = getCurrentPlayerTime()
-
             nodeLogic.actions.insertAfterLastNodeOfType(
                 NotebookNodeType.ReplayTimestamp,
                 buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
@@ -66,16 +66,7 @@ export function PlayerMetaLinks(): JSX.Element {
                     type: NotebookNodeType.Recording,
                     attrs: { id: sessionRecordingId },
                 },
-                {
-                    type: 'paragraph',
-                    content: [
-                        {
-                            type: NotebookNodeType.ReplayTimestamp,
-                            attrs: { sessionRecordingId: sessionRecordingId, playbackTime: getCurrentPlayerTime() },
-                        },
-                        { type: 'text', text: ' ' },
-                    ],
-                },
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
             ])
         }
     }

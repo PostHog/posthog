@@ -4,7 +4,7 @@
 # - `pip-compile --rebuild requirements.in`
 # - `pip-compile --rebuild requirements-dev.in`
 #
-aiochclient[aiohttp]>=2.4.0
+aiohttp>=3.8.4
 antlr4-python3-runtime==4.13.0
 amqp==2.6.0
 boto3==1.26.66
@@ -54,6 +54,7 @@ Pillow==9.2.0
 posthoganalytics==3.0.1
 prance==0.22.2.22.0
 psycopg2-binary==2.8.6
+pyarrow==12.0.1
 pydantic==1.10.4
 pyjwt==2.4.0
 python-dateutil>=2.8.2

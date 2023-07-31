@@ -33,12 +33,6 @@ from posthog.database_healthcheck import postgres_healthcheck
 from posthog import redis
 
 
-def slow_python_processing(execute, sql, *args, **kwargs):
-    if "insert" in sql.lower():
-        time.sleep(4)
-    return execute(sql, *args, **kwargs)
-
-
 @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected", return_value=True)
 class TestDecide(BaseTest, QueryMatchingTest):
     """
@@ -1181,92 +1175,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
             mock_counter.labels.assert_called_once_with(reason="timeout")
-
-    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
-    def test_feature_flags_v3_with_python_timeout_errors(self, mock_counter, *args):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(
-            team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"}
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=30,
-            name="Beta feature",
-            key="beta-feature",
-            created_by=self.user,
-            ensure_experience_continuity=True,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-            name="This is a feature flag with default params, no filters.",
-            key="default-flag",
-            created_by=self.user,
-        )  # Should be enabled for everyone
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            name="This is a feature flag with multiple variants.",
-            key="multivariate-flag",
-            created_by=self.user,
-            ensure_experience_continuity=True,
-        )
-        # make sure caches are populated
-        response = self._post_decide(api_version=3)
-
-        with self.settings(DECIDE_SIGNAL_TIMEOUT=True):
-
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
-
-            # now processing is slow for database writes
-            # so we continue without adding the overrides
-            with connection.execute_wrapper(slow_python_processing):
-                response = self._post_decide(
-                    api_version=3,
-                    data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
-                )
-                self.assertFalse(response.json()["featureFlags"]["beta-feature"])
-                self.assertTrue(response.json()["featureFlags"]["default-flag"])
-                self.assertEqual(
-                    "third-variant", response.json()["featureFlags"]["multivariate-flag"]
-                )  # assigned by distinct_id hash
-                self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-                mock_counter.labels.assert_called_once_with(reason="python_timeout")
-
-            mock_counter.reset_mock()
-
-            # now processing is not slow for database writes
-            # so we continue with adding the overrides
-            response = self._post_decide(
-                api_version=3,
-                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
-            )
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # override by distinct_id hash
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-            mock_counter.labels.assert_not_called()
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_HASH_KEY_WRITES_COUNTER")
     @patch("posthog.api.decide.FLAG_EVALUATION_COUNTER")

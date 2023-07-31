@@ -1,7 +1,6 @@
 import secrets
 import string
 import uuid
-import signal
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from random import Random, choice
@@ -279,38 +278,3 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
         with connections[database].cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield cursor
-
-
-class TimeoutException(Exception):
-    pass
-
-
-@contextmanager
-def python_signal_timeout(timeout: int, enable: bool = True) -> Iterator[None]:
-    """
-    Sets a timeout using the signal module. Works only on UNIX systems.
-    :TRICKY: https://docs.python.org/3/library/signal.html#handlers-and-exceptions - there
-    can be issues here, as the alarm is always raised on the main thread, AND, can be raised
-    at any time.
-    This means it's not safe to use this context manager without an outer try/except block.
-    """
-    # Create a handler for when timeout occurs
-    def handler(signum, frame):
-        raise TimeoutException("exceeded timeout")
-
-    try:
-        if not enable:
-            yield
-            return
-
-        # Connect the handler to the SIGALRM signal
-        signal.signal(signal.SIGALRM, handler)
-
-        # Start the timer. Once `timeout` seconds are over, a SIGALRM signal is sent.
-        signal.alarm(timeout)
-
-        yield
-
-    finally:
-        # Reset the alarm
-        signal.alarm(0)

@@ -54,7 +54,7 @@ export function CreateRoleModal(): JSX.Element {
             }
             footer={
                 rolesLoading ? (
-                    <Spinner monocolor />
+                    <Spinner textColored />
                 ) : isAdminOrOwner ? (
                     <div className="flex flex-row justify-between w-full">
                         <div>

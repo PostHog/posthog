@@ -1,8 +1,8 @@
 # name: TestSessionRecordingProperties.test_properties_list
   '
   
-  SELECT $session_id as session_id,
-         any(properties) as properties
+  SELECT "$session_id" AS session_id,
+         any(properties) AS properties
   FROM events PREWHERE team_id = 2
   AND event IN ['$pageview', '$autocapture']
   AND session_id IN ['1']

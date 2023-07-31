@@ -45,40 +45,6 @@ const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...p
     />
 )
 
-export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { monocolor?: boolean }): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            {/* top-right */}
-            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : 'var(--brand-blue)'} fillOpacity={1} />
-            {/* top-left */}
-            <circle
-                cx="7"
-                cy="7.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-yellow)'}
-                fillOpacity={monocolor ? 0.75 : 1}
-            />
-
-            {/* bottom-left */}
-            <circle
-                cx="7"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-red)'}
-                fillOpacity={monocolor ? 0.5 : 1}
-            />
-            {/* bottom-right */}
-            <circle
-                cx="17"
-                cy="17.574"
-                r="3"
-                fill={monocolor ? 'currentColor' : 'var(--brand-key)'}
-                fillOpacity={monocolor ? 0.25 : 1}
-            />
-        </LemonIconBase>
-    )
-}
-
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
     return (

@@ -67,7 +67,7 @@ class Command(BaseCommand):
                         sys.exit(1)
                     if "CONSTRAINT" in operation_sql and (
                         "-- existing-table-constraint-ignore" not in operation_sql
-                        or (
+                        and (
                             table_being_altered not in tables_created_so_far
                             or self._get_table("ALTER TABLE", operation_sql) not in new_tables
                         )  # Ignore for brand-new tables

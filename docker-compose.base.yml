@@ -1,9 +1,6 @@
 #
 # docker-compose base file used for local development, hobby deploys, and other compose use cases.
 #
-# If you are looking at self-hosted deployment options check
-# https://posthog.com/docs/self-host
-#
 
 services:
     db:
