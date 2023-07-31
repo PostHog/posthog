@@ -602,37 +602,7 @@ export class PersonState {
 
         // for inc-2023-07-31-us-person-id-override skip this and store the info in person_overrides table instead
         if (this.incidentPath) {
-            const oldestEvent = DateTime.now()
-            /**
-                We'll need to do 4 updates:
-
-            1. Add the persons involved to the helper table (2 of them)
-            2. Add an override from oldPerson to override person
-            3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
-            */
-            const oldPersonId = await this.addPersonOverrideMapping(sourcePerson, client)
-            const overridePersonId = await this.addPersonOverrideMapping(targetPerson, client)
-
-            await this.db.postgresQuery(
-                SQL`
-                    INSERT INTO posthog_personoverride (
-                        team_id,
-                        old_person_id,
-                        override_person_id,
-                        oldest_event,
-                        version
-                    ) VALUES (
-                        ${this.teamId},
-                        ${oldPersonId},
-                        ${overridePersonId},
-                        ${oldestEvent},
-                        0
-                    )
-                `,
-                undefined,
-                'personOverride',
-                client
-            )
+            status.info(`Skipping ff updates for merge of ${sourcePerson.uuid} -> ${targetPerson.uuid}`)
         } else {
             // For Cohorts
             await this.db.postgresQuery(
