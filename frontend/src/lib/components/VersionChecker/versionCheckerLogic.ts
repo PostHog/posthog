@@ -67,7 +67,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
         versionWarning: [
             (s) => [s.availableVersions, s.usedVersions],
             (availableVersions, usedVersions): SDKVersionWarning | null => {
-                if (availableVersions === null || usedVersions === null) {
+                if (availableVersions === null || !usedVersions?.length) {
                     return null
                 }
 
@@ -85,7 +85,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                     currentVersion,
                     latestVersion,
                     diff,
-                    level: diff > 10 ? 'error' : diff > 5 ? 'warning' : 'info',
+                    level: diff > 20 ? 'error' : diff > 10 ? 'warning' : 'info',
                 }
             },
         ],
