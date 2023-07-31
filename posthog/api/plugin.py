@@ -284,9 +284,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 Q(**self.parents_query_dict)
                 | Q(is_global=True)
                 | Q(
-                    id__in=PluginConfig.objects.filter(
-                        team__organization_id=self.organization_id, enabled=True
-                    ).values_list("plugin_id", flat=True)
+                    id__in=PluginConfig.objects.filter(team_id=self.team_id, enabled=True).values_list(
+                        "plugin_id", flat=True
+                    )
                 )
             )
         except ValueError:
