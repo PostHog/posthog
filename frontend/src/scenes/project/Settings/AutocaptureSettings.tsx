@@ -23,13 +23,13 @@ export function AutocaptureSettings(): JSX.Element {
         <>
             <h2 className="subtitle">Autocapture</h2>
             <p>
-                Automagically capture frontend interactions like pageviews, clicks, and more when using our JavaScript
-                library.{' '}
+                Automagically capture front-end interactions like pageviews, clicks, and more when using our web
+                JavaScript SDK.{' '}
             </p>
             <p>
-                Autocapture for React Native has to be{' '}
+                Autocapture is also available for React Native, where it has to be{' '}
                 <Link to="https://posthog.com/docs/libraries/react-native#autocapture" target="_blank">
-                    configured in code
+                    configured directly in code
                 </Link>
                 .
             </p>
@@ -44,7 +44,7 @@ export function AutocaptureSettings(): JSX.Element {
                     }}
                     checked={!currentTeam?.autocapture_opt_out}
                     disabled={userLoading}
-                    label="Enable Autocapture"
+                    label="Enable autocapture for web"
                     bordered
                 />
                 <FlaggedFeature flag={FEATURE_FLAGS.EXCEPTION_AUTOCAPTURE}>
@@ -61,7 +61,7 @@ export function AutocaptureSettings(): JSX.Element {
                             disabled={userLoading}
                             label={
                                 <>
-                                    Enable Exception Autocapture <LemonTag>ALPHA</LemonTag>
+                                    Enable exception autocapture <LemonTag>ALPHA</LemonTag>
                                 </>
                             }
                             bordered
