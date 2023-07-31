@@ -34,15 +34,19 @@ export class RealtimeManager extends EventEmitter {
         this.ttlSeconds = this.serverConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS * 5
     }
 
+    private messageKey(teamId: number, sessionId: string): string {
+        return `subscription::${teamId}::${sessionId}`
+    }
+
     private emitSubscriptionEvent(teamId: number, sessionId: string): void {
-        this.emit(`subscription::${teamId}::${sessionId}`)
+        this.emit(this.messageKey(teamId, sessionId))
     }
 
     public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
-        this.on(`subscription::${teamId}::${sessionId}`, cb)
+        this.on(this.messageKey(teamId, sessionId), cb)
 
         return () => {
-            this.off(`subscription::${teamId}::${sessionId}`, cb)
+            this.off(this.messageKey(teamId, sessionId), cb)
         }
     }
 
@@ -54,7 +58,11 @@ export class RealtimeManager extends EventEmitter {
             try {
                 const subMessage = JSON.parse(message) as { team_id: number; session_id: string }
                 this.emitSubscriptionEvent(subMessage.team_id, subMessage.session_id)
-                status.info('🔌', 'RealtimeManager recevied realtime request', subMessage)
+
+                status.info('🔌', 'RealtimeManager recevied realtime request', {
+                    ...subMessage,
+                    listeners: this.listenerCount(this.messageKey(subMessage.team_id, subMessage.session_id)),
+                })
             } catch (e) {
                 captureException('Failed to parse message from redis pubsub', e)
             }
