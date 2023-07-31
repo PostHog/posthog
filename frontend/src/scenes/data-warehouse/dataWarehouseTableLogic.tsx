@@ -47,7 +47,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         table: {
             loadTable: async () => {
                 if (props.id && props.id !== 'new') {
-                    console.log('HERE')
                     return await api.dataWarehouseTables.get(props.id)
                 }
                 return { ...NEW_WAREHOUSE_TABLE }
