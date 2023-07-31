@@ -79,7 +79,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
         versionWarning: [
             (s) => [s.availableVersions, s.usedVersions],
             (availableVersions, usedVersions): SDKVersionWarning | null => {
-                if (availableVersions === null || !usedVersions?.length) {
+                if (!availableVersions?.length || !usedVersions?.length) {
                     return null
                 }
 
