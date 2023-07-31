@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -22,20 +22,16 @@ export type SDKVersionWarning = {
 export const versionCheckerLogic = kea<versionCheckerLogicType>([
     path(['components', 'VersionChecker', 'versionCheckerLogic']),
     actions({
-        resetLastCheckTimestamp: true,
+        setVersionWarning: (versionWarning: SDKVersionWarning | null) => ({ versionWarning }),
     }),
     loaders({
         availableVersions: [
             null as SDKVersion[] | null,
             {
                 loadAvailableVersions: async () => {
-                    const versions = await fetch('https://api.github.com/repos/posthog/posthog-js/tags').then((r) =>
-                        r.json()
-                    )
-
-                    return versions.map((version: any) => ({
-                        version: version.name.replace('v', ''),
-                    }))
+                    return await fetch('https://api.github.com/repos/posthog/posthog-js/tags')
+                        .then((r) => r.json())
+                        .then((r) => r.map((x: any) => ({ version: x.name.replace('v', '') })))
                 },
             },
         ],
@@ -74,38 +70,49 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
             { persist: true },
             {
                 loadUsedVersionsSuccess: () => Date.now(),
-                resetLastCheckTimestamp: () => 0,
             },
         ],
-    }),
-
-    selectors({
         versionWarning: [
-            (s) => [s.availableVersions, s.usedVersions],
-            (availableVersions, usedVersions): SDKVersionWarning | null => {
-                if (!availableVersions?.length || !usedVersions?.length) {
-                    return null
-                }
-
-                const latestVersion = availableVersions[0].version
-                const currentVersion = usedVersions[0].version
-
-                if (latestVersion === currentVersion) {
-                    return null
-                }
-
-                let diff = availableVersions.findIndex((v) => v.version === currentVersion)
-                diff = diff === -1 ? availableVersions.length : diff
-
-                return {
-                    currentVersion,
-                    latestVersion,
-                    diff,
-                    level: diff > 20 ? 'error' : diff > 10 ? 'warning' : 'info',
-                }
+            null as SDKVersionWarning | null,
+            { persist: true },
+            {
+                setVersionWarning: (_, { versionWarning }) => versionWarning,
             },
         ],
     }),
+
+    sharedListeners(({ values, actions }) => ({
+        checkForVersionWarning: () => {
+            if (!values.availableVersions?.length || !values.usedVersions?.length) {
+                return
+            }
+
+            const latestVersion = values.availableVersions[0].version
+            const currentVersion = values.usedVersions[0].version
+
+            if (latestVersion === currentVersion) {
+                actions.setVersionWarning(null)
+                return
+            }
+
+            let diff = values.availableVersions.findIndex((v) => v.version === currentVersion)
+            diff = diff === -1 ? values.availableVersions.length : diff
+
+            const warning: SDKVersionWarning = {
+                currentVersion,
+                latestVersion,
+                diff,
+                level: diff > 20 ? 'error' : diff > 10 ? 'warning' : 'info',
+            }
+
+            actions.setVersionWarning(warning)
+        },
+    })),
+
+    listeners(({ sharedListeners }) => ({
+        loadAvailableVersionsSuccess: sharedListeners.checkForVersionWarning,
+        loadUsedVersionsSuccess: sharedListeners.checkForVersionWarning,
+    })),
 
     afterMount(({ actions, values }) => {
         if (values.lastCheckTimestamp < Date.now() - CHECK_INTERVAL_MS) {
