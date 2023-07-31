@@ -83,15 +83,7 @@ export class OffsetHighWaterMarker {
 
         try {
             await this.run(`write offset high-water mark ${key} `, async (client) => {
-                const returnCountOfUpdatedAndAddedElements = 'CH'
-                const updatedCount = await client.zadd(key, returnCountOfUpdatedAndAddedElements, offset, id)
-                status.info('📝', 'WrittenOffsetCache added high-water mark for partition', {
-                    key,
-                    ...tp,
-                    id,
-                    offset,
-                    updatedCount,
-                })
+                await client.zadd(key, 'GT', offset, id)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to add high-water mark for partition', {
@@ -132,12 +124,7 @@ export class OffsetHighWaterMarker {
 
         try {
             return await this.run(`clear all below offset high-water mark for ${key} `, async (client) => {
-                const numberRemoved = await client.zremrangebyscore(key, '-Inf', offset)
-                status.info('📝', 'WrittenOffsetCache committed all below high-water mark for partition', {
-                    numberRemoved,
-                    ...tp,
-                    offset,
-                })
+                await client.zremrangebyscore(key, '-Inf', offset)
             })
         } catch (error) {
             status.error('🧨', 'WrittenOffsetCache failed to commit high-water mark for partition', {

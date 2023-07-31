@@ -40,7 +40,6 @@ export class RealtimeManager extends EventEmitter {
 
     public onSubscriptionEvent(teamId: number, sessionId: string, cb: () => void): () => void {
         this.on(`subscription::${teamId}::${sessionId}`, cb)
-        status.info('🔌', 'RealtimeManager registered event listener for subscription events', { teamId, sessionId })
 
         return () => {
             this.off(`subscription::${teamId}::${sessionId}`, cb)
@@ -55,6 +54,7 @@ export class RealtimeManager extends EventEmitter {
             try {
                 const subMessage = JSON.parse(message) as { team_id: number; session_id: string }
                 this.emitSubscriptionEvent(subMessage.team_id, subMessage.session_id)
+                status.info('🔌', 'RealtimeManager recevied realtime request', subMessage)
             } catch (e) {
                 captureException('Failed to parse message from redis pubsub', e)
             }
