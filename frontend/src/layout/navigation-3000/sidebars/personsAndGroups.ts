@@ -6,13 +6,14 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { subscriptions } from 'kea-subscriptions'
 import { navigation3000Logic } from '../navigationLogic'
 import { SidebarCategory, BasicListItem } from '../types'
-import { asDisplay, asLink, urls } from '@posthog/apps-common'
+import { urls } from '@posthog/apps-common'
 import { findSearchTermInItemName } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { combineUrl } from 'kea-router'
 import { PersonType } from '~/types'
+import { asDisplay, asLink } from 'scenes/persons/person-utils'
 
 export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'personsAndGroupsSidebarLogic']),

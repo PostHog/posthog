@@ -28,9 +28,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             heightEstimate={HEIGHT}
         >
-            <div style={{ height: HEIGHT }}>
-                <SessionRecordingPlayer {...recordingLogicProps} />
-            </div>
+            <SessionRecordingPlayer {...recordingLogicProps} />
         </NodeWrapper>
     )
 }
@@ -44,6 +42,9 @@ export const NotebookNodeRecording = Node.create({
     addAttributes() {
         return {
             nodeId: { default: uuid() },
+            height: {
+                default: HEIGHT,
+            },
             id: {
                 default: null,
             },

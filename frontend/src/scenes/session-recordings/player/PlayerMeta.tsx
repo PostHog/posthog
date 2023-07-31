@@ -2,7 +2,7 @@ import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { useValues } from 'kea'
-import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils'
@@ -18,6 +18,7 @@ import { PlayerMetaLinks } from './PlayerMetaLinks'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 function SessionPropertyMeta(props: {
     fullScreen: boolean

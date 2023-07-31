@@ -14,7 +14,7 @@ import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeade
 import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
-import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
@@ -32,6 +32,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import './PersonsModal.scss'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
