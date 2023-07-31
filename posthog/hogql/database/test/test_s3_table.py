@@ -8,6 +8,8 @@ from posthog.hogql.errors import HogQLException
 
 
 class TestS3Table(BaseTest):
+    maxDiff = None
+
     def _init_database(self):
         self.database = create_hogql_database(self.team.pk)
         self.database.aapl_stock = create_aapl_stock_s3_table()
@@ -27,7 +29,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM aapl_stock LIMIT 10",
+            "SELECT aapl_stock.Date, aapl_stock.Open, aapl_stock.High, aapl_stock.Low, aapl_stock.Close, aapl_stock.Volume, aapl_stock.OpenInt FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock LIMIT 10",
         )
 
     def test_s3_table_select_with_alias(self):
@@ -41,7 +43,7 @@ class TestS3Table(BaseTest):
         # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
-            "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT a.High, a.Low FROM a LIMIT 10",
+            "SELECT a.High, a.Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS a LIMIT 10",
         )
 
     def test_s3_table_select_join(self):
@@ -63,7 +65,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            "WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)), aapl_stock_2 AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN aapl_stock_2 ON equals(aapl_stock.High, aapl_stock_2.High) LIMIT 10",
+            "SELECT aapl_stock.High, aapl_stock.Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS aapl_stock_2 ON equals(aapl_stock.High, aapl_stock_2.High) LIMIT 10",
         )
 
     def test_s3_table_select_join_with_alias(self):
@@ -85,7 +87,7 @@ class TestS3Table(BaseTest):
         # Alias will completely override table name to prevent ambiguous table names that can be shared if the same table is joinedfrom multiple times
         self.assertEqual(
             clickhouse,
-            "WITH a AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)), b AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) SELECT a.High, a.Low FROM a JOIN b ON equals(a.High, b.High) LIMIT 10",
+            "SELECT a.High, a.Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS a JOIN (SELECT * FROM s3Cluster('posthog', %(hogql_val_3_sensitive)s, %(hogql_val_4)s)) AS b ON equals(a.High, b.High) LIMIT 10",
         )
 
     def test_s3_table_select_and_non_s3_join(self):
@@ -107,7 +109,7 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT aapl_stock.High, aapl_stock.Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock JOIN events ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_alias_escaped(self):
@@ -135,7 +137,7 @@ class TestS3Table(BaseTest):
         # table name is escaped
         self.assertEqual(
             clickhouse,
-            f"WITH `random as (SELECT * FROM events), SELECT * FROM events --` AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s)) SELECT `random as (SELECT * FROM events), SELECT * FROM events --`.High, `random as (SELECT * FROM events), SELECT * FROM events --`.Low FROM `random as (SELECT * FROM events), SELECT * FROM events --` AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT `random as (SELECT * FROM events), SELECT * FROM events --`.High, `random as (SELECT * FROM events), SELECT * FROM events --`.Low FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS `random as (SELECT * FROM events), SELECT * FROM events --` JOIN events ON equals(`random as (SELECT * FROM events), SELECT * FROM events --`.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_s3_table_select_table_name_bad_character(self):
@@ -163,5 +165,5 @@ class TestS3Table(BaseTest):
 
         self.assertEqual(
             clickhouse,
-            f"SELECT events.uuid, events.event, events.properties, toTimeZone(events.timestamp, %(hogql_val_0)s), events.distinct_id, events.elements_chain, toTimeZone(events.created_at, %(hogql_val_1)s) FROM events WHERE and(equals(events.team_id, {self.team.pk}), globalIn(events.event, (WITH aapl_stock AS (SELECT * FROM s3Cluster('posthog', %(hogql_val_2_sensitive)s, %(hogql_val_3)s)) SELECT aapl_stock.Date FROM aapl_stock))) LIMIT 10000",
+            f"SELECT events.uuid, events.event, events.properties, toTimeZone(events.timestamp, %(hogql_val_0)s), events.distinct_id, events.elements_chain, toTimeZone(events.created_at, %(hogql_val_1)s) FROM events WHERE and(equals(events.team_id, {self.team.pk}), globalIn(events.event, (SELECT aapl_stock.Date FROM s3Cluster('posthog', %(hogql_val_2_sensitive)s, %(hogql_val_3)s) AS aapl_stock))) LIMIT 10000",
         )

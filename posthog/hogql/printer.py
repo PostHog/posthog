@@ -270,11 +270,8 @@ class _Printer(Visitor):
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
                 # Always put S3 Tables in a CTE so joins can work when queried
-                if isinstance(table_type.table, S3Table):
-                    cte = f"{self._print_identifier(node.alias)} AS (SELECT * FROM {sql})"
-
-                    # The table is captured in a CTE so just print the table name in the final select
-                    sql = self._print_identifier(node.alias or table_type.table.name)
+                if isinstance(table_type.table, S3Table) and node.join_type == "JOIN":
+                    sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
             join_strings.append(sql)
