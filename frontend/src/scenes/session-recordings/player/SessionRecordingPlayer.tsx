@@ -65,8 +65,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         mode,
         playerRef,
     }
-    const { setIsFullScreen, setPause, togglePlayPause, seekBackward, seekForward, setSpeed, closeExplorer } =
-        useActions(sessionRecordingPlayerLogic(logicProps))
+    const {
+        incrementClickCount,
+        setIsFullScreen,
+        setPause,
+        togglePlayPause,
+        seekBackward,
+        seekForward,
+        setSpeed,
+        closeExplorer,
+    } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound } = useValues(sessionRecordingDataLogic(logicProps))
     const { isFullScreen, explorerMode } = useValues(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
@@ -148,6 +156,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                         'SessionRecordingPlayer--inspector-focus': inspectorFocus,
                         'SessionRecordingPlayer--inspector-hidden': noInspector,
                     })}
+                    onClick={incrementClickCount}
                 >
                     <div className="SessionRecordingPlayer__main">
                         {includeMeta || isFullScreen ? <PlayerMeta /> : null}
