@@ -20,7 +20,7 @@ const HIGH_WATERMARK_KEY = 'session_replay_events_ingester'
 
 const replayEventsCounter = new Counter({
     name: 'replay_events_ingested',
-    help: 'Count of replay_events_ingested ',
+    help: 'Number of Replay events successfully ingested',
 })
 
 export class ReplayEventsIngester {
