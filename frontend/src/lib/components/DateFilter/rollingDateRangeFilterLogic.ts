@@ -13,12 +13,11 @@ const dateOptionsMap = {
 
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
 
-const MAX_RETENTION_PERIOD_DAYS = 21
-
 export type RollingDateFilterLogicPropsType = {
     selected?: boolean
     onChange?: (fromDate: string) => void
     dateFrom?: Dayjs | string | null
+    max?: number | null
 }
 
 const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): number => {
@@ -56,12 +55,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
         counter: [
             counterDefault(props.selected, props.dateFrom) as number | null,
             {
-                increaseCounter: (state) => {
-                    if (state) {
-                        return state < MAX_RETENTION_PERIOD_DAYS ? state + 1 : state
-                    }
-                    return MAX_RETENTION_PERIOD_DAYS
-                },
+                increaseCounter: (state) => (state ? (!props.max || state < props.max ? state + 1 : state) : 1),
                 decreaseCounter: (state) => {
                     if (state) {
                         return state > 0 ? state - 1 : 0
@@ -69,7 +63,7 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                     return 0
                 },
                 setCounter: (prevCounter, { counter }) =>
-                    counter ? (counter >= 0 && counter <= MAX_RETENTION_PERIOD_DAYS ? counter : prevCounter) : null,
+                    counter ? (!props.max || counter <= props.max ? counter : prevCounter) : null,
             },
         ],
         dateOption: [
