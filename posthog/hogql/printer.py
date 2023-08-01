@@ -262,7 +262,14 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
-                if isinstance(table_type.table, S3Table) and (node.next_join or node.join_type == "JOIN"):
+                # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
+                if isinstance(table_type.table, EventsTable) and self._is_next_s3(node.next_join):
+                    node.next_join.join_type = "GLOBAL JOIN"
+
+                # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
+                if isinstance(table_type.table, S3Table) and (
+                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                ):
                     sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
@@ -303,6 +310,11 @@ class _Printer(Visitor):
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
+
+    def _is_next_s3(self, node: ast.JoinExpr):
+        if isinstance(node.type, ast.TableAliasType):
+            return isinstance(node.type.table_type.table, S3Table)
+        return False
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
