@@ -13,21 +13,18 @@ export type PersonPreviewProps = {
     distinctId: string | undefined
 }
 
-export function PersonPreview(props: PersonPreviewProps): JSX.Element {
+export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     if (!props.distinctId) {
-        return <></>
+        return null
     }
 
     const { person, personLoading } = useValues(personLogic({ id: props.distinctId }))
 
     if (personLoading) {
-        return (
-            <>
-                <Spinner />
-            </>
-        )
+        return <Spinner />
     }
 
+    // NOTE: This should pretty much never happen, but it's here just in case
     if (!person) {
         return <>Not found</>
     }
@@ -39,13 +36,20 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element {
         <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
             <div className="flex items-center justify-between">
                 <Link to={url} className="flex gap-2 items-center">
-                    <ProfilePicture name={display} size="xl" /> <span className="font-semibold text-lg">{display}</span>
+                    <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
-                <LemonButton icon={<IconOpenInNew />} to={urls.person(person?.distinct_ids[0])} />
+                <LemonButton size="small" icon={<IconOpenInNew />} to={urls.person(person?.distinct_ids[0])} />
             </div>
 
             <div className="flex-1 overflow-y-auto border-t">
-                <PropertiesTable properties={person.properties} type={PropertyDefinitionType.Person} sortProperties />
+                <PropertiesTable
+                    properties={person.properties}
+                    type={PropertyDefinitionType.Person}
+                    sortProperties
+                    tableProps={{
+                        size: 'small',
+                    }}
+                />
             </div>
         </div>
     )
