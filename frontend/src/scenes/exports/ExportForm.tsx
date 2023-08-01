@@ -6,9 +6,16 @@ import { LemonSelect } from '../../lib/lemon-ui/LemonSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { PureField } from '../../lib/forms/Field'
 import { router } from 'kea-router'
-import { SceneExport } from '../sceneTypes'
 import { useCallback, useRef, useState } from 'react'
-import { useCreateExport, useCurrentTeamId, BatchExport, useUpdateExport, useExport } from './api'
+import {
+    useCreateExport,
+    useCurrentTeamId,
+    BatchExport,
+    useUpdateExport,
+    useExport,
+    S3Destination,
+    SnowflakeDestination,
+} from './api'
 import { urls } from '../urls'
 
 // TODO: rewrite this to not use explicit refs for the form fields. Possibly use
@@ -22,10 +29,6 @@ import { urls } from '../urls'
 // configuration description of the export types, or having the config component
 // be injected somehow from elsewhere. We're early days so I don't think we need
 // to worry about this right now.
-
-export const scene: SceneExport = {
-    component: ExportForm,
-}
 
 export interface ExportFormProps {
     exportId: string | null
@@ -159,10 +162,18 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
                 </Popover>
             </PureField>
             {exportType === 'S3' && (
-                <ExportS3Form startAt={exportStartAt} endAt={exportEndAt} existingExport={existingExport} />
+                <ExportS3Form
+                    startAt={exportStartAt}
+                    endAt={exportEndAt}
+                    existingExport={existingExport ? existingExport : null}
+                />
             )}
             {exportType === 'Snowflake' && (
-                <ExportSnowflakeForm startAt={exportStartAt} endAt={exportEndAt} existingExport={existingExport} />
+                <ExportSnowflakeForm
+                    startAt={exportStartAt}
+                    endAt={exportEndAt}
+                    existingExport={existingExport ? existingExport : null}
+                />
             )}
         </form>
     )
@@ -340,7 +351,10 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
 
             {(createLoading || updateLoading) && <div>Saving...</div>}
             {(createError || updateError) && (
-                <div>Error: {createError ? createError.toString() : updateError.toString()}</div>
+                <div>
+                    Error:{' '}
+                    {createError ? createError.toString() : updateError ? updateError.toString() : 'Unknown error'}
+                </div>
             )}
         </div>
     )
@@ -423,7 +437,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
 
         if (existingExport) {
             updateExport(currentTeamId, existingExport.id, exportData).then(() => {
-                router.actions.push(urls.viewExport(exportId))
+                router.actions.push(urls.viewExport(existingExport.id))
             })
         } else {
             createExport(currentTeamId, exportData).then(() => {
@@ -519,7 +533,13 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                     placeholder="my-role"
                     ref={roleRef}
                     value={undefined}
-                    defaultValue={exportDestination ? exportDestination.config.role : undefined}
+                    defaultValue={
+                        exportDestination
+                            ? exportDestination.config.role
+                                ? exportDestination.config.role
+                                : undefined
+                            : undefined
+                    }
                 />
             </PureField>
 
@@ -527,7 +547,10 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
 
             {(createLoading || updateLoading) && <div>Saving...</div>}
             {(createError || updateError) && (
-                <div>Error: {createError ? createError.toString() : updateError.toString()}</div>
+                <div>
+                    Error:{' '}
+                    {createError ? createError.toString() : updateError ? updateError.toString() : 'Unknown error'}
+                </div>
             )}
         </div>
     )

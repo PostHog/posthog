@@ -69,7 +69,7 @@ export const useExports = (
     return { exportsState: state, updateCallback }
 }
 
-type S3Destination = {
+export type S3Destination = {
     // At the moment we just support S3, but we include this nesting to
     // allow for future expansion easily without needing to change the
     // interface.
@@ -83,7 +83,7 @@ type S3Destination = {
     }
 }
 
-type SnowflakeDestination = {
+export type SnowflakeDestination = {
     type: 'Snowflake'
     config: {
         account: string
