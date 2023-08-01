@@ -1,7 +1,7 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 
 import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
-import { IconDataObject, IconLock } from 'lib/lemon-ui/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -28,7 +28,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { LemonTag } from '@posthog/lemon-ui'
 import { isInsightVizNode } from '~/queries/utils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 
@@ -175,6 +174,27 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 </>
                                             )}
 
+                                            {isInsightVizNode(query) ? (
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => {
+                                                        // for an existing insight in view mode
+                                                        if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                            // enter edit mode
+                                                            setInsightMode(ItemMode.Edit, null)
+
+                                                            // exit early if query editor doesn't need to be toggled
+                                                            if (showQueryEditor !== false) {
+                                                                return
+                                                            }
+                                                        }
+                                                        toggleQueryEditorPanel()
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    {showQueryEditor ? 'Hide source' : 'View source'}
+                                                </LemonButton>
+                                            ) : null}
                                             <LemonButton
                                                 status="danger"
                                                 onClick={() =>
@@ -194,7 +214,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         </>
                                     }
                                 />
-                                <LemonDivider vertical />
                             </>
                         )}
 
@@ -227,44 +246,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
-                        {isInsightVizNode(query) ? (
-                            <LemonButton
-                                tooltip={
-                                    showQueryEditor ? (
-                                        <>
-                                            Hide source
-                                            <LemonTag className="ml-2" type="warning">
-                                                BETA
-                                            </LemonTag>
-                                        </>
-                                    ) : (
-                                        <>
-                                            View source
-                                            <LemonTag className="ml-2" type="warning">
-                                                BETA
-                                            </LemonTag>
-                                        </>
-                                    )
-                                }
-                                aria-label={showQueryEditor ? 'Hide source (BETA)' : 'View source (BETA)'}
-                                tooltipPlacement="bottomRight"
-                                type={'secondary'}
-                                onClick={() => {
-                                    // for an existing insight in view mode
-                                    if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                        // enter edit mode
-                                        setInsightMode(ItemMode.Edit, null)
-
-                                        // exit early if query editor doesn't need to be toggled
-                                        if (showQueryEditor !== false) {
-                                            return
-                                        }
-                                    }
-                                    toggleQueryEditorPanel()
-                                }}
-                                icon={<IconDataObject fontSize="18" />}
-                            />
-                        ) : null}
                     </div>
                 }
                 caption={
