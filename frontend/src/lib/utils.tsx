@@ -1129,17 +1129,32 @@ export function identifierToHuman(identifier: string | number, caseType: 'senten
     )
 }
 
-export function parseGithubRepoURL(url: string): Record<string, string> {
-    const match = url.match(
-        /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+)(\/(commit|tree|releases\/tag)\/([A-Za-z0-9_.\-\/]+))?/
-    )
+export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
+  if (!navigator.clipboard) {
+    lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost');
+    return false;
+  }
 
-    if (!match) {
-        throw new Error(`${url} is not a valid GitHub URL`)
+  try {
+    await navigator.clipboard.writeText(value);
+    lemonToast.info(`Copied ${description} to clipboard`);
+    return true;
+  } catch (e) {
+    // If the Clipboard API fails, fallback to textarea method
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = value;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      lemonToast.info(`Copied ${description} to clipboard`);
+      return true;
+    } catch (err) {
+      lemonToast.error(`Could not copy ${description} to clipboard: ${err}`);
+      return false;
     }
-
-    const [, user, repo, , type, path] = match
-    return { user, repo, type, path }
+  }
 }
 
 export function someParentMatchesSelector(element: HTMLElement, selector: string): boolean {
