@@ -7,7 +7,7 @@ from typing import Optional
 import structlog
 from django.utils import timezone
 from prometheus_client import Histogram
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, capture_message
 
 from posthog import settings
 from posthog.event_usage import report_team_action
@@ -157,4 +157,15 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
                 exc_info=True,
             )
 
+    capture_message(
+        "session_recording.load_persisted_recording.unexpected_recording_storage_version",
+        extra={
+            "recording_id": recording.session_id,
+            "storage_version": recording.storage_version,
+            "path": recording.object_storage_path,
+        },
+        tags={
+            "team_id": recording.team_id,
+        },
+    )
     return None
