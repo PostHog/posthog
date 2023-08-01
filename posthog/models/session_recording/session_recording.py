@@ -184,7 +184,7 @@ class SessionRecording(UUIDModel):
 
     def build_blob_ingestion_storage_path(self) -> str:
         root_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data/"
+        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":

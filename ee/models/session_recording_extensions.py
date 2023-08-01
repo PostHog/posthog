@@ -156,5 +156,5 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
                 exception=ose,
                 exc_info=True,
             )
-    else:
-        return None
+
+    return None

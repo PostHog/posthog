@@ -240,7 +240,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             if blob_keys:
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
-                    blob_key = full_key.replace(blob_prefix, "")
+                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
                     time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
 
                     sources.append(

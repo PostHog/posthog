@@ -19,7 +19,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
 )
-from posthog.storage.object_storage import write
+from posthog.storage.object_storage import write, list_objects
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 long_url = f"https://app.posthog.com/my-url?token={token_urlsafe(600)}"
@@ -131,28 +131,27 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
 
             with freeze_time(two_minutes_ago):
-                recording: SessionRecording = SessionRecording.objects.create(
-                    team=self.team, session_id=f"test_persists_recording_from_blob_ingested_storage-s1-{uuid4()}"
-                )
-
-                assert recording.created_at == two_minutes_ago
-
-                self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
-                self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
+                session_id = f"test_persists_recording_from_blob_ingested_storage-s1-{uuid4()}"
 
                 produce_replay_summary(
-                    session_id=recording.session_id,
+                    session_id=session_id,
                     team_id=self.team.pk,
-                    first_timestamp=(recording.created_at - timedelta(hours=48)).isoformat(),
-                    last_timestamp=(recording.created_at - timedelta(hours=46)).isoformat(),
+                    first_timestamp=(two_minutes_ago - timedelta(hours=48)).isoformat(),
+                    last_timestamp=(two_minutes_ago - timedelta(hours=46)).isoformat(),
                     distinct_id="distinct_id_1",
                     first_url="https://app.posthog.com/my-url",
                 )
 
                 # this recording already has several files stored from Mr. Blobby
+                # these need to be written before creating the recording object
                 for file in ["a", "b", "c"]:
-                    file_name = f"{recording.build_blob_ingestion_storage_path()}/{file}"
+                    blob_path = f"{TEST_BUCKET}/team_id/{self.team.pk}/session_id/{session_id}/data"
+                    file_name = f"{blob_path}/{file}"
                     write(file_name, f"my content-{file}".encode("utf-8"))
+
+                recording: SessionRecording = SessionRecording.objects.create(team=self.team, session_id=session_id)
+
+                assert recording.created_at == two_minutes_ago
 
             persist_recording(recording.session_id, recording.team_id)
             recording.refresh_from_db()
@@ -164,20 +163,22 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             assert recording.start_time == recording.created_at - timedelta(hours=48)
             assert recording.end_time == recording.created_at - timedelta(hours=46)
 
+            assert recording.storage_version == "2023-08-01"
             assert recording.distinct_id == "distinct_id_1"
             assert recording.duration == 7200
             assert recording.click_count == 0
             assert recording.keypress_count == 0
             assert recording.start_url == "https://app.posthog.com/my-url"
 
-            assert load_persisted_recording(recording) == {
-                "object_keys": [
-                    f"{recording.build_object_storage_path()}/a",
-                    f"{recording.build_object_storage_path()}/b",
-                    f"{recording.build_object_storage_path()}/c",
-                ],
-                "version": "2023-08-01",
-            }
+            # recordings which were blob ingested can not be loaded with this mechanism
+            assert load_persisted_recording(recording) is None
+
+            stored_objects = list_objects(recording.build_object_storage_path())
+            assert stored_objects == [
+                f"{recording.build_object_storage_path()}/a",
+                f"{recording.build_object_storage_path()}/b",
+                f"{recording.build_object_storage_path()}/c",
+            ]
 
     @patch("ee.models.session_recording_extensions.report_team_action")
     def test_persist_tracks_correct_to_posthog(self, mock_capture):
@@ -209,9 +210,5 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
         for x in [
             "total_time_ms",
-            "metadata_load_time_ms",
-            "snapshots_load_time_ms",
-            "content_size_in_bytes",
-            "compressed_size_in_bytes",
         ]:
             assert mock_capture.call_args_list[0][0][2][x] > 0

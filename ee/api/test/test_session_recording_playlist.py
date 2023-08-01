@@ -12,7 +12,6 @@ from posthog.models import SessionRecording, SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.test.test_factory import create_session_recording_events
 from django.test import override_settings
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
@@ -150,28 +149,23 @@ class TestSessionRecordingPlaylist(APILicensedTest):
     def test_get_pinned_recordings_for_playlist(self):
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
-        create_session_recording_events(
-            team_id=self.team.id,
-            distinct_id="123",
-            timestamp=datetime.utcnow(),
-            session_id="session1",
-            window_id="1234",
-        )
-
-        create_session_recording_events(
-            team_id=self.team.id,
-            distinct_id="123",
-            timestamp=datetime.utcnow(),
-            session_id="session2",
-            window_id="1234",
-        )
+        session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
+        session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
+        for session_id in [session_one, session_two]:
+            three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+            produce_replay_summary(
+                team_id=self.team.id,
+                distinct_id="123",
+                first_timestamp=three_days_ago,
+                session_id=session_id,
+            )
 
         # Create playlist items
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/session1"
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_one}"
         )
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/session2"
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_two}"
         )
         self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/session-missing"
@@ -182,7 +176,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
         ).json()
         assert len(result["results"]) == 2
-        assert {x["id"] for x in result["results"]} == {"session1", "session2"}
+        assert {x["id"] for x in result["results"]} == {session_one, session_two}
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     @patch("ee.models.session_recording_extensions.object_storage.list_objects")

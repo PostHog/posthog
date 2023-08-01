@@ -140,7 +140,7 @@ class ObjectStorage(ObjectStorageClient):
 
             for object_key in source_objects:
                 copy_source = {"Bucket": bucket, "Key": object_key}
-                target = object_key.replace(source_prefix, target_prefix)
+                target = object_key.replace(source_prefix.rstrip("/"), target_prefix)
                 self.aws_client.copy(copy_source, bucket, target)
 
             return len(source_objects)
