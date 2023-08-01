@@ -29,7 +29,6 @@ interface SessionRecordingsFiltersProps {
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
-    usesListingV3?: boolean
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
@@ -120,7 +119,6 @@ export function SessionRecordingsFilters({
     setFilters,
     showPropertyFilters,
     onReset,
-    usesListingV3,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
@@ -183,7 +181,6 @@ export function SessionRecordingsFilters({
                     }}
                     recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
                     durationTypeFilter={filters.duration_type_filter || 'duration'}
-                    usesListingV3={usesListingV3}
                     pageKey={'session-recordings'}
                 />
             </div>
@@ -251,10 +248,14 @@ export function SessionRecordingsFilters({
             />
 
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
-                <TestAccountFilter
-                    filters={filters}
-                    onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
-                />
+                <div className={'pt-2'}>
+                    <TestAccountFilter
+                        filters={filters}
+                        onChange={(testFilters) =>
+                            setFilters({ filter_test_accounts: testFilters.filter_test_accounts })
+                        }
+                    />
+                </div>
             </FlaggedFeature>
 
             <div className={'flex flex-col py-1 px-2 '}>

@@ -75,6 +75,8 @@ class UsageReportCounters:
     decide_requests_count_in_month: int
     local_evaluation_requests_count_in_period: int
     local_evaluation_requests_count_in_month: int
+    billable_feature_flag_requests_count_in_period: int
+    billable_feature_flag_requests_count_in_month: int
     # HogQL
     hogql_app_bytes_read: int
     hogql_app_rows_read: int
@@ -328,12 +330,12 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
 
 
 @timed_log()
-def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+def get_teams_with_billable_event_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(1) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -540,8 +542,8 @@ def send_all_org_usage_reports(
     try:
         all_data = dict(
             teams_with_event_count_lifetime=get_teams_with_event_count_lifetime(),
-            teams_with_event_count_in_period=get_teams_with_event_count_in_period(period_start, period_end),
-            teams_with_event_count_in_month=get_teams_with_event_count_in_period(
+            teams_with_event_count_in_period=get_teams_with_billable_event_count_in_period(period_start, period_end),
+            teams_with_event_count_in_month=get_teams_with_billable_event_count_in_period(
                 period_start.replace(day=1), period_end
             ),
             teams_with_event_count_with_groups_in_period=get_teams_with_event_count_with_groups_in_period(
@@ -698,6 +700,15 @@ def send_all_org_usage_reports(
         print("Generating reports for teams...")  # noqa T201
         time_now = datetime.now()
         for team in teams:
+            decide_requests_count_in_month = all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0)
+            decide_requests_count_in_period = all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0)
+            local_evaluation_requests_count_in_period = all_data[
+                "teams_with_local_evaluation_requests_count_in_period"
+            ].get(team.id, 0)
+            local_evaluation_requests_count_in_month = all_data[
+                "teams_with_local_evaluation_requests_count_in_month"
+            ].get(team.id, 0)
+
             team_report = UsageReportCounters(
                 event_count_lifetime=all_data["teams_with_event_count_lifetime"].get(team.id, 0),
                 event_count_in_period=all_data["teams_with_event_count_in_period"].get(team.id, 0),
@@ -710,14 +721,14 @@ def send_all_org_usage_reports(
                 recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
                 recording_count_total=all_data["teams_with_recording_count_total"].get(team.id, 0),
                 group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
-                decide_requests_count_in_period=all_data["teams_with_decide_requests_count_in_period"].get(team.id, 0),
-                decide_requests_count_in_month=all_data["teams_with_decide_requests_count_in_month"].get(team.id, 0),
-                local_evaluation_requests_count_in_period=all_data[
-                    "teams_with_local_evaluation_requests_count_in_period"
-                ].get(team.id, 0),
-                local_evaluation_requests_count_in_month=all_data[
-                    "teams_with_local_evaluation_requests_count_in_month"
-                ].get(team.id, 0),
+                decide_requests_count_in_period=decide_requests_count_in_period,
+                decide_requests_count_in_month=decide_requests_count_in_month,
+                local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
+                local_evaluation_requests_count_in_month=local_evaluation_requests_count_in_month,
+                billable_feature_flag_requests_count_in_month=decide_requests_count_in_month
+                + (local_evaluation_requests_count_in_month * 10),
+                billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
+                + (local_evaluation_requests_count_in_period * 10),
                 dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
                 dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
                 dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),

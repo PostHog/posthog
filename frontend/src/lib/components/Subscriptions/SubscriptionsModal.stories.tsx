@@ -70,7 +70,10 @@ const Template = (
             <div className="p-4 bg-default">
                 <SubscriptionsModal
                     {...(props as SubscriptionsModalProps)}
-                    closeModal={() => console.log('close')}
+                    closeModal={() => {
+                        // eslint-disable-next-line no-console
+                        console.log('close')
+                    }}
                     insightShortId={insightShortIdRef.current}
                     isOpen={true}
                     inline

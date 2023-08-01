@@ -1,77 +1,82 @@
-import { Alert, Input } from 'antd'
-import Modal from 'antd/lib/modal/Modal'
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { useCallback, useRef, useState } from 'react'
+import { PureField } from 'lib/forms/Field'
+import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export function CreateOrganizationModal({
     isVisible,
     onClose,
-    mask = true,
+    inline = false,
 }: {
     isVisible: boolean
     onClose?: () => void
-    mask?: boolean
+    inline?: boolean
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const inputRef = useRef<Input | null>(null)
+    const [name, setName] = useState<string>('')
 
-    const closeModal: () => void = useCallback(() => {
+    const closeModal: () => void = () => {
         if (onClose) {
-            setErrorMessage(null)
             onClose()
-            if (inputRef.current) {
-                inputRef.current.setValue('')
+            if (name) {
+                setName('')
             }
         }
-    }, [inputRef, onClose])
+    }
+    const handleSubmit = (): void => {
+        createOrganization(name)
+        closeModal()
+    }
 
     return (
-        <Modal
-            title="Creating an organization"
-            okText="Create organization"
-            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            onOk={() => {
-                const name = inputRef.current?.state.value?.trim()
-                if (name) {
-                    setErrorMessage(null)
-                    createOrganization(name)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your organization needs a name!')
-                }
-            }}
-            okButtonProps={{
-                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
-                'data-attr': 'create-organization-ok',
-            }}
-            onCancel={closeModal}
-            open={isVisible}
-            mask={mask}
-            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
-            closeIcon={null}
-            back
+        <LemonModal
+            width={480}
+            title="Create an organization"
+            description={
+                <p>
+                    Organizations gather people building together.
+                    <br />
+                    <Link to="https://posthog.com/docs/user-guides/organizations-and-projects" target="_blank">
+                        Learn more in PostHog Docs.
+                    </Link>
+                </p>
+            }
+            footer={
+                <>
+                    {onClose && (
+                        <LemonButton type="secondary" onClick={() => onClose()}>
+                            Cancel
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type="primary"
+                        onClick={() => handleSubmit()}
+                        disabledReason={!name ? 'Think of a name!' : null}
+                        data-attr="create-organization-ok"
+                    >
+                        Create organization
+                    </LemonButton>
+                </>
+            }
+            onClose={closeModal}
+            isOpen={isVisible}
+            inline={inline}
         >
-            <p>
-                Organizations gather people building products together.
-                <br />
-                <a
-                    href="https://posthog.com/docs/user-guides/organizations-and-projects"
-                    target="_blank"
-                    rel="noopener"
-                >
-                    Learn more about organizations in Docs.
-                </a>
-            </p>
-            <Input
-                addonBefore="Name"
-                ref={inputRef}
-                placeholder='for example "Acme Corporation"'
-                maxLength={64}
-                autoFocus
-            />
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginTop: '1rem' }} />}
-        </Modal>
+            <PureField label="Organization name">
+                <LemonInput
+                    placeholder="Acme Inc."
+                    maxLength={64}
+                    autoFocus
+                    value={name}
+                    onChange={(value) => setName(value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            handleSubmit()
+                        }
+                    }}
+                />
+            </PureField>
+        </LemonModal>
     )
 }

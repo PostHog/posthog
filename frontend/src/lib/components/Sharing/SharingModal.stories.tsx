@@ -77,7 +77,10 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
             <div className="bg-default p-2">
                 <SharingModal
                     {...(props as SharingModalProps)}
-                    closeModal={() => console.log('close')}
+                    closeModal={() => {
+                        // eslint-disable-next-line no-console
+                        console.log('close')
+                    }}
                     isOpen={true}
                     inline
                 />
