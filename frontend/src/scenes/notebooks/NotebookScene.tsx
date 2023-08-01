@@ -16,6 +16,8 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import './NotebookScene.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface NotebookSceneProps {
     shortId?: string
@@ -36,6 +38,9 @@ export function NotebookScene(): JSX.Element {
     const { exportJSON } = useActions(notebookLogic({ shortId: notebookId }))
     const { selectNotebook, setNotebookSideBarShown } = useActions(notebookSidebarLogic)
     const { selectedNotebook, notebookSideBarShown } = useValues(notebookSidebarLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
 
     if (!notebook && !notebookLoading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
@@ -104,6 +109,7 @@ export function NotebookScene(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconHelpOutline />}
+                        size={buttonSize}
                         onClick={() => {
                             selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
                             setNotebookSideBarShown(true)
@@ -111,9 +117,10 @@ export function NotebookScene(): JSX.Element {
                     >
                         Guide
                     </LemonButton>
-                    <NotebookExpandButton type="secondary" />
+                    <NotebookExpandButton type="secondary" size={buttonSize} />
                     <LemonButton
                         type="secondary"
+                        size={buttonSize}
                         onClick={() => {
                             selectNotebook(notebookId)
                             setNotebookSideBarShown(true)
@@ -131,13 +138,21 @@ export function NotebookScene(): JSX.Element {
 
                     {!editEnabled ? null : mode === NotebookMode.Edit ? (
                         <>
-                            <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.View)}>
+                            <LemonButton
+                                size={buttonSize}
+                                type="primary"
+                                onClick={() => setNotebookMode(NotebookMode.View)}
+                            >
                                 Done
                             </LemonButton>
                         </>
                     ) : (
                         <>
-                            <LemonButton type="primary" onClick={() => setNotebookMode(NotebookMode.Edit)}>
+                            <LemonButton
+                                size={buttonSize}
+                                type="primary"
+                                onClick={() => setNotebookMode(NotebookMode.Edit)}
+                            >
                                 Edit
                             </LemonButton>
                         </>
