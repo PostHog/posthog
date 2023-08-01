@@ -106,6 +106,14 @@ export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefin
     }
 }
 
+export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.show_percent_stack_view
+    } else {
+        return undefined
+    }
+}
+
 export const getCachedResults = (
     cachedInsight: Partial<InsightModel> | undefined | null,
     query: InsightQueryNode

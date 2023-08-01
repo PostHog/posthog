@@ -19,6 +19,14 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
 ]
+
+/** Display types for which a percent stack view is available. */
+export const PERCENT_STACK_VIEW_DISPLAY_TYPE = [
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+]
+
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
@@ -133,7 +141,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    RECORDINGS_LIST_V2: 'recordings-list-v2-enabled', // owner: #team-session-recordings
     NOTEBOOKS: 'notebooks', // owner: #team-session-recordings
     EARLY_ACCESS_FEATURE: 'early-access-feature', // owner: @EDsCODE
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar

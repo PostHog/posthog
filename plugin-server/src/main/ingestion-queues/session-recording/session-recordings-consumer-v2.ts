@@ -88,6 +88,7 @@ export class SessionRecordingIngesterV2 {
     partitionNow: Record<number, number | null> = {}
     partitionLastKnownCommit: Record<number, number | null> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamId>>
+    recordingConsumerConfig: PluginsServerConfig
 
     constructor(
         private serverConfig: PluginsServerConfig,
@@ -95,7 +96,8 @@ export class SessionRecordingIngesterV2 {
         private objectStorage: ObjectStorage,
         private redisPool: RedisPool
     ) {
-        this.realtimeManager = new RealtimeManager(this.redisPool, this.serverConfig)
+        this.recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
+        this.realtimeManager = new RealtimeManager(this.redisPool, this.recordingConsumerConfig)
 
         this.offsetHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
@@ -318,8 +320,7 @@ export class SessionRecordingIngesterV2 {
 
         await this.replayEventsIngester.start()
 
-        const recordingConsumerConfig = sessionRecordingConsumerConfig(this.serverConfig)
-        const connectionConfig = createRdConnectionConfigFromEnvVars(recordingConsumerConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars(this.recordingConsumerConfig)
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
@@ -332,14 +333,14 @@ export class SessionRecordingIngesterV2 {
             // the largest size of a message that can be fetched by the consumer.
             // the largest size our MSK cluster allows is 20MB
             // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            consumerMaxBytes: this.recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: this.recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             // our messages are very big, so we don't want to buffer too many
-            queuedMinMessages: recordingConsumerConfig.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
-            consumerMaxWaitMs: recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: recordingConsumerConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: recordingConsumerConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
-            batchingTimeoutMs: recordingConsumerConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            queuedMinMessages: this.recordingConsumerConfig.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
+            consumerMaxWaitMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            fetchBatchSize: this.recordingConsumerConfig.SESSION_RECORDING_KAFKA_BATCH_SIZE,
+            batchingTimeoutMs: this.recordingConsumerConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             autoCommit: false,
             eachBatch: async (messages) => {
                 return await this.handleEachBatch(messages)

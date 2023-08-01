@@ -368,7 +368,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ playerData, durations, type, delay, loadedFromBlobStorage }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportRecordingsListFetched: (loadTime: number, listingVersion: '1' | '2' | '3') => ({
+        reportRecordingsListFetched: (loadTime: number, listingVersion: '1' | '3') => ({
             loadTime,
             listingVersion,
         }),
