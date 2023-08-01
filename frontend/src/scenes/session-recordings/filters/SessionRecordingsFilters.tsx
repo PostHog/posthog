@@ -3,9 +3,6 @@ import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'
 import { LemonButton } from '@posthog/lemon-ui'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
 interface SessionRecordingsFiltersProps {
@@ -78,13 +75,6 @@ export function SessionRecordingsFilters({
             )}
 
             <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
-
-            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
-                <TestAccountFilter
-                    filters={filters}
-                    onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
-                />
-            </FlaggedFeature>
 
             {showAdvancedFilters ? (
                 <AdvancedSessionRecordingsFilters

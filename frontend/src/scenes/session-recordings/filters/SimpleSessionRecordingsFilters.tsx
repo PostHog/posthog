@@ -13,9 +13,11 @@ import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/componen
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { teamLogic } from 'scenes/teamLogic'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from '@posthog/lemon-ui'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
@@ -29,6 +31,7 @@ export const SimpleSessionRecordingsFilters = ({
     setLocalFilters: (localFilters: FilterType) => void
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     const pageKey = 'session-recordings'
 
@@ -67,27 +70,14 @@ export const SimpleSessionRecordingsFilters = ({
 
     const pageviewEvents = (localFilters.events || []).filter((event) => event.key != '$pageview')
 
+    const pageviewProperties = pageviewEvents.flatMap((event) => event.properties)
+
+    const simpleFilters = [...(filters.properties || []), ...pageviewProperties]
+
+    const firstFilter = simpleFilters[0]
+
     return (
         <div className="space-y-2">
-            <PropertyFilters
-                pageKey={pageKey}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                propertyFilters={filters.properties}
-                onChange={(properties) => {
-                    setFilters({ properties })
-                }}
-                allowNew={false}
-            />
-            <PropertyFilters
-                pageKey={pageKey}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                propertyFilters={pageviewEvents.flatMap((event) => event.properties)}
-                onChange={() => {
-                    // setLocalFilters({events})
-                }}
-                allowNew={false}
-            />
-
             <div className="flex space-x-1">
                 {defaultProperties.map(({ label, key, type }) => (
                     <SimpleSessionRecordingsFiltersInserter
@@ -100,6 +90,43 @@ export const SimpleSessionRecordingsFilters = ({
                     />
                 ))}
             </div>
+
+            <div className="flex space-x-0.5">
+                <div>Email</div>
+                <OperatorValueSelect
+                    propertyDefinitions={propertyDefinitionsByType(firstFilter?.type)}
+                    type={firstFilter?.type}
+                    propkey={firstFilter?.key}
+                    operator={isPropertyFilterWithOperator(firstFilter) ? firstFilter.operator : null}
+                    value={firstFilter?.value}
+                    placeholder="Enter value..."
+                    onChange={() => {}}
+                />
+            </div>
+
+            {/* <PropertyFilters
+                pageKey={pageKey}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventProperties,
+                ]}
+                propertyFilters={simpleFilters}
+                // This passes out all properties (not just those that were changed)
+                onChange={(properties) => {
+                    debugger
+                    // setFilters({ properties })
+                }}
+                allowNew={false}
+            /> */}
+            {/* <PropertyFilters
+                pageKey={pageKey}
+                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                propertyFilters={pageviewEvents.flatMap((event) => event.properties)}
+                onChange={() => {
+                    // setLocalFilters({events})
+                }}
+                allowNew={false}
+            /> */}
         </div>
     )
 }

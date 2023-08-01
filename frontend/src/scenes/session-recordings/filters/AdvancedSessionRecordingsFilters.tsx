@@ -8,6 +8,9 @@ import { EntityTypes, FilterType, FilterableLogLevel, RecordingDurationFilter, R
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationFilter } from './DurationFilter'
 import { LemonButtonWithDropdown, LemonCheckbox } from '@posthog/lemon-ui'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -23,7 +26,14 @@ export const AdvancedSessionRecordingsFilters = ({
     showPropertyFilters?: boolean
 }): JSX.Element => {
     return (
-        <div>
+        <div className="space-y-2">
+            <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
+                <TestAccountFilter
+                    filters={filters}
+                    onChange={(testFilters) => setFilters({ filter_test_accounts: testFilters.filter_test_accounts })}
+                />
+            </FlaggedFeature>
+
             <LemonLabel>Time and duration</LemonLabel>
             <div className="flex flex-wrap gap-2">
                 <DateFilter
