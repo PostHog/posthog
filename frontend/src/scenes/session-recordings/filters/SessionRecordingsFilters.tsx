@@ -10,6 +10,7 @@ interface SessionRecordingsFiltersProps {
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
+    hasAdvancedFilters: boolean | undefined
     showAdvancedFilters: boolean
     toggleAdvancedFilters: () => void
 }
@@ -41,6 +42,7 @@ export function SessionRecordingsFilters({
     setFilters,
     showPropertyFilters,
     onReset,
+    hasAdvancedFilters,
     showAdvancedFilters,
     toggleAdvancedFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
@@ -94,8 +96,15 @@ export function SessionRecordingsFilters({
             )}
 
             <div>
-                <LemonButton size="small" onClick={toggleAdvancedFilters}>
-                    Switch to {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
+                <LemonButton
+                    size="small"
+                    onClick={toggleAdvancedFilters}
+                    disabledReason={
+                        hasAdvancedFilters &&
+                        'You are only allowed person filters and a single pageview event to switch back to simple filters'
+                    }
+                >
+                    Show {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
                 </LemonButton>
             </div>
         </div>

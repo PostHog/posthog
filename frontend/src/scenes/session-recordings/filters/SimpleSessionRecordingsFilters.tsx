@@ -15,9 +15,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { teamLogic } from 'scenes/teamLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from '@posthog/lemon-ui'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
@@ -31,102 +29,94 @@ export const SimpleSessionRecordingsFilters = ({
     setLocalFilters: (localFilters: FilterType) => void
 }): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
-    const pageKey = 'session-recordings'
-
-    const rawOnChange = (newProperties: AnyPropertyFilter[]): void => {
-        if (newProperties[0].key === '$current_url') {
-            const events = filters.events || []
-            setLocalFilters({
-                ...filters,
-                events: [
-                    ...events,
-                    {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: EntityTypes.EVENTS,
-                        properties: newProperties,
-                    },
-                ],
-            })
-        } else {
-            const properties = filters.properties || []
-            setFilters({ ...filters, properties: [...properties, ...newProperties] })
-        }
-    }
-
-    const defaultProperties = useMemo(() => {
+    const personPropertyOptions = useMemo(() => {
+        const properties = [{ label: 'Country', key: '$geoip_country_name' }]
         const displayNameProperties = currentTeam?.person_display_name_properties ?? []
-        return displayNameProperties
-            .map((property) => {
-                return { label: property, key: property, type: PropertyFilterType.Person }
+        return properties.concat(
+            displayNameProperties.map((property) => {
+                return { label: property, key: property }
             })
-            .concat([
-                { label: 'Country', key: '$geoip_country_name', type: PropertyFilterType.Person },
-                { label: 'URL', key: '$current_url', type: PropertyFilterType.Event },
-            ])
+        )
     }, [currentTeam])
 
-    const pageviewEvents = (localFilters.events || []).filter((event) => event.key != '$pageview')
+    const pageviewEvent = localFilters.events?.find((event) => event.id === '$pageview')
 
-    const pageviewProperties = pageviewEvents.flatMap((event) => event.properties)
-
-    const simpleFilters = [...(filters.properties || []), ...pageviewProperties]
-
-    const firstFilter = simpleFilters[0]
+    const personProperties = filters.properties || []
+    const eventProperties = pageviewEvent?.properties || []
 
     return (
         <div className="space-y-2">
             <div className="flex space-x-1">
-                {defaultProperties.map(({ label, key, type }) => (
+                {personPropertyOptions.map(({ label, key }) => (
                     <SimpleSessionRecordingsFiltersInserter
                         key={key}
-                        type={type}
+                        type={PropertyFilterType.Person}
                         propertyKey={key}
                         label={label}
-                        pageKey={`${pageKey}-${key}`}
-                        onChange={rawOnChange}
+                        disabled={personProperties.some((property) => property.key === key)}
+                        onChange={(newProperties) => {
+                            const properties = filters.properties || []
+                            setFilters({ ...filters, properties: [...properties, ...newProperties] })
+                        }}
                     />
                 ))}
-            </div>
-
-            <div className="flex space-x-0.5">
-                <div>Email</div>
-                <OperatorValueSelect
-                    propertyDefinitions={propertyDefinitionsByType(firstFilter?.type)}
-                    type={firstFilter?.type}
-                    propkey={firstFilter?.key}
-                    operator={isPropertyFilterWithOperator(firstFilter) ? firstFilter.operator : null}
-                    value={firstFilter?.value}
-                    placeholder="Enter value..."
-                    onChange={() => {}}
+                <SimpleSessionRecordingsFiltersInserter
+                    type={PropertyFilterType.Event}
+                    propertyKey="$current_url"
+                    label="URL"
+                    disabled={!!pageviewEvent}
+                    onChange={(properties) => {
+                        const events = filters.events || []
+                        setLocalFilters({
+                            ...filters,
+                            events: [
+                                ...events,
+                                {
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: EntityTypes.EVENTS,
+                                    properties: properties,
+                                },
+                            ],
+                        })
+                    }}
                 />
             </div>
 
-            {/* <PropertyFilters
-                pageKey={pageKey}
-                taxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.EventProperties,
-                ]}
-                propertyFilters={simpleFilters}
-                // This passes out all properties (not just those that were changed)
-                onChange={(properties) => {
-                    debugger
-                    // setFilters({ properties })
-                }}
-                allowNew={false}
-            /> */}
-            {/* <PropertyFilters
-                pageKey={pageKey}
-                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                propertyFilters={pageviewEvents.flatMap((event) => event.properties)}
-                onChange={() => {
-                    // setLocalFilters({events})
-                }}
-                allowNew={false}
-            /> */}
+            {personProperties && (
+                <PropertyFilters
+                    pageKey={'session-recordings'}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                    propertyFilters={personProperties}
+                    onChange={(properties) => setFilters({ properties })}
+                    allowNew={false}
+                />
+            )}
+            {pageviewEvent && (
+                <PropertyFilters
+                    pageKey={`session-recordings-$current_url`}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    propertyFilters={eventProperties}
+                    onChange={(properties) => {
+                        setLocalFilters({
+                            ...filters,
+                            events:
+                                properties.length > 0
+                                    ? [
+                                          {
+                                              id: '$pageview',
+                                              name: '$pageview',
+                                              type: EntityTypes.EVENTS,
+                                              properties: properties,
+                                          },
+                                      ]
+                                    : [],
+                        })
+                    }}
+                    allowNew={false}
+                />
+            )}
         </div>
     )
 }
@@ -135,16 +125,18 @@ const SimpleSessionRecordingsFiltersInserter = ({
     propertyKey,
     type,
     label,
-    pageKey,
+    disabled,
     onChange,
 }: {
     propertyKey: string
     type: PropertyFilterType
     label: string
-    pageKey: string
+    disabled: boolean
     onChange: (properties: AnyPropertyFilter[]) => void
 }): JSX.Element => {
     const [open, setOpen] = useState(false)
+
+    const pageKey = `session-recordings-inserter-${propertyKey}`
 
     const logicProps: PropertyFilterLogicProps = {
         propertyFilters: [{ type: type, key: propertyKey, operator: PropertyOperator.Exact }],
@@ -185,9 +177,9 @@ const SimpleSessionRecordingsFiltersInserter = ({
                 <LemonButton
                     onClick={() => handleVisibleChange(true)}
                     className="new-prop-filter"
-                    data-attr={'new-prop-filter-' + pageKey}
                     type="secondary"
                     size="small"
+                    disabledReason={disabled && 'Add more properties using your existing filter.'}
                     sideIcon={null}
                 >
                     {label}

@@ -82,6 +82,7 @@ export function RecordingsLists({
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
+        hasAdvancedFilters,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
@@ -209,6 +210,7 @@ export function RecordingsLists({
                                 setFilters={setFilters}
                                 showPropertyFilters={!personUUID}
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
+                                hasAdvancedFilters={hasAdvancedFilters}
                                 showAdvancedFilters={showAdvancedFilters}
                                 toggleAdvancedFilters={toggleAdvancedFilters}
                             />

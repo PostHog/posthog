@@ -534,6 +534,21 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 )
             },
         ],
+        hasAdvancedFilters: [
+            (s) => [s.filters, (_, props) => props.personUUID],
+            (filters, personUUID) => {
+                const defaultFilters = getDefaultFilters(personUUID)
+
+                return (
+                    (filters.actions && filters.actions.length > 0) ||
+                    (filters.events && (filters.events.length > 1 || filters.events[0].name != '$pageview')) ||
+                    !equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ||
+                    filters.date_from != defaultFilters.date_from ||
+                    filters.date_to != defaultFilters.date_to ||
+                    (filters.console_logs && filters.console_logs.length > 0)
+                )
+            },
+        ],
     }),
 
     actionToUrl(({ props, values }) => {
