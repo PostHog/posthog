@@ -22,6 +22,7 @@ import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonButton } from '@posthog/lemon-ui'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { ChartDisplayType } from '~/types'
+import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -46,6 +47,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         display,
         compare,
         trendsFilter,
+        hasLegend,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
     const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
@@ -61,6 +63,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                           ...(showCompare ? [{ label: () => <CompareFilter /> }] : []),
                           ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                          ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                       ],
                   },
               ]
@@ -83,7 +86,8 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         trendsFilter?.aggregation_axis_format &&
         trendsFilter.aggregation_axis_format !== 'numeric'
             ? 1
-            : 0)
+            : 0) +
+        (hasLegend && trendsFilter?.show_legend ? 1 : 0)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
