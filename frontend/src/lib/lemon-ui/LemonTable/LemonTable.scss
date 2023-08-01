@@ -177,3 +177,36 @@
     border-top: 1px solid var(--border);
     cursor: default;
 }
+
+.LemonTable__header--sticky,
+.LemonTable__cell--sticky {
+    padding-right: 0.5rem;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    overflow: visible !important;
+    // Replicate .scrollable style for sticky cells
+    &::before {
+        transition: box-shadow 200ms ease;
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1; // Place below cell content
+        clip-path: inset(0 -16px 0 0);
+        box-shadow: -16px 0 16px 16px transparent;
+        .scrollable--left & {
+            box-shadow: -16px 0 16px 16px rgba(0, 0, 0, 0.25);
+        }
+    }
+}
+
+.LemonTable__cell--sticky::before {
+    background: var(--bg-light);
+}
+
+.LemonTable__header--sticky::before {
+    background: var(--mid);
+}
