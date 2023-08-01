@@ -179,33 +179,42 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
         assert filter_passed_to_mock.console_logs_filter == ["warn", "error"]
 
+    @parameterized.expand(
+        [
+            (False, 3),
+            (True, 1),
+        ]
+    )
     @snapshot_postgres_queries
-    def test_listing_recordings_is_not_nplus1_for_persons(self):
+    def test_listing_recordings_is_not_nplus1_for_persons(self, use_recording_events: bool, api_version: int):
         with freeze_time("2022-06-03T12:00:00.000Z"):
             # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
-            self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            self.client.get(f"/api/projects/{self.team.id}/session_recordings?version={api_version}")
 
             base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            num_queries = FuzzyInt(12, 15)  # PoE on or off adds queries here :shrug:
+            num_queries = FuzzyInt(12, 19)  # PoE on or off adds queries here :shrug:
 
-            self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
-            with self.assertNumQueries(num_queries):
-                self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            # loop from 1 to 10
+            for i in range(1, 11):
+                self._person_with_snapshots(
+                    base_time=base_time,
+                    distinct_id=f"user{i}",
+                    session_id=f"{i}",
+                    use_recording_table=use_recording_events,
+                )
+                with self.assertNumQueries(num_queries):
+                    self.client.get(f"/api/projects/{self.team.id}/session_recordings?version={api_version}")
 
-            self._person_with_snapshots(base_time=base_time, distinct_id="user2", session_id="2")
-            with self.assertNumQueries(num_queries):
-                self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-
-            self._person_with_snapshots(base_time=base_time, distinct_id="user3", session_id="3")
-            with self.assertNumQueries(num_queries):
-                self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-
-    def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
+    def _person_with_snapshots(
+        self, base_time: datetime, distinct_id: str = "user", session_id: str = "1", use_recording_table=True
+    ) -> None:
         Person.objects.create(
             team=self.team, distinct_ids=[distinct_id], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        self.create_snapshot(distinct_id, session_id, base_time)
-        self.create_snapshot(distinct_id, session_id, base_time + relativedelta(seconds=10))
+        self.create_snapshot(distinct_id, session_id, base_time, use_recording_table=use_recording_table)
+        self.create_snapshot(
+            distinct_id, session_id, base_time + relativedelta(seconds=10), use_recording_table=use_recording_table
+        )
         flush_persons_and_events()
 
     @parameterized.expand(
