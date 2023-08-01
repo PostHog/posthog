@@ -8,9 +8,8 @@ import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSu
 import { Node, NotebookEditor } from '../Notebook/utils'
 
 const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element => {
-    const timestampNode = getTimestampChildNode(previousNode)
     const { currentPlayerTime } = useValues(
-        sessionRecordingPlayerLogic(sessionRecordingPlayerProps(timestampNode.attrs.sessionRecordingId))
+        sessionRecordingPlayerLogic(sessionRecordingPlayerProps(getSessionRecordingId(previousNode)))
     )
 
     return (
@@ -21,13 +20,16 @@ const Component = ({ previousNode }: InsertionSuggestionViewProps): JSX.Element 
 }
 
 export default InsertionSuggestion.create({
-    shouldShow: ({ previousNode }) =>
-        !!previousNode ? hasChildOfType(previousNode, NotebookNodeType.ReplayTimestamp) : false,
+    shouldShow: ({ previousNode }) => {
+        return !!previousNode
+            ? previousNode.type.name === NotebookNodeType.Recording ||
+                  hasChildOfType(previousNode, NotebookNodeType.ReplayTimestamp)
+            : false
+    },
 
     onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => {
         if (!!previousNode && !!editor) {
-            const timestampNode = getTimestampChildNode(previousNode)
-            const sessionRecordingId = timestampNode.attrs.sessionRecordingId
+            const sessionRecordingId = getSessionRecordingId(previousNode)
 
             const currentPlayerTime =
                 sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
@@ -39,6 +41,12 @@ export default InsertionSuggestion.create({
 
     Component,
 })
+
+function getSessionRecordingId(node: Node | null): string {
+    return node?.type.name === NotebookNodeType.Recording
+        ? node.attrs.id
+        : getTimestampChildNode(node).attrs.sessionRecordingId
+}
 
 function getTimestampChildNode(node: Node | null): Node {
     return firstChildOfType(node as Node, NotebookNodeType.ReplayTimestamp) as Node
