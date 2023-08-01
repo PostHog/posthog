@@ -1254,6 +1254,8 @@ class TestFeatureFlag(APIBaseTest):
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
+        self.client.logout()
+
         response = self.client.get(
             f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
             HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
