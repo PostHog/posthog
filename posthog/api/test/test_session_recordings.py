@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY, patch
+from typing import List
+from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
@@ -542,7 +543,64 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 },
             ]
         }
-        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/")
+        mock_list_objects.assert_called_with(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data")
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch("posthog.api.session_recording.object_storage.list_objects")
+    def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock) -> None:
+        session_id = str(uuid.uuid4())
+        timestamp = round(now().timestamp() * 1000)
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version="2023-08-01",
+            object_storage_path="an lts stored object path",
+        )
+
+        def list_objects_func(path: str) -> List[str]:
+            # this mock simulates a recording whose blob storage has been deleted by TTL
+            # but which has been stored in LTS blob storage
+            if path == "an lts stored object path":
+                return [
+                    f"an lts stored object path/{timestamp - 10000}-{timestamp - 5000}",
+                    f"an lts stored object path/{timestamp - 5000}-{timestamp}",
+                ]
+            else:
+                return []
+
+        mock_list_objects.side_effect = list_objects_func
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response_data = response.json()
+
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:50Z",
+                    "end_timestamp": "2022-12-31T23:59:55Z",
+                    "blob_key": "1672531190000-1672531195000",
+                },
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": "2023-01-01T00:00:00Z",
+                    "blob_key": "1672531195000-1672531200000",
+                },
+                {
+                    "source": "realtime",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": None,
+                    "blob_key": None,
+                },
+            ]
+        }
+        assert mock_list_objects.call_args_list == [
+            call(f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data"),
+            call("an lts stored object path"),
+        ]
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch("posthog.api.session_recording.object_storage.list_objects")
