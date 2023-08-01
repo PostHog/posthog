@@ -147,6 +147,8 @@ def serialize_database(database: Database) -> Dict[str, List[SerializedField]]:
         field_output: List[SerializedField] = serialize_fields(field_input)
         tables[table_key] = field_output
 
+    # TODO: add view based fields here?
+
     return tables
 
 

@@ -5,6 +5,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
+from posthog.warehouse.models import DataWarehouseViewLink
 
 
 class PropertyType(models.TextChoices):
@@ -32,6 +33,11 @@ class PropertyDefinition(UUIDModel):
         PERSON = 2, "person"
         GROUP = 3, "group"
 
+        # event property type that's based on a view
+        EVENT_VIEW = 4, "event_view"
+        # person property type that's based on a view
+        PERSON_VIEW = 5, "person_view"
+
     team: models.ForeignKey = models.ForeignKey(
         Team, on_delete=models.CASCADE, related_name="property_definitions", related_query_name="team"
     )
@@ -46,6 +52,11 @@ class PropertyDefinition(UUIDModel):
     type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type.choices)
     # Only populated for `Type.GROUP`
     group_type_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True)
+
+    # Only populated for `Type.PERSON_VIEW` or `Type.EVENT_VIEW`
+    view_link: models.ForeignKey = models.ForeignKey(
+        DataWarehouseViewLink, on_delete=models.CASCADE, null=True, blank=True
+    )
 
     # DEPRECATED
     property_type_format = models.CharField(
