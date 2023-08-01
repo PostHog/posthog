@@ -29,7 +29,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             minHeight={100}
             resizeable={props.selected}
         >
-            <div className="flex flex-col border bg-bg-light rounded overflow-hidden">
+            <div className="flex flex-col overflow-hidden">
                 <div className="p-4 flex-0">
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />
@@ -40,7 +40,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
 
                 {props.selected && (
                     <>
-                        <LemonDivider className="my-0" />
+                        <LemonDivider className="my-0 mx-2" />
                         <div className="flex-1 p-2 overflow-y-auto">
                             <PropertiesTable
                                 type={PropertyDefinitionType.Person}

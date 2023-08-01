@@ -25,7 +25,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             heightEstimate={'3rem'}
             resizeable={false}
         >
-            <div className="border rounded bg-bg-light">
+            <div>
                 <div className="flex items-center gap-2 p-4">
                     <IconFlag className="text-lg" />
                     {featureFlagLoading ? (

@@ -28,6 +28,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         ...sessionRecordingPlayerProps(id),
         autoPlay: false,
         mode: SessionRecordingPlayerMode.Notebook,
+        noBorder: true,
     }
 
     const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
@@ -49,7 +50,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             resizeable={props.selected}
         >
             {!props.selected ? (
-                <div className="border rounded bg-white">
+                <div>
                     {sessionPlayerMetaData ? (
                         <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
                     ) : (

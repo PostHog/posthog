@@ -117,6 +117,7 @@
         border: 1px solid var(--border);
         border-radius: var(--radius);
         background-color: var(--white);
+        cursor: pointer;
 
         &.NotebookRecordingTimestamp--selected {
             outline-style: solid;
