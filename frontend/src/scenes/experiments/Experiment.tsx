@@ -560,21 +560,23 @@ export function Experiment(): JSX.Element {
                                             <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
                                                 <b className="uppercase">{status()}</b>
                                             </Tag>
+                                            {experimentResults && experiment.end_date && (
+                                                <Tag
+                                                    style={{ alignSelf: 'center' }}
+                                                    color={areResultsSignificant ? 'green' : 'geekblue'}
+                                                >
+                                                    <b className="uppercase">
+                                                        {areResultsSignificant
+                                                            ? 'Significant Results'
+                                                            : 'Results not significant'}
+                                                    </b>
+                                                </Tag>
+                                            )}
                                         </>
                                     }
                                 />
                             </Col>
-                            <Col>
-                                {experimentResults && experiment.end_date && (
-                                    <Tag
-                                        style={{ alignSelf: 'center' }}
-                                        color={areResultsSignificant ? 'green' : 'geekblue'}
-                                    >
-                                        <b className="uppercase">
-                                            {areResultsSignificant ? 'Significant Results' : 'Results not significant'}
-                                        </b>
-                                    </Tag>
-                                )}
+                            <Col className="page-title-row">
                                 {experiment && !isExperimentRunning && (
                                     <div className="flex items-center">
                                         <LemonButton
