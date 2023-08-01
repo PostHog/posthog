@@ -5,6 +5,7 @@ import {
     ChainedCommands as EditorCommands,
     Range as EditorRange,
     getText,
+    FocusPosition,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
 import { NotebookNodeType } from '~/types'
@@ -20,6 +21,7 @@ export interface NotebookEditor {
     getJSON: () => JSONContent
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
+    focus: (position: FocusPosition) => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void

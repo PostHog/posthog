@@ -1,4 +1,4 @@
-import { Editor as TTEditor } from '@tiptap/core'
+import { FocusPosition, Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { useCallback, useRef } from 'react'
@@ -146,6 +146,7 @@ export function Editor({
                 getJSON: () => editor.getJSON(),
                 setEditable: (editable: boolean) => editor.setEditable(editable, false),
                 setContent: (content: JSONContent) => editor.commands.setContent(content, false),
+                focus: (position: FocusPosition) => editor.commands.focus(position),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
