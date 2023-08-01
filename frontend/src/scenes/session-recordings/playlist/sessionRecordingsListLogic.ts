@@ -157,7 +157,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
         ],
-        values: [featureFlagLogic, ['featureFlags'], playerSettingsLogic, ['autoplayDirection']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            playerSettingsLogic,
+            ['autoplayDirection', 'hideViewedRecordings'],
+        ],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
@@ -547,6 +552,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     filters.date_to != defaultFilters.date_to ||
                     (filters.console_logs && filters.console_logs.length > 0)
                 )
+            },
+        ],
+        visibleRecordings: [
+            (s) => [s.sessionRecordings, s.hideViewedRecordings],
+            (sessionRecordings, hideViewedRecordings) => {
+                return hideViewedRecordings ? sessionRecordings.filter((r) => !r.viewed) : sessionRecordings
             },
         ],
     }),

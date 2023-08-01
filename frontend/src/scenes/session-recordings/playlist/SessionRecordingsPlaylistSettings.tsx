@@ -7,8 +7,8 @@ import clsx from 'clsx'
 import { IconPause, IconPlay } from 'lib/lemon-ui/icons'
 
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
-    const { autoplayDirection, durationTypeToShow } = useValues(playerSettingsLogic)
-    const { toggleAutoplayDirection, setDurationTypeToShow } = useActions(playerSettingsLogic)
+    const { autoplayDirection, durationTypeToShow, hideViewedRecordings } = useValues(playerSettingsLogic)
+    const { toggleAutoplayDirection, setDurationTypeToShow, setHideViewedRecordings } = useActions(playerSettingsLogic)
 
     return (
         <div className="relative flex flex-col gap-2 p-3 bg-side border-b">
@@ -43,6 +43,14 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                         />
                     </span>
                 </Tooltip>
+            </div>
+            <div className="flex flex-row items-center justify-between space-x-2">
+                <span className="text-black font-medium">Hide viewed</span>
+                <LemonSwitch
+                    aria-label="Autoplay next recording"
+                    checked={hideViewedRecordings}
+                    onChange={() => setHideViewedRecordings(!hideViewedRecordings)}
+                />
             </div>
             <div className="flex flex-row items-center justify-between space-x-2">
                 <span className="text-black font-medium">Show</span>

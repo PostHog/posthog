@@ -73,7 +73,7 @@ export function RecordingsLists({
     const {
         filters,
         hasNext,
-        sessionRecordings,
+        visibleRecordings,
         sessionRecordingsResponseLoading,
         activeSessionRecording,
         showFilters,
@@ -156,12 +156,12 @@ export function RecordingsLists({
                     title={!playlistShortId ? 'Recordings' : 'Other recordings'}
                     titleRight={
                         <>
-                            {sessionRecordings.length ? (
+                            {visibleRecordings.length ? (
                                 <Tooltip
                                     placement="bottom"
                                     title={
                                         <>
-                                            Showing {sessionRecordings.length} results.
+                                            Showing {visibleRecordings.length} results.
                                             <br />
                                             Scrolling to the bottom or the top of the list will load older or newer
                                             recordings respectively.
@@ -169,7 +169,7 @@ export function RecordingsLists({
                                     }
                                 >
                                     <span>
-                                        <CounterBadge>{Math.min(999, sessionRecordings.length)}+</CounterBadge>
+                                        <CounterBadge>{Math.min(999, visibleRecordings.length)}+</CounterBadge>
                                     </span>
                                 </Tooltip>
                             ) : null}
@@ -224,7 +224,7 @@ export function RecordingsLists({
                     onCollapse={
                         !!playlistShortId ? () => setCollapsed({ ...collapsed, other: !collapsed.other }) : undefined
                     }
-                    recordings={sessionRecordings}
+                    recordings={visibleRecordings}
                     loading={sessionRecordingsResponseLoading}
                     loadingSkeletonCount={RECORDINGS_LIMIT}
                     empty={
@@ -309,6 +309,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         filters: defaultFilters,
         updateSearchParams,
         autoPlay,
+
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
