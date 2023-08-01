@@ -14,6 +14,7 @@ import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
@@ -28,10 +29,15 @@ const Component = (props: NodeViewProps): JSX.Element => {
         onFiltersChange: setFilters,
     }
 
+    const { expanded } = useValues(notebookNodeLogic)
+
     const logic = sessionRecordingsListLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording, nextSessionRecording } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
+    if (!expanded) {
+        return <div className="p-4">20+ recordings </div>
+    }
     const content = !activeSessionRecording?.id ? (
         <RecordingsLists {...recordingPlaylistLogicProps} />
     ) : (
@@ -65,7 +71,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode({
         // TODO: Fix parsing of attrs
         return urls.replay(undefined, attrs.filters)
     },
-    resizeable: false,
+    resizeable: true,
     attributes: {
         filters: {
             default: undefined,

@@ -1,8 +1,7 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
+import { NodeViewProps } from '@tiptap/core'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,8 +20,6 @@ const DEFAULT_QUERY: QuerySchema = {
     },
     expandable: false,
 }
-
-const DEFAULT_HEIGHT = 500
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
@@ -46,6 +43,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
         return 'Query'
     }, [query])
 
+    useEffect(() => {
+        // TODO: Set title on parent props
+    }, [title])
+
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query }
 
@@ -58,44 +59,21 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [query, editing])
 
     return (
-        <NodeWrapper nodeType={NotebookNodeType.Query} title={title} heightEstimate={DEFAULT_HEIGHT} {...props}>
-            <BindLogic logic={insightLogic} props={insightProps}>
-                <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
-            </BindLogic>
-        </NodeWrapper>
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <Query query={modifiedQuery} setQuery={(t) => setQuery(t as any)} />
+        </BindLogic>
     )
 }
 
-export const NotebookNodeQuery = Node.create({
-    name: NotebookNodeType.Query,
-    group: 'block',
-    atom: true,
-    draggable: true,
-
-    addAttributes() {
-        return {
-            height: {
-                default: DEFAULT_HEIGHT,
-            },
-            query: {
-                default: DEFAULT_QUERY,
-            },
-        }
-    },
-
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.Query,
-            },
-        ]
-    },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Query, mergeAttributes(HTMLAttributes)]
-    },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
+export const NotebookNodeQuery = createPostHogWidgetNode({
+    nodeType: NotebookNodeType.Query,
+    title: 'Query', // TODO: allow this to be updated from the component
+    Component,
+    heightEstimate: 500,
+    resizeable: true,
+    attributes: {
+        query: {
+            default: DEFAULT_QUERY,
+        },
     },
 })

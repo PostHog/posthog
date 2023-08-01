@@ -131,10 +131,6 @@ export function NodeWrapper({
                                     >
                                         <span className="flex-1 cursor-pointer">{title}</span>
                                     </LemonButton>
-                                    {/* <IconDragHandle className="cursor-move text-base shrink-0" />
-                                    <span onClick={() => setExpanded(!expanded)} className="flex-1 cursor-pointer">
-                                        {title}
-                                    </span> */}
 
                                     {parsedHref && <LemonButton size="small" icon={<IconLink />} to={parsedHref} />}
 
