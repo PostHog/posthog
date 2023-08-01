@@ -1,6 +1,5 @@
 import { Card, Col, Row } from 'antd'
 import { useValues } from 'kea'
-import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -207,13 +206,18 @@ export function InsightContainer({
                 className="insights-graph-container"
             >
                 <div>
-                    <div
-                        className={clsx('flex items-center justify-between insights-graph-header', {
-                            funnels: isFunnels,
-                        })}
-                    >
-                        {/*Don't add more than two columns in this row.*/}
-                        {(!disableLastComputation || !!samplingFactor) && (
+                    {isFunnels && (
+                        <div className="flex flex-row items-center justify-between insights-graph-header funnels">
+                            <div className="flex flex-col">
+                                <FunnelCanvasLabel />
+                            </div>
+                        </div>
+                    )}
+
+                    {(!disableLastComputation || !!samplingFactor) && (
+                        <div className="flex items-center justify-between insights-graph-header">
+                            {/*Don't add more than two columns in this row.*/}
+
                             <div className="flex items-center">
                                 {!disableLastComputation && (
                                     <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />
@@ -225,14 +229,14 @@ export function InsightContainer({
                                     </span>
                                 ) : null}
                             </div>
-                        )}
 
-                        <div>
-                            {isFunnels ? <FunnelCanvasLabel /> : null}
-                            {isPaths ? <PathCanvasLabel /> : null}
-                            {!disableLegendButton && <InsightLegendButton />}
+                            <div>
+                                {isPaths ? <PathCanvasLabel /> : null}
+                                {!disableLegendButton && <InsightLegendButton />}
+                            </div>
                         </div>
-                    </div>
+                    )}
+
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : supportsDisplay && (insightFilter as TrendsFilter | StickinessFilter)?.show_legend ? (
