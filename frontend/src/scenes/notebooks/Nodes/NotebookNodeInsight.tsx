@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 
+const HEIGHT = '16rem'
+
 const Component = (props: NodeViewProps): JSX.Element => {
     const href = `/insights/${props.node.attrs.id}`
 
@@ -26,6 +28,9 @@ export const NotebookNodeInsight = Node.create({
 
     addAttributes() {
         return {
+            height: {
+                default: HEIGHT,
+            },
             id: '',
         }
     },

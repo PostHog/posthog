@@ -1,8 +1,8 @@
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
-import { ReactNode, useCallback, useEffect, useMemo, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMountedLogic, useValues } from 'kea'
@@ -47,6 +47,8 @@ export function NodeWrapper({
             getPos: getPos,
         })
     )
+
+    const [expanded, setExpanded] = useState(false)
 
     const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -104,7 +106,13 @@ export function NodeWrapper({
                             <div className={clsx('NotebookNode__meta')} data-drag-handle>
                                 <IconDragHandle className="cursor-move text-base shrink-0" />
                                 <span className="flex-1">{title}</span>
-                                {href && <LemonButton size="small" icon={<IconLink />} to={href} noPadding />}
+                                {href && <LemonButton size="small" icon={<IconLink />} to={href} />}
+
+                                <LemonButton
+                                    onClick={() => setExpanded(!expanded)}
+                                    size="small"
+                                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                />
                             </div>
                             <div
                                 ref={contentRef}

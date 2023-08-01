@@ -114,21 +114,20 @@
 
     .NotebookRecordingTimestamp {
         padding: 0.125rem 0.25rem;
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-3000);
         border-radius: var(--radius);
-        background-color: var(--white);
+        background-color: var(--bg-light);
         cursor: pointer;
+        height: 1.375rem;
 
-        &.NotebookRecordingTimestamp--selected {
+        &--selected {
             outline-style: solid;
             outline-color: var(--primary-bg-active);
         }
 
-        &.NotebookRecordingTimestamp--preview {
-            height: 1.375rem;
-            border: 1px solid var(--border-light);
-            color: var(--mid);
-            padding: 0rem 0.25rem;
+        &--preview {
+            // padding: 0rem 0.25rem;
+            opacity: 0.5;
         }
     }
 
