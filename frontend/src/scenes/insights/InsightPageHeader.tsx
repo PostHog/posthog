@@ -30,6 +30,9 @@ import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isInsightVizNode } from '~/queries/utils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { useState } from 'react'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -67,6 +70,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
+    const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
+
     return (
         <>
             {hasDashboardItemId && (
@@ -85,6 +90,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insight={insight}
                         previewIframe
                     />
+                    <AddToDashboardModal
+                        isOpen={addToDashboardModalOpen}
+                        closeModal={() => setAddToDashboardModalOpenModal(false)}
+                        insight={insight}
+                        canEditInsight={canEditInsight}
+                    />
+                    <NewDashboardModal />
                 </>
             )}
             <PageHeader
@@ -138,6 +150,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 fullWidth
                                             >
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                            </LemonButton>
+                                            <LemonButton
+                                                status="stealth"
+                                                onClick={() => setAddToDashboardModalOpenModal(true)}
+                                                fullWidth
+                                            >
+                                                Add to dashboard
                                             </LemonButton>
                                             <LemonDivider />
 
@@ -223,7 +242,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
-                            <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
+                            <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (

@@ -1,31 +1,24 @@
-import { useState } from 'react'
-import { AddToDashboardModal } from './AddToDashboardModal'
 import { InsightModel } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconGauge, IconWithCount } from 'lib/lemon-ui/icons'
-import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
-    canEditInsight: boolean
+    setOpenModal: (open: boolean) => void
 }
 
-export function AddToDashboard({ insight, canEditInsight }: SaveToDashboardProps): JSX.Element {
-    const [openModal, setOpenModal] = useState<boolean>(false)
+export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps): JSX.Element | null {
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboard_tiles?.map((tile) => rawDashboards[tile.dashboard_id]).filter((d) => !!d) || []
 
+    if (dashboards.length === 0) {
+        return null
+    }
+
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
-            <AddToDashboardModal
-                isOpen={openModal}
-                closeModal={() => setOpenModal(false)}
-                insight={insight}
-                canEditInsight={canEditInsight}
-            />
-            <NewDashboardModal />
             <LemonButton
                 onClick={() => setOpenModal(true)}
                 type="secondary"
@@ -35,7 +28,7 @@ export function AddToDashboard({ insight, canEditInsight }: SaveToDashboardProps
                     </IconWithCount>
                 }
             >
-                Add to dashboard
+                Edit dashboard(s)
             </LemonButton>
         </span>
     )

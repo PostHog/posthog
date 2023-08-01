@@ -61,7 +61,7 @@ const DashboardRelationRow = ({
                 className="overflow-hidden text-ellipsis whitespace-nowrap"
                 title={dashboard.name}
             >
-                {dashboard.name || 'Untitled'}
+                <span className={isAlreadyOnDashboard ? 'font-bold' : ''}>{dashboard.name || 'Untitled'}</span>
             </Link>
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
@@ -70,7 +70,8 @@ const DashboardRelationRow = ({
             )}
             <span className="grow" />
             <LemonButton
-                type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
+                type="secondary"
+                status={isAlreadyOnDashboard ? 'danger' : 'primary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
                 disabledReason={
                     !canEditInsight
@@ -87,7 +88,7 @@ const DashboardRelationRow = ({
                         : addToDashboard(insight, dashboard.id)
                 }}
             >
-                {isAlreadyOnDashboard ? 'Added' : 'Add to dashboard'}
+                {isAlreadyOnDashboard ? 'Remove from dashboard' : 'Add to dashboard'}
             </LemonButton>
         </div>
     )
