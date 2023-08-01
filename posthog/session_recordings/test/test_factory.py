@@ -71,6 +71,7 @@ def create_session_recording_events(
             session_id=session_id,
             distinct_id=distinct_id,
             first_timestamp=timestamp,
+            last_timestamp=timestamp,
         )
 
     if use_recording_table:
