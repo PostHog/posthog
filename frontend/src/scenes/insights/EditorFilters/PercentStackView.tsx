@@ -10,12 +10,12 @@ export function PercentStackView(): JSX.Element {
 
     return (
         <LemonCheckbox
+            className="p-1 px-2"
             checked={!!showPercentStackView}
             onChange={(checked) => {
                 updateInsightFilter({ show_percent_stack_view: checked })
             }}
             label={<span className="font-normal">Show as % of total</span>}
-            bordered
             size="small"
         />
     )

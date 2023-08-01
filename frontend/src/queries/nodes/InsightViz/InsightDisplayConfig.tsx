@@ -18,6 +18,9 @@ import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { PercentStackView } from 'scenes/insights/EditorFilters/PercentStackView'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonButton } from '@posthog/lemon-ui'
+import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -39,9 +42,25 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showPaths,
         showFunnelDisplayLayout,
         showFunnelBins,
+        display,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
     const { showPercentStackView: isPercentStackViewOn } = useValues(trendsDataLogic(insightProps))
+
+    const advancedOptions: LemonMenuItems = [
+        {
+            title: 'Display',
+            items: [
+                ...(showCompare ? [{ label: () => <CompareFilter /> }] : []),
+                ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                ...(showPercentStackView ? [{ label: () => <PercentStackView /> }] : []),
+            ],
+        },
+
+        ...(!isPercentStackViewOn && showUnit
+            ? [{ title: axisLabel(display), items: [{ label: () => <UnitPicker /> }] }]
+            : []),
+    ]
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -76,48 +95,29 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                         <PathStepPicker />
                     </ConfigFilter>
                 )}
-
-                {showCompare && (
-                    <ConfigFilter>
-                        <CompareFilter />
-                    </ConfigFilter>
-                )}
-
-                {showValueOnSeries && (
-                    <ConfigFilter>
-                        <ValueOnSeriesFilter />
-                    </ConfigFilter>
-                )}
-
-                {showPercentStackView && (
-                    <ConfigFilter>
-                        <PercentStackView />
-                    </ConfigFilter>
-                )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
-                {!isPercentStackViewOn && showUnit && (
-                    <ConfigFilter>
-                        <UnitPicker />
-                    </ConfigFilter>
-                )}
-
                 {showChart && (
                     <ConfigFilter>
                         <ChartFilter />
                     </ConfigFilter>
                 )}
-
                 {showFunnelDisplayLayout && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-
                 {showFunnelBins && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>
+                )}
+                {advancedOptions.length > 0 && (
+                    <LemonMenu items={advancedOptions} closeOnClickInside={false}>
+                        <LemonButton size="small" status="default-dark">
+                            More
+                        </LemonButton>
+                    </LemonMenu>
                 )}
             </div>
         </div>
