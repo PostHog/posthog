@@ -48,15 +48,18 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     const { showPercentStackView: isPercentStackViewOn } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
-        {
-            title: 'Display',
-            items: [
-                ...(showCompare ? [{ label: () => <CompareFilter /> }] : []),
-                ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                ...(showPercentStackView ? [{ label: () => <PercentStackView /> }] : []),
-            ],
-        },
-
+        ...(showCompare || showValueOnSeries || showPercentStackView
+            ? [
+                  {
+                      title: 'Display',
+                      items: [
+                          ...(showCompare ? [{ label: () => <CompareFilter /> }] : []),
+                          ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                          ...(showPercentStackView ? [{ label: () => <PercentStackView /> }] : []),
+                      ],
+                  },
+              ]
+            : []),
         ...(!isPercentStackViewOn && showUnit
             ? [{ title: axisLabel(display), items: [{ label: () => <UnitPicker /> }] }]
             : []),
