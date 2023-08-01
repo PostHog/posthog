@@ -113,6 +113,9 @@ class SessionRecording(UUIDModel):
             self._snapshots = snapshots
 
     def load_object_data(self) -> None:
+        """
+        This is only called in the to-be deprecated v1 of session recordings snapshot API
+        """
         try:
             from ee.models.session_recording_extensions import load_persisted_recording
         except ImportError:
@@ -129,9 +132,7 @@ class SessionRecording(UUIDModel):
                 "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
             }
         elif data.get("version", None) == "2023-08-01":
-            # so its PersistedRecordingV2
-            # what do we do?
-            pass
+            raise NotImplementedError("Storage version 2023-08-01 will never be supported in this code path")
         else:
             # unknown version
             return
