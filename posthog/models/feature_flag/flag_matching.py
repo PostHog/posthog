@@ -6,6 +6,7 @@ import structlog
 from typing import Dict, List, Optional, Tuple, Union
 
 from prometheus_client import Counter
+from django.conf import settings
 from django.db import DatabaseError, IntegrityError, OperationalError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
@@ -619,7 +620,7 @@ def get_all_feature_flags(
     writing_hash_key_override = False
     # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
     # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
-    if hash_key_override is not None:
+    if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
         # First, check if the hash_key_override is already in the database.
         # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
         # So, if an extra query check helps us avoid the write path, it's worth it.

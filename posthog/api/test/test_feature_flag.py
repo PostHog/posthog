@@ -3395,3 +3395,65 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                     call().inc(),
                 ]
             )
+
+    @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
+    def test_feature_flags_v3_with_experience_continuity_and_incident_mode(self, mock_counter, *args):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id", "random"], properties={"email": "tim@posthog.com"}
+        )
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "property-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                            ],
+                            "rollout_percentage": 91,
+                        }
+                    ],
+                },
+                "ensure_experience_continuity": True,
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(5), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
+
+            self.assertTrue(all_flags["property-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            self.assertFalse(errors)
+
+        # should've been false because of the override, but incident mode, so not
+        all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="other_id")
+
+        self.assertTrue(all_flags["property-flag"])
+        self.assertTrue(all_flags["default-flag"])
+        self.assertFalse(errors)

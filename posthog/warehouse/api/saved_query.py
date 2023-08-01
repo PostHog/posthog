@@ -5,18 +5,23 @@ from rest_framework import filters, serializers, viewsets
 from posthog.warehouse.models import DataWarehouseSavedQuery
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.hogql.database.database import serialize_fields
 
 from posthog.models import User
-from typing import Any
+from typing import Any, Dict
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    columns = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
         fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
+
+    def get_columns(self, view: DataWarehouseSavedQuery) -> Dict[str, str]:
+        return serialize_fields(view.hogql_definition().fields)
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
