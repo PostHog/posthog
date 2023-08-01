@@ -132,6 +132,8 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
 
     # originally storage version was written to the stored content
     # some stored content is stored over multiple files, so we can't rely on that
+    # future recordings will have the storage version on the model
+    # and will not be loaded here
     if not recording.storage_version:
         try:
             content = object_storage.read(recording.object_storage_path)
@@ -153,9 +155,5 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
                 exception=ose,
                 exc_info=True,
             )
-    elif recording.storage_version == "2023-08-01":
-        # this is a recording copied from blob ingestion storage
-        # it isn't used in this code path
-        return None
     else:
         return None
