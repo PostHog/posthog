@@ -1,12 +1,11 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
-import { ReactNodeViewRenderer } from '@tiptap/react'
-import { NodeWrapper } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { NodeViewProps } from '@tiptap/core'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, RecordingFilters } from '~/types'
 import {
     RecordingsLists,
     SessionRecordingsPlaylistProps,
 } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { posthogNodePasteRule, useJsonNodeState } from './utils'
+import { useJsonNodeState } from './utils'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -15,8 +14,6 @@ import { fromParamsGivenUrl, uuid } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-
-const HEIGHT = 'calc(100vh - 20rem)'
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const [filters, setFilters] = useJsonNodeState<RecordingFilters>(props, 'filters')
@@ -56,62 +53,29 @@ const Component = (props: NodeViewProps): JSX.Element => {
         </>
     )
 
-    return (
-        <NodeWrapper
-            {...props}
-            nodeType={NotebookNodeType.RecordingPlaylist}
-            title="Session Replays"
-            href={urls.replay(undefined, filters)}
-            heightEstimate={HEIGHT}
-        >
-            <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
-        </NodeWrapper>
-    )
+    return <div className="flex flex-row overflow-hidden gap-2 h-full">{content}</div>
 }
 
-export const NotebookNodePlaylist = Node.create({
-    name: NotebookNodeType.RecordingPlaylist,
-    group: 'block',
-    atom: true,
-    draggable: true,
-
-    addAttributes() {
-        return {
-            height: {
-                default: HEIGHT,
-            },
-            filters: {
-                default: undefined,
-            },
-        }
+export const NotebookNodePlaylist = createPostHogWidgetNode({
+    nodeType: NotebookNodeType.RecordingPlaylist,
+    title: 'Session Replays',
+    Component,
+    heightEstimate: 'calc(100vh - 20rem)',
+    href: (attrs) => {
+        // TODO: Fix parsing of attrs
+        return urls.replay(undefined, attrs.filters)
     },
-
-    parseHTML() {
-        return [
-            {
-                tag: NotebookNodeType.RecordingPlaylist,
-            },
-        ]
+    resizeable: false,
+    attributes: {
+        filters: {
+            default: undefined,
+        },
     },
-
-    renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.RecordingPlaylist, mergeAttributes(HTMLAttributes)]
-    },
-
-    addNodeView() {
-        return ReactNodeViewRenderer(Component)
-    },
-
-    addPasteRules() {
-        return [
-            posthogNodePasteRule({
-                find: urls.replay() + '(.+)',
-                type: this.type,
-                getAttributes: (match) => {
-                    const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
-                    return { filters: searchParams.filters }
-                },
-            }),
-        ]
+    pasteOptions: {
+        find: urls.replay() + '(.+)',
+        getAttributes: (match) => {
+            const searchParams = fromParamsGivenUrl(match[1].split('?')[1] || '')
+            return { filters: searchParams.filters }
+        },
     },
 })

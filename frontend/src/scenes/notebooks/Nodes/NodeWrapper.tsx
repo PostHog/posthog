@@ -30,6 +30,7 @@ export interface NodeWrapperProps {
     href?: string | ((attributes: Record<string, any>) => string)
 
     // Sizing
+    expandable?: boolean
     resizeable?: boolean
     heightEstimate?: number | string
     minHeight?: number | string
@@ -147,10 +148,10 @@ export function NodeWrapper({
                                     ref={contentRef}
                                     className={clsx(
                                         'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
-                                        resizeable && 'resize-y'
+                                        expanded && resizeable && 'resize-y'
                                     )}
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={resizeable ? { height, minHeight } : {}}
+                                    style={expanded && resizeable ? { height, minHeight } : {}}
                                     onMouseDown={onResizeStart}
                                 >
                                     {children}
@@ -183,7 +184,7 @@ export const createPostHogWidgetNode = ({
 }: CreatePostHogWidgetNodeOptions): any => {
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
         return (
-            <NodeWrapper {...props} {...wrapperProps} heightEstimate={'3rem'} resizeable={false}>
+            <NodeWrapper {...props} {...wrapperProps}>
                 <Component {...props} />
             </NodeWrapper>
         )
