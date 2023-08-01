@@ -544,13 +544,25 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             (filters, personUUID) => {
                 const defaultFilters = getDefaultFilters(personUUID)
 
+                const hasActions = filters.actions && filters.actions.length > 0
+                const hasChangedDateFrom = filters.date_from != defaultFilters.date_from
+                const hasChangedDateTo = filters.date_to != defaultFilters.date_to
+                const hasConsoleLogsFilters = filters.console_logs && filters.console_logs.length > 0
+                const hasChangedDuration = !equal(
+                    filters.session_recording_duration,
+                    defaultFilters.session_recording_duration
+                )
+                const eventsFilters = filters.events || []
+                const hasAdvancedEvents =
+                    eventsFilters.length > 1 || (!!eventsFilters[0] && eventsFilters[0].name != '$pageview')
+
                 return (
-                    (filters.actions && filters.actions.length > 0) ||
-                    (filters.events && (filters.events.length > 1 || filters.events[0].name != '$pageview')) ||
-                    !equal(filters.session_recording_duration, defaultFilters.session_recording_duration) ||
-                    filters.date_from != defaultFilters.date_from ||
-                    filters.date_to != defaultFilters.date_to ||
-                    (filters.console_logs && filters.console_logs.length > 0)
+                    hasActions ||
+                    hasAdvancedEvents ||
+                    hasChangedDuration ||
+                    hasChangedDateFrom ||
+                    hasChangedDateTo ||
+                    hasConsoleLogsFilters
                 )
             },
         ],
