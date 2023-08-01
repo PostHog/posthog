@@ -81,7 +81,7 @@ export function InsightsTable({
 
     columns.push({
         title: (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
                 {isLegend && (
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
@@ -93,17 +93,8 @@ export function InsightsTable({
                 <span>Series</span>
             </div>
         ),
-        render: (_, item) => (
-            <div className="flex items-center gap-2">
-                {isLegend && (
-                    <SeriesCheckColumnItem
-                        item={item}
-                        canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        compare={compare}
-                        toggleVisibility={toggleVisibility}
-                    />
-                )}
+        render: (_, item) => {
+            const label = (
                 <SeriesColumnItem
                     item={item}
                     indexedResults={indexedResults}
@@ -112,8 +103,20 @@ export function InsightsTable({
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                 />
-            </div>
-        ),
+            )
+            return isLegend ? (
+                <SeriesCheckColumnItem
+                    item={item}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    hiddenLegendKeys={hiddenLegendKeys}
+                    compare={compare}
+                    toggleVisibility={toggleVisibility}
+                    label={<div className="ml-2 font-normal">{label}</div>}
+                />
+            ) : (
+                label
+            )
+        },
         key: 'label',
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
