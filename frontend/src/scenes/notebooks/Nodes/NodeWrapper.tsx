@@ -37,7 +37,7 @@ export interface NodeWrapperProps {
 }
 
 export function NodeWrapper({
-    title,
+    title: defaultTitle,
     nodeType,
     children,
     selected,
@@ -55,11 +55,11 @@ export function NodeWrapper({
     const nodeLogicProps = {
         nodeId,
         notebookLogic: mountedNotebookLogic,
-        getPos: getPos,
+        getPos,
+        title: defaultTitle,
     }
     const nodeLogic = useMountedLogic(notebookNodeLogic(nodeLogicProps))
-
-    const { expanded } = useValues(nodeLogic)
+    const { title, expanded } = useValues(nodeLogic)
     const { setExpanded } = useActions(nodeLogic)
 
     const [ref, inView] = useInView({ triggerOnce: true })

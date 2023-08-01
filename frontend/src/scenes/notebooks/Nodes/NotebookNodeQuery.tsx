@@ -3,10 +3,11 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind, QuerySchema } from '~/queries/schema'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
 import { useEffect, useMemo, useState } from 'react'
+import { notebookNodeLogic } from './notebookNodeLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -25,8 +26,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
-
     const [editing, setEditing] = useState(false)
+    const { setTitle } = useActions(notebookNodeLogic)
 
     useEffect(() => {
         // We probably want a dedicated edit button for this
@@ -44,6 +45,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [query])
 
     useEffect(() => {
+        setTitle(title)
         // TODO: Set title on parent props
     }, [title])
 
