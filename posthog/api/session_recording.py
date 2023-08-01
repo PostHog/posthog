@@ -346,7 +346,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             )
             recording.start_time = recording_start_time
 
-        recording.load_snapshots(limit, offset)
+        try:
+            recording.load_snapshots(limit, offset)
+        except NotImplementedError as e:
+            capture_exception(e)
+            raise exceptions.NotFound("Storage version 2023-08-01 can only be access via V2 of this endpoint")
 
         if offset == 0:
             if not recording.snapshot_data_by_window_id:
