@@ -50,6 +50,10 @@ class SessionRecording(UUIDModel):
 
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
 
+    # we can't store storage version in the stored content
+    # as we might need to know the version before knowing how to load the data
+    storage_version: models.CharField = models.CharField(blank=True, null=True, max_length=20)
+
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
@@ -112,17 +116,25 @@ class SessionRecording(UUIDModel):
         try:
             from ee.models.session_recording_extensions import load_persisted_recording
         except ImportError:
-            pass
+            load_persisted_recording = lambda *args: None
 
         data = load_persisted_recording(self)
 
         if not data:
             return
 
-        self._snapshots = {
-            "has_next": False,
-            "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
-        }
+        if data.get("version", None) == "2022-12-22":
+            self._snapshots = {
+                "has_next": False,
+                "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
+            }
+        elif data.get("version", None) == "2023-08-01":
+            # so its PersistedRecordingV2
+            # what do we do?
+            pass
+        else:
+            # unknown version
+            return
 
     # S3 / Clickhouse backed fields
     @property

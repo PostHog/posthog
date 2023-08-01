@@ -410,7 +410,6 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
     B. Otherwise we just load all values from Clickhouse
       2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
     """
-    breakpoint()
     all_session_ids = filter.session_ids
     recordings: List[SessionRecording] = []
     more_recordings_available = False

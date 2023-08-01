@@ -1,6 +1,7 @@
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from secrets import token_urlsafe
 from unittest.mock import patch
+from uuid import uuid4
 
 from boto3 import resource
 from botocore.config import Config
@@ -60,7 +61,9 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_does_not_persist_too_recent_recording(self):
-        recording = SessionRecording.objects.create(team=self.team, session_id="s1")
+        recording = SessionRecording.objects.create(
+            team=self.team, session_id=f"test_does_not_persist_too_recent_recording-s1-{uuid4()}"
+        )
         self.create_snapshot(recording.session_id, recording.created_at)
         persist_recording(recording.session_id, recording.team_id)
         recording.refresh_from_db()
@@ -68,8 +71,11 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         assert not recording.object_storage_path
 
     def test_persists_recording(self):
-        with freeze_time("2022-01-01T12:00:00Z"):
-            recording = SessionRecording.objects.create(team=self.team, session_id="s1")
+        two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
+        with freeze_time(two_minutes_ago):
+            recording = SessionRecording.objects.create(
+                team=self.team, session_id=f"test_persists_recording-s1-{uuid4()}"
+            )
 
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
@@ -86,7 +92,10 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         persist_recording(recording.session_id, recording.team_id)
         recording.refresh_from_db()
 
-        assert recording.object_storage_path == f"session_recordings_lts/team-{self.team.pk}/session-s1"
+        assert (
+            recording.object_storage_path
+            == f"session_recordings_lts/team-{self.team.pk}/session-{recording.session_id}"
+        )
         assert recording.start_time == recording.created_at - timedelta(hours=48)
         assert recording.end_time == recording.created_at - timedelta(hours=46)
 
@@ -102,13 +111,13 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "snapshot_data_by_window_id": {
                 "window_1": [
                     {
-                        "timestamp": 1640865600000.0,
+                        "timestamp": (recording.created_at - timedelta(hours=48)).timestamp() * 1000,
                         "has_full_snapshot": 1,
                         "type": 2,
                         "data": {"source": 0, "href": long_url},
                     },
                     {
-                        "timestamp": 1640872800000.0,
+                        "timestamp": (recording.created_at - timedelta(hours=46)).timestamp() * 1000,
                         "has_full_snapshot": 1,
                         "type": 2,
                         "data": {"source": 0, "href": long_url},
@@ -119,11 +128,14 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
     def test_persists_recording_from_blob_ingested_storage(self):
         with self.settings(OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET):
-            # datetime 2 minutes ago
-            two_minutes_ago = datetime.now() - timedelta(minutes=2)
+            two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
 
             with freeze_time(two_minutes_ago):
-                recording: SessionRecording = SessionRecording.objects.create(team=self.team, session_id="s1")
+                recording: SessionRecording = SessionRecording.objects.create(
+                    team=self.team, session_id=f"test_persists_recording_from_blob_ingested_storage-s1-{uuid4()}"
+                )
+
+                assert recording.created_at == two_minutes_ago
 
                 self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
                 self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
@@ -139,13 +151,16 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
                 # this recording already has several files stored from Mr. Blobby
                 for file in ["a", "b", "c"]:
-                    file_name = recording.build_blob_ingestion_storage_path()
+                    file_name = f"{recording.build_blob_ingestion_storage_path()}/{file}"
                     write(file_name, f"my content-{file}".encode("utf-8"))
 
             persist_recording(recording.session_id, recording.team_id)
             recording.refresh_from_db()
 
-            assert recording.object_storage_path == f"session_recordings_lts/team-{self.team.pk}/session-s1"
+            assert (
+                recording.object_storage_path
+                == f"session_recordings_lts/team-{self.team.pk}/session-{recording.session_id}"
+            )
             assert recording.start_time == recording.created_at - timedelta(hours=48)
             assert recording.end_time == recording.created_at - timedelta(hours=46)
 
@@ -156,16 +171,23 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             assert recording.start_url == "https://app.posthog.com/my-url"
 
             assert load_persisted_recording(recording) == {
-                "version": "2022-12-22",
-                "distinct_id": "distinct_id_1",
-                "wat": "wat",
+                "object_keys": [
+                    f"{recording.build_object_storage_path()}/a",
+                    f"{recording.build_object_storage_path()}/b",
+                    f"{recording.build_object_storage_path()}/c",
+                ],
+                "version": "2023-08-01",
             }
 
     @patch("ee.models.session_recording_extensions.report_team_action")
     def test_persist_tracks_correct_to_posthog(self, mock_capture):
-        with freeze_time("2022-01-01T12:00:00Z"):
+        two_minutes_ago = (datetime.now() - timedelta(minutes=2)).replace(tzinfo=timezone.utc)
+
+        with freeze_time(two_minutes_ago):
             playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
-            recording = SessionRecording.objects.create(team=self.team, session_id="s1")
+            recording = SessionRecording.objects.create(
+                team=self.team, session_id=f"test_persist_tracks_correct_to_posthog-s1-{uuid4()}"
+            )
             SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
 
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))

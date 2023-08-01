@@ -2,7 +2,7 @@
 
 import json
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, cast
 
 import structlog
 from django.utils import timezone
@@ -10,7 +10,7 @@ from sentry_sdk import capture_exception
 
 from posthog import settings
 from posthog.event_usage import report_team_action
-from posthog.models.session_recording.metadata import PersistedRecordingV1
+from posthog.models.session_recording.metadata import PersistedRecordingV1, PersistedRecordingV2
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.storage import object_storage
@@ -71,6 +71,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     copied_count = object_storage.copy_objects(source_prefix, target_prefix)
 
     if copied_count > 0:
+        recording.storage_version = "2023-08-01"
         recording.object_storage_path = target_prefix
         recording.save()
         logger.info("Persisting recording: copied snapshots from S3", recording_id=recording_id, team_id=team_id)
@@ -116,7 +117,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             )
 
 
-def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1]:
+def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1 | PersistedRecordingV2]:
     """Load a persisted recording from S3"""
 
     logger.info(
@@ -125,22 +126,50 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
         path=recording.object_storage_path,
     )
 
-    try:
-        content = object_storage.read(recording.object_storage_path)
-        decompressed = json.loads(decompress(content))
-        logger.info(
-            "Persisting recording load: loaded!", recording_id=recording.session_id, path=recording.object_storage_path
-        )
+    # originally storage version was written to the stored content
+    # some stored content is stored over multiple files, so we can't rely on that
+    if not recording.storage_version:
+        try:
+            content = object_storage.read(recording.object_storage_path)
+            decompressed = json.loads(decompress(content))
+            logger.info(
+                "Persisting recording load: loaded!",
+                recording_id=recording.session_id,
+                path=recording.object_storage_path,
+            )
 
-        return decompressed
-    except object_storage.ObjectStorageError as ose:
-        capture_exception(ose)
-        logger.error(
-            "session_recording.object-storage-load-error",
-            recording_id=recording.session_id,
-            path=recording.object_storage_path,
-            exception=ose,
-            exc_info=True,
-        )
-
+            return decompressed
+        except object_storage.ObjectStorageError as ose:
+            capture_exception(ose)
+            logger.error(
+                "session_recording.object-storage-load-error",
+                recording_id=recording.session_id,
+                path=recording.object_storage_path,
+                version="2022-12-22",
+                exception=ose,
+                exc_info=True,
+            )
+    elif recording.storage_version == "2023-08-01":
+        # this is a recording copied from blob ingestion storage
+        try:
+            object_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
+            return (
+                {
+                    "version": "2023-08-01",
+                    "object_keys": object_keys,
+                }
+                if object_keys
+                else None
+            )
+        except object_storage.ObjectStorageError as ose:
+            capture_exception(ose)
+            logger.error(
+                "session_recording.object-storage-load-error",
+                recording_id=recording.session_id,
+                path=recording.object_storage_path,
+                version="2023-08-01",
+                exception=ose,
+                exc_info=True,
+            )
+    else:
         return None

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TypedDict, Union
+from typing import Any, Dict, List, Optional, TypedDict, Union, Literal
 
 SnapshotData = Dict
 WindowId = Optional[str]
@@ -70,3 +70,8 @@ class PersistedRecordingV1(TypedDict):
     version: str  # "2022-12-22"
     snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
     distinct_id: str
+
+
+class PersistedRecordingV2(TypedDict):
+    version: Literal["2023-08-01"]
+    object_keys: List[str]
