@@ -148,6 +148,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                     <span className="hide-when-small"> {key}</span>
                                 </>
                             )}
+                            max={21}
                         />
                     </div>
                     <div className="flex items-center gap-2">

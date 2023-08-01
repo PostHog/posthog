@@ -13,7 +13,6 @@ interface SessionRecordingsFiltersProps {
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
-    usesListingV3?: boolean
     showAdvancedFilters: boolean
     toggleAdvancedFilters: () => void
 }
@@ -45,7 +44,6 @@ export function SessionRecordingsFilters({
     setFilters,
     showPropertyFilters,
     onReset,
-    usesListingV3,
     showAdvancedFilters,
     toggleAdvancedFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
@@ -78,6 +76,7 @@ export function SessionRecordingsFilters({
                     </LemonButton>
                 </span>
             )}
+
             <LemonLabel info="Show recordings where all of below filters match.">Find sessions by:</LemonLabel>
 
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_TEST_ACCOUNTS_FILTER} match={true}>
@@ -94,7 +93,6 @@ export function SessionRecordingsFilters({
                     localFilters={localFilters}
                     setLocalFilters={setLocalFilters}
                     showPropertyFilters={showPropertyFilters}
-                    usesListingV3={usesListingV3}
                 />
             ) : (
                 <SimpleSessionRecordingsFilters

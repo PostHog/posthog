@@ -17,6 +17,7 @@ export type RollingDateFilterLogicPropsType = {
     selected?: boolean
     onChange?: (fromDate: string) => void
     dateFrom?: Dayjs | string | null
+    max?: number | null
 }
 
 const counterDefault = (selected: boolean | undefined, dateFrom: Dayjs | string | null | undefined): number => {
@@ -54,14 +55,15 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
         counter: [
             counterDefault(props.selected, props.dateFrom) as number | null,
             {
-                increaseCounter: (state) => (state ? state + 1 : 1),
+                increaseCounter: (state) => (state ? (!props.max || state < props.max ? state + 1 : state) : 1),
                 decreaseCounter: (state) => {
                     if (state) {
                         return state > 0 ? state - 1 : 0
                     }
                     return 0
                 },
-                setCounter: (_, { counter }) => counter ?? null,
+                setCounter: (prevCounter, { counter }) =>
+                    counter ? (!props.max || counter <= props.max ? counter : prevCounter) : null,
             },
         ],
         dateOption: [

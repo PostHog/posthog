@@ -15,14 +15,12 @@ export const AdvancedSessionRecordingsFilters = ({
     localFilters,
     setLocalFilters,
     showPropertyFilters,
-    usesListingV3,
 }: {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
     localFilters: FilterType
     setLocalFilters: (localFilters: FilterType) => void
     showPropertyFilters?: boolean
-    usesListingV3?: boolean
 }): JSX.Element => {
     return (
         <div>
@@ -54,7 +52,6 @@ export const AdvancedSessionRecordingsFilters = ({
                     }}
                     recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
                     durationTypeFilter={filters.duration_type_filter || 'duration'}
-                    usesListingV3={usesListingV3}
                     pageKey={'session-recordings'}
                 />
             </div>

@@ -118,22 +118,22 @@ describe('trendsDataLogic', () => {
                 }).toMatchValues({
                     indexedResults: [
                         expect.objectContaining({
-                            count: 35346.0,
-                            status: 'new',
-                            id: 0,
-                            seriesIndex: 0,
-                        }),
-                        expect.objectContaining({
                             count: -50255.0,
                             status: 'dormant',
-                            id: 1,
+                            id: 0,
                             seriesIndex: 1,
                         }),
                         expect.objectContaining({
                             count: 11612.0,
                             status: 'resurrecting',
-                            id: 2,
+                            id: 1,
                             seriesIndex: 3,
+                        }),
+                        expect.objectContaining({
+                            count: 35346.0,
+                            status: 'new',
+                            id: 2,
+                            seriesIndex: 0,
                         }),
                     ],
                 })
