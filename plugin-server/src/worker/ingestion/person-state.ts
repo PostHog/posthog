@@ -50,6 +50,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
     private poEEmbraceJoin: boolean
+    private incidentPath = false
 
     constructor(
         event: PluginEvent,
@@ -79,6 +80,7 @@ export class PersonState {
 
         // For persons on events embrace the join gradual roll-out, remove after fully rolled out
         this.poEEmbraceJoin = poEEmbraceJoin
+        this.incidentPath = process.env.INCIDENT_PATH == '1'
     }
 
     async update(): Promise<Person> {
@@ -598,6 +600,7 @@ export class PersonState {
     ): Promise<void> {
         // When personIDs change, update places depending on a person_id foreign key
 
+        // for inc-2023-07-31-us-person-id-override skip this and store the info in person_overrides table instead
         // For Cohorts
         await this.db.postgresQuery(
             'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',
@@ -606,13 +609,17 @@ export class PersonState {
             client
         )
 
-        // For FeatureFlagHashKeyOverrides
-        await this.db.addFeatureFlagHashKeysForMergedPerson(
-            sourcePerson.team_id,
-            sourcePerson.id,
-            targetPerson.id,
-            client
-        )
+        if (this.incidentPath) {
+            status.info(`Skipping ff updates for merge of ${sourcePerson.uuid} -> ${targetPerson.uuid}`)
+        } else {
+            // For FeatureFlagHashKeyOverrides
+            await this.db.addFeatureFlagHashKeysForMergedPerson(
+                sourcePerson.team_id,
+                sourcePerson.id,
+                targetPerson.id,
+                client
+            )
+        }
     }
 }
 

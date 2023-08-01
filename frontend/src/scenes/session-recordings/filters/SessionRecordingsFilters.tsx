@@ -29,7 +29,6 @@ interface SessionRecordingsFiltersProps {
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
-    usesListingV3?: boolean
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
@@ -120,7 +119,6 @@ export function SessionRecordingsFilters({
     setFilters,
     showPropertyFilters,
     onReset,
-    usesListingV3,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
@@ -183,7 +181,6 @@ export function SessionRecordingsFilters({
                     }}
                     recordingDurationFilter={filters.session_recording_duration as RecordingDurationFilter}
                     durationTypeFilter={filters.duration_type_filter || 'duration'}
-                    usesListingV3={usesListingV3}
                     pageKey={'session-recordings'}
                 />
             </div>

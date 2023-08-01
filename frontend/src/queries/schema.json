@@ -2020,6 +2020,9 @@
                 "show_legend": {
                     "type": "boolean"
                 },
+                "show_percent_stack_view": {
+                    "type": "boolean"
+                },
                 "show_values_on_series": {
                     "type": "boolean"
                 },

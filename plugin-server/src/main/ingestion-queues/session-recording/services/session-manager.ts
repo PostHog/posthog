@@ -538,6 +538,7 @@ export class SessionManager {
     public async destroy(): Promise<void> {
         this.destroying = true
         this.unsubscribe()
+        this.stopRealtime()
         if (this.inProgressUpload !== null) {
             await this.inProgressUpload.abort().catch((error) => {
                 status.error('🧨', '[session-manager][realtime] failed to abort in progress upload', {
