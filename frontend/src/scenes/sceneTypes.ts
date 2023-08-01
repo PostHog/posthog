@@ -32,7 +32,7 @@ export enum Scene {
     Experiments = 'Experiments',
     Experiment = 'Experiment',
     Exports = 'Exports',
-    CreateExport = 'CreateExport',
+    ExportForm = 'ExportForm',
     ViewExport = 'ViewExport',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',

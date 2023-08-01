@@ -8,7 +8,7 @@ import { PureField } from '../../lib/forms/Field'
 import { router } from 'kea-router'
 import { SceneExport } from '../sceneTypes'
 import { useCallback, useRef, useState } from 'react'
-import { useCreateExport, useCurrentTeamId } from './api'
+import { useCreateExport, useCurrentTeamId, BatchExport, useUpdateExport, useExport } from './api'
 import { urls } from '../urls'
 
 // TODO: rewrite this to not use explicit refs for the form fields. Possibly use
@@ -24,23 +24,69 @@ import { urls } from '../urls'
 // to worry about this right now.
 
 export const scene: SceneExport = {
-    component: CreateExport,
+    component: ExportForm,
 }
 
-export function CreateExport(): JSX.Element {
+export interface ExportFormProps {
+    exportId: string | null
+}
+
+export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
     // At the top level we offer a select to choose the export type, and then
     // render the appropriate component for that export type.
-    const [exportType, setExportType] = useState<'S3' | 'Snowflake'>('S3')
-    const [exportStartAt, setExportStartAt] = useState<dayjs.Dayjs | null>(null)
-    const [exportEndAt, setExportEndAt] = useState<dayjs.Dayjs | null>(null)
+    const { currentTeamId } = useCurrentTeamId()
+
+    let existingExport = null
+    let exportLoading = false
+    let exportError = null
+    if (exportId) {
+        const { loading, export_, error } = useExport(currentTeamId, exportId)
+        existingExport = export_
+        exportLoading = loading
+        exportError = error
+    }
+    const [exportType, setExportType] = useState<'S3' | 'Snowflake'>(
+        existingExport ? existingExport.destination.type : 'S3'
+    )
+    const [exportStartAt, setExportStartAt] = useState<dayjs.Dayjs | null>(
+        existingExport
+            ? existingExport.start_at
+                ? dayjs(existingExport.start_at, 'YYYY-MM-DDTHH:mm:ss.SSSZ')
+                : null
+            : null
+    )
+    const [exportEndAt, setExportEndAt] = useState<dayjs.Dayjs | null>(
+        existingExport
+            ? existingExport.end_at
+                ? dayjs(existingExport.end_at, 'YYYY-MM-DDTHH:mm:ss.SSSZ')
+                : null
+            : null
+    )
     const [startAtSelectVisible, setStartAtSelectVisible] = useState<boolean>(false)
     const [endAtSelectVisible, setEndAtSelectVisible] = useState<boolean>(false)
+
+    if (exportLoading) {
+        return (
+            <div>
+                <h1>Update Export</h1>
+                <p>Fetching export...</p>
+            </div>
+        )
+    }
+    if (exportError) {
+        return (
+            <div>
+                <h1>Exports</h1>
+                <p>Error fetching exports: {exportError}</p>
+            </div>
+        )
+    }
 
     return (
         // a form for inputting the config for an export, using aria labels to
         // make it accessible.
-        <form aria-label="Create Export">
-            <h1>Create Export</h1>
+        <form aria-label={existingExport ? 'Update Export' : 'Create Export'}>
+            <h1>{existingExport ? 'Update Export' : 'Create Export'}</h1>
             <PureField htmlFor="type" label="Type">
                 <LemonSelect
                     id="type"
@@ -112,8 +158,12 @@ export function CreateExport(): JSX.Element {
                     </LemonButton>
                 </Popover>
             </PureField>
-            {exportType === 'S3' && <CreateS3Export startAt={exportStartAt} endAt={exportEndAt} />}
-            {exportType === 'Snowflake' && <CreateSnowflakeExport startAt={exportStartAt} endAt={exportEndAt} />}
+            {exportType === 'S3' && (
+                <ExportS3Form startAt={exportStartAt} endAt={exportEndAt} existingExport={existingExport} />
+            )}
+            {exportType === 'Snowflake' && (
+                <ExportSnowflakeForm startAt={exportStartAt} endAt={exportEndAt} existingExport={existingExport} />
+            )}
         </form>
     )
 }
@@ -121,9 +171,10 @@ export function CreateExport(): JSX.Element {
 export interface ExportCommonProps {
     startAt: dayjs.Dayjs | null
     endAt: dayjs.Dayjs | null
+    existingExport: null | BatchExport
 }
 
-export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Element {
+export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
     // We use references to elements rather than maintaining state for each
@@ -138,9 +189,10 @@ export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Eleme
     const secretAccessKeyRef = useRef<HTMLInputElement>(null)
     const intervalRef = useRef<'hour' | 'day' | null>(null)
 
-    const { createExport, loading, error } = useCreateExport()
+    const { updateExport, loading: updateLoading, error: updateError } = useUpdateExport()
+    const { createExport, loading: createLoading, error: createError } = useCreateExport()
 
-    const handleCreateExport = useCallback(() => {
+    const handleExport = useCallback(() => {
         if (
             !nameRef.current ||
             !bucketRef.current ||
@@ -180,29 +232,42 @@ export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Eleme
             end_at: endAt ? endAt.format('YYYY-MM-DDTHH:mm:ss.SSSZ') : null,
         } as const
 
-        // Create the export.
-        createExport(currentTeamId, exportData).then(() => {
-            // Navigate back to the exports list.
-            router.actions.push(urls.exports())
-        })
+        if (existingExport) {
+            updateExport(currentTeamId, existingExport.id, exportData).then(() => {
+                router.actions.push(urls.viewExport(existingExport.id))
+            })
+        } else {
+            createExport(currentTeamId, exportData).then(() => {
+                router.actions.push(urls.exports())
+            })
+        }
     }, [startAt, endAt])
 
     return (
         <div>
             <PureField label="Name" htmlFor="name">
-                <LemonInput id="name" placeholder="My export" ref={nameRef} />
+                <LemonInput
+                    id="name"
+                    placeholder="My export"
+                    ref={nameRef}
+                    defaultValue={existingExport ? existingExport.name : undefined}
+                />
             </PureField>
-
             <PureField label="Bucket" htmlFor="bucket">
-                <LemonInput id="bucket" placeholder="my-bucket" ref={bucketRef} />
+                <LemonInput
+                    id="bucket"
+                    placeholder="my-bucket"
+                    ref={bucketRef}
+                    defaultValue={existingExport ? existingExport.destination.config.bucket_name : undefined}
+                />
             </PureField>
-
             <PureField label="Region" htmlFor="region">
                 <LemonSelect
                     id="region"
                     onSelect={(value) => {
                         regionRef.current = value
                     }}
+                    value={existingExport ? existingExport.destination.config.region : undefined}
                     options={[
                         { value: 'us-east-1', label: 'US East (N. Virginia)' },
                         { value: 'us-east-2', label: 'US East (Ohio)' },
@@ -230,24 +295,31 @@ export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Eleme
                     ]}
                 />
             </PureField>
-
             <PureField htmlFor="prefix" label="Key prefix">
-                <LemonInput id="prefix" placeholder="posthog-events/" ref={prefixRef} />
+                <LemonInput
+                    id="prefix"
+                    placeholder="posthog-events/"
+                    ref={prefixRef}
+                    defaultValue={existingExport ? existingExport.destination.config.prefix : undefined}
+                />
             </PureField>
-
             <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
-                <LemonInput id="aws-access-key-id" placeholder="my-access-key-id" ref={accessKeyIdRef} />
+                <LemonInput
+                    id="aws-access-key-id"
+                    placeholder="my-access-key-id"
+                    ref={accessKeyIdRef}
+                    defaultValue={existingExport ? existingExport.destination.config.aws_access_key_id : undefined}
+                />
             </PureField>
-
             <PureField htmlFor="aws-secret-access-key" label="AWS Secret Access Key">
                 <LemonInput
                     id="aws-secret-access-key"
                     placeholder="my-secret-access-key"
                     type="password"
+                    defaultValue={existingExport ? existingExport.destination.config.aws_secret_access_key : undefined}
                     ref={secretAccessKeyRef}
                 />
             </PureField>
-
             <PureField htmlFor="frequency" label="Frequency">
                 <LemonSelect
                     id="frequency"
@@ -258,18 +330,21 @@ export function CreateS3Export({ startAt, endAt }: ExportCommonProps): JSX.Eleme
                         { value: 'hour', label: 'Hourly' },
                         { value: 'day', label: 'Daily' },
                     ]}
+                    value={existingExport ? existingExport.interval : undefined}
                 />
             </PureField>
 
-            <LemonButton onClick={handleCreateExport}>Create Export</LemonButton>
+            <LemonButton onClick={handleExport}>{existingExport ? 'Save Export' : 'Create Export'}</LemonButton>
 
-            {loading && <div>Saving...</div>}
-            {error && <div>Error: {error?.toString()}</div>}
+            {(createLoading || updateLoading) && <div>Saving...</div>}
+            {(createError || updateError) && (
+                <div>Error: {createError ? createError.toString() : updateError.toString()}</div>
+            )}
         </div>
     )
 }
 
-export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JSX.Element {
+export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
     // Matches up with the backend config schema:
@@ -294,9 +369,10 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
     const intervalRef = useRef<'hour' | 'day' | null>(null)
     const roleRef = useRef<HTMLInputElement>(null)
 
-    const { createExport, loading, error } = useCreateExport()
+    const { updateExport, loading: updateLoading, error: updateError } = useUpdateExport()
+    const { createExport, loading: createLoading, error: createError } = useCreateExport()
 
-    const handleCreateExport = useCallback(() => {
+    const handleExport = useCallback(() => {
         if (
             !nameRef.current ||
             !roleRef.current ||
@@ -343,45 +419,82 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
             end_at: endAt ? endAt.format('YYYY-MM-DDTHH:mm:ss.SSSZ') : null,
         } as const
 
-        // Create the export.
-        createExport(currentTeamId, exportData).then(() => {
-            // Navigate back to the exports list.
-            router.actions.push(urls.exports())
-        })
+        if (existingExport) {
+            updateExport(currentTeamId, existingExport.id, exportData).then(() => {
+                router.actions.push(urls.viewExport(exportId))
+            })
+        } else {
+            createExport(currentTeamId, exportData).then(() => {
+                router.actions.push(urls.exports())
+            })
+        }
     }, [startAt, endAt])
 
     return (
         <div>
             <PureField label="Name">
-                <LemonInput placeholder="My export" ref={nameRef} />
+                <LemonInput
+                    placeholder="My export"
+                    ref={nameRef}
+                    defaultValue={existingExport ? existingExport.name : undefined}
+                />
             </PureField>
 
             <PureField label="User">
-                <LemonInput placeholder="my-user" ref={userRef} />
+                <LemonInput
+                    placeholder="my-user"
+                    ref={userRef}
+                    defaultValue={existingExport ? existingExport.destination.config.user : undefined}
+                />
             </PureField>
 
             <PureField label="Password">
-                <LemonInput placeholder="my-password" type="password" ref={passwordRef} />
+                <LemonInput
+                    placeholder="my-password"
+                    type="password"
+                    ref={passwordRef}
+                    defaultValue={existingExport ? existingExport.destination.config.password : undefined}
+                />
             </PureField>
 
             <PureField label="Account">
-                <LemonInput placeholder="my-account" ref={accountRef} />
+                <LemonInput
+                    placeholder="my-account"
+                    ref={accountRef}
+                    defaultValue={existingExport ? existingExport.destination.config.account : undefined}
+                />
             </PureField>
 
             <PureField label="Database">
-                <LemonInput placeholder="my-database" ref={databaseRef} />
+                <LemonInput
+                    placeholder="my-database"
+                    ref={databaseRef}
+                    defaultValue={existingExport ? existingExport.destination.config.database : undefined}
+                />
             </PureField>
 
             <PureField label="Warehouse">
-                <LemonInput placeholder="my-warehouse" ref={warehouseRef} />
+                <LemonInput
+                    placeholder="my-warehouse"
+                    ref={warehouseRef}
+                    defaultValue={existingExport ? existingExport.destination.config.warehouse : undefined}
+                />
             </PureField>
 
             <PureField label="Schema">
-                <LemonInput placeholder="my-schema" ref={schemaRef} />
+                <LemonInput
+                    placeholder="my-schema"
+                    ref={schemaRef}
+                    defaultValue={existingExport ? existingExport.destination.config.schema : undefined}
+                />
             </PureField>
 
             <PureField label="Table name">
-                <LemonInput placeholder="events" ref={tableNameRef} />
+                <LemonInput
+                    placeholder="events"
+                    ref={tableNameRef}
+                    defaultValue={existingExport ? existingExport.destination.config.table_name : undefined}
+                />
             </PureField>
 
             <PureField label="Frequency">
@@ -393,17 +506,25 @@ export function CreateSnowflakeExport({ startAt, endAt }: ExportCommonProps): JS
                         { value: 'hour', label: 'Hourly' },
                         { value: 'day', label: 'Daily' },
                     ]}
+                    value={existingExport ? existingExport.interval : undefined}
                 />
             </PureField>
 
             <PureField label="Role" showOptional={true}>
-                <LemonInput placeholder="my-role" ref={roleRef} value={undefined} defaultValue={undefined} />
+                <LemonInput
+                    placeholder="my-role"
+                    ref={roleRef}
+                    value={undefined}
+                    defaultValue={existingExport ? existingExport.destination.config.role : undefined}
+                />
             </PureField>
 
-            <LemonButton onClick={handleCreateExport}>Create Export</LemonButton>
+            <LemonButton onClick={handleExport}>{existingExport ? 'Save Export' : 'Create Export'}</LemonButton>
 
-            {loading && <div>Saving...</div>}
-            {error && <div>Error: {error?.toString()}</div>}
+            {(createLoading || updateLoading) && <div>Saving...</div>}
+            {(createError || updateError) && (
+                <div>Error: {createError ? createError.toString() : updateError.toString()}</div>
+            )}
         </div>
     )
 }

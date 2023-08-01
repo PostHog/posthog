@@ -39,7 +39,6 @@ export function ExportActionButtons({
         export_.id,
         'unpause'
     )
-
     const { deleteExport, error: deleteError } = useDeleteExport(currentTeamId, export_.id)
 
     return (
@@ -138,6 +137,17 @@ export function ExportActionButtons({
                 </LemonButton>
             ) : undefined}
             <LemonDivider vertical={dividerVertical} />
+            <LemonButton
+                status="primary"
+                type={buttonType}
+                to={urls.editExport(export_.id)}
+                tooltip="Edit this BatchExport"
+                disabled={loading}
+                loading={loading}
+                fullWidth={buttonFullWidth}
+            >
+                Edit
+            </LemonButton>
             <LemonButton
                 status="danger"
                 type={buttonType}

@@ -21,7 +21,7 @@
 import { getByLabelText, getByRole, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
-import { CreateExport } from './CreateExport'
+import { ExportForm } from './ExportForm'
 import { initKeaTests } from '../../test/init'
 import { createExportServiceHandlers } from './api-mocks'
 import { useMocks } from '../../mocks/jest'
@@ -36,13 +36,13 @@ afterEach(() => {
 
 jest.setTimeout(5000)
 
-describe('CreateExport', () => {
+describe('ExportForm', () => {
     it('renders an S3 export form by default and allows submission', async () => {
         const { exports, handlers } = createExportServiceHandlers()
         useMocks(handlers)
         initKeaTests()
 
-        render(<CreateExport />)
+        render(<ExportForm existingExport={null} />)
 
         // Wait for the form with aria label "Create Export" to be rendered
         const form = await waitFor(() => {

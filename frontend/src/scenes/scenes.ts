@@ -59,9 +59,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Exports',
     },
-    [Scene.CreateExport]: {
+    [Scene.ExportForm]: {
         projectBased: true,
-        name: 'Create Export',
+        name: 'Export Form',
     },
     [Scene.ViewExport]: {
         projectBased: true,
@@ -372,8 +372,9 @@ export const routes: Record<string, Scene> = {
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
     [urls.exports()]: Scene.Exports,
-    [urls.createExport()]: Scene.CreateExport,
+    [urls.createExport()]: Scene.ExportForm,
     [urls.viewExport(':id')]: Scene.ViewExport,
+    [urls.editExport(':exportId')]: Scene.ExportForm,
     [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.dataManagementHistory()]: Scene.DataManagementHistory,
