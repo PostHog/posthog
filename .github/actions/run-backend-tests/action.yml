@@ -112,7 +112,7 @@ runs:
           if: ${{ inputs.segment == 'FOSS' && inputs.group == 1 && inputs.person-on-events != 'true' }}
           env:
               POSTHOG_DB_NAME: posthog
-              READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, Team,OrganizationMembership,local_evaluation'
+              READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
               POSTHOG_POSTGRES_READ_HOST: localhost
               POSTHOG_DB_PASSWORD: posthog
               POSTHOG_DB_USER: posthog
