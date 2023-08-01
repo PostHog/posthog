@@ -22,7 +22,7 @@ export interface ProfilePictureProps {
 export function ProfilePicture({
     name,
     email,
-    size,
+    size = 'lg',
     showName,
     style,
     className,
@@ -32,7 +32,7 @@ export function ProfilePicture({
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
     const [gravatarUrl, setGravatarUrl] = useState<string | null>(null)
-    const pictureClass = clsx('profile-picture', size, className)
+    const pictureClass = clsx('ProfilePicture', size, className)
 
     let pictureComponent: JSX.Element
 
