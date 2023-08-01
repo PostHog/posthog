@@ -33,7 +33,7 @@ export default InsertionSuggestion.create({
                 sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
                     .currentPlayerTime || 0
 
-            editor.insertContent(buildTimestampCommentContent(currentPlayerTime, sessionRecordingId))
+            editor.insertContent([buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)])
         }
     },
 
