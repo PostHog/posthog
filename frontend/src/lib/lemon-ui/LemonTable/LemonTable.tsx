@@ -160,7 +160,7 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
 
     /** Sorting. */
     const currentSorting =
@@ -208,14 +208,15 @@ export function LemonTable<T extends Record<string, any>>({
         <div
             id={id}
             className={clsx(
-                'LemonTable',
+                'LemonTable scrollable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 !borderedRows && 'LemonTable--borderlessRows',
                 display === 'stealth' && 'LemonTable--stealth',
-                ...scrollableClassNames,
+                isScrollableLeft && 'scrollable--left',
+                isScrollableRight && 'scrollable--right',
                 className
             )}
             style={style}
@@ -266,10 +267,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
                                                         'LemonTable__boundary',
-                                                    firstColumnSticky &&
+                                                    columnGroupIndex === 0 &&
                                                         columnIndex === 0 &&
                                                         'LemonTable__header--sticky',
-                                                    column.className
+                                                    firstColumnSticky && column.className
                                                 )}
                                                 /* eslint-disable-next-line react/forbid-dom-props */
                                                 style={{ textAlign: column.align }}

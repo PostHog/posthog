@@ -93,13 +93,15 @@ function TableRowRaw<T extends Record<string, any>>({
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =
                             !!contents && typeof contents === 'object' && !React.isValidElement(contents)
+                        const isLastColumnInGroup = columnIndex === columnGroup.children.length - 1
+                        const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
                         return (
                             <td
-                                key={`LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`}
+                                key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                 className={clsx(
-                                    columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
+                                    isLastColumnInGroup && 'LemonTable__boundary',
+                                    isSticky && 'LemonTable__cell--sticky',
                                     column.align && `text-${column.align}`,
-                                    firstColumnSticky && columnIndex === 0 && 'LemonTable__cell--sticky',
                                     column.className
                                 )}
                                 {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
