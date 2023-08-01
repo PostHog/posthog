@@ -44,8 +44,10 @@ DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
 
 def snapshots_response(data: Any) -> Any:
-    # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
-    # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+    # NOTE: We have seen some issues with encoding of emojis,
+    # specifically when there is a lone "surrogate pair". See #13272 for more details
+    # The Django JsonResponse handles this case, but the DRF Response does not.
+    # So we fall back to the Django JsonResponse if we encounter an error
     try:
         JSONRenderer().render(data=data)
     except Exception:
@@ -229,8 +231,12 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         if not source:
             sources: List[dict] = []
-            blob_prefix = f"session_recordings/team_id/{self.team.pk}/session_id/{recording.session_id}/data/"
+            blob_prefix = recording.build_blob_ingestion_storage_path()
             blob_keys = object_storage.list_objects(blob_prefix)
+
+            if not blob_keys and recording.storage_version == "2023-08-01":
+                blob_prefix = recording.object_storage_path
+                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
 
             if blob_keys:
                 for full_key in blob_keys:
@@ -312,7 +318,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def snapshots(self, request: request.Request, **kwargs):
         """
         Snapshots can be loaded from multiple places:
-        1. From S3 if the session is older than our ingestion limit. This will be multiple files that can be streamed to the client
+        1. From S3 if the session is older than our ingestion limit.
+                This will be multiple files that can be streamed to the client
         2. From Redis if the session is newer than our ingestion limit.
         3. From Clickhouse whilst we are migrating to the new ingestion method
         """
@@ -350,7 +357,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             recording.load_snapshots(limit, offset)
         except NotImplementedError as e:
             capture_exception(e)
-            raise exceptions.NotFound("Storage version 2023-08-01 can only be access via V2 of this endpoint")
+            raise exceptions.NotFound("Storage version 2023-08-01 can only be accessed via V2 of this endpoint")
 
         if offset == 0:
             if not recording.snapshot_data_by_window_id:
@@ -409,7 +416,8 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
     A. If filter.session_ids is specified:
-      1. We first try to load them directly from Postgres if they have been persisted to S3 (they might have fell out of CH)
+      1. We first try to load them directly from Postgres if they have been persisted to S3
+            (they might have fallen out of CH)
       2. Any that couldn't be found are then loaded from Clickhouse
     B. Otherwise we just load all values from Clickhouse
       2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
@@ -437,7 +445,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
-        # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
+        # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
         ch_session_recordings, more_recordings_available = SessionRecordingListFromReplaySummary(
             filter=filter, team=team
         ).run()

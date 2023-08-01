@@ -2,7 +2,7 @@
 
 import json
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Optional
 
 import structlog
 from django.utils import timezone
@@ -10,7 +10,7 @@ from sentry_sdk import capture_exception
 
 from posthog import settings
 from posthog.event_usage import report_team_action
-from posthog.models.session_recording.metadata import PersistedRecordingV1, PersistedRecordingV2
+from posthog.models.session_recording.metadata import PersistedRecordingV1
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.storage import object_storage
@@ -56,7 +56,8 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     analytics_payload["metadata_load_time_ms"] = (timezone.now() - start_time).total_seconds() * 1000
 
     if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
-        # Recording is too recent to be persisted. We can save the metadata as it is still useful for querying but we can't move to S3 yet.
+        # Recording is too recent to be persisted.
+        # We can save the metadata as it is still useful for querying, but we can't move to S3 yet.
         logger.info(
             "Persisting recording: skipping as recording start time is less than MINIMUM_AGE_FOR_RECORDING",
             recording_id=recording_id,
@@ -74,7 +75,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.storage_version = "2023-08-01"
         recording.object_storage_path = target_prefix
         recording.save()
-        logger.info("Persisting recording: copied snapshots from S3", recording_id=recording_id, team_id=team_id)
+        logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id, source="s3")
         return
     else:
         recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
@@ -105,7 +106,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             analytics_payload["total_time_ms"] = (timezone.now() - start_time).total_seconds() * 1000
             report_team_action(recording.team, "session recording persisted", analytics_payload)
 
-            logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id)
+            logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id, source="ClickHouse")
         except object_storage.ObjectStorageError as ose:
             capture_exception(ose)
             report_team_action(recording.team, "session recording persist failed", analytics_payload)
@@ -117,12 +118,13 @@ def persist_recording(recording_id: str, team_id: int) -> None:
             )
 
 
-def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1 | PersistedRecordingV2]:
+def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1]:
     """Load a persisted recording from S3"""
 
     logger.info(
         "Persisting recording load: reading from S3...",
         recording_id=recording.session_id,
+        storage_version=recording.storage_version,
         path=recording.object_storage_path,
     )
 
@@ -151,25 +153,7 @@ def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedR
             )
     elif recording.storage_version == "2023-08-01":
         # this is a recording copied from blob ingestion storage
-        try:
-            object_keys = object_storage.list_objects(cast(str, recording.object_storage_path))
-            return (
-                {
-                    "version": "2023-08-01",
-                    "object_keys": object_keys,
-                }
-                if object_keys
-                else None
-            )
-        except object_storage.ObjectStorageError as ose:
-            capture_exception(ose)
-            logger.error(
-                "session_recording.object-storage-load-error",
-                recording_id=recording.session_id,
-                path=recording.object_storage_path,
-                version="2023-08-01",
-                exception=ose,
-                exc_info=True,
-            )
+        # it isn't used in this code path
+        return None
     else:
         return None
