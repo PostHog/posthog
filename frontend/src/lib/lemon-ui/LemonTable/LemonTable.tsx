@@ -267,10 +267,11 @@ export function LemonTable<T extends Record<string, any>>({
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
                                                         'LemonTable__boundary',
-                                                    columnGroupIndex === 0 &&
+                                                    firstColumnSticky &&
+                                                        columnGroupIndex === 0 &&
                                                         columnIndex === 0 &&
                                                         'LemonTable__header--sticky',
-                                                    firstColumnSticky && column.className
+                                                    column.className
                                                 )}
                                                 /* eslint-disable-next-line react/forbid-dom-props */
                                                 style={{ textAlign: column.align }}
