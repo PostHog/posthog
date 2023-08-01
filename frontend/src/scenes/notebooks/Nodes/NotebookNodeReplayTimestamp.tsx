@@ -47,7 +47,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper
             as="span"
-            class={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
+            className={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
             {recordingNodeInNotebook ? (
                 <span onClick={handlePlayInNotebook}>{formatTimestamp(playbackTime)}</span>

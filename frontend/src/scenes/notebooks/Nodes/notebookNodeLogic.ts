@@ -1,4 +1,4 @@
-import { kea, props, key, path, BuiltLogic, selectors, actions, listeners } from 'kea'
+import { kea, props, key, path, BuiltLogic, selectors, actions, listeners, reducers } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
@@ -14,15 +14,25 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     props({} as NotebookNodeLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodeLogic', key]),
     key(({ nodeId }) => nodeId),
-    selectors({
-        notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
-    }),
-
     actions({
+        setExpanded: (expanded: boolean) => ({ expanded }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         // TODO: Implement this
         // insertAfterNextEmptyLine: (content: JSONContent) => ({ content, nodeType }),
+    }),
+
+    reducers({
+        expanded: [
+            false,
+            {
+                setExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+    }),
+
+    selectors({
+        notebookLogic: [() => [(_, props) => props], (props): BuiltLogic<notebookLogicType> => props.notebookLogic],
     }),
 
     listeners(({ values, props }) => ({
