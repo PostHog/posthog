@@ -20,6 +20,10 @@ class InsightManager(models.Manager):
         return super().get_queryset().exclude(deleted=True)
 
 
+class StrawMan(models.Model):
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+
 class Insight(models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
