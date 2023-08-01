@@ -140,7 +140,9 @@ def create_snapshot(
     has_full_snapshot: bool = True,
     type: Optional[int] = None,
     data: Optional[Dict] = None,
-) -> List[str]:
+    use_replay_table=True,
+    use_recording_table=False,
+) -> None:
     if not data:
         data = {"source": 0}
 
@@ -151,13 +153,15 @@ def create_snapshot(
         or (RRWEB_MAP_EVENT_TYPE.FullSnapshot if has_full_snapshot else RRWEB_MAP_EVENT_TYPE.IncrementalSnapshot),
     }
 
-    return create_session_recording_events(
+    create_session_recording_events(
         team_id=team_id,
         timestamp=timestamp,
         distinct_id=distinct_id if distinct_id else str(uuid4()),
         session_id=session_id,
         window_id=window_id,
         snapshots=[snapshot_data],
+        use_recording_table=use_recording_table,
+        use_replay_table=use_replay_table,
     )
 
 
