@@ -41,6 +41,13 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         pass
 
+    @abc.abstractmethod
+    def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
+        """
+        Copy objects from one prefix to another. Returns the number of objects copied.
+        """
+        pass
+
 
 class UnavailableStorage(ObjectStorageClient):
     def head_bucket(self, bucket: str):
@@ -59,6 +66,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
+        pass
+
+    def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         pass
 
 
@@ -124,6 +134,23 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
+    def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
+        try:
+            source_objects = self.list_objects(bucket, source_prefix) or []
+
+            for object_key in source_objects:
+                copy_source = {"Bucket": bucket, "Key": object_key}
+                target = object_key.replace(source_prefix, target_prefix)
+                self.aws_client.copy(copy_source, bucket, target)
+
+            return len(source_objects)
+        except Exception as e:
+            logger.error(
+                "object_storage.copy_objects_failed", source_prefix=source_prefix, target_prefix=target_prefix, error=e
+            )
+            capture_exception(e)
+            return None
+
 
 _client: ObjectStorageClient = UnavailableStorage()
 
@@ -162,6 +189,15 @@ def read_bytes(file_name: str) -> Optional[bytes]:
 
 def list_objects(prefix: str) -> Optional[List[str]]:
     return object_storage_client().list_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def copy_objects(source_prefix: str, target_prefix: str) -> int:
+    return (
+        object_storage_client().copy_objects(
+            bucket=settings.OBJECT_STORAGE_BUCKET, source_prefix=source_prefix, target_prefix=target_prefix
+        )
+        or 0
+    )
 
 
 def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:

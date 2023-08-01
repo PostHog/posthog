@@ -4,7 +4,6 @@ from django.db import models
 from django.db.models import Count
 from django.dispatch import receiver
 
-from posthog import settings
 from posthog.celery import ee_persist_single_recording
 from posthog.models.person.person import Person
 from posthog.models.session_recording.metadata import (
@@ -16,6 +15,7 @@ from posthog.models.session_recording_event.session_recording_event import Sessi
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 from posthog.queries.session_recordings.session_replay_events import SessionReplayEvents
+from django.conf import settings
 
 
 class SessionRecording(UUIDModel):
@@ -49,6 +49,10 @@ class SessionRecording(UUIDModel):
     console_error_count: models.IntegerField = models.IntegerField(blank=True, null=True)
 
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
+
+    # we can't store storage version in the stored content
+    # as we might need to know the version before knowing how to load the data
+    storage_version: models.CharField = models.CharField(blank=True, null=True, max_length=20)
 
     # DYNAMIC FIELDS
 
@@ -109,20 +113,29 @@ class SessionRecording(UUIDModel):
             self._snapshots = snapshots
 
     def load_object_data(self) -> None:
+        """
+        This is only called in the to-be deprecated v1 of session recordings snapshot API
+        """
         try:
             from ee.models.session_recording_extensions import load_persisted_recording
         except ImportError:
-            pass
+            load_persisted_recording = lambda *args: None
 
         data = load_persisted_recording(self)
 
         if not data:
             return
 
-        self._snapshots = {
-            "has_next": False,
-            "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
-        }
+        if data.get("version", None) == "2022-12-22":
+            self._snapshots = {
+                "has_next": False,
+                "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
+            }
+        elif data.get("version", None) == "2023-08-01":
+            raise NotImplementedError("Storage version 2023-08-01 will never be supported in this code path")
+        else:
+            # unknown version
+            return
 
     # S3 / Clickhouse backed fields
     @property
@@ -168,6 +181,10 @@ class SessionRecording(UUIDModel):
         ]
 
         return "/".join(path_parts)
+
+    def build_blob_ingestion_storage_path(self) -> str:
+        root_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
+        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data/"
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
