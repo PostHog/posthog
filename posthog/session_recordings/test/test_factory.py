@@ -61,8 +61,8 @@ def create_session_recording_events(
     # If not given we will create a mock full snapshot
     snapshots: Optional[List[dict]] = None,
     chunk_size: Optional[int] = 512 * 1024,
-    use_replay_table: bool = False,
-    use_recording_table: bool = True,
+    use_replay_table: bool = True,
+    use_recording_table: bool = False,
 ) -> None:
 
     if use_replay_table:

@@ -146,6 +146,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             timestamp=datetime.utcnow(),
             session_id="session1",
             window_id="1234",
+            use_recording_table=False,
+            use_replay_table=True,
         )
 
         create_session_recording_events(
@@ -154,6 +156,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             timestamp=datetime.utcnow(),
             session_id="session2",
             window_id="1234",
+            use_recording_table=False,
+            use_replay_table=True,
         )
 
         # Create playlist items
@@ -194,6 +198,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
                 timestamp=datetime.utcnow(),
                 session_id=id,
                 window_id="1234",
+                use_recording_table=False,
+                use_replay_table=True,
             )
 
         self.client.post(
