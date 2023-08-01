@@ -42,14 +42,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
             </div>
 
             <div className="flex-1 overflow-y-auto border-t">
-                <PropertiesTable
-                    properties={person.properties}
-                    type={PropertyDefinitionType.Person}
-                    sortProperties
-                    tableProps={{
-                        size: 'small',
-                    }}
-                />
+                <PropertiesTable properties={person.properties} type={PropertyDefinitionType.Person} sortProperties />
             </div>
         </div>
     )
