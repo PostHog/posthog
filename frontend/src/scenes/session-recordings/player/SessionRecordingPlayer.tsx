@@ -23,11 +23,13 @@ import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urls } from 'scenes/urls'
+import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     includeMeta?: boolean
     noBorder?: boolean
     noInspector?: boolean
+    matchingEventsMatchType?: MatchingEventsMatchType
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -45,6 +47,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         includeMeta = true,
         recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
         matching,
+        matchingEventsMatchType,
         noBorder = false,
         noInspector = false,
         autoPlay = true,
@@ -58,6 +61,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingId,
         playerKey,
         matching,
+        matchingEventsMatchType,
         sessionRecordingData,
         recordingStartTime,
         autoPlay,

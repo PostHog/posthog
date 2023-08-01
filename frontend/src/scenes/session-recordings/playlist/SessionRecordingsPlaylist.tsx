@@ -313,8 +313,13 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)
-    const { activeSessionRecording, nextSessionRecording, shouldShowEmptyState, sessionRecordingsResponseLoading } =
-        useValues(logic)
+    const {
+        activeSessionRecording,
+        nextSessionRecording,
+        shouldShowEmptyState,
+        sessionRecordingsResponseLoading,
+        matchingEventsMatchType,
+    } = useValues(logic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { user } = useValues(userLogic)
@@ -390,6 +395,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
                             playlistShortId={playlistShortId}
                             sessionRecordingId={activeSessionRecording?.id}
                             matching={activeSessionRecording?.matching_events}
+                            matchingEventsMatchType={matchingEventsMatchType}
                             recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
                             nextSessionRecording={nextSessionRecording}
                         />

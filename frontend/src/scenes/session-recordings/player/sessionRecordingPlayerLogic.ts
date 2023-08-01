@@ -35,7 +35,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { delay } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import {
+    MatchingEventsMatchType,
+    sessionRecordingsListLogic,
+} from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { wrapConsole } from 'lib/utils/wrapConsole'
@@ -86,6 +89,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingLogicP
     sessionRecordingData?: SessionPlayerData
     playlistShortId?: string
     matching?: MatchedRecording[]
+    matchingEventsMatchType?: MatchingEventsMatchType
     recordingStartTime?: string
     nextSessionRecording?: Partial<SessionRecordingType>
     autoPlay?: boolean
