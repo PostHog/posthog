@@ -88,6 +88,7 @@
         "@types/react-virtualized": "^9.21.14",
         "antd": "^5.7.2",
         "antd-dayjs-webpack-plugin": "^1.0.6",
+        "babel-plugin-import": "^1.13.8",
         "babel-preset-nano-react-app": "^0.1.0",
         "chart.js": "^3.9.1",
         "chartjs-adapter-dayjs-3": "^1.2.3",

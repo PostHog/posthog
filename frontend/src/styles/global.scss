@@ -752,6 +752,10 @@ body {
         z-index: var(--z-ant-select-dropdown);
     }
 
+    .ant-card .ant-card-head {
+        font-weight: 500;
+    }
+
     .ant-card-bordered {
         border-color: var(--border);
     }
