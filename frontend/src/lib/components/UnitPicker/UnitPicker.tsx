@@ -82,7 +82,7 @@ export function UnitPicker(): JSX.Element {
     }, [localAxisFormat, trendsFilter])
 
     return (
-        <div className="flex flex-1 pb-1.5 pr-2">
+        <div className="flex flex-1 pt-1.5 pb-2 pr-2">
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
