@@ -95,7 +95,6 @@ def print_prepared_ast(
 class JoinExprResponse:
     printed_sql: str
     where: Optional[ast.Expr] = None
-    cte: Optional[str] = None
 
 
 class _Printer(Visitor):
@@ -157,7 +156,6 @@ class _Printer(Visitor):
         where = node.where
 
         joined_tables = []
-        ctes = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.type is None:
@@ -166,8 +164,6 @@ class _Printer(Visitor):
 
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
-            if visited_join.cte:
-                ctes.append(visited_join.cte)
 
             # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
@@ -231,8 +227,6 @@ class _Printer(Visitor):
 
         response = " ".join([clause for clause in clauses if clause])
 
-        response = f"WITH {', '.join(ctes)} {response}" if ctes else response
-
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
         if not part_of_select_union and not is_top_level_query:
             response = f"({response})"
@@ -244,7 +238,6 @@ class _Printer(Visitor):
         extra_where: Optional[ast.Expr] = None
 
         join_strings = []
-        cte = None
 
         if node.join_type is not None:
             join_strings.append(node.join_type)
@@ -269,8 +262,7 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 sql = table_type.table.to_printed_clickhouse(self.context)
 
-                # Always put S3 Tables in a CTE so joins can work when queried
-                if isinstance(table_type.table, S3Table) and node.join_type == "JOIN":
+                if isinstance(table_type.table, S3Table) and (node.next_join or node.join_type == "JOIN"):
                     sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
@@ -310,7 +302,7 @@ class _Printer(Visitor):
         if node.constraint is not None:
             join_strings.append(f"ON {self.visit(node.constraint)}")
 
-        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where, cte=cte)
+        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
