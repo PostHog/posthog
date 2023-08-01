@@ -463,6 +463,7 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
+         "posthog_sessionrecording"."storage_version",
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "pinned_count"
   FROM "posthog_sessionrecording"
   LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecording"."session_id" = "posthog_sessionrecordingplaylistitem"."recording_id")
@@ -830,11 +831,12 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
+         "posthog_sessionrecording"."storage_version",
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "pinned_count"
   FROM "posthog_sessionrecording"
   LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecording"."session_id" = "posthog_sessionrecordingplaylistitem"."recording_id")
-  WHERE ("posthog_sessionrecording"."session_id" IN ('1',
-                                                     '2')
+  WHERE ("posthog_sessionrecording"."session_id" IN ('2',
+                                                     '1')
          AND "posthog_sessionrecording"."team_id" = 2)
   GROUP BY "posthog_sessionrecording"."id" /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
@@ -1187,12 +1189,13 @@
          "posthog_sessionrecording"."console_warn_count",
          "posthog_sessionrecording"."console_error_count",
          "posthog_sessionrecording"."start_url",
+         "posthog_sessionrecording"."storage_version",
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "pinned_count"
   FROM "posthog_sessionrecording"
   LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecording"."session_id" = "posthog_sessionrecordingplaylistitem"."recording_id")
-  WHERE ("posthog_sessionrecording"."session_id" IN ('1',
+  WHERE ("posthog_sessionrecording"."session_id" IN ('2',
                                                      '3',
-                                                     '2')
+                                                     '1')
          AND "posthog_sessionrecording"."team_id" = 2)
   GROUP BY "posthog_sessionrecording"."id" /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
@@ -1235,7 +1238,8 @@
          "posthog_person"."version"
   FROM "posthog_persondistinctid"
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user',
+                                                      'user2',
                                                       'user3')
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
