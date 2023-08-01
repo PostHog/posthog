@@ -26,11 +26,7 @@ export function EntityFilterInfo({
     style,
 }: EntityFilterInfoProps): JSX.Element {
     if (isAllEventsEntityFilter(filter)) {
-        return (
-            <TextWrapper title="All events" className="text-muted-alt">
-                All events
-            </TextWrapper>
-        )
+        return <TextWrapper title="All events">All events</TextWrapper>
     }
 
     const title = getDisplayNameFromEntityFilter(filter, false)
