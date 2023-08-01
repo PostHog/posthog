@@ -109,17 +109,17 @@
             }
             > th,
             > td {
-                padding-left: 1rem;
+                padding-right: 1rem;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 .LemonTable--inset & {
-                    padding-left: 0.5rem;
+                    padding-right: 0.5rem;
                 }
                 &.LemonTable__boundary,
-                &:last-child {
-                    padding-right: 1rem;
+                &:first-child {
+                    padding-left: 1rem;
                     .LemonTable--inset & {
-                        padding-right: 0.5rem;
+                        padding-left: 0.5rem;
                     }
                 }
                 &[colspan='0'] {
@@ -180,7 +180,6 @@
 
 .LemonTable__header--sticky,
 .LemonTable__cell--sticky {
-    padding-right: 0.5rem;
     position: sticky;
     left: 0;
     z-index: 1;
