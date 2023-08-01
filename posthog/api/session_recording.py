@@ -242,7 +242,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
                     blob_key = full_key.replace(blob_prefix, "")
-                    time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
+                    time_range = self._blob_key_to_time_range(blob_key)
 
                     sources.append(
                         {
@@ -313,6 +313,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         serializer = SessionRecordingSnapshotsSerializer(response_data)
 
         return Response(serializer.data)
+
+    @staticmethod
+    def _blob_key_to_time_range(blob_key: str) -> List[datetime]:
+        try:
+            return [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
+        except ValueError as ve:
+            raise exceptions.ValidationError(f"Invalid blob key: {blob_key}") from ve
 
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):

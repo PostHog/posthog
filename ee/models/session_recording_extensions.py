@@ -76,6 +76,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id, source="s3")
         return
     else:
+        # TODO this can be removed when we're happy with the new storage version
         with SNAPSHOT_PERSIST_TIME_HISTOGRAM.labels(source="ClickHouse").time():
             recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
 

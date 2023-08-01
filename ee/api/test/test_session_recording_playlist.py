@@ -1,5 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from unittest import mock
+from unittest.mock import patch, MagicMock
+from uuid import uuid4
 
 from freezegun import freeze_time
 from rest_framework import status
@@ -9,9 +11,17 @@ from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FE
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
+from posthog.queries.session_recordings.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.test.test_factory import create_session_recording_events
+from django.test import override_settings
+
+TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
 
+@override_settings(
+    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
+    OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
+)
 class TestSessionRecordingPlaylist(APILicensedTest):
     def test_list_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
@@ -175,7 +185,12 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert {x["id"] for x in result["results"]} == {"session1", "session2"}
         assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
-    def test_fetch_playlist_recordings(self):
+    @patch("ee.models.session_recording_extensions.object_storage.list_objects")
+    @patch("ee.models.session_recording_extensions.object_storage.copy_objects")
+    def test_fetch_playlist_recordings(self, mock_copy_objects: MagicMock, mock_list_objects: MagicMock) -> None:
+        # all sessions have been blob ingested and had data to copy into the LTS storage location
+        mock_copy_objects.return_value = 1
+
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="playlist1",
@@ -187,23 +202,25 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             created_by=self.user,
         )
 
-        for id in ["session1", "session2"]:
-            create_session_recording_events(
+        session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
+        session_two = f"test_fetch_playlist_recordings-session2-{uuid4()}"
+        for session_id in [session_one, session_two]:
+            three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=timezone.utc)
+            produce_replay_summary(
                 team_id=self.team.id,
                 distinct_id="123",
-                timestamp=datetime.utcnow(),
-                session_id=id,
-                window_id="1234",
+                first_timestamp=three_days_ago,
+                session_id=session_id,
             )
 
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session1",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{session_one}",
         )
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session2",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{session_two}",
         )
         self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/session1",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{session_one}",
         )
 
         result = self.client.get(
@@ -211,8 +228,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
 
         assert len(result["results"]) == 2
-        assert result["results"][0]["id"] == "session1"
-        assert result["results"][1]["id"] == "session2"
+        assert result["results"][0]["id"] == session_one
+        assert result["results"][1]["id"] == session_two
 
         # Test get recordings
         result = self.client.get(
@@ -220,7 +237,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
 
         assert len(result["results"]) == 1
-        assert result["results"][0]["id"] == "session1"
+        assert result["results"][0]["id"] == session_one
 
     def test_add_remove_static_playlist_items(self):
         playlist1 = SessionRecordingPlaylist.objects.create(
