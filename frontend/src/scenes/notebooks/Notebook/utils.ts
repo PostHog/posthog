@@ -22,6 +22,7 @@ export interface NotebookEditor {
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     focus: (position: FocusPosition) => void
+    destroy: () => void
     isEmpty: () => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void

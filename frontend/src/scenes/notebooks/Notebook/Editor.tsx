@@ -144,9 +144,10 @@ export function Editor({
             editorRef.current = editor
             onCreate({
                 getJSON: () => editor.getJSON(),
-                setEditable: (editable: boolean) => editor.setEditable(editable, false),
-                setContent: (content: JSONContent) => editor.commands.setContent(content, false),
-                focus: (position: FocusPosition) => editor.commands.focus(position),
+                setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
+                setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
+                focus: (position: FocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
