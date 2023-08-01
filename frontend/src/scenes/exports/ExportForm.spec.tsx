@@ -42,7 +42,7 @@ describe('ExportForm', () => {
         useMocks(handlers)
         initKeaTests()
 
-        render(<ExportForm existingExport={null} />)
+        render(<ExportForm exportId={null} />)
 
         // Wait for the form with aria label "Create Export" to be rendered
         const form = await waitFor(() => {

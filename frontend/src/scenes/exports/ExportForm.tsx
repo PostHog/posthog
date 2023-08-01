@@ -171,7 +171,7 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
 export interface ExportCommonProps {
     startAt: dayjs.Dayjs | null
     endAt: dayjs.Dayjs | null
-    existingExport: null | BatchExport
+    existingExport: BatchExport | null
 }
 
 export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
@@ -243,6 +243,8 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
         }
     }, [startAt, endAt])
 
+    const exportDestination = existingExport ? (existingExport.destination as S3Destination) : null
+
     return (
         <div>
             <PureField label="Name" htmlFor="name">
@@ -258,7 +260,7 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
                     id="bucket"
                     placeholder="my-bucket"
                     ref={bucketRef}
-                    defaultValue={existingExport ? existingExport.destination.config.bucket_name : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.bucket_name : undefined}
                 />
             </PureField>
             <PureField label="Region" htmlFor="region">
@@ -267,7 +269,7 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
                     onSelect={(value) => {
                         regionRef.current = value
                     }}
-                    value={existingExport ? existingExport.destination.config.region : undefined}
+                    value={exportDestination ? exportDestination.config.region : undefined}
                     options={[
                         { value: 'us-east-1', label: 'US East (N. Virginia)' },
                         { value: 'us-east-2', label: 'US East (Ohio)' },
@@ -300,7 +302,7 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
                     id="prefix"
                     placeholder="posthog-events/"
                     ref={prefixRef}
-                    defaultValue={existingExport ? existingExport.destination.config.prefix : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.prefix : undefined}
                 />
             </PureField>
             <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
@@ -308,7 +310,7 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
                     id="aws-access-key-id"
                     placeholder="my-access-key-id"
                     ref={accessKeyIdRef}
-                    defaultValue={existingExport ? existingExport.destination.config.aws_access_key_id : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.aws_access_key_id : undefined}
                 />
             </PureField>
             <PureField htmlFor="aws-secret-access-key" label="AWS Secret Access Key">
@@ -316,7 +318,7 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
                     id="aws-secret-access-key"
                     placeholder="my-secret-access-key"
                     type="password"
-                    defaultValue={existingExport ? existingExport.destination.config.aws_secret_access_key : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.aws_secret_access_key : undefined}
                     ref={secretAccessKeyRef}
                 />
             </PureField>
@@ -430,6 +432,8 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
         }
     }, [startAt, endAt])
 
+    const exportDestination = existingExport ? (existingExport.destination as SnowflakeDestination) : null
+
     return (
         <div>
             <PureField label="Name">
@@ -444,7 +448,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                 <LemonInput
                     placeholder="my-user"
                     ref={userRef}
-                    defaultValue={existingExport ? existingExport.destination.config.user : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.user : undefined}
                 />
             </PureField>
 
@@ -453,7 +457,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                     placeholder="my-password"
                     type="password"
                     ref={passwordRef}
-                    defaultValue={existingExport ? existingExport.destination.config.password : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.password : undefined}
                 />
             </PureField>
 
@@ -461,7 +465,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                 <LemonInput
                     placeholder="my-account"
                     ref={accountRef}
-                    defaultValue={existingExport ? existingExport.destination.config.account : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.account : undefined}
                 />
             </PureField>
 
@@ -469,7 +473,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                 <LemonInput
                     placeholder="my-database"
                     ref={databaseRef}
-                    defaultValue={existingExport ? existingExport.destination.config.database : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.database : undefined}
                 />
             </PureField>
 
@@ -477,7 +481,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                 <LemonInput
                     placeholder="my-warehouse"
                     ref={warehouseRef}
-                    defaultValue={existingExport ? existingExport.destination.config.warehouse : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.warehouse : undefined}
                 />
             </PureField>
 
@@ -485,7 +489,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                 <LemonInput
                     placeholder="my-schema"
                     ref={schemaRef}
-                    defaultValue={existingExport ? existingExport.destination.config.schema : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.schema : undefined}
                 />
             </PureField>
 
@@ -493,7 +497,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                 <LemonInput
                     placeholder="events"
                     ref={tableNameRef}
-                    defaultValue={existingExport ? existingExport.destination.config.table_name : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.table_name : undefined}
                 />
             </PureField>
 
@@ -515,7 +519,7 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
                     placeholder="my-role"
                     ref={roleRef}
                     value={undefined}
-                    defaultValue={existingExport ? existingExport.destination.config.role : undefined}
+                    defaultValue={exportDestination ? exportDestination.config.role : undefined}
                 />
             </PureField>
 
