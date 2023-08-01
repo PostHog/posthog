@@ -25,7 +25,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
-from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
+from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS, PROPERTY_MATH_FUNCTIONS
 
 Probability = float
 
@@ -45,6 +45,12 @@ def uses_count_per_user_aggregation(filter: Filter):
     entities = filter.entities
     count_per_actor_keys = COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
     return any(entity.math in count_per_actor_keys for entity in entities)
+
+
+def uses_count_per_property_value_aggregation(filter: Filter):
+    entities = filter.entities
+    count_per_prop_value_keys = PROPERTY_MATH_FUNCTIONS.keys()
+    return any(entity.math in count_per_prop_value_keys for entity in entities)
 
 
 class ClickhouseTrendExperimentResult:
