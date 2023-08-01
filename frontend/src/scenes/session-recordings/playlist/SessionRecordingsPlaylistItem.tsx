@@ -4,7 +4,6 @@ import clsx from 'clsx'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
@@ -12,6 +11,7 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useValues } from 'kea'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType

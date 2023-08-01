@@ -199,6 +199,27 @@ export function hasChildOfType(node: Node, type: string, direct: boolean = true)
     return types.includes(type)
 }
 
+export function findPositionOfClosestNodeMatchingAttrs(
+    editor: TTEditor,
+    pos: number,
+    attrs: { [attr: string]: any }
+): number {
+    const matchingPositions: number[] = []
+    const attrEntries = Object.entries(attrs)
+
+    editor.state.doc.descendants((node, pos) => {
+        if (attrEntries.every(([attr, value]) => node.attrs[attr] === value)) {
+            matchingPositions.push(pos)
+        }
+    })
+
+    return closest(matchingPositions, pos)
+}
+
+function closest(array: number[], num: number): number {
+    return array.sort((a, b) => Math.abs(num - a) - Math.abs(num - b))[0]
+}
+
 export function firstChildOfType(node: Node, type: string, direct: boolean = true): Node | null {
     const children = getChildren(node, direct)
     return children.find((child) => child.type.name === type) || null
@@ -217,4 +238,19 @@ function getPreviousNode(editor: TTEditor): Node | null {
     const { $anchor } = editor.state.selection
     const node = $anchor.node(1)
     return !!node ? editor.state.doc.childBefore($anchor.pos - node.nodeSize).node : null
+}
+
+export function hasMatchingNode(
+    content: JSONContent[] | undefined,
+    options: { type?: string; attrs?: { [attr: string]: any } }
+): boolean {
+    const attrEntries = Object.entries(options.attrs || {})
+    return (
+        !!content &&
+        content
+            .filter((node) => !options.type || node.type === options.type)
+            .some((node) =>
+                attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
+            )
+    )
 }

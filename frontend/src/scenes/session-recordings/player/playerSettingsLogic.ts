@@ -179,8 +179,18 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
+        setShowFilters: (showFilters: boolean) => ({ showFilters }),
     }),
     reducers(({}) => ({
+        showFilters: [
+            true,
+            {
+                persist: true,
+            },
+            {
+                setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
         durationTypeToShow: [
             'duration' as DurationType,
             { persist: true },

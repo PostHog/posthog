@@ -682,15 +682,15 @@ class TestPrinter(BaseTest):
         )
 
     def test_field_nullable_equals(self):
-        self.assertEqual(
-            self._select(
-                "SELECT first_event_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_recording_events"
-            ),
+        generated_sql_statements = self._select(
+            "SELECT min_first_timestamp = toStartOfMonth(now()), now() = now(), 1 = now(), now() = 1, 1 = 1, click_count = 1, 1 = click_count, click_count = keypress_count, click_count = null, null = click_count FROM session_replay_events"
+        )
+        assert generated_sql_statements == (
             f"SELECT "
-            # first_event_timestamp = toStartOfMonth(now())
+            # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(equals(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNull(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s)) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"ifNull(equals(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
             # now() = now() (also two nullable fields)
             f"ifNull(equals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNull(now64(6, %(hogql_val_2)s)) and isNull(now64(6, %(hogql_val_3)s))), "
             # 1 = now()
@@ -700,31 +700,31 @@ class TestPrinter(BaseTest):
             # 1 = 1
             f"1, "
             # click_count = 1
-            f"equals(session_recording_events.click_count, 1), "
+            f"ifNull(equals(session_replay_events.click_count, 1), 0), "
             # 1 = click_count
-            f"equals(1, session_recording_events.click_count), "
+            f"ifNull(equals(1, session_replay_events.click_count), 0), "
             # click_count = keypress_count
-            f"equals(session_recording_events.click_count, session_recording_events.keypress_count), "
+            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)), "
             # click_count = null
-            f"isNull(session_recording_events.click_count), "
+            f"isNull(session_replay_events.click_count), "
             # null = click_count
-            f"isNull(session_recording_events.click_count) "
+            f"isNull(session_replay_events.click_count) "
             # ...
-            f"FROM session_recording_events WHERE equals(session_recording_events.team_id, {self.team.pk}) LIMIT 10000",
+            f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
         )
 
     def test_field_nullable_not_equals(self):
-        self.assertEqual(
-            self._select(
-                "SELECT first_event_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
-                "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
-                "FROM session_recording_events"
-            ),
+        generated_sql = self._select(
+            "SELECT min_first_timestamp != toStartOfMonth(now()), now() != now(), 1 != now(), now() != 1, 1 != 1, "
+            "click_count != 1, 1 != click_count, click_count != keypress_count, click_count != null, null != click_count "
+            "FROM session_replay_events"
+        )
+        assert generated_sql == (
             f"SELECT "
-            # first_event_timestamp = toStartOfMonth(now())
+            # min_first_timestamp = toStartOfMonth(now())
             # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(notEquals(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNotNull(toTimeZone(session_recording_events.first_event_timestamp, %(hogql_val_0)s)) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
+            f"ifNull(notEquals(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s), toStartOfMonth(now64(6, %(hogql_val_1)s))), "
+            f"isNotNull(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))), "
             # now() = now() (also two nullable fields)
             f"ifNull(notEquals(now64(6, %(hogql_val_2)s), now64(6, %(hogql_val_3)s)), isNotNull(now64(6, %(hogql_val_2)s)) or isNotNull(now64(6, %(hogql_val_3)s))), "
             # 1 = now()
@@ -734,15 +734,15 @@ class TestPrinter(BaseTest):
             # 1 = 1
             f"0, "
             # click_count = 1
-            f"notEquals(session_recording_events.click_count, 1), "
+            f"ifNull(notEquals(session_replay_events.click_count, 1), 1), "
             # 1 = click_count
-            f"notEquals(1, session_recording_events.click_count), "
+            f"ifNull(notEquals(1, session_replay_events.click_count), 1), "
             # click_count = keypress_count
-            f"notEquals(session_recording_events.click_count, session_recording_events.keypress_count), "
+            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)), "
             # click_count = null
-            f"isNotNull(session_recording_events.click_count), "
+            f"isNotNull(session_replay_events.click_count), "
             # null = click_count
-            f"isNotNull(session_recording_events.click_count) "
+            f"isNotNull(session_replay_events.click_count) "
             # ...
-            f"FROM session_recording_events WHERE equals(session_recording_events.team_id, {self.team.pk}) LIMIT 10000",
+            f"FROM (SELECT session_replay_events.min_first_timestamp AS min_first_timestamp, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk}) GROUP BY session_replay_events.min_first_timestamp) AS session_replay_events LIMIT 10000"
         )
