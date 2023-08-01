@@ -347,6 +347,7 @@ export class SessionManager {
                     ContentEncoding: 'gzip',
                     ContentType: 'application/json',
                     Body: readStream,
+                    Tagging: 'lifecycle=default',
                 },
             }))
 
