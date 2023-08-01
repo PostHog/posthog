@@ -21,6 +21,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonButton } from '@posthog/lemon-ui'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { ChartDisplayType } from '~/types'
 
 interface InsightDisplayConfigProps {
     disableTable: boolean
@@ -43,9 +44,13 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showFunnelDisplayLayout,
         showFunnelBins,
         display,
+        compare,
+        trendsFilter,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
-    const { showPercentStackView: isPercentStackViewOn } = useValues(trendsDataLogic(insightProps))
+    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries: isValueOnSeriesOn } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     const advancedOptions: LemonMenuItems = [
         ...(showCompare || showValueOnSeries || showPercentStackView
@@ -61,9 +66,24 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
               ]
             : []),
         ...(!isPercentStackViewOn && showUnit
-            ? [{ title: axisLabel(display), items: [{ label: () => <UnitPicker /> }] }]
+            ? [
+                  {
+                      title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                      items: [{ label: () => <UnitPicker /> }],
+                  },
+              ]
             : []),
     ]
+    const advancedOptionsCount: number =
+        (showCompare && compare ? 1 : 0) +
+        (showValueOnSeries && isValueOnSeriesOn ? 1 : 0) +
+        (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
+        (!isPercentStackViewOn &&
+        showUnit &&
+        trendsFilter?.aggregation_axis_format &&
+        trendsFilter.aggregation_axis_format !== 'numeric'
+            ? 1
+            : 0)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -118,7 +138,13 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="default-dark">
-                            More
+                            {advancedOptionsCount === 0 ? (
+                                'More'
+                            ) : (
+                                <>
+                                    More&nbsp;<span className="text-muted">({advancedOptionsCount})</span>
+                                </>
+                            )}
                         </LemonButton>
                     </LemonMenu>
                 )}
