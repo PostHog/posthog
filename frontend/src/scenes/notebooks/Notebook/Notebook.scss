@@ -99,6 +99,13 @@
         margin-right: auto;
     }
 
+    &--editable {
+        .NotebookEditor {
+            // Add some padding to help clicking below the last element
+            padding-bottom: 10rem;
+        }
+    }
+
     .LemonTable__content > table > thead {
         position: sticky;
         top: 0;

@@ -194,7 +194,7 @@ export function PlayerMeta(): JSX.Element {
                     </div>
                 </div>
 
-                {sessionRecordingId ? <PlayerMetaLinks /> : null}
+                {sessionRecordingId && <PlayerMetaLinks />}
             </div>
             <div
                 className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {

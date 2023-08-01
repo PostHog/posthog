@@ -9,16 +9,34 @@ import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
 import { posthogNodePasteRule } from './utils'
 import { uuid } from 'lib/utils'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { useActions, useValues } from 'kea'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { useEffect } from 'react'
+import {
+    SessionRecordingPreview,
+    SessionRecordingPreviewSkeleton,
+} from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 
 const HEIGHT = 500
+const MIN_HEIGHT = 400
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
 
-    const recordingLogicProps = {
+    const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
         autoPlay: false,
+        mode: SessionRecordingPlayerMode.Notebook,
     }
+
+    const { sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(recordingLogicProps))
+    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+
+    useEffect(() => {
+        loadRecordingMeta()
+    }, [])
+    // TODO Only load data when in view...
 
     return (
         <NodeWrapper
@@ -27,8 +45,20 @@ const Component = (props: NodeViewProps): JSX.Element => {
             title="Recording"
             href={urls.replaySingle(recordingLogicProps.sessionRecordingId)}
             heightEstimate={HEIGHT}
+            minHeight={MIN_HEIGHT}
+            resizeable={props.selected}
         >
-            <SessionRecordingPlayer {...recordingLogicProps} />
+            {!props.selected ? (
+                <div className="border rounded bg-white">
+                    {sessionPlayerMetaData ? (
+                        <SessionRecordingPreview recording={sessionPlayerMetaData} recordingPropertiesLoading={false} />
+                    ) : (
+                        <SessionRecordingPreviewSkeleton />
+                    )}
+                </div>
+            ) : (
+                <SessionRecordingPlayer {...recordingLogicProps} />
+            )}
         </NodeWrapper>
     )
 }

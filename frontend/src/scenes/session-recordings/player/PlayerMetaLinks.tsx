@@ -79,7 +79,7 @@ export function PlayerMetaLinks(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-1 items-center justify-end">
-            {![SessionRecordingPlayerMode.Notebook, SessionRecordingPlayerMode.Sharing].includes(mode) ? (
+            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     {featureFlags[FEATURE_FLAGS.NOTEBOOKS] && (
                         <LemonButton icon={<IconLink />} onClick={onComment} {...commonProps}>

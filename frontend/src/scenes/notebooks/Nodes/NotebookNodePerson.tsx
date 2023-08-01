@@ -11,6 +11,8 @@ import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
+const HEIGHT = 300
+
 const Component = (props: NodeViewProps): JSX.Element => {
     const id = props.node.attrs.id
     const logic = personLogic({ id })
@@ -23,21 +25,23 @@ const Component = (props: NodeViewProps): JSX.Element => {
             title="Person"
             {...props}
             href={urls.person(id)}
-            resizeable={false}
+            heightEstimate={HEIGHT}
+            minHeight={100}
+            resizeable={props.selected}
         >
-            <div className="border bg-bg-light rounded">
-                <div className="p-4">
+            <div className="flex flex-col border bg-bg-light rounded overflow-hidden">
+                <div className="p-4 flex-0">
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />
                     ) : (
-                        <PersonDisplay withIcon person={person} noLink />
+                        <PersonDisplay withIcon person={person} noLink noPopover />
                     )}
                 </div>
 
                 {props.selected && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="p-2 max-h-100 overflow-y-auto">
+                        <div className="flex-1 p-2 overflow-y-auto">
                             <PropertiesTable
                                 type={PropertyDefinitionType.Person}
                                 properties={person?.properties}
@@ -60,6 +64,9 @@ export const NotebookNodePerson = Node.create({
 
     addAttributes() {
         return {
+            height: {
+                default: HEIGHT,
+            },
             id: '',
         }
     },

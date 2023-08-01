@@ -19,6 +19,7 @@ export interface NodeWrapperProps extends NodeViewProps {
     nodeType: NotebookNodeType
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
     heightEstimate?: number | string
+    minHeight?: number | string
     href?: string
     resizeable?: boolean
 }
@@ -31,6 +32,7 @@ export function NodeWrapper({
     href,
     heightEstimate = '4rem',
     resizeable = true,
+    minHeight,
     node,
     getPos,
     updateAttributes,
@@ -123,11 +125,11 @@ export function NodeWrapper({
                             <div
                                 ref={contentRef}
                                 className={clsx(
-                                    'flex flex-col relative z-0 overflow-hidden min-h-40',
+                                    'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
                                     resizeable && 'resize-y'
                                 )}
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ height }}
+                                style={resizeable ? { height, minHeight } : {}}
                                 onMouseDown={onResizeStart}
                             >
                                 {children}
