@@ -126,6 +126,7 @@ export function NodeWrapper({
                                     <LemonButton
                                         onClick={() => setExpanded(!expanded)}
                                         size="small"
+                                        status="primary-alt"
                                         className="flex-1"
                                         icon={<IconDragHandle className="cursor-move text-base shrink-0" />}
                                     >
