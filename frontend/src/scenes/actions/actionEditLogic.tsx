@@ -54,6 +54,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 setCreateNew: (_, { createNew }) => createNew,
             },
         ],
+        wasDeleted: [
+            false,
+            {
+                deleteAction: () => true,
+            },
+        ],
     }),
 
     forms(({ actions, props }) => ({
@@ -172,7 +178,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     })),
 
     beforeUnload(({ values }) => ({
-        enabled: () => values.actionChanged,
+        enabled: () => values.actionChanged && !values.wasDeleted,
         message: `Leave action?\nChanges you made will be discarded.`,
     })),
 ])
