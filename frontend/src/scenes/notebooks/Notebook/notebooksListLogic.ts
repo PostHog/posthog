@@ -13,8 +13,7 @@ import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import FuseClass from 'fuse.js'
 import { notebookSidebarLogic } from './notebookSidebarLogic'
-import { JSONContent, defaultNotebookContent } from './utils'
-import { FocusPosition } from '@tiptap/core'
+import { EditorFocusPosition, JSONContent, defaultNotebookContent } from './utils'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -30,7 +29,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 export const openNotebook = (
     notebookId: string,
     target: NotebookTarget = NotebookTarget.Auto,
-    focus: FocusPosition = null
+    focus: EditorFocusPosition = null
 ): void => {
     const sidebarLogic = notebookSidebarLogic.findMounted()
 

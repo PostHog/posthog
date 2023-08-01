@@ -5,7 +5,7 @@ import { urlToAction } from 'kea-router'
 import { RefObject } from 'react'
 import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
-import { FocusPosition } from '@tiptap/core'
+import { EditorFocusPosition } from './utils'
 
 export const MIN_NOTEBOOK_SIDEBAR_WIDTH = 600
 
@@ -15,7 +15,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
         setNotebookSideBarShown: (shown: boolean) => ({ shown }),
         setFullScreen: (full: boolean) => ({ full }),
         selectNotebook: (id: string) => ({ id }),
-        setInitialAutofocus: (position: FocusPosition) => ({ position }),
+        setInitialAutofocus: (position: EditorFocusPosition) => ({ position }),
         onResize: (event: { originX: number; desiredX: number; finished: boolean }) => event,
         setDesiredWidth: (width: number) => ({ width }),
         setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
@@ -51,7 +51,7 @@ export const notebookSidebarLogic = kea<notebookSidebarLogicType>([
             },
         ],
         initialAutofocus: [
-            null as FocusPosition,
+            null as EditorFocusPosition,
             {
                 selectNotebook: () => null,
                 setInitialAutofocus: (_, { position }) => position,

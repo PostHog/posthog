@@ -1,11 +1,11 @@
-import { FocusPosition, Editor as TTEditor } from '@tiptap/core'
+import { Editor as TTEditor } from '@tiptap/core'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import { useCallback, useRef } from 'react'
 import StarterKit from '@tiptap/starter-kit'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
-import { EditorRange, Node } from './utils'
+import { EditorRange, EditorFocusPosition, Node } from './utils'
 
 import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeQuery } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
@@ -146,7 +146,7 @@ export function Editor({
                 getJSON: () => editor.getJSON(),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
-                focus: (position: FocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 destroy: () => editor.destroy(),
                 isEmpty: () => editor.isEmpty,
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),

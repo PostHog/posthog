@@ -12,12 +12,12 @@ import { SCRATCHPAD_NOTEBOOK } from './notebooksListLogic'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { Editor } from './Editor'
-import { FocusPosition } from '@tiptap/core'
+import { EditorFocusPosition } from './utils'
 
 export type NotebookProps = {
     shortId: string
     editable?: boolean
-    initialAutofocus?: FocusPosition
+    initialAutofocus?: EditorFocusPosition
 }
 
 const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes', 'Bug analysis']
