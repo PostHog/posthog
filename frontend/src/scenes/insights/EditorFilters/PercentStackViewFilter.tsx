@@ -3,7 +3,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightLogic } from '../insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-export function PercentStackView(): JSX.Element {
+export function PercentStackViewFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { showPercentStackView } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(trendsDataLogic(insightProps))

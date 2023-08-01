@@ -16,7 +16,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
-import { PercentStackView } from 'scenes/insights/EditorFilters/PercentStackView'
+import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -60,7 +60,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                       items: [
                           ...(showCompare ? [{ label: () => <CompareFilter /> }] : []),
                           ...(showValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                          ...(showPercentStackView ? [{ label: () => <PercentStackView /> }] : []),
+                          ...(showPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                       ],
                   },
               ]
