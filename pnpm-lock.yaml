@@ -4,7 +4,6 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-
 dependencies:
   '@ant-design/icons':
     specifier: ^4.7.0
@@ -10480,7 +10479,7 @@ packages:
       object-assign: 4.1.1
       promise: 7.3.1
       setimmediate: 1.0.5
-      ua-parser-js: 0.7.32
+      ua-parser-js: 0.7.35
     transitivePeerDependencies:
       - encoding
     dev: false
@@ -19283,8 +19282,8 @@ packages:
     hasBin: true
     dev: true
 
-  /ua-parser-js@0.7.32:
-    resolution: {integrity: sha512-f9BESNVhzlhEFf2CHMSj40NWOjYPl1YKYbrvIr/hFTDEmLq7SRbWvm7FcdcpCYT95zrOhC7gZSxjdnnTpBcwVw==}
+  /ua-parser-js@0.7.35:
+    resolution: {integrity: sha512-veRf7dawaj9xaWEu9HoTVn5Pggtc/qj+kqTOFvNiN1l0YdxwC1kvel57UCjThjGa3BHBihE8/UJAHI+uQHmd/g==}
     dev: false
 
   /uc.micro@1.0.6:
