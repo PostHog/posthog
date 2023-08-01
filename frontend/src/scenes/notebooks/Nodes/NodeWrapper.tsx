@@ -1,4 +1,12 @@
-import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
+import {
+    NodeViewProps,
+    Node,
+    NodeViewWrapper,
+    mergeAttributes,
+    ReactNodeViewRenderer,
+    ExtendedRegExpMatchArray,
+    Attribute,
+} from '@tiptap/react'
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
@@ -13,15 +21,18 @@ import { NotebookNodeType } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeContext, notebookNodeLogic } from './notebookNodeLogic'
 import { uuid } from 'lib/utils'
+import { posthogNodePasteRule } from './utils'
 
 export interface NodeWrapperProps extends NodeViewProps {
     title: string
     nodeType: NotebookNodeType
     children: ReactNode | ((isEdit: boolean, isPreview: boolean) => ReactNode)
+    href?: string
+
+    // Sizing
+    resizeable?: boolean
     heightEstimate?: number | string
     minHeight?: number | string
-    href?: string
-    resizeable?: boolean
 }
 
 export function NodeWrapper({
@@ -103,9 +114,10 @@ export function NodeWrapper({
                         </>
                     ) : (
                         <>
-                            <div className={clsx('NotebookNode__meta')} data-drag-handle>
+                            <div className="NotebookNode__meta" data-drag-handle>
                                 <IconDragHandle className="cursor-move text-base shrink-0" />
-                                <span className="flex-1">{title}</span>
+                                <span className="flex-1 cursor-pointer">{title}</span>
+
                                 {href && <LemonButton size="small" icon={<IconLink />} to={href} />}
 
                                 <LemonButton
@@ -132,4 +144,61 @@ export function NodeWrapper({
             </NodeViewWrapper>
         </NotebookNodeContext.Provider>
     )
+}
+
+export type CreatePostHogWidgetNodeOptions = {
+    nodeType: NotebookNodeType
+    Component: (props: NodeWrapperProps) => JSX.Element
+    defaultHeight: number
+    pasteOptions?: {
+        find: string
+        getAttributes: (match: ExtendedRegExpMatchArray) => Record<string, any> | null | undefined
+    }
+    attributes: Record<string, Attribute>
+}
+
+// TODO: Correct return type
+export const createPostHogWidgetNode = (props: CreatePostHogWidgetNodeOptions): any => {
+    Node.create({
+        name: props.nodeType,
+        group: 'block',
+        atom: true,
+        draggable: true,
+
+        addAttributes() {
+            return {
+                height: {
+                    default: props.defaultHeight,
+                },
+                ...props.attributes,
+            }
+        },
+
+        parseHTML() {
+            return [
+                {
+                    tag: props.nodeType,
+                },
+            ]
+        },
+
+        renderHTML({ HTMLAttributes }) {
+            return [props.nodeType, mergeAttributes(HTMLAttributes)]
+        },
+
+        addNodeView() {
+            return ReactNodeViewRenderer(props.Component)
+        },
+
+        addPasteRules() {
+            return props.pasteOptions
+                ? [
+                      posthogNodePasteRule({
+                          type: this.type,
+                          ...props.pasteOptions,
+                      }),
+                  ]
+                : []
+        },
+    })
 }

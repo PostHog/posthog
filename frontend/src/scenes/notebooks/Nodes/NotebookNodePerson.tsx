@@ -30,7 +30,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             resizeable={props.selected}
         >
             <div className="flex flex-col overflow-hidden">
-                <div className="p-4 flex-0">
+                <div className="p-4 flex-0 font-semibold">
                     {personLoading ? (
                         <LemonSkeleton className="h-6" />
                     ) : (
