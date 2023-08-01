@@ -311,7 +311,9 @@ class _Printer(Visitor):
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
-    def _is_next_s3(self, node: ast.JoinExpr):
+    def _is_next_s3(self, node: Optional[ast.JoinExpr]):
+        if node is None:
+            return False
         if isinstance(node.type, ast.TableAliasType):
             return isinstance(node.type.table_type.table, S3Table)
         return False
