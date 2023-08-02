@@ -124,20 +124,18 @@ class ActorBaseQuery:
             team_id = %(team_id)s
             and has_full_snapshot = 1
             and session_id in %(session_ids)s
-            {date_filters}
         """
 
         # constrain by date range to help limit the work ClickHouse has to do scanning these tables
-        date_filters = ""
         if date_from:
-            date_filters += "AND timestamp >= %(date_from)s"
+            query += " AND timestamp >= %(date_from)s"
         else:
-            date_filters += "AND timestamp >= now() - INTERVAL 1 YEAR"
+            query += " AND timestamp >= now() - INTERVAL 1 YEAR"
 
         if date_to:
-            date_filters += "AND timestamp <= %(date_to)s"
+            query += " AND timestamp <= %(date_to)s"
         else:
-            date_filters += "AND timestamp <= now()"
+            query += " AND timestamp <= now()"
 
         params = {
             "team_id": self._team.pk,

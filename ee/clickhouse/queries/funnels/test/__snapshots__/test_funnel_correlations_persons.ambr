@@ -135,6 +135,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s2']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings.2
@@ -342,6 +344,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s2']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_properties_with_recordings
@@ -475,6 +479,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s2']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings
@@ -606,6 +612,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s2']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
 # name: TestClickhouseFunnelCorrelationsActors.test_strict_funnel_correlation_with_recordings.2
@@ -737,5 +745,7 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s3']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
