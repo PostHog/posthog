@@ -157,7 +157,7 @@ async function handleBatch(db: DB, events: RawClickHouseEvent[]): Promise<void> 
         }
     }
     const batchQueue = Array.from(batches.values())
-    status.info('Processing events', {
+    status.info('⚙️', 'Processing events', {
         eventCount: events.length,
         batchCount: batchQueue.length,
     })
