@@ -249,7 +249,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_dashboard_choice_for_user_dashboard_must_be_in_current_team(
+    def test_set_scene_personalisation_for_user_dashboard_must_be_in_current_team(
         self, _mock_capture, _mock_identify_task
     ):
         a_third_team = Team.objects.create(name="A Third Team", organization=self.organization)
@@ -257,7 +257,7 @@ class TestUserAPI(APIBaseTest):
         dashboard_one = Dashboard.objects.create(team=a_third_team, name="Dashboard 1")
 
         response = self.client.post(
-            "/api/users/@me/scene_dashboard_choice",
+            "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
             {"user": 12345, "team": 12345, "dashboard": str(dashboard_one.id), "scene": "Person"},
         )
@@ -265,9 +265,9 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_dashboard_choice_for_user_dashboard_must_exist(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture, _mock_identify_task):
         response = self.client.post(
-            "/api/users/@me/scene_dashboard_choice",
+            "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
             {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
         )
@@ -275,9 +275,9 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_dashboard_choice_for_user_must_send_dashboard(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture, _mock_identify_task):
         response = self.client.post(
-            "/api/users/@me/scene_dashboard_choice",
+            "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
             {"user": 12345, "team": 12345, "scene": "Person"},
         )
@@ -285,11 +285,11 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_dashboard_choice_for_user_must_send_scene(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user_must_send_scene(self, _mock_capture, _mock_identify_task):
         dashboard_one = Dashboard.objects.create(team=self.team, name="Dashboard 1")
 
         response = self.client.post(
-            "/api/users/@me/scene_dashboard_choice",
+            "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
             {
                 "user": 12345,
@@ -301,7 +301,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_set_scene_dashboard_choice_for_user(self, _mock_capture, _mock_identify_task):
+    def test_set_scene_personalisation_for_user(self, _mock_capture, _mock_identify_task):
         another_org = Organization.objects.create(name="Another Org")
         another_team = Team.objects.create(name="Another Team", organization=another_org)
         user = self._create_user("the-user@posthog.com", password="12345678")
@@ -356,14 +356,14 @@ class TestUserAPI(APIBaseTest):
         self, scene: str, dashboard: Dashboard, user: User, expected_choices: List[Dict]
     ) -> None:
         response = self.client.post(
-            "/api/users/@me/scene_dashboard_choice",
+            "/api/users/@me/scene_personalisation",
             # even if someone tries to send a different user or team they are ignored
             {"user": 12345, "team": 12345, "dashboard": str(dashboard.id), "scene": scene},
         )
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         assert response_data["uuid"] == str(user.uuid)
-        assert response_data["scene_dashboard_choices"] == expected_choices
+        assert response_data["scene_personalisation"] == expected_choices
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     @patch("posthog.tasks.email.send_email_change_emails.delay")

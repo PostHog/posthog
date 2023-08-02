@@ -179,7 +179,7 @@ export interface UserType extends UserBaseType {
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
-    scene_dashboard_choices?: SceneDashboardChoice[]
+    scene_personalisation?: SceneDashboardChoice[]
 }
 
 export interface NotificationSettings {

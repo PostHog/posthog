@@ -26,7 +26,7 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-        setUserSceneDashboardChoice: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
+        setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
     })),
     forms(({ actions }) => ({
@@ -75,12 +75,12 @@ export const userLogic = kea<userLogicType>([
                         actions.updateUserFailure(error.message)
                     }
                 },
-                setUserSceneDashboardChoice: async ({ scene, dashboard }) => {
+                setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        return await api.create('api/users/@me/scene_dashboard_choice', {
+                        return await api.create('api/users/@me/scene_personalisation', {
                             scene,
                             dashboard,
                         })

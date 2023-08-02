@@ -16,7 +16,7 @@ export const groupDashboardLogic = kea<groupDashboardLogicType>([
         groupDashboardId: [
             (s) => [s.user],
             (user) => {
-                const currentDashboard = user?.scene_dashboard_choices?.find(
+                const currentDashboard = user?.scene_personalisation?.find(
                     (choice) => choice.scene === Scene.Group
                 )?.dashboard
                 return typeof currentDashboard === 'number' ? currentDashboard : currentDashboard?.id

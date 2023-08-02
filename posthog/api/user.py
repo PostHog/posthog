@@ -35,7 +35,7 @@ from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
-from posthog.models import Team, User, UserSceneDashboardChoice, Dashboard
+from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
@@ -58,9 +58,9 @@ class UserEmailVerificationThrottle(UserRateThrottle):
     rate = "6/day"
 
 
-class SceneDashboardChoiceBasicSerializer(serializers.ModelSerializer):
+class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
     class Meta:
-        model = UserSceneDashboardChoice
+        model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
 
 
@@ -76,7 +76,7 @@ class UserSerializer(serializers.ModelSerializer):
     set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(write_only=True, required=False)
     notification_settings = serializers.DictField(required=False)
-    scene_dashboard_choices = SceneDashboardChoiceBasicSerializer(many=True, read_only=True)
+    scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = User
@@ -107,7 +107,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "has_seen_product_intro_for",
-            "scene_dashboard_choices",
+            "scene_personalisation",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -236,9 +236,9 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class SceneDashboardChoiceSerializer(serializers.ModelSerializer):
+class ScenePersonalisationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = UserSceneDashboardChoice
+        model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
         read_only_fields = ["user", "team"]
 
@@ -267,7 +267,7 @@ class SceneDashboardChoiceSerializer(serializers.ModelSerializer):
 
         validated_data = {**self.validated_data, **kwargs}
 
-        return UserSceneDashboardChoice.objects.update_or_create(
+        return UserScenePersonalisation.objects.update_or_create(
             user=instance,
             team=instance.current_team,
             scene=validated_data["scene"],
@@ -382,9 +382,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return Response({"success": True})
 
     @action(methods=["POST"], detail=True)
-    def scene_dashboard_choice(self, request, **kwargs):
+    def scene_personalisation(self, request, **kwargs):
         instance = self.get_object()
-        request_serializer = SceneDashboardChoiceSerializer(instance=instance, data=request.data, partial=True)
+        request_serializer = ScenePersonalisationSerializer(instance=instance, data=request.data, partial=True)
         request_serializer.is_valid(raise_exception=True)
 
         request_serializer.save()

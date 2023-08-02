@@ -14,13 +14,13 @@ export function PersonDashboard({ person }: { person: PersonType }): JSX.Element
     const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Person }))
     const { dashboardLogicProps } = useValues(personDashboardLogic)
 
-    // TODO: needs https://github.com/PostHog/posthog/pull/16653 so we can filter by person ID
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { setProperties } = useActions(dashboardLogic(dashboardLogicProps))
     useEffect(() => {
         if (dashboard && person) {
             // `dashboard?.filters.properties` is typed as `any` but it's a list...
             const current = Array.isArray(dashboard?.filters.properties) ? dashboard?.filters.properties : []
+            // TODO: needs https://github.com/PostHog/posthog/pull/16653 so we can filter by person ID
             const hogQLPersonFilter = `person.properties.email = '${person.properties.email}'`
             const desired: HogQLPropertyFilter = {
                 type: PropertyFilterType.HogQL,

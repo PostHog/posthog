@@ -16,14 +16,14 @@ describe('sceneDashboardChoiceModalLogic ', () => {
                 '/api/projects/@current': () => MOCK_DEFAULT_TEAM,
             },
             post: {
-                '/api/users/@me/scene_dashboard_choice': (req) => {
+                '/api/users/@me/scene_personalisation': (req) => {
                     const data = req.body as any
                     return [
                         200,
                         {
                             ...MOCK_DEFAULT_USER,
-                            scene_dashboard_choices: [
-                                ...(MOCK_DEFAULT_USER.scene_dashboard_choices || []),
+                            scene_personalisation: [
+                                ...(MOCK_DEFAULT_USER.scene_personalisation || []),
                                 { scene: data.scene, dashboard: data.dashboard },
                             ],
                         },
@@ -94,7 +94,7 @@ describe('sceneDashboardChoiceModalLogic ', () => {
             await expectLogic(logic, () => {
                 logic.actions.setSceneDashboardChoice(12)
             })
-                .toDispatchActions(userLogic, ['setUserSceneDashboardChoice', 'setUserSceneDashboardChoiceSuccess'])
+                .toDispatchActions(userLogic, ['setUserScenePersonalisation', 'setUserScenePersonalisationSuccess'])
                 .toMatchValues({
                     currentDashboardId: 12,
                 })

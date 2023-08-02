@@ -27,7 +27,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     key((props) => `${props.scene}`),
     connect({
         logic: [eventUsageLogic],
-        actions: [teamLogic, ['updateCurrentTeam'], userLogic, ['setUserSceneDashboardChoice']],
+        actions: [teamLogic, ['updateCurrentTeam'], userLogic, ['setUserScenePersonalisation']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], dashboardsModel, ['nameSortedDashboards']],
     }),
     actions({
@@ -44,7 +44,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         currentDashboardId: [
             (s) => [s.currentTeam, s.user],
             (currentTeam, user) => {
-                let currentDashboard = user?.scene_dashboard_choices?.find(
+                let currentDashboard = user?.scene_personalisation?.find(
                     (choice) => choice.scene === props.scene
                 )?.dashboard
 
@@ -81,7 +81,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
                 actions.updateCurrentTeam({ primary_dashboard: dashboardId })
                 posthog.capture('primary dashboard changed')
             } else {
-                actions.setUserSceneDashboardChoice(props.scene, dashboardId)
+                actions.setUserScenePersonalisation(props.scene, dashboardId)
                 posthog.capture('scene dashboard choice set', { scene: props.scene, dashboardId: dashboardId })
             }
         },

@@ -1,24 +1,24 @@
 import pytest
 from django import db
 
-from posthog.models import User, UserSceneDashboardChoice, Dashboard
+from posthog.models import User, UserScenePersonalisation, Dashboard
 from posthog.test.base import BaseTest
 
 
-class TestUserSceneDashboardChoice(BaseTest):
+class TestUserScenePersonalisation(BaseTest):
     def test_user_can_have_a_preference(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
         )
 
-        udp = UserSceneDashboardChoice.objects.create(
+        udp = UserScenePersonalisation.objects.create(
             scene="Persons",
             dashboard=dashboard,
             team=self.team,
             user=self.user,
         )
 
-        assert list(self.user.scene_dashboard_choices.all()) == [udp]
+        assert list(self.user.scene_personalisation.all()) == [udp]
 
     def test_user_cannot_have_clashing_preference(self):
         dashboard = Dashboard.objects.create(
@@ -28,14 +28,14 @@ class TestUserSceneDashboardChoice(BaseTest):
             team=self.team,
         )
 
-        UserSceneDashboardChoice.objects.create(
+        UserScenePersonalisation.objects.create(
             scene="Persons",
             dashboard=dashboard,
             team=self.team,
             user=self.user,
         )
         with pytest.raises(db.utils.IntegrityError):
-            UserSceneDashboardChoice.objects.create(
+            UserScenePersonalisation.objects.create(
                 scene="Persons",
                 dashboard=dashboard_two,
                 team=self.team,
@@ -50,21 +50,21 @@ class TestUserSceneDashboardChoice(BaseTest):
             team=self.team,
         )
 
-        UserSceneDashboardChoice.objects.create(
+        UserScenePersonalisation.objects.create(
             scene="Persons",
             dashboard=dashboard,
             team=self.team,
             user=self.user,
         )
 
-        UserSceneDashboardChoice.objects.create(
+        UserScenePersonalisation.objects.create(
             scene="Groups",
             dashboard=dashboard_two,
             team=self.team,
             user=self.user,
         )
 
-        assert self.user.scene_dashboard_choices.count() == 2
+        assert self.user.scene_personalisation.count() == 2
 
     def test_deleting_user_deletes_preferences(self):
         another_user = User.objects.create_and_join(self.organization, "another@example.comn", "password")
@@ -73,15 +73,15 @@ class TestUserSceneDashboardChoice(BaseTest):
             team=self.team,
         )
 
-        UserSceneDashboardChoice.objects.create(
+        UserScenePersonalisation.objects.create(
             scene="Persons",
             dashboard=dashboard,
             team=self.team,
             user=another_user,
         )
 
-        assert UserSceneDashboardChoice.objects.count() == 1
+        assert UserScenePersonalisation.objects.count() == 1
 
         another_user.delete()
 
-        assert UserSceneDashboardChoice.objects.count() == 0
+        assert UserScenePersonalisation.objects.count() == 0
