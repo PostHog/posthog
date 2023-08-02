@@ -74,12 +74,12 @@ def session_recording_list_test_factory(session_recording_list):
             (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
             self.assertEqual(len(session_recordings), 2)
-            self.assertEqual(session_recordings[0]["start_time"], self.base_time + relativedelta(seconds=20))
             self.assertEqual(session_recordings[0]["session_id"], "2")
+            self.assertEqual(session_recordings[0]["start_time"], self.base_time + relativedelta(seconds=20))
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
 
-            self.assertEqual(session_recordings[1]["start_time"], self.base_time)
             self.assertEqual(session_recordings[1]["session_id"], "1")
+            self.assertEqual(session_recordings[1]["start_time"], self.base_time + relativedelta(seconds=10))
             self.assertEqual(session_recordings[1]["distinct_id"], "user")
             self.assertEqual(more_recordings_available, False)
 

@@ -175,6 +175,8 @@ def create_snapshots(
     has_full_snapshot: bool = True,
     source: int = 0,
     chunk_size: Optional[int] = 512 * 1024,
+    use_replay_table=True,
+    use_recording_table=False,
 ):
     snapshots = []
     for index in range(snapshot_count):
@@ -212,4 +214,6 @@ def create_snapshots(
         window_id=window_id,
         snapshots=snapshots,
         chunk_size=chunk_size,
+        use_recording_table=use_recording_table,
+        use_replay_table=use_replay_table,
     )
