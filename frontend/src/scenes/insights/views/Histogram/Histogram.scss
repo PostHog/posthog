@@ -25,6 +25,10 @@
             .domain {
                 stroke: var(--funnel-axis);
             }
+
+            .tick {
+                color: var(--funnel-axis);
+            }
         }
 
         g#x-axis,
