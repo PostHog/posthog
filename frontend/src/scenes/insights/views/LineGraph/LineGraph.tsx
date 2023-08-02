@@ -356,7 +356,12 @@ export function LineGraph_({
         const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
         const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
-            color: colors.axisLabel as Color,
+            color: '#35416b' as Color,
+            font: {
+                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                size: 12,
+                weight: '500',
+            },
         }
         const gridOptions: Partial<GridLineOptions> = {
             borderColor: colors.axisLine as string,
@@ -541,8 +546,8 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                     },
                     grid: gridOptions,
                 },
@@ -550,8 +555,8 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
@@ -576,8 +581,8 @@ export function LineGraph_({
                     display: true,
                     stacked: showPercentStackView || isArea,
                     ticks: {
-                        precision,
                         ...tickOptions,
+                        precision,
                         callback: (value) => {
                             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
                         },
@@ -616,8 +621,8 @@ export function LineGraph_({
                     },
                     beginAtZero: true,
                     ticks: {
+                        ...tickOptions,
                         precision,
-                        color: colors.axisLabel as string,
                         autoSkip: !shouldAutoResize,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [

@@ -56,11 +56,9 @@
 
 .StepBarLabels__label {
     transform: translateY(-50%);
-    // same as chart-js
-    font-size: 12px;
-    font-weight: normal;
-    font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
-    color: #0f0f0f;
+    color: var(--primary-alt);
+    font-size: 0.75rem;
+    font-weight: 500;
 }
 
 .StepBars {

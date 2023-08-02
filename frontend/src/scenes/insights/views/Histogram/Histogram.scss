@@ -34,10 +34,11 @@
         g#x-axis,
         g#y-axis {
             text {
+                font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial,
+                    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
                 font-size: 12px;
-                font-weight: normal;
-                font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
-                fill: #0f0f0f;
+                font-weight: 500;
+                fill: var(--primary-alt);
             }
         }
 
