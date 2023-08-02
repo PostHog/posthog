@@ -1,4 +1,9 @@
-import { Hub } from '../src/types'
+import { DateTime } from 'luxon'
+import { DB } from 'utils/db/db'
+import { formPluginEvent } from 'utils/event'
+import { PersonState } from 'worker/ingestion/person-state'
+
+import { Hub, RawClickHouseEvent } from '../src/types'
 import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig } from './config/config'
 import { initApp } from './init'
@@ -54,4 +59,16 @@ switch (alternativeMode) {
         const capabilities = getPluginServerCapabilities(defaultConfig)
         void startPluginsServer(defaultConfig, makePiscina, capabilities)
         break
+}
+
+// TODO: query CH by 10 min chunks from start to end based on envs
+// run merges parallel across teams, non-parallel within teams
+// status log message when done
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function handleEvent(db: DB, event: RawClickHouseEvent): Promise<void> {
+    // single CH event handlin
+    const pluginEvent = formPluginEvent(event)
+    const ts: DateTime = DateTime.fromISO(pluginEvent.timestamp as string)
+    const personState = new PersonState(pluginEvent, pluginEvent.team_id, pluginEvent.distinct_id, ts, db)
+    await personState.handleIdentifyOrAlias()
 }
