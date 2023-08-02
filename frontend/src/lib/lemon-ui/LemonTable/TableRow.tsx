@@ -64,7 +64,7 @@ function TableRowRaw<T extends Record<string, any>>({
                     />
                 )}
                 {!!expandable && rowExpandable >= 0 && (
-                    <td>
+                    <td className="LemonTable__toggle">
                         {!!rowExpandable && (
                             <LemonButton
                                 noPadding
@@ -93,13 +93,12 @@ function TableRowRaw<T extends Record<string, any>>({
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =
                             !!contents && typeof contents === 'object' && !React.isValidElement(contents)
-                        const isLastColumnInGroup = columnIndex === columnGroup.children.length - 1
                         const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
                         return (
                             <td
                                 key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
                                 className={clsx(
-                                    isLastColumnInGroup && 'LemonTable__boundary',
+                                    columnIndex === 0 && 'LemonTable__boundary',
                                     isSticky && 'LemonTable__cell--sticky',
                                     column.align && `text-${column.align}`,
                                     column.className
