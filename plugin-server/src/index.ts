@@ -65,6 +65,30 @@ switch (alternativeMode) {
 // run merges parallel across teams, non-parallel within teams
 // status log message when done
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function handleBatch(db: DB, events: RawClickHouseEvent[]): Promise<void> {
+    const eventMap = new Map<number, RawClickHouseEvent[]>()
+    for (const event of events) {
+        if (eventMap.has(event.team_id)) {
+            eventMap.get(event.team_id)?.push(event)
+        } else {
+            eventMap.set(event.team_id, [event])
+        }
+    }
+
+    const promises: Promise<void>[] = []
+    for (const teamEvents of eventMap.values()) {
+        promises.push(handleTeam(db, teamEvents))
+    }
+
+    await Promise.all(promises)
+}
+
+async function handleTeam(db: DB, events: RawClickHouseEvent[]): Promise<void> {
+    for (const event of events) {
+        await handleEvent(db, event)
+    }
+}
+
 async function handleEvent(db: DB, event: RawClickHouseEvent): Promise<void> {
     // single CH event handlin
     const pluginEvent = formPluginEvent(event)
