@@ -170,6 +170,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s1']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
 # name: TestFunnelPersons.test_funnel_person_recordings.2
@@ -344,6 +346,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s2']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
 # name: TestFunnelPersons.test_funnel_person_recordings.4
@@ -518,5 +522,7 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s2']
+    AND timestamp >= '2021-01-01 00:00:00'
+    AND timestamp <= '2021-01-08 23:59:59'
   '
 ---
