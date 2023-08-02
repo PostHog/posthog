@@ -30,12 +30,10 @@
         g#x-axis,
         g#y-axis {
             text {
-                font-size: 11px;
-                fill: var(--funnel-axis-label);
-
-                @include screen($md) {
-                    font-size: 13px;
-                }
+                font-size: 12px;
+                font-weight: normal;
+                font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+                fill: #0f0f0f;
             }
         }
 
@@ -64,11 +62,14 @@
 
         g#labels {
             text.bar-label {
-                font-size: 14px;
-                font-weight: 500;
+                // same as chart-js
+                font-size: 12px;
+                font-weight: normal;
+                font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+
                 fill: var(--white);
                 &.outside {
-                    fill: var(--funnel-axis-label);
+                    fill: #0f0f0f;
                 }
             }
         }
