@@ -109,29 +109,38 @@
             }
             > th,
             > td {
-                padding-left: 1rem;
+                padding-right: 1rem;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 .LemonTable--inset & {
-                    padding-left: 0.5rem;
+                    padding-right: 0.5rem;
                 }
                 &.LemonTable__boundary,
-                &:last-child {
-                    padding-right: 1rem;
+                &:first-child,
+                .LemonTable__ribbon + * {
+                    // If there's a ribbon, the first actual column is second
+                    padding-left: 1rem;
                     .LemonTable--inset & {
-                        padding-right: 0.5rem;
+                        padding-left: 0.5rem;
                     }
+                }
+                &.LemonTable__boundary:not(:first-of-type) {
+                    border-left: 1px solid var(--border);
+                }
+                &.LemonTable__ribbon {
+                    padding: 0 0.25rem 0 0;
+                }
+                &.LemonTable__toggle {
+                    padding-right: 0;
+                }
+                &.LemonTable__ribbon + *,
+                &.LemonTable__toggle + * {
+                    border-left: none !important;
                 }
                 &[colspan='0'] {
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
                     padding-right: 0 !important;
-                }
-                &.LemonTable__ribbon {
-                    padding: 0 0.25rem 0 0 !important;
-                }
-                &.LemonTable__boundary:not(:last-of-type) {
-                    border-right: 1px solid var(--border);
                 }
             }
         }
@@ -180,7 +189,6 @@
 
 .LemonTable__header--sticky,
 .LemonTable__cell--sticky {
-    padding-right: 0.5rem;
     position: sticky;
     left: 0;
     z-index: 1;

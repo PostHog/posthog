@@ -103,7 +103,7 @@ export function DateFilter({
                     const dateValue = dateFilterToText(
                         values[0],
                         values[1],
-                        'No date selected',
+                        'Date range specified in respective insights',
                         dateOptions,
                         isDateFormatted
                     )
