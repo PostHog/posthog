@@ -18,7 +18,8 @@ import { notebookLogic } from './notebookLogic'
 import { urls } from 'scenes/urls'
 
 export function NotebookSideBar({ children }: { children: React.ReactElement<any> }): JSX.Element {
-    const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth } = useValues(notebookSidebarLogic)
+    const { notebookSideBarShown, fullScreen, selectedNotebook, desiredWidth, initialAutofocus } =
+        useValues(notebookSidebarLogic)
     const { setNotebookSideBarShown, setFullScreen, selectNotebook, onResize, setElementRef } =
         useActions(notebookSidebarLogic)
     const { createNotebook } = useActions(notebooksListLogic)
@@ -121,6 +122,7 @@ export function NotebookSideBar({ children }: { children: React.ReactElement<any
                                     key={selectedNotebook}
                                     shortId={selectedNotebook}
                                     editable={!notebook?.is_template}
+                                    initialAutofocus={initialAutofocus}
                                 />
                             </div>
                         </div>
