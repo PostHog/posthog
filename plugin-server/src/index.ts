@@ -1,16 +1,17 @@
-import { DateTime } from 'luxon'
-import { DB } from 'utils/db/db'
-import { formPluginEvent } from 'utils/event'
-import { PersonState } from 'worker/ingestion/person-state'
+import { DateTime, Duration, Interval } from 'luxon'
+import assert from 'node:assert/strict'
 
-import { Hub, RawClickHouseEvent } from '../src/types'
 import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig } from './config/config'
 import { initApp } from './init'
 import { GraphileWorker } from './main/graphile-worker/graphile-worker'
 import { startPluginsServer } from './main/pluginsServer'
+import { Hub, RawClickHouseEvent } from './types'
+import { DB } from './utils/db/db'
 import { createHub } from './utils/db/hub'
+import { formPluginEvent } from './utils/event'
 import { Status } from './utils/status'
+import { PersonState } from './worker/ingestion/person-state'
 import { makePiscina } from './worker/piscina'
 
 const { version } = require('../package.json')
@@ -86,13 +87,33 @@ async function startBackfill() {
     await closeHub()
 }
 
-async function runBackfill(hub: Hub) {
-    // Replace this function body with the backfilling logic.
-    // ⚠️ Make sure you can properly restart it if the pod gets killed: either make sure that the processing
-    // is idempotent, or process data in small chunks and persist a cursor.
-    const result = await hub.db.postgresQuery('SELECT 1', undefined, 'backfill')
-    console.assert(result.rows.length == 1, 'Expected one result row')
-    status.info('✅', 'Postgres query succeeded', { result: result.rows })
+// eslint-disable-next-line @typescript-eslint/require-await
+async function runBackfill(_hub: Hub) {
+    const lower_bound = DateTime.fromISO(process.env.BACKFILL_START!)
+    assert.ok(lower_bound.isValid, 'BACKFILL_START is an invalid time: ' + lower_bound.invalidReason)
+    const upper_bound = DateTime.fromISO(process.env.BACKFILL_END!)
+    assert.ok(upper_bound.isValid, 'BACKFILL_END is an invalid time: ' + upper_bound.invalidReason)
+    const step = Duration.fromISO(process.env.BACKFILL_STEP_INTERVAL!)
+    assert.ok(step.isValid, 'BACKFILL_STEP_INTERVAL is an invalid duration: ' + step.invalidReason)
+
+    status.info('🕰', 'Running backfill with the following bounds', {
+        lower_bound,
+        upper_bound,
+        step,
+    })
+
+    const windows = Interval.fromDateTimes(lower_bound, upper_bound).splitBy(step)
+    windows.forEach(function (window: Interval) {
+        status.info('🕰', 'Processing events in window', {
+            window,
+        })
+
+        // TODO: process the window
+
+        status.info('✅', 'Successfully processed events in window', {
+            window,
+        })
+    })
 }
 
 // TODO: query CH by 10 min chunks from start to end based on envs
