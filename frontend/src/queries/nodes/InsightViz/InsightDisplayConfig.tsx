@@ -141,14 +141,15 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 )}
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
-                        <LemonButton size="small" status="default-dark">
-                            {advancedOptionsCount === 0 ? (
-                                'More'
-                            ) : (
-                                <>
-                                    More&nbsp;<span className="text-muted">({advancedOptionsCount})</span>
-                                </>
-                            )}
+                        <LemonButton size="small" status="stealth">
+                            <span className="font-medium">
+                                Options
+                                {advancedOptionsCount ? (
+                                    <>
+                                        &nbsp;<span className="text-muted">({advancedOptionsCount})</span>
+                                    </>
+                                ) : null}
+                            </span>
                         </LemonButton>
                     </LemonMenu>
                 )}
