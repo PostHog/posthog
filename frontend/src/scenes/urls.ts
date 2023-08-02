@@ -53,8 +53,8 @@ export const urls = {
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     exports: (): string => '/exports',
     createExport: (): string => `/exports/new`,
-    viewExport: (id: string | number): string => `/exports/${id}`,
     editExport: (exportId: string | number): string => `/exports/${exportId}/edit`,
+    viewExport: (id: string | number): string => `/exports/${id}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {

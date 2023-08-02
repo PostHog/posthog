@@ -3,8 +3,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from '../../lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from '../../lib/lemon-ui/LemonSelect'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { PureField } from '../../lib/forms/Field'
+import { Row, Col } from 'antd'
 import { router } from 'kea-router'
 import { useCallback, useRef, useState } from 'react'
 import {
@@ -85,84 +87,127 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
         )
     }
 
+    const nameRef = useRef<HTMLInputElement>(null)
+
     return (
         // a form for inputting the config for an export, using aria labels to
         // make it accessible.
-        <form aria-label={existingExport ? 'Update Export' : 'Create Export'}>
-            <h1>{existingExport ? 'Update Export' : 'Create Export'}</h1>
-            <PureField htmlFor="type" label="Type">
-                <LemonSelect
-                    id="type"
-                    options={[
-                        { value: 'S3', label: 'S3' },
-                        { value: 'Snowflake', label: 'Snowflake' },
-                    ]}
-                    value={exportType}
-                    onChange={(value) => setExportType(value as any)}
-                />
-            </PureField>
-            <PureField htmlFor="type" label="Start date" showOptional={true}>
-                <Popover
-                    actionable
-                    onClickOutside={function onClickOutside() {
-                        setStartAtSelectVisible(false)
-                    }}
-                    visible={startAtSelectVisible}
-                    overlay={
-                        <LemonCalendarSelect
-                            value={exportStartAt}
-                            onChange={(value) => {
-                                setExportStartAt(value)
+
+        <form aria-label={existingExport ? existingExport.name : 'New export'}>
+            <h1>{existingExport ? existingExport.name : 'New export'}</h1>
+
+            <LemonDivider />
+
+            <Row gutter={16} style={{ marginBottom: 32 }}>
+                <Col span={12} className="space-y-4">
+                    <PureField label="Name" htmlFor="name">
+                        <LemonInput
+                            id="name"
+                            placeholder="My export"
+                            ref={nameRef}
+                            defaultValue={existingExport ? existingExport.name : undefined}
+                        />
+                    </PureField>
+
+                    <PureField htmlFor="type" label="Type">
+                        <LemonSelect
+                            id="type"
+                            options={[
+                                { value: 'S3', label: 'S3' },
+                                { value: 'Snowflake', label: 'Snowflake' },
+                            ]}
+                            value={exportType}
+                            onChange={(value) => setExportType(value as any)}
+                        />
+                    </PureField>
+                </Col>
+            </Row>
+            <LemonDivider />
+
+            <Row gutter={16} style={{ marginBottom: 32 }}>
+                <Col span={12} className="space-y-4">
+                    <h3>Export date range</h3>
+
+                    <div className="mb-4">
+                        Optionally, specify a date range for the export:
+                        <ul>
+                            <li>
+                                <b>Start date</b>: The date from which data is to be exported. Leaving it unset implies
+                                that data exports start from the next period as given by the frequency.
+                            </li>
+                            <li>
+                                <b>End date</b>: The date up to which data is to be exported. Leaving it unset implies
+                                that data exports will continue forever until this export is paused or deleted.
+                            </li>
+                        </ul>
+                    </div>
+
+                    <PureField htmlFor="type" label="Start date" showOptional={true}>
+                        <Popover
+                            actionable
+                            onClickOutside={function onClickOutside() {
                                 setStartAtSelectVisible(false)
                             }}
-                            onClose={function noRefCheck() {
-                                setStartAtSelectVisible(false)
-                            }}
-                        />
-                    }
-                >
-                    <LemonButton
-                        onClick={function onClick() {
-                            setStartAtSelectVisible(!startAtSelectVisible)
-                        }}
-                        type="secondary"
-                    >
-                        {exportStartAt ? exportStartAt.format('MMMM D, YYYY') : 'Select start date (optional)'}
-                    </LemonButton>
-                </Popover>
-            </PureField>
-            <PureField htmlFor="type" label="End date" showOptional={true}>
-                <Popover
-                    actionable
-                    onClickOutside={function onClickOutside() {
-                        setEndAtSelectVisible(false)
-                    }}
-                    visible={endAtSelectVisible}
-                    overlay={
-                        <LemonCalendarSelect
-                            value={exportEndAt}
-                            onChange={(value) => {
-                                setExportEndAt(value)
+                            visible={startAtSelectVisible}
+                            overlay={
+                                <LemonCalendarSelect
+                                    value={exportStartAt}
+                                    onChange={(value) => {
+                                        setExportStartAt(value)
+                                        setStartAtSelectVisible(false)
+                                    }}
+                                    onClose={function noRefCheck() {
+                                        setStartAtSelectVisible(false)
+                                    }}
+                                />
+                            }
+                        >
+                            <LemonButton
+                                onClick={function onClick() {
+                                    setStartAtSelectVisible(!startAtSelectVisible)
+                                }}
+                                type="secondary"
+                            >
+                                {exportStartAt ? exportStartAt.format('MMMM D, YYYY') : 'Select start date (optional)'}
+                            </LemonButton>
+                        </Popover>
+                    </PureField>
+                    <PureField htmlFor="type" label="End date" showOptional={true}>
+                        <Popover
+                            actionable
+                            onClickOutside={function onClickOutside() {
                                 setEndAtSelectVisible(false)
                             }}
-                            onClose={function noRefCheck() {
-                                setEndAtSelectVisible(false)
-                            }}
-                        />
-                    }
-                >
-                    <LemonButton
-                        onClick={function onClick() {
-                            setEndAtSelectVisible(!endAtSelectVisible)
-                        }}
-                        type="secondary"
-                    >
-                        {exportEndAt ? exportEndAt.format('MMMM D, YYYY') : 'Select end date (optional)'}
-                    </LemonButton>
-                </Popover>
-            </PureField>
+                            visible={endAtSelectVisible}
+                            overlay={
+                                <LemonCalendarSelect
+                                    value={exportEndAt}
+                                    onChange={(value) => {
+                                        setExportEndAt(value)
+                                        setEndAtSelectVisible(false)
+                                    }}
+                                    onClose={function noRefCheck() {
+                                        setEndAtSelectVisible(false)
+                                    }}
+                                />
+                            }
+                        >
+                            <LemonButton
+                                onClick={function onClick() {
+                                    setEndAtSelectVisible(!endAtSelectVisible)
+                                }}
+                                type="secondary"
+                            >
+                                {exportEndAt ? exportEndAt.format('MMMM D, YYYY') : 'Select end date (optional)'}
+                            </LemonButton>
+                        </Popover>
+                    </PureField>
+                </Col>
+            </Row>
+            <LemonDivider />
             {exportType === 'S3' && (
                 <ExportS3Form
+                    nameRef={nameRef}
                     startAt={exportStartAt}
                     endAt={exportEndAt}
                     existingExport={existingExport ? existingExport : null}
@@ -170,6 +215,7 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
             )}
             {exportType === 'Snowflake' && (
                 <ExportSnowflakeForm
+                    nameRef={nameRef}
                     startAt={exportStartAt}
                     endAt={exportEndAt}
                     existingExport={existingExport ? existingExport : null}
@@ -180,19 +226,19 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
 }
 
 export interface ExportCommonProps {
+    nameRef: string
     startAt: dayjs.Dayjs | null
     endAt: dayjs.Dayjs | null
     existingExport: BatchExport | null
 }
 
-export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
+export function ExportS3Form({ nameRef, startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
     // We use references to elements rather than maintaining state for each
     // field. This is a bit more verbose but it means we avoids risks of
     // re-rendering the component.
     // TODO: use kea-forms instead.
-    const nameRef = useRef<HTMLInputElement>(null)
     const bucketRef = useRef<HTMLInputElement>(null)
     const prefixRef = useRef<HTMLInputElement>(null)
     const regionRef = useRef<string | null>(null)
@@ -258,96 +304,109 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
 
     return (
         <div>
-            <PureField label="Name" htmlFor="name">
-                <LemonInput
-                    id="name"
-                    placeholder="My export"
-                    ref={nameRef}
-                    defaultValue={existingExport ? existingExport.name : undefined}
-                />
-            </PureField>
-            <PureField label="Bucket" htmlFor="bucket">
-                <LemonInput
-                    id="bucket"
-                    placeholder="my-bucket"
-                    ref={bucketRef}
-                    defaultValue={exportDestination ? exportDestination.config.bucket_name : undefined}
-                />
-            </PureField>
-            <PureField label="Region" htmlFor="region">
-                <LemonSelect
-                    id="region"
-                    onSelect={(value) => {
-                        regionRef.current = value
-                    }}
-                    value={exportDestination ? exportDestination.config.region : undefined}
-                    options={[
-                        { value: 'us-east-1', label: 'US East (N. Virginia)' },
-                        { value: 'us-east-2', label: 'US East (Ohio)' },
-                        { value: 'us-west-1', label: 'US West (N. California)' },
-                        { value: 'us-west-2', label: 'US West (Oregon)' },
-                        { value: 'af-south-1', label: 'Africa (Cape Town)' },
-                        { value: 'ap-east-1', label: 'Asia Pacific (Hong Kong)' },
-                        { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
-                        { value: 'ap-northeast-3', label: 'Asia Pacific (Osaka-Local)' },
-                        { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
-                        { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
-                        { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
-                        { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
-                        { value: 'ca-central-1', label: 'Canada (Central)' },
-                        { value: 'cn-north-1', label: 'China (Beijing)' },
-                        { value: 'cn-northwest-1', label: 'China (Ningxia)' },
-                        { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
-                        { value: 'eu-west-1', label: 'Europe (Ireland)' },
-                        { value: 'eu-west-2', label: 'Europe (London)' },
-                        { value: 'eu-south-1', label: 'Europe (Milan)' },
-                        { value: 'eu-west-3', label: 'Europe (Paris)' },
-                        { value: 'eu-north-1', label: 'Europe (Stockholm)' },
-                        { value: 'me-south-1', label: 'Middle East (Bahrain)' },
-                        { value: 'sa-east-1', label: 'South America (São Paulo)' },
-                    ]}
-                />
-            </PureField>
-            <PureField htmlFor="prefix" label="Key prefix">
-                <LemonInput
-                    id="prefix"
-                    placeholder="posthog-events/"
-                    ref={prefixRef}
-                    defaultValue={exportDestination ? exportDestination.config.prefix : undefined}
-                />
-            </PureField>
-            <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
-                <LemonInput
-                    id="aws-access-key-id"
-                    placeholder="my-access-key-id"
-                    ref={accessKeyIdRef}
-                    defaultValue={exportDestination ? exportDestination.config.aws_access_key_id : undefined}
-                />
-            </PureField>
-            <PureField htmlFor="aws-secret-access-key" label="AWS Secret Access Key">
-                <LemonInput
-                    id="aws-secret-access-key"
-                    placeholder="my-secret-access-key"
-                    type="password"
-                    defaultValue={exportDestination ? exportDestination.config.aws_secret_access_key : undefined}
-                    ref={secretAccessKeyRef}
-                />
-            </PureField>
-            <PureField htmlFor="frequency" label="Frequency">
-                <LemonSelect
-                    id="frequency"
-                    onSelect={(value: 'hour' | 'day') => {
-                        intervalRef.current = value
-                    }}
-                    options={[
-                        { value: 'hour', label: 'Hourly' },
-                        { value: 'day', label: 'Daily' },
-                    ]}
-                    value={existingExport ? existingExport.interval : undefined}
-                />
-            </PureField>
+            <Row gutter={16} style={{ marginBottom: 32 }}>
+                <Col span={12} className="space-y-4">
+                    <PureField label="Bucket" htmlFor="bucket">
+                        <LemonInput
+                            id="bucket"
+                            placeholder="my-bucket"
+                            ref={bucketRef}
+                            defaultValue={exportDestination ? exportDestination.config.bucket_name : undefined}
+                        />
+                    </PureField>
+                    <PureField label="Region" htmlFor="region">
+                        <LemonSelect
+                            id="region"
+                            onSelect={(value) => {
+                                regionRef.current = value
+                            }}
+                            value={exportDestination ? exportDestination.config.region : undefined}
+                            options={[
+                                { value: 'us-east-1', label: 'US East (N. Virginia)' },
+                                { value: 'us-east-2', label: 'US East (Ohio)' },
+                                { value: 'us-west-1', label: 'US West (N. California)' },
+                                { value: 'us-west-2', label: 'US West (Oregon)' },
+                                { value: 'af-south-1', label: 'Africa (Cape Town)' },
+                                { value: 'ap-east-1', label: 'Asia Pacific (Hong Kong)' },
+                                { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
+                                { value: 'ap-northeast-3', label: 'Asia Pacific (Osaka-Local)' },
+                                { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
+                                { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
+                                { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
+                                { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
+                                { value: 'ca-central-1', label: 'Canada (Central)' },
+                                { value: 'cn-north-1', label: 'China (Beijing)' },
+                                { value: 'cn-northwest-1', label: 'China (Ningxia)' },
+                                { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
+                                { value: 'eu-west-1', label: 'Europe (Ireland)' },
+                                { value: 'eu-west-2', label: 'Europe (London)' },
+                                { value: 'eu-south-1', label: 'Europe (Milan)' },
+                                { value: 'eu-west-3', label: 'Europe (Paris)' },
+                                { value: 'eu-north-1', label: 'Europe (Stockholm)' },
+                                { value: 'me-south-1', label: 'Middle East (Bahrain)' },
+                                { value: 'sa-east-1', label: 'South America (São Paulo)' },
+                            ]}
+                        />
+                    </PureField>
+                    <PureField htmlFor="prefix" label="Key prefix">
+                        <LemonInput
+                            id="prefix"
+                            placeholder="posthog-events/"
+                            ref={prefixRef}
+                            defaultValue={exportDestination ? exportDestination.config.prefix : undefined}
+                        />
+                    </PureField>
+                    <PureField htmlFor="aws-access-key-id" label="AWS Access Key ID">
+                        <LemonInput
+                            id="aws-access-key-id"
+                            placeholder="my-access-key-id"
+                            ref={accessKeyIdRef}
+                            defaultValue={exportDestination ? exportDestination.config.aws_access_key_id : undefined}
+                        />
+                    </PureField>
+                    <PureField htmlFor="aws-secret-access-key" label="AWS Secret Access Key">
+                        <LemonInput
+                            id="aws-secret-access-key"
+                            placeholder="my-secret-access-key"
+                            type="password"
+                            defaultValue={
+                                exportDestination ? exportDestination.config.aws_secret_access_key : undefined
+                            }
+                            ref={secretAccessKeyRef}
+                        />
+                    </PureField>
+                    <PureField htmlFor="frequency" label="Frequency">
+                        <LemonSelect
+                            id="frequency"
+                            onSelect={(value: 'hour' | 'day') => {
+                                intervalRef.current = value
+                            }}
+                            options={[
+                                { value: 'hour', label: 'Hourly' },
+                                { value: 'day', label: 'Daily' },
+                            ]}
+                            value={existingExport ? existingExport.interval : undefined}
+                        />
+                    </PureField>
+                </Col>
+            </Row>
 
-            <LemonButton onClick={handleExport}>{existingExport ? 'Save Export' : 'Create Export'}</LemonButton>
+            <LemonDivider />
+            <div className="flex items-center gap-2 justify-end">
+                <LemonButton
+                    data-attr="cancel-export"
+                    type="secondary"
+                    onClick={() => {
+                        router.actions.push(urls.exports())
+                    }}
+                    disabled={createLoading || updateLoading}
+                >
+                    Cancel
+                </LemonButton>
+                <LemonButton data-attr="save-export" type="primary" onClick={handleExport}>
+                    Save
+                </LemonButton>
+            </div>
 
             {(createLoading || updateLoading) && <div>Saving...</div>}
             {(createError || updateError) && (
@@ -360,7 +419,7 @@ export function ExportS3Form({ startAt, endAt, existingExport }: ExportCommonPro
     )
 }
 
-export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
+export function ExportSnowflakeForm({ nameRef, startAt, endAt, existingExport }: ExportCommonProps): JSX.Element {
     const { currentTeamId } = useCurrentTeamId()
 
     // Matches up with the backend config schema:
@@ -373,8 +432,6 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
     //   schema: str
     //   table_name: str = "events"
     //
-
-    const nameRef = useRef<HTMLInputElement>(null)
     const userRef = useRef<HTMLInputElement>(null)
     const passwordRef = useRef<HTMLInputElement>(null)
     const accountRef = useRef<HTMLInputElement>(null)
@@ -450,100 +507,118 @@ export function ExportSnowflakeForm({ startAt, endAt, existingExport }: ExportCo
 
     return (
         <div>
-            <PureField label="Name">
-                <LemonInput
-                    placeholder="My export"
-                    ref={nameRef}
-                    defaultValue={existingExport ? existingExport.name : undefined}
-                />
-            </PureField>
+            <Row gutter={16} style={{ marginBottom: 32 }}>
+                <Col span={12} className="space-y-4">
+                    <PureField label="Name">
+                        <LemonInput
+                            placeholder="My export"
+                            ref={nameRef}
+                            defaultValue={existingExport ? existingExport.name : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="User">
-                <LemonInput
-                    placeholder="my-user"
-                    ref={userRef}
-                    defaultValue={exportDestination ? exportDestination.config.user : undefined}
-                />
-            </PureField>
+                    <PureField label="User">
+                        <LemonInput
+                            placeholder="my-user"
+                            ref={userRef}
+                            defaultValue={exportDestination ? exportDestination.config.user : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Password">
-                <LemonInput
-                    placeholder="my-password"
-                    type="password"
-                    ref={passwordRef}
-                    defaultValue={exportDestination ? exportDestination.config.password : undefined}
-                />
-            </PureField>
+                    <PureField label="Password">
+                        <LemonInput
+                            placeholder="my-password"
+                            type="password"
+                            ref={passwordRef}
+                            defaultValue={exportDestination ? exportDestination.config.password : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Account">
-                <LemonInput
-                    placeholder="my-account"
-                    ref={accountRef}
-                    defaultValue={exportDestination ? exportDestination.config.account : undefined}
-                />
-            </PureField>
+                    <PureField label="Account">
+                        <LemonInput
+                            placeholder="my-account"
+                            ref={accountRef}
+                            defaultValue={exportDestination ? exportDestination.config.account : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Database">
-                <LemonInput
-                    placeholder="my-database"
-                    ref={databaseRef}
-                    defaultValue={exportDestination ? exportDestination.config.database : undefined}
-                />
-            </PureField>
+                    <PureField label="Database">
+                        <LemonInput
+                            placeholder="my-database"
+                            ref={databaseRef}
+                            defaultValue={exportDestination ? exportDestination.config.database : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Warehouse">
-                <LemonInput
-                    placeholder="my-warehouse"
-                    ref={warehouseRef}
-                    defaultValue={exportDestination ? exportDestination.config.warehouse : undefined}
-                />
-            </PureField>
+                    <PureField label="Warehouse">
+                        <LemonInput
+                            placeholder="my-warehouse"
+                            ref={warehouseRef}
+                            defaultValue={exportDestination ? exportDestination.config.warehouse : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Schema">
-                <LemonInput
-                    placeholder="my-schema"
-                    ref={schemaRef}
-                    defaultValue={exportDestination ? exportDestination.config.schema : undefined}
-                />
-            </PureField>
+                    <PureField label="Schema">
+                        <LemonInput
+                            placeholder="my-schema"
+                            ref={schemaRef}
+                            defaultValue={exportDestination ? exportDestination.config.schema : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Table name">
-                <LemonInput
-                    placeholder="events"
-                    ref={tableNameRef}
-                    defaultValue={exportDestination ? exportDestination.config.table_name : undefined}
-                />
-            </PureField>
+                    <PureField label="Table name">
+                        <LemonInput
+                            placeholder="events"
+                            ref={tableNameRef}
+                            defaultValue={exportDestination ? exportDestination.config.table_name : undefined}
+                        />
+                    </PureField>
 
-            <PureField label="Frequency">
-                <LemonSelect
-                    onSelect={(value: 'hour' | 'day') => {
-                        intervalRef.current = value
+                    <PureField label="Frequency">
+                        <LemonSelect
+                            onSelect={(value: 'hour' | 'day') => {
+                                intervalRef.current = value
+                            }}
+                            options={[
+                                { value: 'hour', label: 'Hourly' },
+                                { value: 'day', label: 'Daily' },
+                            ]}
+                            value={existingExport ? existingExport.interval : undefined}
+                        />
+                    </PureField>
+
+                    <PureField label="Role" showOptional={true}>
+                        <LemonInput
+                            placeholder="my-role"
+                            ref={roleRef}
+                            value={undefined}
+                            defaultValue={
+                                exportDestination
+                                    ? exportDestination.config.role
+                                        ? exportDestination.config.role
+                                        : undefined
+                                    : undefined
+                            }
+                        />
+                    </PureField>
+                </Col>
+            </Row>
+            <LemonDivider />
+            <div className="flex items-center gap-2 justify-end">
+                <LemonButton
+                    data-attr="cancel-export"
+                    type="secondary"
+                    onClick={() => {
+                        router.actions.push(urls.exports())
                     }}
-                    options={[
-                        { value: 'hour', label: 'Hourly' },
-                        { value: 'day', label: 'Daily' },
-                    ]}
-                    value={existingExport ? existingExport.interval : undefined}
-                />
-            </PureField>
-
-            <PureField label="Role" showOptional={true}>
-                <LemonInput
-                    placeholder="my-role"
-                    ref={roleRef}
-                    value={undefined}
-                    defaultValue={
-                        exportDestination
-                            ? exportDestination.config.role
-                                ? exportDestination.config.role
-                                : undefined
-                            : undefined
-                    }
-                />
-            </PureField>
-
-            <LemonButton onClick={handleExport}>{existingExport ? 'Save Export' : 'Create Export'}</LemonButton>
+                    disabled={createLoading || updateLoading}
+                >
+                    Cancel
+                </LemonButton>
+                <LemonButton data-attr="save-export" type="primary" onClick={handleExport}>
+                    Save
+                </LemonButton>
+            </div>
 
             {(createLoading || updateLoading) && <div>Saving...</div>}
             {(createError || updateError) && (
