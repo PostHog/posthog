@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import './EditableField.scss'
 import { IconEdit } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import AutosizeInput from 'react-input-autosize'
 import TextareaAutosize from 'react-textarea-autosize'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
@@ -150,7 +149,6 @@ export function EditableField({
                                     maxLength={maxLength}
                                     autoFocus={autoFocus}
                                     className="EditableField__autosize"
-                                    injectStyles={false}
                                 />
                             )}
                             {!mode && (
@@ -210,6 +208,122 @@ export function EditableField({
                     })}
                 </Tooltip>
             )}
+        </div>
+    )
+}
+
+const AutosizeInput = ({
+    name,
+    value,
+    onChange,
+    placeholder,
+    onBlur,
+    onKeyDown,
+    minLength,
+    maxLength,
+    autoFocus,
+    className,
+}: {
+    name: string
+    value: string
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+    onBlur: (() => void) | undefined
+    placeholder?: string
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
+    minLength?: number
+    maxLength?: number
+    autoFocus?: boolean
+    className?: string
+}): JSX.Element => {
+    const [inputWidth, setInputWidth] = useState<number | string>(1)
+    const inputRef = useRef<HTMLInputElement>(null)
+    const sizerRef = useRef<HTMLDivElement>(null)
+    const placeHolderSizerRef = useRef<HTMLDivElement>(null)
+
+    const copyStyles = (styles: CSSStyleDeclaration, node: HTMLDivElement): void => {
+        node.style.fontSize = styles.fontSize
+        node.style.fontFamily = styles.fontFamily
+        node.style.fontWeight = styles.fontWeight
+        node.style.fontStyle = styles.fontStyle
+        node.style.letterSpacing = styles.letterSpacing
+        node.style.textTransform = styles.textTransform
+    }
+
+    const inputStyles = useMemo(() => {
+        return inputRef.current ? window.getComputedStyle(inputRef.current) : null
+    }, [inputRef.current])
+
+    useEffect(() => {
+        if (inputStyles && placeHolderSizerRef.current) {
+            copyStyles(inputStyles, placeHolderSizerRef.current)
+        }
+    }, [placeHolderSizerRef, placeHolderSizerRef])
+
+    useEffect(() => {
+        if (inputStyles && sizerRef.current) {
+            copyStyles(inputStyles, sizerRef.current)
+        }
+    }, [inputStyles, sizerRef])
+
+    useEffect(() => {
+        if (!sizerRef.current || !placeHolderSizerRef.current) {
+            return
+        }
+        let newInputWidth
+        if (placeholder && !value) {
+            newInputWidth = Math.max(sizerRef.current.scrollWidth, placeHolderSizerRef.current.scrollWidth) + 2
+        } else {
+            newInputWidth = sizerRef.current.scrollWidth + 2
+        }
+        if (newInputWidth !== inputWidth) {
+            setInputWidth(newInputWidth)
+        }
+    }, [sizerRef.current, placeHolderSizerRef.current, placeholder, value])
+
+    return (
+        <div className={className}>
+            <input
+                name={name}
+                value={value}
+                placeholder={placeholder}
+                onChange={onChange}
+                onKeyDown={onKeyDown}
+                onBlur={onBlur}
+                minLength={minLength}
+                maxLength={maxLength}
+                autoFocus={autoFocus}
+                ref={inputRef}
+                /* eslint-disable-next-line react/forbid-dom-props */
+                style={{ boxSizing: 'content-box', width: `${inputWidth}px` }}
+            />
+            <div
+                ref={sizerRef}
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    visibility: 'hidden',
+                    height: 0,
+                    overflow: 'scroll',
+                    whiteSpace: 'pre',
+                }}
+            >
+                {value}
+            </div>
+            <div
+                ref={placeHolderSizerRef}
+                style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    visibility: 'hidden',
+                    height: 0,
+                    overflow: 'scroll',
+                    whiteSpace: 'pre',
+                }}
+            >
+                {placeholder}
+            </div>
         </div>
     )
 }
