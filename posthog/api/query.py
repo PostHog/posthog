@@ -36,6 +36,7 @@ from posthog.queries.time_to_see_data.sessions import get_session_events, get_se
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, TeamRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, HogQLMetadata
 from posthog.utils import relative_date_parse
+from posthog.warehouse.query import get_view_link_columns
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -232,7 +233,14 @@ def process_query(team: Team, query_json: Dict, default_limit: Optional[int] = N
         return _unwrap_pydantic_dict(response)
     elif query_kind == "DatabaseSchemaQuery":
         database = create_hogql_database(team.pk)
-        return serialize_database(database)
+        serialized_db = serialize_database(database)
+        view_columns = get_view_link_columns(team)
+
+        for table in view_columns.keys():
+            table_cols = serialized_db.get(table, [])
+            serialized_db[table] = table_cols + view_columns[table]
+
+        return serialized_db
     elif query_kind == "TimeToSeeDataSessionsQuery":
         sessions_query_serializer = SessionsQuerySerializer(data=query_json)
         sessions_query_serializer.is_valid(raise_exception=True)

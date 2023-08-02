@@ -8,7 +8,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.database.database import serialize_fields
 
 from posthog.models import User
-from typing import Any, Dict
+from typing import Any, List
 
 
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
@@ -20,7 +20,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         fields = ["id", "deleted", "name", "query", "created_by", "created_at", "columns"]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
-    def get_columns(self, view: DataWarehouseSavedQuery) -> Dict[str, str]:
+    def get_columns(self, view: DataWarehouseSavedQuery) -> List:
         return serialize_fields(view.hogql_definition().fields)
 
     def create(self, validated_data):
