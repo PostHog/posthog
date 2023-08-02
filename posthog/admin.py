@@ -72,7 +72,6 @@ class DashboardAdmin(admin.ModelAdmin):
 
 @admin.register(Text)
 class TextAdmin(admin.ModelAdmin):
-    autocomplete_fields = ("insight", "text")
     autocomplete_fields = ("created_by", "last_modified_by", "team")
     search_fields = ("id", "body", "team__name", "team__organization__name")
 
@@ -325,7 +324,7 @@ class UserAdmin(DjangoUserAdmin):
     ordering = ("email",)
 
     def current_team_link(self, user: User):
-        if not user.organization:
+        if not user.team:
             return "–"
 
         return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', user.team.pk, user.team.name)
@@ -413,7 +412,11 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
-        return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
+        return (
+            format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
+            if user is not None
+            else "None"
+        )
 
     def billing_link_v2(self, organization: Organization) -> str:
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
