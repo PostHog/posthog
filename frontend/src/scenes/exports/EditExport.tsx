@@ -1,5 +1,6 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { ExportForm } from './ExportForm'
 
 export const scene: SceneExport = {

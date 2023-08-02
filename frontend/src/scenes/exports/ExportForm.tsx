@@ -226,7 +226,7 @@ export function ExportForm({ exportId }: ExportFormProps): JSX.Element {
 }
 
 export interface ExportCommonProps {
-    nameRef: string
+    nameRef: RefObject<HTMLInputElement>
     startAt: dayjs.Dayjs | null
     endAt: dayjs.Dayjs | null
     existingExport: BatchExport | null
