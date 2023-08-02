@@ -77,15 +77,15 @@ export function RecordingsLists({
         sessionRecordingsResponseLoading,
         activeSessionRecording,
         showFilters,
-        showAdvancedFilters,
         showSettings,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
         totalFiltersCount,
-        hasAdvancedFilters,
         sessionRecordingsAPIErrored,
         pinnedRecordingsAPIErrored,
         unusableEventsInFilter,
+        showAdvancedFilters,
+        hasAdvancedFilters,
     } = useValues(logic)
     const {
         setSelectedRecordingId,
@@ -94,7 +94,7 @@ export function RecordingsLists({
         setShowFilters,
         setShowSettings,
         resetFilters,
-        toggleAdvancedFilters,
+        setShowAdvancedFilters,
     } = useActions(logic)
     const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
@@ -212,7 +212,7 @@ export function RecordingsLists({
                                 onReset={totalFiltersCount ? () => resetFilters() : undefined}
                                 hasAdvancedFilters={hasAdvancedFilters}
                                 showAdvancedFilters={showAdvancedFilters}
-                                toggleAdvancedFilters={toggleAdvancedFilters}
+                                setShowAdvancedFilters={setShowAdvancedFilters}
                             />
                         ) : showSettings ? (
                             <SessionRecordingsPlaylistSettings />

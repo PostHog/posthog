@@ -79,6 +79,29 @@ const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => {
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
+const addedAdvancedFilters = (filters: RecordingFilters | undefined, defaultFilters: RecordingFilters): boolean => {
+    if (!filters) {
+        return false
+    }
+
+    const hasActions = filters.actions ? filters.actions.length > 0 : false
+    const hasChangedDateFrom = filters.date_from != defaultFilters.date_from
+    const hasChangedDateTo = filters.date_to != defaultFilters.date_to
+    const hasConsoleLogsFilters = filters.console_logs ? filters.console_logs.length > 0 : false
+    const hasChangedDuration = !equal(filters.session_recording_duration, defaultFilters.session_recording_duration)
+    const eventsFilters = filters.events || []
+    const hasAdvancedEvents = eventsFilters.length > 1 || (!!eventsFilters[0] && eventsFilters[0].name != '$pageview')
+
+    return (
+        hasActions ||
+        hasAdvancedEvents ||
+        hasChangedDuration ||
+        hasChangedDateFrom ||
+        hasChangedDateTo ||
+        hasConsoleLogsFilters
+    )
+}
+
 export const defaultPageviewPropertyEntityFilter = (
     filters: RecordingFilters,
     property: string,
@@ -167,7 +190,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        toggleAdvancedFilters: true,
+        setShowAdvancedFilters: (showAdvancedFilters: boolean) => ({ showAdvancedFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
@@ -299,10 +322,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
         showAdvancedFilters: [
-            false,
-            { persist: true },
+            addedAdvancedFilters(props.filters, getDefaultFilters(props.personUUID)),
             {
-                toggleAdvancedFilters: (state) => !state,
+                setShowAdvancedFilters: (_, { showAdvancedFilters }) => showAdvancedFilters,
             },
         ],
         sessionRecordings: [
@@ -543,27 +565,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             (s) => [s.filters, (_, props) => props.personUUID],
             (filters, personUUID) => {
                 const defaultFilters = getDefaultFilters(personUUID)
-
-                const hasActions = filters.actions && filters.actions.length > 0
-                const hasChangedDateFrom = filters.date_from != defaultFilters.date_from
-                const hasChangedDateTo = filters.date_to != defaultFilters.date_to
-                const hasConsoleLogsFilters = filters.console_logs && filters.console_logs.length > 0
-                const hasChangedDuration = !equal(
-                    filters.session_recording_duration,
-                    defaultFilters.session_recording_duration
-                )
-                const eventsFilters = filters.events || []
-                const hasAdvancedEvents =
-                    eventsFilters.length > 1 || (!!eventsFilters[0] && eventsFilters[0].name != '$pageview')
-
-                return (
-                    hasActions ||
-                    hasAdvancedEvents ||
-                    hasChangedDuration ||
-                    hasChangedDateFrom ||
-                    hasChangedDateTo ||
-                    hasConsoleLogsFilters
-                )
+                return addedAdvancedFilters(filters, defaultFilters)
             },
         ],
         visibleRecordings: [

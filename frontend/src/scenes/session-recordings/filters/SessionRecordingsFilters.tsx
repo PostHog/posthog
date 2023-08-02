@@ -5,14 +5,17 @@ import equal from 'fast-deep-equal'
 import { LemonButton } from '@posthog/lemon-ui'
 import { SimpleSessionRecordingsFilters } from './SimpleSessionRecordingsFilters'
 import { AdvancedSessionRecordingsFilters } from './AdvancedSessionRecordingsFilters'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 interface SessionRecordingsFiltersProps {
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
     showPropertyFilters?: boolean
     onReset?: () => void
-    hasAdvancedFilters: boolean | undefined
+    hasAdvancedFilters: boolean
     showAdvancedFilters: boolean
-    toggleAdvancedFilters: () => void
+    setShowAdvancedFilters: (showAdvancedFilters: boolean) => void
 }
 
 const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
@@ -44,9 +47,15 @@ export function SessionRecordingsFilters({
     onReset,
     hasAdvancedFilters,
     showAdvancedFilters,
-    toggleAdvancedFilters,
+    setShowAdvancedFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sessionReplaySimpleFilters = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_SIMPLE_FILTERS]
+    useEffect(() => {
+        setShowAdvancedFilters(sessionReplaySimpleFilters === 'simple_filters' ? hasAdvancedFilters : true)
+    }, [sessionReplaySimpleFilters])
 
     // We have a copy of the filters as local state as it stores more properties than we want for playlists
     useEffect(() => {
@@ -95,18 +104,20 @@ export function SessionRecordingsFilters({
                 />
             )}
 
-            <div>
-                <LemonButton
-                    size="small"
-                    onClick={toggleAdvancedFilters}
-                    disabledReason={
-                        hasAdvancedFilters &&
-                        'You are only allowed person filters and a single pageview event to switch back to simple filters'
-                    }
-                >
-                    Show {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
-                </LemonButton>
-            </div>
+            {sessionReplaySimpleFilters === 'simple_filters' && (
+                <div>
+                    <LemonButton
+                        size="small"
+                        onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                        disabledReason={
+                            hasAdvancedFilters &&
+                            'You are only allowed person filters and a single pageview event to switch back to simple filters'
+                        }
+                    >
+                        Show {showAdvancedFilters ? 'simple filters' : 'advanced filters'}
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }
