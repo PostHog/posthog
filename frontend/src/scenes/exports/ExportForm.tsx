@@ -8,7 +8,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { PureField } from '../../lib/forms/Field'
 import { Row, Col } from 'antd'
 import { router } from 'kea-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, RefObject } from 'react'
 import {
     useCreateExport,
     useCurrentTeamId,
