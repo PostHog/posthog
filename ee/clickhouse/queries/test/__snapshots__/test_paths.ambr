@@ -5640,6 +5640,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s1', 's3', 's5']
+    AND timestamp >= '2012-01-01 00:00:00'
+    AND timestamp <= '2012-01-02 00:00:00'
   '
 ---
 # name: TestClickhousePaths.test_recording_for_dropoff
@@ -5760,6 +5762,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in []
+    AND timestamp >= '2012-01-01 00:00:00'
+    AND timestamp <= '2012-01-02 00:00:00'
   '
 ---
 # name: TestClickhousePaths.test_recording_for_dropoff.2
@@ -5880,6 +5884,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s1']
+    AND timestamp >= '2012-01-01 00:00:00'
+    AND timestamp <= '2012-01-02 00:00:00'
   '
 ---
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
@@ -5999,6 +6005,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in []
+    AND timestamp >= '2012-01-01 00:00:00'
+    AND timestamp <= '2012-01-02 00:00:00'
   '
 ---
 # name: TestClickhousePaths.test_recording_with_start_and_end
@@ -6127,6 +6135,8 @@
   WHERE team_id = 2
     and has_full_snapshot = 1
     and session_id in ['s1']
+    AND timestamp >= '2012-01-01 00:00:00'
+    AND timestamp <= '2012-01-02 00:00:00'
   '
 ---
 # name: TestClickhousePaths.test_respect_session_limits
