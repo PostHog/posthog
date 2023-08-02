@@ -6,7 +6,7 @@ import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useJsonNodeState } from './utils'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const DEFAULT_QUERY: QuerySchema = {
@@ -26,13 +26,8 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const [query, setQuery] = useJsonNodeState<QuerySchema>(props, 'query')
     const logic = insightLogic({ dashboardItemId: 'new' })
     const { insightProps } = useValues(logic)
-    const [editing, setEditing] = useState(false)
     const { setTitle } = useActions(notebookNodeLogic)
-
-    useEffect(() => {
-        // We probably want a dedicated edit button for this
-        setEditing(props.selected)
-    }, [props.selected])
+    const { expanded } = useValues(notebookNodeLogic)
 
     const title = useMemo(() => {
         if (NodeKind.DataTableNode === query.kind) {
@@ -55,10 +50,10 @@ const Component = (props: NodeViewProps): JSX.Element => {
         if (NodeKind.DataTableNode === modifiedQuery.kind) {
             // We don't want to show the insights button for now
             modifiedQuery.showOpenEditorButton = false
-            modifiedQuery.full = editing
+            modifiedQuery.full = expanded
         }
         return modifiedQuery
-    }, [query, editing])
+    }, [query, expanded])
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>

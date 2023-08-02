@@ -6,7 +6,6 @@ import {
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
-import { uuid } from 'lib/utils'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -61,7 +60,6 @@ export const NotebookNodeRecording = createPostHogWidgetNode({
     href: (attrs) => urls.replaySingle(attrs.id),
     resizeable: true,
     attributes: {
-        nodeId: { default: uuid() },
         id: {
             default: null,
         },
