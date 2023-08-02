@@ -113,7 +113,9 @@ class ActorBaseQuery:
 
         return actors, serialized_actors, len(raw_result)
 
-    def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
+    def query_for_session_ids_with_recordings(
+        self, session_ids: Set[str], date_from: datetime | None, date_to: datetime | None
+    ) -> Set[str]:
         """Filters a list of session_ids to those that actually have recordings"""
         query = """
         SELECT DISTINCT session_id
@@ -122,8 +124,27 @@ class ActorBaseQuery:
             team_id = %(team_id)s
             and has_full_snapshot = 1
             and session_id in %(session_ids)s
+            {date_filters}
         """
-        params = {"team_id": self._team.pk, "session_ids": sorted(list(session_ids))}  # Sort for stable queries
+
+        # constrain by date range to help limit the work ClickHouse has to do scanning these tables
+        date_filters = ""
+        if date_from:
+            date_filters += "AND timestamp >= %(date_from)s"
+        else:
+            date_filters += "AND timestamp >= now() - INTERVAL 1 YEAR"
+
+        if date_to:
+            date_filters += "AND timestamp <= %(date_to)s"
+        else:
+            date_filters += "AND timestamp <= now()"
+
+        params = {
+            "team_id": self._team.pk,
+            "session_ids": sorted(list(session_ids)),  # Sort for stable queries
+            "date_from": date_from,
+            "date_to": date_to,
+        }
         raw_result = insight_sync_execute(
             query,
             params,
@@ -145,7 +166,9 @@ class ActorBaseQuery:
                     if event[2]:
                         all_session_ids.add(event[2])
 
-        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
+        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(
+            all_session_ids, self._filter.date_from, self._filter.date_to
+        )
 
         # Prune out deleted recordings
         session_ids_with_deleted_recordings = set(
