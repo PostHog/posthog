@@ -388,11 +388,13 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
 
 @timed_log()
 def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    previous_begin = begin - (end - begin)
+
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
         FROM session_replay_events
-        WHERE toDate(min_first_timestamp) = toDate(%(begin)s)
+        WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
         AND session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
             -- before the period we are interested in
@@ -401,13 +403,14 @@ def get_teams_with_recording_count_in_period(begin: datetime, end: datetime) -> 
             -- begin is the very first instant of the period we are interested in
             -- we assume it is also the very first instant of a day
             -- so we can to subtract 1 second to get the day before
-            WHERE toDate(min_first_timestamp) = toDate(%(begin)s) - INTERVAL 1 DAY
+            WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
             GROUP BY session_id
         )
         GROUP BY team_id
     """,
-        {"begin": begin, "end": end},
+        {"previous_begin": previous_begin, "begin": begin, "end": end},
     )
+
     return result
 
 
@@ -416,7 +419,7 @@ def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
-        FROM session_recording_events
+        FROM session_replay_events
         GROUP BY team_id
     """
     )

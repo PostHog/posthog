@@ -64,7 +64,6 @@ def create_session_recording_events(
     use_replay_table: bool = True,
     use_recording_table: bool = False,
 ) -> None:
-
     if use_replay_table:
         produce_replay_summary(
             team_id=team_id,
@@ -120,7 +119,6 @@ def create_uncompressed_session_recording_event(
     timestamp: datetime,
     snapshot_data: dict,
 ) -> str:
-
     return _insert_session_recording_event(
         team_id=team_id,
         distinct_id=distinct_id,

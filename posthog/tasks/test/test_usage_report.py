@@ -188,7 +188,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 )
 
             # recordings in period  - 5 sessions with 5 snapshots each
-            for i in range(0, 5):
+            for i in range(1, 6):
                 for _ in range(0, 5):
                     create_snapshot(
                         has_full_snapshot=True,
@@ -196,12 +196,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         session_id=i,
                         timestamp=now() - relativedelta(hours=12),
                         team_id=self.org_1_team_2.id,
-                        # TODO needs https://github.com/PostHog/posthog/pull/16840 before we can switch to replay here
-                        use_recording_table=True,
                     )
 
             # recordings out of period  - 5 sessions with 5 snapshots each
-            for i in range(0, 10):
+            for i in range(1, 11):
                 for _ in range(0, 5):
                     create_snapshot(
                         has_full_snapshot=True,
@@ -209,7 +207,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                         session_id=i + 10,
                         timestamp=now() - relativedelta(hours=48),
                         team_id=self.org_1_team_2.id,
-                        use_recording_table=True,
                     )
 
             # ensure there is a recording that starts before the period and ends during the period
@@ -222,7 +219,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 session_id=session_that_will_not_match,
                 timestamp=start_of_day - relativedelta(hours=1),
                 team_id=self.org_1_team_2.id,
-                use_recording_table=True,
             )
             create_snapshot(
                 has_full_snapshot=False,
@@ -230,7 +226,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 session_id=session_that_will_not_match,
                 timestamp=start_of_day,
                 team_id=self.org_1_team_2.id,
-                use_recording_table=True,
             )
             create_snapshot(
                 has_full_snapshot=False,
@@ -238,7 +233,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 session_id=session_that_will_not_match,
                 timestamp=start_of_day + relativedelta(hours=1),
                 team_id=self.org_1_team_2.id,
-                use_recording_table=True,
             )
             _create_event(
                 distinct_id=distinct_id,
