@@ -4,6 +4,8 @@
     position: relative;
     width: 100%;
     height: 26rem;
+    padding-left: 16px;
+    padding-right: 16px;
     overflow: hidden;
     .InsightCard & {
         height: 100%;
@@ -22,6 +24,7 @@
                     border-bottom: 1px solid var(--border);
                     > td {
                         padding: 1.5rem 0;
+                        padding-top: 1rem;
                     }
                 }
                 > td {
