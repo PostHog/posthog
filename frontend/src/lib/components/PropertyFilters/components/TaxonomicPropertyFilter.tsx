@@ -59,7 +59,6 @@ export function TaxonomicPropertyFilter({
             onComplete?.()
         }
     }
-
     const builtPropertyFilterLogic = useMountedLogic(propertyFilterLogic)
     const { setFilter } = useActions(propertyFilterLogic)
 

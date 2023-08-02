@@ -34,7 +34,7 @@ export const SimpleSessionRecordingsFilters = ({
         const properties = [{ label: 'Country', key: '$geoip_country_name' }]
         const displayNameProperties = currentTeam?.person_display_name_properties ?? []
         return properties.concat(
-            displayNameProperties.map((property) => {
+            displayNameProperties.slice(0, 2).map((property) => {
                 return { label: property, key: property }
             })
         )
