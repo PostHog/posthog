@@ -174,16 +174,23 @@ class SessionRecording(UUIDModel):
             self.viewed = True
 
     def build_object_storage_path(self) -> str:
+        """
+        In the original version of LTS recordings we used a different format of path.
+        But changed this alongside the introduction of 2023-08-01 versioned recordings
+        So that the blob ingester and the django app use the same format path
+        Originally
         path_parts: List[str] = [
             settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
             f"team-{self.team_id}",
             f"session-{self.session_id}",
         ]
-
-        return "/".join(path_parts)
+        """
+        return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
 
     def build_blob_ingestion_storage_path(self) -> str:
-        root_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
+        return self._build_session_blob_path(settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER)
+
+    def _build_session_blob_path(self, root_prefix: str) -> str:
         return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
