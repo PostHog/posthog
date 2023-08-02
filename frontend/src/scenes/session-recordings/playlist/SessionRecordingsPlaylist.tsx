@@ -309,7 +309,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingsPlaylistProps)
         filters: defaultFilters,
         updateSearchParams,
         autoPlay,
-
         onFiltersChange,
     }
     const logic = sessionRecordingsListLogic(logicProps)

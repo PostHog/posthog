@@ -129,7 +129,7 @@ const SimpleSessionRecordingsFiltersInserter = ({
     onChange,
 }: {
     propertyKey: string
-    type: PropertyFilterType
+    type: PropertyFilterType.Event | PropertyFilterType.Person
     label: string
     disabled: boolean
     onChange: (properties: AnyPropertyFilter[]) => void
