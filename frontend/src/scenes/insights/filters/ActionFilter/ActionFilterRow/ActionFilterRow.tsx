@@ -39,6 +39,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { entityFilterLogicType } from '../entityFilterLogicType'
+import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -50,6 +51,19 @@ export enum MathAvailability {
     All,
     ActorsOnly,
     None,
+}
+
+const getValue = (
+    value: string | number | null | undefined,
+    filter: ActionFilter
+): string | number | null | undefined => {
+    if (isAllEventsEntityFilter(filter)) {
+        return 'All events'
+    } else if (filter.type === 'actions') {
+        return typeof value === 'string' ? parseInt(value) : value || undefined
+    } else {
+        return value === null ? null : value || undefined
+    }
 }
 
 export interface ActionFilterRowProps {
@@ -203,7 +217,7 @@ export function ActionFilterRow({
             data-attr={'trend-element-subject-' + index}
             fullWidth
             groupType={filter.type as TaxonomicFilterGroupType}
-            value={filter.type === 'actions' && typeof value === 'string' ? parseInt(value) : value || undefined}
+            value={getValue(value, filter)}
             onChange={(changedValue, taxonomicGroupType, item) => {
                 updateFilter({
                     type: taxonomicFilterGroupTypeToEntityType(taxonomicGroupType) || undefined,

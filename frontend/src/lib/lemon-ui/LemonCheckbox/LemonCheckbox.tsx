@@ -88,7 +88,7 @@ export function LemonCheckbox({
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <label htmlFor={id} style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}>
                 <svg
-                    className='className="LemonCheckbox__box"'
+                    className="LemonCheckbox__box"
                     fill="none"
                     height="16"
                     viewBox="0 0 16 16"

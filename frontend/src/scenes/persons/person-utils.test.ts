@@ -1,7 +1,7 @@
 import { PersonType } from '~/types'
 import { uuid } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { asDisplay, asLink } from 'scenes/persons/PersonHeader'
+import { asLink, asDisplay } from './person-utils'
 
 describe('the person header', () => {
     describe('linking to a person', () => {

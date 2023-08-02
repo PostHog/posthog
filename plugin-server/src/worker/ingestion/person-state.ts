@@ -598,6 +598,7 @@ export class PersonState {
     ): Promise<void> {
         // When personIDs change, update places depending on a person_id foreign key
 
+        // for inc-2023-07-31-us-person-id-override skip this and store the info in person_overrides table instead
         // For Cohorts
         await this.db.postgresQuery(
             'UPDATE posthog_cohortpeople SET person_id = $1 WHERE person_id = $2',

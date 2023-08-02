@@ -224,6 +224,12 @@ export function PropertiesTable({
                         return aHighlightValue - bHighlightValue
                     }
                 }
+
+                if (aKey.startsWith('$') && !bKey.startsWith('$')) {
+                    return 1
+                } else if (!aKey.startsWith('$') && bKey.startsWith('$')) {
+                    return -1
+                }
                 return aKey.localeCompare(bKey)
             })
         } else if (highlightedKeys) {

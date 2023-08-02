@@ -83,6 +83,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     display?: 'stealth' | 'default'
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
+    firstColumnSticky?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -116,6 +117,7 @@ export function LemonTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
     display = 'default',
     footer,
+    firstColumnSticky,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -158,7 +160,7 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
 
     /** Sorting. */
     const currentSorting =
@@ -206,14 +208,15 @@ export function LemonTable<T extends Record<string, any>>({
         <div
             id={id}
             className={clsx(
-                'LemonTable',
+                'LemonTable scrollable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 !borderedRows && 'LemonTable--borderlessRows',
                 display === 'stealth' && 'LemonTable--stealth',
-                ...scrollableClassNames,
+                isScrollableLeft && 'scrollable--left',
+                isScrollableRight && 'scrollable--right',
                 className
             )}
             style={style}
@@ -264,7 +267,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
                                                         'LemonTable__boundary',
-                                                    column.className
+                                                    columnGroupIndex === 0 &&
+                                                        columnIndex === 0 &&
+                                                        'LemonTable__header--sticky',
+                                                    firstColumnSticky && column.className
                                                 )}
                                                 /* eslint-disable-next-line react/forbid-dom-props */
                                                 style={{ textAlign: column.align }}
@@ -372,6 +378,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
+                                            firstColumnSticky={firstColumnSticky}
                                         />
                                     )
                                 })
@@ -387,6 +394,9 @@ export function LemonTable<T extends Record<string, any>>({
                                                         className={clsx(
                                                             columnIndex === columnGroup.children.length - 1 &&
                                                                 'LemonTable__boundary',
+                                                            firstColumnSticky &&
+                                                                columnIndex === 0 &&
+                                                                'LemonTable__cell--sticky',
                                                             column.className
                                                         )}
                                                     >

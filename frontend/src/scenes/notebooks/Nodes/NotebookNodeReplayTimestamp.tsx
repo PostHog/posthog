@@ -97,16 +97,14 @@ export function buildTimestampCommentContent(
     currentPlayerTime: number | null,
     sessionRecordingId: string
 ): JSONContent {
-    return [
-        {
-            type: 'paragraph',
-            content: [
-                {
-                    type: NotebookNodeType.ReplayTimestamp,
-                    attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
-                },
-                { type: 'text', text: ' ' },
-            ],
-        },
-    ]
+    return {
+        type: 'paragraph',
+        content: [
+            {
+                type: NotebookNodeType.ReplayTimestamp,
+                attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
+            },
+            { type: 'text', text: ' ' },
+        ],
+    }
 }

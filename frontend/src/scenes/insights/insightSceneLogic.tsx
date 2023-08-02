@@ -244,7 +244,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     !!values.insightDataLogicRef?.logic.values.queryChanged)
             )
         },
-        message: 'Leave insight? Changes you made will be discarded.',
+        message: 'Leave insight?\nChanges you made will be discarded.',
         onConfirm: () => {
             values.insightLogicRef?.logic.actions.cancelChanges()
             values.insightDataLogicRef?.logic.actions.cancelChanges()
