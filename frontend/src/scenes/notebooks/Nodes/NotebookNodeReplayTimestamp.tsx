@@ -27,6 +27,9 @@ const Component = (props: NodeViewProps): JSX.Element => {
     }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {
+        recordingNodeInNotebook?.actions.setExpanded(true)
+
+        // TODO: Move all of the above into the logic / Node context for the recording node
         const logicProps: SessionRecordingPlayerLogicProps = sessionRecordingPlayerProps(sessionRecordingId)
         const logic = sessionRecordingPlayerLogic(logicProps)
 
