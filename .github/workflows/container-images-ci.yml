@@ -22,7 +22,7 @@ jobs:
             - name: Build and cache Docker image in Depot
               uses: ./.github/actions/build-n-cache-image
               with:
-                actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
 
     deploy_preview:
         name: Deploy preview environment

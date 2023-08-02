@@ -55,10 +55,9 @@ export function PlayerMetaLinks(): JSX.Element {
     const onComment = (): void => {
         const currentPlayerTime = getCurrentPlayerTime() * 1000
         if (nodeLogic) {
-            nodeLogic.actions.insertAfterLastNodeOfType(
-                NotebookNodeType.ReplayTimestamp,
-                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)
-            )
+            nodeLogic.actions.insertAfterLastNodeOfType(NotebookNodeType.ReplayTimestamp, [
+                buildTimestampCommentContent(currentPlayerTime, sessionRecordingId),
+            ])
         } else {
             const title = `Session Replay Notes ${dayjs().format('DD/MM')}`
             createNotebook(title, NotebookTarget.Sidebar, [

@@ -10,7 +10,7 @@ import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
 import { findPositionOfClosestNodeMatchingAttrs } from '../Notebook/Editor'
 import { urls } from 'scenes/urls'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { openNotebook } from '../Notebook/notebooksListLogic'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
@@ -49,16 +49,22 @@ const Component = (props: NodeViewProps): JSX.Element => {
             as="span"
             className={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
-            {recordingNodeInNotebook ? (
-                <span onClick={handlePlayInNotebook}>{formatTimestamp(playbackTime)}</span>
-            ) : (
-                <Link
-                    to={urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`}
-                    onClick={() => openNotebook(shortId, NotebookTarget.Sidebar)}
-                >
-                    {formatTimestamp(playbackTime)}
-                </Link>
-            )}
+            <LemonButton
+                size="small"
+                noPadding
+                type="secondary"
+                status="primary-alt"
+                onClick={
+                    recordingNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Sidebar)
+                }
+                to={
+                    !recordingNodeInNotebook
+                        ? urls.replaySingle(sessionRecordingId) + `?t=${playbackTime / 1000}`
+                        : undefined
+                }
+            >
+                <span className="p-1">{formatTimestamp(playbackTime)}</span>
+            </LemonButton>
         </NodeViewWrapper>
     )
 }
@@ -97,16 +103,14 @@ export function buildTimestampCommentContent(
     currentPlayerTime: number | null,
     sessionRecordingId: string
 ): JSONContent {
-    return [
-        {
-            type: 'paragraph',
-            content: [
-                {
-                    type: NotebookNodeType.ReplayTimestamp,
-                    attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
-                },
-                { type: 'text', text: ' ' },
-            ],
-        },
-    ]
+    return {
+        type: 'paragraph',
+        content: [
+            {
+                type: NotebookNodeType.ReplayTimestamp,
+                attrs: { playbackTime: currentPlayerTime, sessionRecordingId: sessionRecordingId },
+            },
+            { type: 'text', text: ' ' },
+        ],
+    }
 }

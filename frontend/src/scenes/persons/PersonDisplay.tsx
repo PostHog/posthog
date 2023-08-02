@@ -81,6 +81,7 @@ export function PersonDisplay({ person, withIcon, noEllipsis, noPopover, noLink 
             onClickOutside={() => setVisible(false)}
             placement="right"
             fallbackPlacements={['bottom', 'top']}
+            showArrow
         >
             {content}
         </Popover>

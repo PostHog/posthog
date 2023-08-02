@@ -113,35 +113,12 @@
     }
 
     .NotebookRecordingTimestamp {
-        padding: 0.125rem 0.25rem;
-        border: 1px solid var(--border-3000);
-        border-radius: var(--radius);
-        background-color: var(--bg-light);
-        cursor: pointer;
-        height: 1.375rem;
-
-        &--selected {
-            outline-style: solid;
-            outline-color: var(--primary-bg-active);
-        }
-
-        &--preview {
-            // padding: 0rem 0.25rem;
-            opacity: 0.5;
-        }
+        display: inline-flex;
     }
 
     // overriding ::selection is necessary here because
     // antd makes it invisible otherwise
     span::selection {
         color: var(--primary);
-    }
-}
-
-.NotebookFloatingButton {
-    .LemonButton {
-        border-radius: 1rem;
-        min-height: 0.25rem;
-        padding: 0.25rem !important; // NOTE - yuck
     }
 }

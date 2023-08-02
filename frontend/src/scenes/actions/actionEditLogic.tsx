@@ -7,7 +7,7 @@ import { ActionStepType, ActionType } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { Link } from 'lib/lemon-ui/Link'
@@ -52,6 +52,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
             false,
             {
                 setCreateNew: (_, { createNew }) => createNew,
+            },
+        ],
+        wasDeleted: [
+            false,
+            {
+                deleteAction: () => true,
             },
         ],
     }),
@@ -169,5 +175,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
                 throw new Error('Could not parse action to copy from URL')
             }
         },
+    })),
+
+    beforeUnload(({ values }) => ({
+        enabled: () => values.actionChanged && !values.wasDeleted,
+        message: `Leave action?\nChanges you made will be discarded.`,
     })),
 ])
