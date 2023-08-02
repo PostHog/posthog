@@ -64,8 +64,9 @@ switch (alternativeMode) {
 
 async function startBackfill() {
     // This mode can be used as an nodejs counterpart to the django management commands, for incident remediation.
-    // Wire your backfilling logic at the end of the function and run it in a toolbox pod with:
-    // node ./plugin-server/dist/index.js -- --backfill
+    // Add your logic to the runBackfill function and run it:
+    //   - locally with: cd plugin-server && pnpm start:dev -- --backfill
+    //   - in a toolbox pod with: node ./plugin-server/dist/index.js -- --backfill
 
     defaultConfig.PLUGIN_SERVER_MODE = null // Disable all consuming capabilities
     const noCapability = {}
