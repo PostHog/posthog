@@ -272,7 +272,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                         </div>
                     ) : (
                         <>
-                            <div className="font-bold">
+                            <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
                             <CopyToClipboardInline
