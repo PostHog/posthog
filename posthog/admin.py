@@ -23,6 +23,9 @@ from posthog.models import (
     PluginAttachment,
     PluginConfig,
     Team,
+    Dashboard,
+    DashboardTile,
+    Text,
     User,
 )
 from posthog.warehouse.models import DataWarehouseTable
@@ -31,28 +34,87 @@ admin.site.register(FeatureFlag)
 admin.site.register(DataWarehouseTable)
 
 
+class DashboardTileInline(admin.TabularInline):
+    extra = 0
+    model = DashboardTile
+    autocomplete_fields = ("insight", "text")
+    readonly_fields = ("filters_hash",)
+
+
+@admin.register(Dashboard)
+class DashboardAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "team_link",
+        "organization_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    readonly_fields = ("last_accessed_at", "deprecated_tags", "deprecated_tags_v2", "share_token")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at", "creation_mode")
+    inlines = (DashboardTileInline,)
+
+    def team_link(self, dashboard: Dashboard):
+        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', dashboard.team.pk, dashboard.team.name)
+
+    def organization_link(self, dashboard: Dashboard):
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            dashboard.team.organization.pk,
+            dashboard.team.organization.name,
+        )
+
+
+@admin.register(Text)
+class TextAdmin(admin.ModelAdmin):
+    autocomplete_fields = ("insight", "text")
+    autocomplete_fields = ("created_by", "last_modified_by", "team")
+    search_fields = ("id", "body", "team__name", "team__organization__name")
+
+
 @admin.register(Insight)
 class InsightAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "name",
         "short_id",
-        "team",
-        "organization",
+        "effective_name",
+        "team_link",
+        "organization_link",
         "created_at",
         "created_by",
     )
+    list_display_links = ("id", "short_id", "effective_name")
+    list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
+    readonly_fields = ("deprecated_tags", "deprecated_tags_v2", "dive_dashboard")
+    autocomplete_fields = ("team", "dashboard", "created_by", "last_modified_by")
     ordering = ("-created_at",)
 
-    def organization(self, insight: Insight):
-        return insight.team.organization.name
+    def effective_name(self, insight: Insight):
+        return insight.name or format_html("<i>{}</>", insight.derived_name)
+
+    def team_link(self, insight: Insight):
+        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', insight.team.pk, insight.team.name)
+
+    def organization_link(self, insight: Insight):
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            insight.team.organization.pk,
+            insight.team.organization.name,
+        )
 
 
 @admin.register(Plugin)
 class PluginAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_id", "is_global")
+    list_display_links = ("id", "name")
     list_filter = ("plugin_type", "is_global")
+    autocomplete_fields = ("organization",)
     search_fields = ("name",)
     ordering = ("-created_at",)
 
@@ -61,6 +123,7 @@ class ActionInline(admin.TabularInline):
     extra = 0
     model = Action
     classes = ("collapse",)
+    autocomplete_fields = ("created_by",)
 
 
 class GroupTypeMappingInline(admin.TabularInline):
@@ -75,7 +138,9 @@ class GroupTypeMappingInline(admin.TabularInline):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ("id", "name_link", "organization_link", "organization_id", "created_at", "updated_at")
+    list_display = ("id", "name", "organization_link", "organization_id", "created_at", "updated_at")
+    list_display_links = ("id", "name")
+    list_select_related = ("organization",)
     search_fields = ("id", "name", "organization__id", "organization__name", "api_token")
     readonly_fields = ["organization", "primary_dashboard", "test_account_filters"]
     inlines = [GroupTypeMappingInline, ActionInline]
@@ -136,9 +201,6 @@ class TeamAdmin(admin.ModelAdmin):
         ),
     ]
 
-    def name_link(self, team: Team):
-        return format_html('<a href="/admin/posthog/team/{}/change/"><b>{}</b></a>', team.pk, team.name)
-
     def organization_link(self, team: Team):
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>', team.organization.pk, team.organization.name
@@ -188,11 +250,13 @@ class PluginAttachmentInline(admin.StackedInline):
 class PluginConfigAdmin(admin.ModelAdmin):
     list_select_related = ("plugin", "team")
     list_display = ("id", "plugin_name", "team_name", "enabled")
+    list_display_links = ("id", "plugin_name")
     list_filter = (
         ("enabled", admin.BooleanFieldListFilter),
         ("updated_at", admin.DateFieldListFilter),
         ("plugin", admin.RelatedOnlyFieldListFilter),
     )
+    list_select_related = ("team", "plugin")
     search_fields = ("team__name", "team__organization__name", "plugin__name")
     ordering = ("-created_at",)
     inlines = [PluginAttachmentInline]
@@ -244,15 +308,31 @@ class UserAdmin(DjangoUserAdmin):
         (_("Toolbar authentication"), {"fields": ("temporary_token",)}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "password1", "password2")}),)
-    list_display = ("email", "first_name", "last_name", "organization_link", "is_staff")
+    list_display = (
+        "id",
+        "email",
+        "first_name",
+        "last_name",
+        "current_team_link",
+        "current_organization_link",
+        "is_staff",
+    )
+    list_display_links = ("id", "email")
     list_filter = ("is_staff", "is_active", "groups")
+    list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = ["current_organization"]
+    readonly_fields = ["current_team", "current_organization"]
     ordering = ("email",)
 
-    def organization_link(self, user: User):
+    def current_team_link(self, user: User):
         if not user.organization:
-            return "None"
+            return "–"
+
+        return format_html('<a href="/admin/posthog/team/{}/change/">{}</a>', user.team.pk, user.team.name)
+
+    def current_organization_link(self, user: User):
+        if not user.organization:
+            return "–"
 
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
@@ -315,12 +395,17 @@ class OrganizationAdmin(admin.ModelAdmin):
     ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
+        "id",
         "name",
         "created_at",
         "plugins_access_level",
         "members_count",
         "first_member",
         "billing_link_v2",
+    )
+    list_display_links = (
+        "id",
+        "name",
     )
 
     def members_count(self, organization: Organization):
