@@ -57,8 +57,8 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        statsd: StatsD | undefined,
-        poEEmbraceJoin: boolean,
+        statsd: StatsD | undefined = undefined,
+        poEEmbraceJoin = false,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
